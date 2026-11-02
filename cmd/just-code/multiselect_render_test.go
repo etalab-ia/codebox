@@ -98,6 +98,26 @@ func TestMultiSelectCursorSelectionScrollingAndResize(t *testing.T) {
 	}
 }
 
+func TestMultiSelectResizePreservesFirstVisibleRowAfterScrolling(t *testing.T) {
+	options := make([]huh.Option[string], 12)
+	for i := range options {
+		label := fmt.Sprintf("mcp-%02d", i)
+		options[i] = huh.NewOption(label, label)
+	}
+	selected := []string{}
+	form := huh.NewForm(huh.NewGroup(newProjectMCPsMultiSelect(options, &selected)))
+	form.Init()
+	_, _ = form.Update(tea.WindowSizeMsg{Width: 48, Height: 8})
+	for range 6 {
+		_, _ = form.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyDown}))
+	}
+	_, _ = form.Update(tea.WindowSizeMsg{Width: 48, Height: 24})
+	view := ansi.Strip(form.View())
+	if !multiSelectCursorOnOption(view, "mcp-06") {
+		t.Fatalf("resize moved the first visible row after scrolling:\n%s", view)
+	}
+}
+
 func TestMultiSelectResizePreservesActiveFilter(t *testing.T) {
 	options := []huh.Option[string]{huh.NewOption("data.gouv.fr", "data-gouv"), huh.NewOption("chrome-devtools", "chrome-devtools")}
 	selected := []string{}

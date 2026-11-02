@@ -146,7 +146,6 @@ const multiSelectKeyHint = "Space or x toggles an item; Enter confirms the list;
 // navigation restores the same row without modifying an active filter.
 type resizeCursorMultiSelect struct {
 	*huh.MultiSelect[string]
-	atTop bool
 }
 
 func (m *resizeCursorMultiSelect) Update(msg tea.Msg) (huh.Model, tea.Cmd) {
@@ -155,15 +154,13 @@ func (m *resizeCursorMultiSelect) Update(msg tea.Msg) (huh.Model, tea.Cmd) {
 		if _, ok := m.Hovered(); !ok {
 			return m, cmd
 		}
+		atTop := multiSelectCursorOnFirstVisibleOption(ansi.Strip(m.MultiSelect.View()))
 		_, _ = m.MultiSelect.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyUp}))
 		_, _ = m.MultiSelect.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyDown}))
-		if m.atTop {
+		if atTop {
 			_, _ = m.MultiSelect.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyUp}))
 		}
 		return m, cmd
-	}
-	if _, ok := m.Hovered(); ok {
-		m.atTop = multiSelectCursorOnFirstVisibleOption(ansi.Strip(m.MultiSelect.View()))
 	}
 	return m, cmd
 }
@@ -180,7 +177,7 @@ func multiSelectCursorOnFirstVisibleOption(view string) bool {
 }
 
 func keepMultiSelectCursorOnResize(field *huh.MultiSelect[string]) huh.Field {
-	return &resizeCursorMultiSelect{MultiSelect: field, atTop: true}
+	return &resizeCursorMultiSelect{MultiSelect: field}
 }
 
 var initSkillDescriptions = map[string]string{
