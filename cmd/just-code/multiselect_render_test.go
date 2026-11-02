@@ -111,9 +111,12 @@ func TestMultiSelectResizePreservesFirstVisibleRowAfterScrolling(t *testing.T) {
 	for range 6 {
 		_, _ = form.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyDown}))
 	}
+	for range 2 {
+		_, _ = form.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyUp}))
+	}
 	_, _ = form.Update(tea.WindowSizeMsg{Width: 48, Height: 24})
 	view := ansi.Strip(form.View())
-	if !multiSelectCursorOnOption(view, "mcp-06") {
+	if !multiSelectCursorOnOption(view, "mcp-04") {
 		t.Fatalf("resize moved the first visible row after scrolling:\n%s", view)
 	}
 }

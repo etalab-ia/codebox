@@ -151,27 +151,18 @@ type resizeCursorMultiSelect struct {
 func (m *resizeCursorMultiSelect) Update(msg tea.Msg) (huh.Model, tea.Cmd) {
 	_, cmd := m.MultiSelect.Update(msg)
 	if _, resizing := msg.(tea.WindowSizeMsg); resizing {
-		if _, ok := m.Hovered(); !ok {
-			return m, cmd
+		if !multiSelectCursorVisible(m.MultiSelect.View()) {
+			_, _ = m.MultiSelect.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyDown}))
 		}
-		atTop := multiSelectCursorOnFirstVisibleOption(ansi.Strip(m.MultiSelect.View()))
-		_, _ = m.MultiSelect.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyUp}))
-		_, _ = m.MultiSelect.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyDown}))
-		if atTop {
-			_, _ = m.MultiSelect.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyUp}))
-		}
-		return m, cmd
 	}
 	return m, cmd
 }
 
-func multiSelectCursorOnFirstVisibleOption(view string) bool {
-	for _, line := range strings.Split(view, "\n") {
-		if !strings.Contains(line, "•") && !strings.Contains(line, "✓") {
-			continue
+func multiSelectCursorVisible(view string) bool {
+	for _, line := range strings.Split(ansi.Strip(view), "\n") {
+		if strings.Contains(line, ">") && (strings.Contains(line, "•") || strings.Contains(line, "✓")) {
+			return true
 		}
-		line = strings.TrimSpace(strings.TrimPrefix(line, "┃"))
-		return strings.HasPrefix(line, ">")
 	}
 	return false
 }
