@@ -138,6 +138,12 @@ commit. Pour continuer à travailler sans publication GitHub, retire l'autorisat
 avec `just-code bindings revoke github`, puis relance `just-code`. Les fichiers et
 l'historique de l'invité sont conservés lors du refus.
 
+**Rafraîchissement d’un environnement déjà préparé :** `workspace sync` transfère
+les fichiers filtrés dans l’invité, mais ne les committe plus automatiquement sur
+la branche publiable. Cette opération s’arrête avant le `git add` de la copie :
+les fichiers transférés restent non commités et récupérables avec `workspace
+apply`. Les commits faits par l’agent ne sont pas modifiés.
+
 **Limite de la comparaison :** les fichiers déjà présents sur la branche distante
 mais absents de la copie filtrée restent préservés, comme auparavant. Une absence
 due au filtre ou à une suppression locale n'est pas interprétée comme une

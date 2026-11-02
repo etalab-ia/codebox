@@ -646,6 +646,70 @@ func TestGitHubSnapshotPublicationGateAfterFilteredTransfer(t *testing.T) {
 	}
 }
 
+func TestReconcileNoOpValidatesExistingGitHubSnapshotPolicy(t *testing.T) {
+	isolateHostState(t)
+	remote := GitHubRemote{URL: "https://github.com/owner/repo.git", Repo: "owner/repo"}
+	for _, tc := range []struct {
+		name  string
+		valid bool
+	}{
+		{name: "legacy marker", valid: false},
+		{name: "current marker", valid: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			isolateHostState(t)
+			client := &fakeMSBClient{exists: true, status: "running"}
+			m := newTestMicrosandbox(t, client)
+			m.cfg.Isolation = IsolationFull
+			m.cfg.GitHubRemote = remote
+			m.Probe = func(context.Context, string, string, string) HealthProbe { return HealthProbe{Healthy: true} }
+			m.credentialRead = stubReader("stored")
+			if err := ApproveBinding(DefaultFS, bindingApprovalsPath(m.stateDirOrDefault(), m.InstanceName()), CredentialGithub); err != nil {
+				t.Fatal(err)
+			}
+			resolved, err := m.resolveBindings(context.Background())
+			if err != nil || !hasResolvedGitHubBinding(resolved) {
+				t.Fatalf("fixture must resolve the approved GitHub binding: %v", err)
+			}
+			desired := m.desiredState(true, resolved, nil)
+			statePath := instanceStatePath(DefaultStateDir(), m.InstanceName())
+			if err := WriteInstanceState(DefaultFS, statePath, desired.toState()); err != nil {
+				t.Fatal(err)
+			}
+			policy := ""
+			if tc.valid {
+				policy = "remote-only-v1\n"
+			}
+			client.execCaptureDefault = &fakeMSBExecCaptureResult{stdout: "yes"}
+			client.execCaptureResults = []fakeMSBExecCaptureResult{
+				{stdout: remote.URL + "\n"},
+				{stdout: remote.URL + "\n"},
+				{stdout: policy},
+			}
+			callsBefore := len(client.calls)
+			err = m.Reconcile(context.Background())
+			if tc.valid && err != nil {
+				t.Fatalf("current publication policy must remain a healthy no-op: %v", err)
+			}
+			if !tc.valid && (err == nil || !strings.Contains(err.Error(), "ancienne règle")) {
+				t.Fatalf("healthy no-op launch must reject the legacy publication policy: %v", err)
+			}
+			foundPolicyProbe := false
+			for _, call := range client.calls[callsBefore:] {
+				if strings.Contains(call, "just-code.github-workflow-snapshot-policy") {
+					foundPolicyProbe = true
+				}
+				if strings.Contains(call, "git reset") || strings.Contains(call, "git branch ") || strings.Contains(call, "git config --file") {
+					t.Fatalf("the no-op policy check rewrote guest history or config: %s", call)
+				}
+			}
+			if !foundPolicyProbe {
+				t.Fatalf("healthy no-op launch bypassed the policy check: %v", client.calls)
+			}
+		})
+	}
+}
+
 func TestConfigureGitHubWorkspaceRefusesLegacySnapshotPolicy(t *testing.T) {
 	remote := GitHubRemote{URL: "https://github.com/owner/repo.git", Repo: "owner/repo"}
 	for _, policy := range []fakeMSBExecCaptureResult{{code: 1}, {stdout: "unknown-policy\n"}, {err: errors.New("cannot read policy")}} {

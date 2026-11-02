@@ -189,14 +189,17 @@ func (m *MicrosandboxRuntime) transferIntoGuest(ctx context.Context, opts SyncOp
 		return fmt.Errorf("extracting the transfer payload inside the guest failed: %w", err)
 	}
 	if err := m.ensureGuestRepository(ctx); err != nil {
+		if marker, markerErr := m.guestOutput(ctx, "git config --local --get just-code.github-workflow-origin"); markerErr == nil && strings.TrimSpace(marker) != "" {
+			return fmt.Errorf("GitHub : la copie hôte a été transférée dans la machine isolée mais pas commitée sur la branche publiable. Relisez et récupérez ces changements avec 'just-code workspace apply' : %w", err)
+		}
 		return err
 	}
 	opts.print(fmt.Sprintf("Guest workspace ready: %d file(s) in %s.\n", len(included), msbGuestWorkspace))
 	return nil
 }
 
-// ensureGuestRepository makes the guest workspace a Git repository with one
-// commit, so guest changes can always be delivered as a reviewed diff —
+// ensureGuestRepository makes the initial guest workspace a Git repository
+// with one commit, so guest changes can be delivered as a reviewed diff,
 // including for a project root that is not a Git repository on the host.
 //
 // The host's history is deliberately NOT transferred. A git bundle would
@@ -204,17 +207,24 @@ func (m *MicrosandboxRuntime) transferIntoGuest(ctx context.Context, opts SyncOp
 // is the boundary; a snapshot that is filtered file by file is the property
 // worth keeping. The host origin URL is recorded as a remote for later
 // branch/PR delivery only after the project approves the GitHub binding (P13).
+// A host refresh must never append that snapshot to an already publishable
+// branch: the agent's own reviewed commits must remain the only additions.
+func guestRepositoryBootstrapScript(workspace, gitName, gitEmail string) string {
+	return "set -eu; cd " + shellQuote(workspace) +
+		"; if git config --local --get just-code.github-workflow-origin >/dev/null 2>&1 || git config --local --get just-code.github-workflow-branch >/dev/null 2>&1 || git config --local --get just-code.github-workflow-snapshot-policy >/dev/null 2>&1; then " +
+		"echo 'GitHub : publication automatique refusée. La copie hôte a été transférée dans la machine isolée mais pas commitée sur la branche publiable. Relisez et récupérez ces changements avec just-code workspace apply.' >&2; exit 1; fi" +
+		"; git rev-parse --git-dir >/dev/null 2>&1 || git init -q" +
+		"; git add -A" +
+		"; git -c user.name=" + shellQuote(gitName) + " -c user.email=" + shellQuote(gitEmail) +
+		" commit -q -m " + shellQuote("just-code: initial guest snapshot from the host working tree") + " --allow-empty"
+}
+
 func (m *MicrosandboxRuntime) ensureGuestRepository(ctx context.Context) error {
-	steps := []string{
-		// -q and an explicit identity keep the command independent of the
-		// guest's global configuration, which the user may have changed.
-		"cd " + shellQuote(msbGuestWorkspace),
-		"git rev-parse --git-dir >/dev/null 2>&1 || git init -q",
-		"git add -A",
-		"git -c user.name=" + shellQuote(m.gitIdentityName()) + " -c user.email=" + shellQuote(m.gitIdentityEmail()) +
-			" commit -q -m " + shellQuote("just-code: initial guest snapshot from the host working tree") + " --allow-empty",
-	}
-	return m.guestShell(ctx, strings.Join(steps, " && "))
+	// -q and an explicit identity keep the command independent of the guest's
+	// global configuration, which the user may have changed. The publication
+	// guard precedes any staging or write. Missing or unreadable markers mean
+	// the old, non-publishable snapshot behavior.
+	return m.guestShell(ctx, guestRepositoryBootstrapScript(msbGuestWorkspace, m.gitIdentityName(), m.gitIdentityEmail()))
 }
 
 // gitIdentityName and gitIdentityEmail resolve the guest commit identity from
