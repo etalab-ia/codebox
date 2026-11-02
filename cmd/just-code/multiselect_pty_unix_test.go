@@ -32,7 +32,7 @@ func TestMultiSelectFormsRenderOptionsOnAPTY(t *testing.T) {
 				if !multiSelectCursorOnOption(output, tc.options[0]) {
 					t.Errorf("PTY height %d hides the option cursor:\n%s", height, output)
 				}
-				session.run("")
+				session.run()
 			}
 		})
 	}
@@ -52,8 +52,8 @@ func TestMultiSelectPTYResizePreservesCursorAndSelection(t *testing.T) {
 	if _, err := session.ptmx.WriteString(strings.Repeat("\x1b[B", 11) + " "); err != nil {
 		t.Fatalf("write navigation keys: %v", err)
 	}
-	output := session.waitFor("mcp-11")
-	if !multiSelectCursorOnOption(output, "mcp-11") || !multiSelectSelectionOnOption(output, "mcp-11") {
+	output := session.waitFor("> ✓ mcp-11")
+	if !multiSelectSelectionOnOption(output, "mcp-11") {
 		t.Fatalf("PTY scrolling or selection lost the last option:\n%s", output)
 	}
 
@@ -66,12 +66,12 @@ func TestMultiSelectPTYResizePreservesCursorAndSelection(t *testing.T) {
 		if err := syscall.Kill(syscall.Getpid(), syscall.SIGWINCH); err != nil {
 			t.Fatalf("notify resize: %v", err)
 		}
-		output = session.waitFor("mcp-11")
+		output = session.waitFor("> ✓ mcp-11")
 		if !multiSelectCursorOnOption(output, "mcp-11") || !multiSelectSelectionOnOption(output, "mcp-11") {
 			t.Fatalf("PTY resize to %d rows lost the cursor or selection:\n%s", height, output)
 		}
 	}
-	session.run("")
+	session.run()
 }
 
 type multiSelectPTYSession struct {
@@ -100,10 +100,15 @@ func newMultiSelectPTYSession(t *testing.T, form *huh.Form, width, height int) *
 
 	originalStdin, originalStdout, originalRun := os.Stdin, os.Stdout, huhRun
 	os.Stdin, os.Stdout = tty, tty
+	huhRun = func(form *huh.Form) error {
+		err := originalRun(form)
+		os.Stdin, os.Stdout, huhRun = originalStdin, originalStdout, originalRun
+		return err
+	}
 	s := &multiSelectPTYSession{t: t, ptmx: ptmx, tty: tty, readerDone: make(chan struct{}), runDone: make(chan error, 1)}
 	t.Cleanup(func() {
-		s.close()
 		os.Stdin, os.Stdout, huhRun = originalStdin, originalStdout, originalRun
+		s.close()
 	})
 	if _, err := term.MakeRaw(int(ptmx.Fd())); err != nil {
 		t.Fatalf("disable pty echo: %v", err)
@@ -148,13 +153,8 @@ func (s *multiSelectPTYSession) waitFor(fragment string) string {
 	}
 }
 
-func (s *multiSelectPTYSession) run(keys string) {
+func (s *multiSelectPTYSession) run() {
 	s.t.Helper()
-	if keys != "" {
-		if _, err := s.ptmx.WriteString(keys); err != nil {
-			s.t.Fatalf("write keys to pty: %v", err)
-		}
-	}
 	if _, err := s.ptmx.WriteString("\r"); err != nil {
 		s.t.Fatalf("submit form: %v", err)
 	}
