@@ -655,6 +655,8 @@ func TestReconcileNoOpValidatesExistingGitHubSnapshotPolicy(t *testing.T) {
 	}{
 		{name: "legacy marker", valid: false},
 		{name: "current marker", valid: true},
+		{name: "approved credential missing", valid: false},
+		{name: "credential store unavailable", valid: false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			isolateHostState(t)
@@ -664,14 +666,38 @@ func TestReconcileNoOpValidatesExistingGitHubSnapshotPolicy(t *testing.T) {
 			m.cfg.GitHubRemote = remote
 			m.Probe = func(context.Context, string, string, string) HealthProbe { return HealthProbe{Healthy: true} }
 			m.credentialRead = stubReader("stored")
+			if tc.name == "approved credential missing" {
+				m.credentialRead = func(_ context.Context, kind CredentialKind, _ string) (string, string, error) {
+					if kind == CredentialGithub {
+						return "", "", ErrCredentialNotFound
+					}
+					return "stored", "test", nil
+				}
+			}
+			if tc.name == "credential store unavailable" {
+				m.credentialRead = func(_ context.Context, kind CredentialKind, _ string) (string, string, error) {
+					if kind == CredentialGithub {
+						return "", "", storeErrorf("get", "test", "locked", "")
+					}
+					return "stored", "test", nil
+				}
+			}
 			if err := ApproveBinding(DefaultFS, bindingApprovalsPath(m.stateDirOrDefault(), m.InstanceName()), CredentialGithub); err != nil {
 				t.Fatal(err)
 			}
-			resolved, err := m.resolveBindings(context.Background())
-			if err != nil || !hasResolvedGitHubBinding(resolved) {
-				t.Fatalf("fixture must resolve the approved GitHub binding: %v", err)
+			resolved, resolveErr := m.resolveBindings(context.Background())
+			if tc.name == "approved credential missing" {
+				if resolveErr != nil || hasResolvedGitHubBinding(resolved) {
+					t.Fatalf("fixture must omit the missing approved GitHub credential: %v", resolveErr)
+				}
+			} else if tc.name == "credential store unavailable" {
+				if resolveErr == nil {
+					t.Fatal("fixture must exercise an unavailable GitHub credential store")
+				}
+			} else if resolveErr != nil || !hasResolvedGitHubBinding(resolved) {
+				t.Fatalf("fixture must resolve the approved GitHub binding: %v", resolveErr)
 			}
-			desired := m.desiredState(true, resolved, nil)
+			desired := m.desiredState(resolveErr == nil, resolved, nil)
 			statePath := instanceStatePath(DefaultStateDir(), m.InstanceName())
 			if err := WriteInstanceState(DefaultFS, statePath, desired.toState()); err != nil {
 				t.Fatal(err)
@@ -687,7 +713,7 @@ func TestReconcileNoOpValidatesExistingGitHubSnapshotPolicy(t *testing.T) {
 				{stdout: policy},
 			}
 			callsBefore := len(client.calls)
-			err = m.Reconcile(context.Background())
+			err := m.Reconcile(context.Background())
 			if tc.valid && err != nil {
 				t.Fatalf("current publication policy must remain a healthy no-op: %v", err)
 			}

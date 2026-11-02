@@ -40,6 +40,50 @@ func (m *MicrosandboxRuntime) validateStoredGitHubOrigin(bindings []resolvedBind
 	return m.validateAppliedGitHubOrigin(bindings, applied)
 }
 
+// validateExistingGitHubPublicationPolicy refuses an already initialized
+// guest whose snapshot could have included unapproved host content. It reads
+// workflow markers, never a credential, and performs no writes. The healthy
+// no-op path calls it before guest mutations even when token resolution fails:
+// publishable branch bypass the migration gate on a healthy no-op launch.
+func (m *MicrosandboxRuntime) validateExistingGitHubPublicationPolicy(ctx context.Context) error {
+	if m.cfg.GitHubRemote.URL == "" {
+		return nil
+	}
+	sandbox, exists, err := m.Client.Lookup(ctx, m.InstanceName())
+	if err != nil || !exists || sandbox.Status != "running" {
+		return err
+	}
+	marker, stderr, code, err := m.Client.ExecCapture(ctx, m.InstanceName(),
+		"cd "+shellQuote(msbGuestWorkspace)+" && git config --local --get just-code.github-workflow-origin")
+	if err != nil {
+		return fmt.Errorf("cannot read the guest GitHub workflow marker: %w", err)
+	}
+	if code == 1 {
+		// A missing workflow marker is the ordinary non-GitHub guest case.
+		// Other failures cannot establish that it is absent and fail closed.
+		return nil
+	}
+	if code != 0 || strings.TrimSpace(marker) == "" {
+		return fmt.Errorf("cannot read the guest GitHub workflow marker (exit %d): %s", code, strings.TrimSpace(stderr))
+	}
+	if strings.TrimSpace(marker) != m.cfg.GitHubRemote.URL {
+		return fmt.Errorf("the guest GitHub workflow is initialized for a different origin; export guest changes and review the remote change before recreating the guest")
+	}
+	origin, err := m.guestOutput(ctx, "git remote get-url origin")
+	if err != nil {
+		return fmt.Errorf("the guest GitHub workflow marker exists but its origin cannot be read: %w", err)
+	}
+	parsed, err := ParseGitHubRemote(strings.TrimSpace(origin))
+	if err != nil || parsed.URL != m.cfg.GitHubRemote.URL {
+		return fmt.Errorf("the guest GitHub origin differs from the approved host project origin; refusing to rewrite it")
+	}
+	policy, err := m.guestOutput(ctx, "git config --local --get just-code.github-workflow-snapshot-policy")
+	if err != nil || strings.TrimSpace(policy) != "remote-only-v1" {
+		return fmt.Errorf("GitHub : cet environnement a été préparé avec une ancienne règle qui pouvait inclure des fichiers locaux dans les commits publiables. Aucun historique n’a été réécrit. Retirez l’accès GitHub avec 'just-code bindings revoke github' pour reprendre sans publication, puis récupérez les modifications non commitées avec 'just-code workspace apply'. Avant toute recréation, sauvegardez aussi les commits de l’invité : workspace apply ne les récupère pas")
+	}
+	return nil
+}
+
 // configureGitHubWorkspace provisions the guest-only GitHub workflow. It runs
 // only when the P09 host-local approval resolved a stored GitHub credential.
 // The secret itself remains a proxy placeholder in the guest environment.

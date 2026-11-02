@@ -507,14 +507,12 @@ func (m *MicrosandboxRuntime) Reconcile(ctx context.Context) error {
 		pending = journalToOps(applied.Pending)
 		m.say("Resuming interrupted apply for %s at: %s", m.InstanceName(), joinOps(pending))
 	} else if plan.IsNoOp() {
-		// A healthy no-op start does not call Start. Validate the
-		// initialized GitHub publication policy here before any guest
-		// mutations, or legacy synthetic snapshot ancestors would remain
-		// publishable without ever reaching configureGitHubWorkspace.
-		if resolved && hasResolvedGitHubBinding(bindings) {
-			if err := m.configureGitHubWorkspace(ctx, bindings); err != nil {
-				return err
-			}
+		// A healthy no-op start does not call Start. Check the already
+		// initialized workflow before any guest mutations. This must not
+		// depend on successful token resolution: the guest may retain its
+		// persisted GitHub proxy and legacy publishable ancestor.
+		if err := m.validateExistingGitHubPublicationPolicy(ctx); err != nil {
+			return err
 		}
 		// Skill selections are guest-local managed data (P14), not part of the
 		// VM configuration revision. Reconcile them before a successful no-op

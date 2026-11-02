@@ -153,8 +153,11 @@ s'arrête sans les écraser.
 L'historique invité antérieur est conservé dans une branche locale
 `<branche-invitée>-snapshot-backup` : les commits antérieurs restent accessibles
 localement, mais ne sont pas ajoutés à l'historique de la branche publiable.
-Seul le contenu déjà présent sur la branche distante est accepté. L'origine et les marqueurs
-de préparation sont publiés ensemble. Un changement d'origine approuvée est
+Seul le contenu déjà présent sur la branche distante est accepté. L’origine et
+les marqueurs de préparation sont publiés ensemble. Lors d’un lancement sain
+sans changement de configuration, le marqueur de contrôle est vérifié avant les
+autres mises à jour invitées, même si le jeton GitHub manque ou que son trousseau
+est indisponible. Un changement d’origine approuvée est
 refusé avant un redémarrage ; relis et exporte les changements invités avant
 de recréer l'environnement.
 
