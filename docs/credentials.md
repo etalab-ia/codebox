@@ -122,16 +122,46 @@ la commande échoue en nommant la cause.
 Au premier lancement approuvé, just-code installe GitHub CLI 2.100.0 dans la
 microVM uniquement, vérifie son empreinte, puis teste l'authentification,
 l'accès au dépôt et le rôle d'écriture du compte. Le checkout hôte n'est jamais monté :
-la branche invitée est basée sur la branche par défaut du dépôt et reçoit
-l'instantané filtré du workspace. Les fichiers déjà présents sur la branche distante
-mais absents de l'instantané restent préservés. Si l'invité contient des
-modifications non commitées, la préparation s'arrête sans les écraser.
+la branche invitée est basée sur la branche par défaut du dépôt. **La préparation
+refuse tout fichier nouveau ou modifié de la copie filtrée par rapport à cette
+branche distante.** Elle liste les chemins concernés et ne crée ni commit
+automatique ni branche publiable. Copier un fichier dans la machine isolée
+n'autorise pas sa publication sur GitHub, même si le filtre de secrets l'accepte.
+Cela vaut aussi pour `.just-code/project.json`, `.just-code/lock.json` et
+`AGENTS.md` créés par `init`, et pour le contenu de commits locaux non poussés.
+
+Relis les fichiers sur ton poste et décide séparément de leur publication.
+La préparation GitHub exige actuellement une copie sans ajout ni modification
+par rapport à la branche distante par défaut : elle ne reprend pas une branche
+de fonctionnalité divergente et ne regroupe plus les changements locaux dans un
+commit. Pour continuer à travailler sans publication GitHub, retire l'autorisation
+avec `just-code bindings revoke github`, puis relance `just-code`. Les fichiers et
+l'historique de l'invité sont conservés lors du refus.
+
+**Limite de la comparaison :** les fichiers déjà présents sur la branche distante
+mais absents de la copie filtrée restent préservés, comme auparavant. Une absence
+due au filtre ou à une suppression locale n'est pas interprétée comme une
+suppression à publier. La branche préparée n'est donc pas une copie exacte du
+dossier hôte. Si l'invité contient des modifications non commitées, la préparation
+s'arrête sans les écraser.
 L'historique invité antérieur est conservé dans une branche locale
-`<branche-invitée>-snapshot-backup` : son contenu est repris dans la nouvelle
-branche sans perdre l'accès aux commits antérieurs. L'origine et les marqueurs
+`<branche-invitée>-snapshot-backup` : les commits antérieurs restent accessibles
+localement, mais ne sont pas ajoutés à l'historique de la branche publiable.
+Seul le contenu déjà présent sur la branche distante est accepté. L'origine et les marqueurs
 de préparation sont publiés ensemble. Un changement d'origine approuvée est
 refusé avant un redémarrage ; relis et exporte les changements invités avant
 de recréer l'environnement.
+
+**Environnements préparés par une ancienne version :** la présence de l'ancien
+marqueur GitHub ne suffit pas à reprendre. Sans le nouveau marqueur de contrôle,
+just-code refuse la préparation et conserve les références et les fichiers ; il
+ne réécrit pas l'historique pour retirer un éventuel commit d'instantané. Retire
+l'accès GitHub avec `just-code bindings revoke github` pour reprendre sans
+publication. `just-code workspace apply` récupère les modifications non commitées,
+mais ni `apply` ni `export` ne récupèrent les changements déjà commités dans
+l'invité ([suivi de cette limite : #313](https://github.com/etalab-ia/just-code/issues/313)).
+Sauvegarde et relis aussi ces commits avant toute recréation. Cette
+protection ne retire pas les fichiers qui auraient déjà été poussés sur GitHub.
 
 La préparation ne publie rien automatiquement. Après revue des changements
 dans le guest, l'agent peut pousser sa branche puis ouvrir une PR en brouillon :

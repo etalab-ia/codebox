@@ -67,6 +67,10 @@ func (m *MicrosandboxRuntime) configureGitHubWorkspace(ctx context.Context, bind
 		if err != nil || parsed.URL != m.cfg.GitHubRemote.URL {
 			return fmt.Errorf("the guest GitHub origin differs from the approved host project origin; refusing to rewrite it")
 		}
+		policy, err := m.guestOutput(ctx, "git config --local --get just-code.github-workflow-snapshot-policy")
+		if err != nil || strings.TrimSpace(policy) != "remote-only-v1" {
+			return fmt.Errorf("GitHub : cet environnement a été préparé avec une ancienne règle qui pouvait inclure des fichiers locaux dans les commits publiables. Aucun historique n’a été réécrit. Retirez l’accès GitHub avec 'just-code bindings revoke github' pour reprendre sans publication, puis récupérez les modifications non commitées avec 'just-code workspace apply'. Avant toute recréation, sauvegardez aussi les commits de l’invité : workspace apply ne les récupère pas")
+		}
 		return nil
 	}
 
@@ -115,9 +119,9 @@ func (m *MicrosandboxRuntime) configureGitHubWorkspace(ctx context.Context, bind
 	if err != nil {
 		return err
 	}
-	script := githubSnapshotBranchScript(msbGuestWorkspace, m.cfg.GitHubRemote, baseBranch, branch, m.gitIdentityName(), m.gitIdentityEmail())
+	script := githubSnapshotBranchScript(msbGuestWorkspace, m.cfg.GitHubRemote, baseBranch, branch)
 	if err := m.guestShell(ctx, script); err != nil {
-		return fmt.Errorf("preparing the guest branch from %s failed without pushing any changes: %w", m.cfg.GitHubRemote.Repo, err)
+		return fmt.Errorf("préparation de la branche GitHub de %s interrompue sans publication : %w", m.cfg.GitHubRemote.Repo, err)
 	}
 	fmt.Printf("GitHub guest workflow ready for %s on branch %s. Original guest history is retained on %s-snapshot-backup. Push reviewed guest commits with 'git push -u origin HEAD', then open a draft PR with 'gh pr create --draft'.\n", m.cfg.GitHubRemote.Repo, branch, branch)
 	return nil

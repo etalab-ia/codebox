@@ -396,11 +396,10 @@ func GitHubBranchName(instance string) (string, error) {
 	return fmt.Sprintf("just-code/%s-%s-%s", name, time.Now().UTC().Format("20060102-150405"), hex.EncodeToString(nonce[:])), nil
 }
 
-// githubSnapshotBranchScript overlays the P22 filtered snapshot index on the
-// remote default-branch tree. It refuses a dirty guest workspace; in
-// particular, it never hard-resets over guest-local work while setting the
-// branch base.
-func githubSnapshotBranchScript(workspace string, remote GitHubRemote, baseBranch, branch, gitName, gitEmail string) string {
+// githubSnapshotBranchScript only prepares a publishable branch when the
+// filtered snapshot adds no changes to the remote default-branch tree.
+// Permission to transfer a file into the guest is not permission to publish it.
+func githubSnapshotBranchScript(workspace string, remote GitHubRemote, baseBranch, branch string) string {
 	baseRef := "refs/heads/" + baseBranch
 	return "set -eu; cd " + shellQuote(workspace) +
 		"; if [ -n \"$(git status --porcelain --untracked-files=all)\" ]; then echo 'guest worktree is dirty; export or review its changes before enabling the GitHub workflow' >&2; exit 1; fi" +
@@ -414,16 +413,21 @@ func githubSnapshotBranchScript(workspace string, remote GitHubRemote, baseBranc
 		"; GIT_INDEX_FILE=\"$tmp/index\" git update-index -z --index-info < \"$tmp/snapshot\"" +
 		"; tree=$(GIT_INDEX_FILE=\"$tmp/index\" git write-tree)" +
 		"; base_tree=$(git rev-parse \"$base^{tree}\")" +
-		"; if [ \"$tree\" = \"$base_tree\" ]; then commit=\"$base\"; else commit=$(printf '%s\\n' 'just-code: filtered host snapshot' | git -c user.name=" + shellQuote(gitName) + " -c user.email=" + shellQuote(gitEmail) + " commit-tree \"$tree\" -p \"$base\"); fi" +
+		"; if [ \"$tree\" != \"$base_tree\" ]; then " +
+		"printf '%s\\n' 'GitHub : la copie locale contient des fichiers nouveaux ou modifiés par rapport à la branche distante par défaut. Leur publication n’a pas été approuvée :' >&2; " +
+		"git -c core.quotePath=true diff-tree --no-commit-id --name-status -r \"$base_tree\" \"$tree\" >&2; " +
+		"printf '%s\\n' 'Aucune branche publiable ni aucun commit automatique n’a été créé. Relisez ces changements sur votre poste et décidez séparément de leur publication.' " +
+		"'Pour travailler sans publication GitHub : just-code bindings revoke github. La commande just-code workspace apply récupère les modifications non commitées, pas les commits de l’invité. Sauvegardez aussi ces commits avant toute recréation.' >&2; exit 1; fi" +
 		"; config=$(git rev-parse --git-path config); temp_config=$(mktemp \"$config.just-code.XXXXXX\"); cp \"$config\" \"$temp_config\"" +
 		"; git config --file \"$temp_config\" remote.origin.url " + shellQuote(remote.URL) +
 		"; git config --file \"$temp_config\" remote.origin.fetch '+refs/heads/*:refs/remotes/origin/*'" +
 		"; git config --file \"$temp_config\" push.autoSetupRemote true" +
 		"; git config --file \"$temp_config\" just-code.github-workflow-origin " + shellQuote(remote.URL) +
 		"; git config --file \"$temp_config\" just-code.github-workflow-branch " + shellQuote(branch) +
+		"; git config --file \"$temp_config\" just-code.github-workflow-snapshot-policy remote-only-v1" +
 		"; git branch " + shellQuote(branch+"-snapshot-backup") + " HEAD" +
 		"; git branch -m " + shellQuote(branch) +
-		"; git reset --hard \"$commit\"" +
+		"; git reset --hard \"$base\"" +
 		"; mv \"$temp_config\" \"$config\""
 }
 
