@@ -956,9 +956,10 @@ func chooseSetupPlatforms(current []justcode.SetupPlatform, in *bufio.Reader) ([
 			options = append(options, huh.NewOption(labels[kind], string(kind)))
 		}
 		err := huhRun(huh.NewForm(huh.NewGroup(
-			huh.NewMultiSelect[string]().
+			keepMultiSelectCursorOnResize(huh.NewMultiSelect[string]().
 				Title("[1/3] Plateformes d'inférence").
 				Description("Choisissez où l'agent envoie ses demandes. Vous pouvez en connecter plusieurs.\n\nEspace : cocher ou décocher. Entrée : valider.").
+				Height(len(options) + 10).
 				Validate(func(values []string) error {
 					if len(values) == 0 {
 						return fmt.Errorf("connectez au moins une plateforme d'inférence")
@@ -966,7 +967,7 @@ func chooseSetupPlatforms(current []justcode.SetupPlatform, in *bufio.Reader) ([
 					return nil
 				}).
 				Options(options...).
-				Value(&selected),
+				Value(&selected)),
 		)))
 		if errors.Is(err, huh.ErrUserAborted) {
 			return nil, fmt.Errorf("setup cancelled")

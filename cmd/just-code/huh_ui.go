@@ -140,6 +140,37 @@ func huhApplyAccessible(plan justcode.InitPlan, showDiff *bool) (string, error) 
 // nothing (#156).
 const multiSelectKeyHint = "Space or x toggles an item; Enter confirms the list; / filters."
 
+// resizeCursorMultiSelect compensates for huh 2.0.3 resizing a MultiSelect's
+// viewport without bringing its current option back into view. Navigation is
+// replayed synchronously, so only the final cursor position is rendered.
+type resizeCursorMultiSelect struct {
+	*huh.MultiSelect[string]
+}
+
+func (m *resizeCursorMultiSelect) Update(msg tea.Msg) (huh.Model, tea.Cmd) {
+	_, cmd := m.MultiSelect.Update(msg)
+	if _, resizing := msg.(tea.WindowSizeMsg); !resizing {
+		return m, cmd
+	}
+	hovered, ok := m.Hovered()
+	if !ok {
+		return m, cmd
+	}
+	_, _ = m.MultiSelect.Update(tea.KeyPressMsg(tea.Key{Code: 'G', Text: "G", ShiftedCode: 'G'}))
+	for {
+		current, ok := m.Hovered()
+		if ok && current == hovered {
+			break
+		}
+		_, _ = m.MultiSelect.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyUp}))
+	}
+	return m, cmd
+}
+
+func keepMultiSelectCursorOnResize(field *huh.MultiSelect[string]) huh.Field {
+	return &resizeCursorMultiSelect{MultiSelect: field}
+}
+
 var initSkillDescriptions = map[string]string{
 	"official/securite-developpement": "règles de sécurité de l'État, issues des guides ANSSI",
 	"official/anssi-guides":           "trouver le bon guide ANSSI et le citer",
@@ -296,13 +327,14 @@ func newInitSkillsGroup(skillOptions []huh.Option[string], skills *[]string, ski
 	return huh.NewGroup(fields...).Title("Skills")
 }
 
-func newProjectMCPsMultiSelect(mcpOptions []huh.Option[string], value *[]string) *huh.MultiSelect[string] {
-	return huh.NewMultiSelect[string]().
+func newProjectMCPsMultiSelect(mcpOptions []huh.Option[string], value *[]string) huh.Field {
+	return keepMultiSelectCursorOnResize(huh.NewMultiSelect[string]().
 		Title("MCPs").
 		Description("Curated remote services and optional guest-local browser tools. " + multiSelectKeyHint).
+		Height(len(mcpOptions) + 10).
 		Filterable(true).
 		Options(mcpOptions...).
-		Value(value)
+		Value(value))
 }
 
 // retainedMCPOptions appends non-selectable options for withdrawn MCP ids
