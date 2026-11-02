@@ -86,6 +86,49 @@ func TestMultiSelectCursorSelectionScrollingAndResize(t *testing.T) {
 	if !multiSelectCursorOnOption(view, "mcp-00") {
 		t.Fatalf("keyboard navigation back to the top failed:\n%s", view)
 	}
+	_, _ = form.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyEnd}))
+	view = ansi.Strip(form.View())
+	if !multiSelectCursorOnOption(view, "mcp-11") {
+		t.Fatalf("keyboard navigation to the bottom failed:\n%s", view)
+	}
+	_, _ = form.Update(tea.WindowSizeMsg{Width: 100, Height: 24})
+	view = ansi.Strip(form.View())
+	if !multiSelectCursorOnOption(view, "mcp-11") {
+		t.Fatalf("resize after End moved the cursor:\n%s", view)
+	}
+}
+
+func TestMultiSelectResizePreservesActiveFilter(t *testing.T) {
+	options := []huh.Option[string]{huh.NewOption("data.gouv.fr", "data-gouv"), huh.NewOption("chrome-devtools", "chrome-devtools")}
+	selected := []string{}
+	form := huh.NewForm(huh.NewGroup(newProjectMCPsMultiSelect(options, &selected)))
+	form.Init()
+	_, _ = form.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	for _, key := range "/data" {
+		_, _ = form.Update(tea.KeyPressMsg(tea.Key{Code: key, Text: string(key), ShiftedCode: key}))
+	}
+	_, _ = form.Update(tea.WindowSizeMsg{Width: 80, Height: 23})
+	view := ansi.Strip(form.View())
+	if !strings.Contains(view, "/data") || strings.Contains(view, "/dataG") {
+		t.Fatalf("resize changed the active filter:\n%s", view)
+	}
+	if !multiSelectCursorOnOption(view, "data.gouv.fr") {
+		t.Fatalf("resize lost the filtered cursor:\n%s", view)
+	}
+}
+
+func TestMultiSelectResizePreservesSecondDuplicateValue(t *testing.T) {
+	options := []huh.Option[string]{huh.NewOption("first", "same"), huh.NewOption("second", "same"), huh.NewOption("third", "other")}
+	selected := []string{}
+	form := huh.NewForm(huh.NewGroup(newProjectMCPsMultiSelect(options, &selected)))
+	form.Init()
+	_, _ = form.Update(tea.WindowSizeMsg{Width: 80, Height: 6})
+	_, _ = form.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyDown}))
+	_, _ = form.Update(tea.WindowSizeMsg{Width: 80, Height: 7})
+	view := ansi.Strip(form.View())
+	if !multiSelectCursorOnOption(view, "second") {
+		t.Fatalf("resize moved the cursor to the first duplicate value:\n%s", view)
+	}
 }
 
 func TestMultiSelectFormsAccessibleModeKeepsOptions(t *testing.T) {

@@ -15,6 +15,7 @@ import (
 	"charm.land/huh/v2"
 	lipgloss "charm.land/lipgloss/v2"
 	lipglosstable "charm.land/lipgloss/v2/table"
+	"github.com/charmbracelet/x/ansi"
 	"github.com/etalab-ia/just-code/internal/justcode"
 	"golang.org/x/term"
 )
@@ -141,34 +142,45 @@ func huhApplyAccessible(plan justcode.InitPlan, showDiff *bool) (string, error) 
 const multiSelectKeyHint = "Space or x toggles an item; Enter confirms the list; / filters."
 
 // resizeCursorMultiSelect compensates for huh 2.0.3 resizing a MultiSelect's
-// viewport without bringing its current option back into view. Navigation is
-// replayed synchronously, so only the final cursor position is rendered.
+// viewport without bringing its current option back into view. Non-text
+// navigation restores the same row without modifying an active filter.
 type resizeCursorMultiSelect struct {
 	*huh.MultiSelect[string]
+	atTop bool
 }
 
 func (m *resizeCursorMultiSelect) Update(msg tea.Msg) (huh.Model, tea.Cmd) {
 	_, cmd := m.MultiSelect.Update(msg)
-	if _, resizing := msg.(tea.WindowSizeMsg); !resizing {
-		return m, cmd
-	}
-	hovered, ok := m.Hovered()
-	if !ok {
-		return m, cmd
-	}
-	_, _ = m.MultiSelect.Update(tea.KeyPressMsg(tea.Key{Code: 'G', Text: "G", ShiftedCode: 'G'}))
-	for {
-		current, ok := m.Hovered()
-		if ok && current == hovered {
-			break
+	if _, resizing := msg.(tea.WindowSizeMsg); resizing {
+		if _, ok := m.Hovered(); !ok {
+			return m, cmd
 		}
 		_, _ = m.MultiSelect.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyUp}))
+		_, _ = m.MultiSelect.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyDown}))
+		if m.atTop {
+			_, _ = m.MultiSelect.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyUp}))
+		}
+		return m, cmd
+	}
+	if _, ok := m.Hovered(); ok {
+		m.atTop = multiSelectCursorOnFirstVisibleOption(ansi.Strip(m.MultiSelect.View()))
 	}
 	return m, cmd
 }
 
+func multiSelectCursorOnFirstVisibleOption(view string) bool {
+	for _, line := range strings.Split(view, "\n") {
+		if !strings.Contains(line, "•") && !strings.Contains(line, "✓") {
+			continue
+		}
+		line = strings.TrimSpace(strings.TrimPrefix(line, "┃"))
+		return strings.HasPrefix(line, ">")
+	}
+	return false
+}
+
 func keepMultiSelectCursorOnResize(field *huh.MultiSelect[string]) huh.Field {
-	return &resizeCursorMultiSelect{MultiSelect: field}
+	return &resizeCursorMultiSelect{MultiSelect: field, atTop: true}
 }
 
 var initSkillDescriptions = map[string]string{

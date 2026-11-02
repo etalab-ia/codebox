@@ -5,24 +5,29 @@ package main
 import (
 	"fmt"
 	"os"
+	"os/exec"
 	"strings"
 	"sync"
-	"syscall"
 	"testing"
 	"time"
 
 	"charm.land/huh/v2"
 	"github.com/charmbracelet/x/ansi"
 	"github.com/creack/pty"
-	"golang.org/x/term"
 )
 
+const multiSelectPTYScenarioEnv = "JUST_CODE_TEST_MULTISELECT_PTY"
+
 func TestMultiSelectFormsRenderOptionsOnAPTY(t *testing.T) {
-	t.Setenv("TERM", "xterm-256color")
 	for _, tc := range multiSelectRenderCases() {
 		t.Run(tc.name, func(t *testing.T) {
+			scenario := map[string]string{
+				"setup platforms":        "setup",
+				"init MCPs":              "mcp",
+				"workspace apply detail": "apply",
+			}[tc.name]
 			for _, height := range []int{8, 24} {
-				session := newMultiSelectPTYSession(t, tc.newForm(t), 100, height)
+				session := newMultiSelectPTYSession(t, scenario, 100, height)
 				output := session.waitFor(tc.options[0])
 				for _, option := range tc.options {
 					if !strings.Contains(output, option) {
@@ -32,89 +37,111 @@ func TestMultiSelectFormsRenderOptionsOnAPTY(t *testing.T) {
 				if !multiSelectCursorOnOption(output, tc.options[0]) {
 					t.Errorf("PTY height %d hides the option cursor:\n%s", height, output)
 				}
-				session.run()
+				session.submit()
 			}
 		})
 	}
 }
 
 func TestMultiSelectPTYResizePreservesCursorAndSelection(t *testing.T) {
-	t.Setenv("TERM", "xterm-256color")
-	options := make([]huh.Option[string], 12)
-	for i := range options {
-		label := fmt.Sprintf("mcp-%02d", i)
-		options[i] = huh.NewOption(label, label)
-	}
-	selected := []string{}
-	form := huh.NewForm(huh.NewGroup(newProjectMCPsMultiSelect(options, &selected)))
-	session := newMultiSelectPTYSession(t, form, 48, 8)
+	session := newMultiSelectPTYSession(t, "resize", 48, 8)
 	_ = session.waitFor("mcp-00")
-	if _, err := session.ptmx.WriteString(strings.Repeat("\x1b[B", 11) + " "); err != nil {
-		t.Fatalf("write navigation keys: %v", err)
-	}
+	session.write(strings.Repeat("\x1b[B", 11) + " ")
 	output := session.waitFor("> ✓ mcp-11")
-	if !multiSelectSelectionOnOption(output, "mcp-11") {
+	if !multiSelectCursorOnOption(output, "mcp-11") || !multiSelectSelectionOnOption(output, "mcp-11") {
 		t.Fatalf("PTY scrolling or selection lost the last option:\n%s", output)
 	}
-
 	for _, height := range []int{24, 8} {
-		if err := pty.Setsize(session.tty, &pty.Winsize{Cols: 48, Rows: uint16(height)}); err != nil {
-			t.Fatalf("resize pty: %v", err)
-		}
-		// The resize ioctl delivers SIGWINCH to the foreground process only;
-		// here the form runs in this test's process group.
-		if err := syscall.Kill(syscall.Getpid(), syscall.SIGWINCH); err != nil {
-			t.Fatalf("notify resize: %v", err)
-		}
-		output = session.waitFor("> ✓ mcp-11")
+		session.resize(48, height)
+		output = session.waitForNew("> ✓ mcp-11")
 		if !multiSelectCursorOnOption(output, "mcp-11") || !multiSelectSelectionOnOption(output, "mcp-11") {
 			t.Fatalf("PTY resize to %d rows lost the cursor or selection:\n%s", height, output)
 		}
 	}
-	session.run()
+	session.submit()
+}
+
+func TestMultiSelectPTYResizePreservesActiveFilter(t *testing.T) {
+	session := newMultiSelectPTYSession(t, "filter", 80, 24)
+	_ = session.waitFor("data.gouv.fr")
+	session.write("/data")
+	_ = session.waitForNew("set filter")
+	session.resize(80, 23)
+	output := session.waitForNew("> • data.gouv.fr")
+	if !multiSelectCursorOnOption(output, "data.gouv.fr") || strings.Contains(output, "/dataG") {
+		t.Fatalf("PTY resize lost the active filter's option:\n%s", output)
+	}
+	// The first Enter commits the active filter; the second submits the form.
+	session.write("\r")
+	session.submit()
+}
+
+// TestMultiSelectPTYChild is re-executed with its own controlling terminal.
+// Keeping Bubble Tea in a subprocess avoids sharing terminal descriptors or
+// package-level I/O with the parent test's PTY reader.
+func TestMultiSelectPTYChild(t *testing.T) {
+	scenario := os.Getenv(multiSelectPTYScenarioEnv)
+	if scenario == "" {
+		t.Skip("only runs as a PTY subprocess")
+	}
+	t.Setenv("TERM", "xterm-256color")
+	var form *huh.Form
+	switch scenario {
+	case "setup":
+		form = captureSetupPlatformsForm(t)
+	case "mcp":
+		form = captureInitMCPsForm(t)
+	case "apply":
+		form = captureWorkspaceApplyDetailForm(t)
+	case "resize":
+		options := make([]huh.Option[string], 12)
+		for i := range options {
+			label := fmt.Sprintf("mcp-%02d", i)
+			options[i] = huh.NewOption(label, label)
+		}
+		selected := []string{}
+		form = huh.NewForm(huh.NewGroup(newProjectMCPsMultiSelect(options, &selected)))
+	case "filter":
+		form = captureInitMCPsForm(t)
+	default:
+		t.Fatalf("unknown PTY scenario %q", scenario)
+	}
+	if err := huhRun(form); err != nil {
+		t.Fatalf("run PTY form: %v", err)
+	}
 }
 
 type multiSelectPTYSession struct {
 	t          *testing.T
+	cmd        *exec.Cmd
 	ptmx       *os.File
-	tty        *os.File
 	mu         sync.Mutex
 	output     strings.Builder
 	waited     int
 	readerDone chan struct{}
-	runDone    chan error
+	done       chan struct{}
+	runErr     error
 	closed     bool
 }
 
-func newMultiSelectPTYSession(t *testing.T, form *huh.Form, width, height int) *multiSelectPTYSession {
+func newMultiSelectPTYSession(t *testing.T, scenario string, width, height int) *multiSelectPTYSession {
 	t.Helper()
-	ptmx, tty, err := pty.Open()
+	cmd := exec.Command(os.Args[0], "-test.run=^TestMultiSelectPTYChild$", "-test.count=1", "-test.timeout=30s")
+	cmd.Env = append(os.Environ(), multiSelectPTYScenarioEnv+"="+scenario, "TERM=xterm-256color")
+	ptmx, err := pty.Start(cmd)
 	if err != nil {
 		t.Skipf("no pty available: %v", err)
 	}
-	if err := pty.Setsize(tty, &pty.Winsize{Cols: uint16(width), Rows: uint16(height)}); err != nil {
-		_ = ptmx.Close()
-		_ = tty.Close()
+	s := &multiSelectPTYSession{t: t, cmd: cmd, ptmx: ptmx, readerDone: make(chan struct{}), done: make(chan struct{})}
+	t.Cleanup(s.close)
+	if err := pty.Setsize(ptmx, &pty.Winsize{Cols: uint16(width), Rows: uint16(height)}); err != nil {
 		t.Fatalf("size pty: %v", err)
 	}
-
-	originalStdin, originalStdout, originalRun := os.Stdin, os.Stdout, huhRun
-	os.Stdin, os.Stdout = tty, tty
-	huhRun = func(form *huh.Form) error {
-		err := originalRun(form)
-		os.Stdin, os.Stdout, huhRun = originalStdin, originalStdout, originalRun
-		return err
-	}
-	s := &multiSelectPTYSession{t: t, ptmx: ptmx, tty: tty, readerDone: make(chan struct{}), runDone: make(chan error, 1)}
-	t.Cleanup(func() {
-		os.Stdin, os.Stdout, huhRun = originalStdin, originalStdout, originalRun
-		s.close()
-	})
-	if _, err := term.MakeRaw(int(ptmx.Fd())); err != nil {
-		t.Fatalf("disable pty echo: %v", err)
-	}
 	go s.read()
-	go func() { s.runDone <- huhRun(form) }()
+	go func() {
+		s.runErr = cmd.Wait()
+		close(s.done)
+	}()
 	return s
 }
 
@@ -147,21 +174,48 @@ func (s *multiSelectPTYSession) waitFor(fragment string) string {
 			return view
 		}
 		if time.Now().After(deadline) {
-			s.t.Fatalf("PTY did not render %q:\n%s", fragment, view)
+			s.mu.Lock()
+			all := ansi.Strip(s.output.String())
+			s.mu.Unlock()
+			s.t.Fatalf("PTY did not render %q:\n%s", fragment, all)
 		}
 		time.Sleep(20 * time.Millisecond)
 	}
 }
 
-func (s *multiSelectPTYSession) run() {
+func (s *multiSelectPTYSession) waitForNew(fragment string) string {
 	s.t.Helper()
-	if _, err := s.ptmx.WriteString("\r"); err != nil {
-		s.t.Fatalf("submit form: %v", err)
+	s.mu.Lock()
+	s.waited = s.output.Len()
+	s.mu.Unlock()
+	return s.waitFor(fragment)
+}
+
+func (s *multiSelectPTYSession) write(keys string) {
+	s.t.Helper()
+	if _, err := s.ptmx.WriteString(keys); err != nil {
+		s.t.Fatalf("write keys to pty: %v", err)
 	}
+}
+
+func (s *multiSelectPTYSession) resize(width, height int) {
+	s.t.Helper()
+	// Setsize on the master delivers SIGWINCH to the child foreground process.
+	if err := pty.Setsize(s.ptmx, &pty.Winsize{Cols: uint16(width), Rows: uint16(height)}); err != nil {
+		s.t.Fatalf("resize pty: %v", err)
+	}
+}
+
+func (s *multiSelectPTYSession) submit() {
+	s.t.Helper()
+	s.write("\r")
 	select {
-	case err := <-s.runDone:
-		if err != nil {
-			s.t.Fatalf("run form on pty: %v", err)
+	case <-s.done:
+		if s.runErr != nil {
+			s.mu.Lock()
+			output := ansi.Strip(s.output.String())
+			s.mu.Unlock()
+			s.t.Fatalf("run form on pty: %v\n%s", s.runErr, output)
 		}
 	case <-time.After(5 * time.Second):
 		s.t.Fatal("form did not finish after keyboard input")
@@ -177,7 +231,14 @@ func (s *multiSelectPTYSession) close() {
 	}
 	s.closed = true
 	s.mu.Unlock()
-	_ = s.tty.Close()
+	if s.cmd.Process != nil {
+		select {
+		case <-s.done:
+		default:
+			_ = s.cmd.Process.Kill()
+			<-s.done
+		}
+	}
 	_ = s.ptmx.Close()
 	select {
 	case <-s.readerDone:
