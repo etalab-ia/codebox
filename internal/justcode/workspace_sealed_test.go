@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -117,6 +118,75 @@ func TestSyncRefusesEmptyTransferSet(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "excluded all") {
 		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+// TestEnsureGuestRepositoryDoesNotAutoCommitOnPublishableBranch pins the
+// publication boundary after initialization: a host refresh may transfer files
+// into the guest for recovery, but must not silently append them to the branch
+// whose next push opens the agent's PR. The agent's own commits remain intact.
+func TestEnsureGuestRepositoryDoesNotAutoCommitOnPublishableBranch(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("guest repository bootstrap uses POSIX shell commands")
+	}
+	root := t.TempDir()
+	remote := filepath.Join(root, "origin.git")
+	if err := os.Mkdir(remote, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	runGitTest(t, remote, "init", "-q", "--bare")
+	guest := filepath.Join(root, "guest")
+	if err := os.Mkdir(guest, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	gitInitForTransfer(t, guest)
+	base := strings.TrimSpace(gitTestOutput(t, guest, "rev-parse", "HEAD"))
+	writeFile(t, guest, "agent.txt", "reviewed agent work\n")
+	runGitTest(t, guest, "add", "agent.txt")
+	runGitTest(t, guest, "commit", "-qm", "reviewed agent work")
+	agentCommit := strings.TrimSpace(gitTestOutput(t, guest, "rev-parse", "HEAD"))
+	runGitTest(t, guest, "branch", "-M", "just-code/test")
+	for _, marker := range []string{"origin", "branch", "snapshot-policy"} {
+		runGitTest(t, guest, "config", "--local", "just-code.github-workflow-"+marker, "present")
+	}
+	runGitTest(t, guest, "remote", "add", "origin", remote)
+	writeFile(t, guest, "local.txt", "unapproved host refresh\n")
+	before := strings.TrimSpace(gitTestOutput(t, guest, "status", "--porcelain"))
+
+	out, err := runShellTest(guestRepositoryBootstrapScript(guest, "Guest", "guest@example.test"), guest)
+	if err != nil && !strings.Contains(string(out), "publication automatique refusée") {
+		t.Fatalf("execute guest repository bootstrap: %v: %s", err, out)
+	}
+	if err == nil || !strings.Contains(string(out), "publication automatique refusée") {
+		t.Fatalf("initialized GitHub workflow must block the automatic host-snapshot commit: %v: %s", err, out)
+	}
+	if got := strings.TrimSpace(gitTestOutput(t, guest, "rev-parse", "HEAD")); got != agentCommit {
+		t.Fatalf("host refresh appended a commit to the publishable branch: %s", got)
+	}
+	if got := strings.TrimSpace(gitTestOutput(t, guest, "status", "--porcelain")); got != before {
+		t.Fatalf("refusal staged or changed the refreshed files: %q -> %q", before, got)
+	}
+	if got := strings.TrimSpace(gitTestOutput(t, guest, "rev-parse", "HEAD^")); got != base {
+		t.Fatalf("the agent's existing commit history was rewritten: %s", got)
+	}
+	if got := gitTestOutput(t, remote, "for-each-ref"); got != "" {
+		t.Fatalf("the refusal published guest history: %s", got)
+	}
+
+	// Positive control through the same plumbing: without a GitHub workflow
+	// marker, initial repository provisioning still creates its baseline commit.
+	for _, marker := range []string{"origin", "branch", "snapshot-policy"} {
+		runGitTest(t, guest, "config", "--local", "--unset", "just-code.github-workflow-"+marker)
+	}
+	out, err = runShellTest(guestRepositoryBootstrapScript(guest, "Guest", "guest@example.test"), guest)
+	if err != nil {
+		t.Fatalf("non-GitHub guest bootstrap: %v: %s", err, out)
+	}
+	if got := strings.TrimSpace(gitTestOutput(t, guest, "rev-parse", "HEAD^")); got != agentCommit {
+		t.Fatalf("positive control did not execute the repository bootstrap: %s", got)
+	}
+	if got := gitTestOutput(t, remote, "for-each-ref"); got != "" {
+		t.Fatalf("the test must not publish guest history: %s", got)
 	}
 }
 
