@@ -58,9 +58,9 @@ func (m *MicrosandboxRuntime) validateExistingGitHubPublicationPolicy(ctx contex
 	if err != nil {
 		return fmt.Errorf("cannot read the guest GitHub workflow marker: %w", err)
 	}
-	if code == 1 {
-		// A missing workflow marker is the ordinary non-GitHub guest case.
-		// Other failures cannot establish that it is absent and fail closed.
+	if code == 1 || (code == 128 && strings.Contains(stderr, "can only be used inside a git repository")) {
+		// No repository yet, or no workflow marker: normal provisioning cases.
+		// Other failures cannot establish that the marker is absent.
 		return nil
 	}
 	if code != 0 || strings.TrimSpace(marker) == "" {

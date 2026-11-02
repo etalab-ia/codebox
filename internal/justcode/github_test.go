@@ -736,6 +736,23 @@ func TestReconcileNoOpValidatesExistingGitHubSnapshotPolicy(t *testing.T) {
 	}
 }
 
+func TestExistingGitHubPublicationPolicyAllowsUninitializedGuestWorkspace(t *testing.T) {
+	remote := GitHubRemote{URL: "https://github.com/owner/repo.git", Repo: "owner/repo"}
+	client := &fakeMSBClient{exists: true, status: "running", execCaptureResults: []fakeMSBExecCaptureResult{
+		{code: 128, stderr: "fatal: --local can only be used inside a git repository"},
+	}}
+	m := NewMicrosandboxRuntimeForInstance(Config{GitHubRemote: remote}, "opencode-jc-test-12345")
+	m.Client = client
+	if err := m.validateExistingGitHubPublicationPolicy(context.Background()); err != nil {
+		t.Fatalf("a guest workspace not yet initialized as a repository must be provisioned normally: %v", err)
+	}
+	for _, call := range client.calls {
+		if strings.Contains(call, "git reset") || strings.Contains(call, "git branch ") || strings.Contains(call, "git config --file") {
+			t.Fatalf("the fresh-workspace policy probe modified the guest: %s", call)
+		}
+	}
+}
+
 func TestConfigureGitHubWorkspaceRefusesLegacySnapshotPolicy(t *testing.T) {
 	remote := GitHubRemote{URL: "https://github.com/owner/repo.git", Repo: "owner/repo"}
 	for _, policy := range []fakeMSBExecCaptureResult{{code: 1}, {stdout: "unknown-policy\n"}, {err: errors.New("cannot read policy")}} {
