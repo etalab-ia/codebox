@@ -151,6 +151,9 @@ type resizeCursorMultiSelect struct {
 func (m *resizeCursorMultiSelect) Update(msg tea.Msg) (huh.Model, tea.Cmd) {
 	_, cmd := m.MultiSelect.Update(msg)
 	if _, resizing := msg.(tea.WindowSizeMsg); resizing {
+		if _, ok := m.Hovered(); !ok {
+			return m, cmd
+		}
 		if !multiSelectCursorVisible(m.MultiSelect.View()) {
 			_, _ = m.MultiSelect.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyDown}))
 		}

@@ -1,4 +1,4 @@
-//go:build !windows
+//go:build !windows && !race
 
 package main
 
@@ -16,6 +16,10 @@ import (
 	"github.com/creack/pty"
 )
 
+// These scenarios use a real PTY and its SIGWINCH delivery. Bubble Tea 2.1.x
+// has a race between listenForResize and its initial size request in
+// checkResize (tty.go), so race-enabled builds cover the direct-render
+// regressions in multiselect_render_test.go instead.
 const multiSelectPTYScenarioEnv = "JUST_CODE_TEST_MULTISELECT_PTY"
 
 func TestMultiSelectFormsRenderOptionsOnAPTY(t *testing.T) {

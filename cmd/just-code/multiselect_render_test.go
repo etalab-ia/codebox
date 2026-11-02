@@ -154,6 +154,26 @@ func TestMultiSelectResizePreservesSecondDuplicateValue(t *testing.T) {
 	}
 }
 
+func TestMultiSelectResizeWithNoFilterMatchesDoesNotMoveCursor(t *testing.T) {
+	options := []huh.Option[string]{huh.NewOption("data.gouv.fr", "data-gouv"), huh.NewOption("chrome-devtools", "chrome-devtools")}
+	selected := []string{}
+	form := huh.NewForm(huh.NewGroup(newProjectMCPsMultiSelect(options, &selected)))
+	form.Init()
+	_, _ = form.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	for _, key := range "/zzz" {
+		_, _ = form.Update(tea.KeyPressMsg(tea.Key{Code: key, Text: string(key), ShiftedCode: key}))
+	}
+	_, _ = form.Update(tea.WindowSizeMsg{Width: 80, Height: 23})
+	for _, key := range []rune{'\b', '\b', '\b', 'd', 'a', 't', 'a'} {
+		_, _ = form.Update(tea.KeyPressMsg(tea.Key{Code: key, Text: string(key), ShiftedCode: key}))
+	}
+	_, _ = form.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyEnter}))
+	_, _ = form.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeySpace, Text: " "}))
+	if len(selected) != 1 || selected[0] != "data-gouv" {
+		t.Fatalf("filter recovery after resize selected %v", selected)
+	}
+}
+
 func TestMultiSelectFormsAccessibleModeKeepsOptions(t *testing.T) {
 	for _, tc := range multiSelectRenderCases() {
 		t.Run(tc.name, func(t *testing.T) {
