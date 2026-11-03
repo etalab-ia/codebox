@@ -2540,6 +2540,8 @@ func promptLine(in *bufio.Reader, prompt string) (string, bool) {
 var stdinIsTTYFn = isTTY
 
 // promptSecret reads a secret with echo disabled where supported.
+var passwordReaderFn = readPassword
+
 func promptSecret(in *bufio.Reader, prompt string) (string, bool) {
 	fmt.Print(prompt)
 	if stdinIsTTYFn() {
@@ -2551,7 +2553,7 @@ func promptSecret(in *bufio.Reader, prompt string) (string, bool) {
 			line, _ := promptLine(in, "")
 			_ = line
 		}
-		value, err := readPassword()
+		value, err := passwordReaderFn()
 		fmt.Println()
 		if err != nil {
 			return "", false
