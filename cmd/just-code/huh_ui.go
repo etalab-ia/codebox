@@ -292,20 +292,15 @@ func keepEmptyInitSkillsForRetry(answers *justcode.InitAnswers) {
 	answers.SkillsSet = true
 }
 
-// commitInitHuhSubmission copies the submitted form values into answers.
-// It matches the line wizard's "Enter keeps" semantics: a submission only
-// marks a value explicit when it differs from the seeded value, so
-// accepting the defaults preserves the project's existing skill pins and
-// storage mode. huh rebuilds a MultiSelect's value in its own option
-// order, so it compares as sets: a reordered-but-identical selection is
-// not a change. Sibling choices are committed before the caller acts on
-// the skills decision, so a refused empty-skills retry keeps them.
-// The zero-MCP confirmation runs before the MCP and storage write-backs,
-// so declining it reopens the form with those answers unchanged, like
-// the line wizard. It reports whether the submission needs the
-// zero-skills confirmation, and whether the user declined the zero-MCP
-// confirmation.
-func commitInitHuhSubmission(opts initOptions, answers *justcode.InitAnswers, skills, mcps []string, skillsLocalOnly bool, skillOptions []huh.Option[string], skipSkills bool) (bool, bool, error) {
+// commitInitHuhSkills copies the skills group's submitted values into
+// answers. It runs when the user LEAVES the skills selection, before the MCP
+// step and before the empty-selection confirmation (#307), so a declined
+// confirmation reopens the form with every other answer kept. It matches the
+// line wizard's "Enter keeps" semantics: a submission only marks a value
+// explicit when it differs from the seeded value, and huh rebuilds a
+// MultiSelect's value in its own option order, so it compares as sets.
+// It reports whether the submission needs the zero-skills confirmation.
+func commitInitHuhSkills(opts initOptions, answers *justcode.InitAnswers, skills []string, skillsLocalOnly bool, skillOptions []huh.Option[string], skipSkills bool) bool {
 	needsSkillsConfirm := false
 	if !skipSkills {
 		selectedSkills := append([]string(nil), skills...)
@@ -314,26 +309,42 @@ func commitInitHuhSubmission(opts initOptions, answers *justcode.InitAnswers, sk
 		answers.RetainedSkills = retainedInitSkillIDs(selectedSkills, skillOptions)
 		needsSkillsConfirm = len(skills) == 0
 	}
-	if !opts.Set["mcps"] {
-		if len(mcps) == 0 {
-			// Same zero-selection confirmation as the line wizard;
-			// declining reopens the form with the answers unchanged.
-			keep, confirmErr := confirmNoMCPsHuh()
-			if confirmErr != nil {
-				return false, false, confirmErr
-			}
-			if !keep {
-				return needsSkillsConfirm, true, nil
-			}
-		}
-		answers.MCPsSet = answers.MCPsSet || !equalStringSets(answers.MCPConnectors, mcps)
-		answers.MCPConnectors = mcps
-	}
 	if !opts.Set["skills-storage"] {
 		answers.SkillsLocalOnlySet = answers.SkillsLocalOnlySet || answers.SkillsLocalOnly != skillsLocalOnly
 		answers.SkillsLocalOnly = skillsLocalOnly
 	}
-	return needsSkillsConfirm, false, nil
+	return needsSkillsConfirm
+}
+
+// initEmptySkillsConfirmFn asks the zero-skills confirmation (#307). It is a
+// var so tests can place the question in the form sequence and script its
+// answer, the same pattern as huhRun.
+var initEmptySkillsConfirmFn = func() (bool, error) {
+	return huhConfirm("Aucune skill sélectionnée. Continuer sans skill ? (O/n)", "Appuyez sur Entrée pour continuer, ou choisissez non pour revenir à la sélection.", true)
+}
+
+// commitInitHuhMCPs copies the MCP submission into answers. The zero-MCP
+// confirmation runs before the write-back, so declining it reopens the form
+// with those answers unchanged, like the line wizard. It reports whether the
+// user declined that confirmation.
+func commitInitHuhMCPs(opts initOptions, answers *justcode.InitAnswers, mcps []string) (bool, error) {
+	if opts.Set["mcps"] {
+		return false, nil
+	}
+	if len(mcps) == 0 {
+		// Same zero-selection confirmation as the line wizard;
+		// declining reopens the form with the answers unchanged.
+		keep, confirmErr := confirmNoMCPsHuh()
+		if confirmErr != nil {
+			return false, confirmErr
+		}
+		if !keep {
+			return true, nil
+		}
+	}
+	answers.MCPsSet = answers.MCPsSet || !equalStringSets(answers.MCPConnectors, mcps)
+	answers.MCPConnectors = mcps
+	return false, nil
 }
 
 func newInitSkillsGroup(skillOptions []huh.Option[string], skills *[]string, skillsLocalOnly *bool, includeSkills, includeStorage bool, stepPrefix string) *huh.Group {
@@ -970,15 +981,22 @@ func askInitQuestionsHuh(opts initOptions, answers justcode.InitAnswers) (justco
 		// huh's accessible runner (TERM=dumb) iterates every group and
 		// never evaluates hide predicates, so a hidden group would still
 		// prompt there and its submitted value would override the flag.
-		var groups []*huh.Group
-		for _, g := range []*huh.Group{rootGroup, skillsGroup, mcpGroup} {
+		//
+		// The skills groups run in a FIRST form and the MCP group in a
+		// second one (#307): the empty-skills confirmation belongs to the
+		// moment the user leaves the skills selection, before the MCP
+		// step, like the line wizard — not after the whole form.
+		var skillsFormGroups []*huh.Group
+		for _, g := range []*huh.Group{rootGroup, skillsGroup} {
 			if g != nil {
-				groups = append(groups, g)
+				skillsFormGroups = append(skillsFormGroups, g)
 			}
 		}
-		if err := huhRun(huh.NewForm(groups...)); err != nil {
-			recordInitAbandon(answers.Root, "skills")
-			return answers, err
+		if len(skillsFormGroups) > 0 {
+			if err := huhRun(huh.NewForm(skillsFormGroups...)); err != nil {
+				recordInitAbandon(answers.Root, "skills")
+				return answers, err
+			}
 		}
 
 		// Write the form's answers back; a root change re-seeds every other
@@ -1004,15 +1022,11 @@ func askInitQuestionsHuh(opts initOptions, answers justcode.InitAnswers) (justco
 			continue
 		}
 		answers.Root = newRoot
-		needsSkillsConfirm, retryMCPs, err := commitInitHuhSubmission(opts, &answers, skills, mcps, skillsLocalOnly, skillOptions, skipSkills)
-		if err != nil {
-			return answers, err
-		}
-		if retryMCPs {
-			continue
-		}
-		if needsSkillsConfirm {
-			proceed, err := huhConfirm("Aucune skill sélectionnée. Continuer sans skill ? (O/n)", "Appuyez sur Entrée pour continuer, ou choisissez non pour revenir à la sélection.", true)
+		// Commit the skills answers BEFORE the confirmation: a declined
+		// confirmation reopens the form, which reseeds from answers, so the
+		// storage choice and the other answers must already be safe (#307).
+		if commitInitHuhSkills(opts, &answers, skills, skillsLocalOnly, skillOptions, skipSkills) {
+			proceed, err := initEmptySkillsConfirmFn()
 			if err != nil {
 				return answers, err
 			}
@@ -1022,6 +1036,19 @@ func askInitQuestionsHuh(opts initOptions, answers justcode.InitAnswers) (justco
 			}
 			answers.Skills = nil
 			answers.SkillsSet = true
+		}
+		if mcpGroup != nil {
+			if err := huhRun(huh.NewForm(mcpGroup)); err != nil {
+				recordInitAbandon(answers.Root, "skills")
+				return answers, err
+			}
+		}
+		retryMCPs, err := commitInitHuhMCPs(opts, &answers, mcps)
+		if err != nil {
+			return answers, err
+		}
+		if retryMCPs {
+			continue
 		}
 		// The GitHub step is a distinct screen, not a field of the main
 		// form: it renders one of the four situations and verifies on that
