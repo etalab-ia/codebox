@@ -1040,6 +1040,9 @@ func askInitQuestionsHuh(opts initOptions, answers justcode.InitAnswers) (justco
 		if needsSkillsConfirm && !emptySkillsConfirmed {
 			proceed, err := initEmptySkillsConfirmFn()
 			if err != nil {
+				// An aborted confirmation is an interruption on the skills
+				// step, not a retry and not a successful return (#310).
+				recordInitAbandon(answers.Root, "skills")
 				return answers, err
 			}
 			if !proceed {
@@ -1052,12 +1055,15 @@ func askInitQuestionsHuh(opts initOptions, answers justcode.InitAnswers) (justco
 		}
 		if mcpGroup != nil {
 			if err := huhRun(huh.NewForm(mcpGroup)); err != nil {
-				recordInitAbandon(answers.Root, "skills")
+				// The MCP form is a distinct step: an interruption here
+				// must not be attributed to skills (#310).
+				recordInitAbandon(answers.Root, "mcp")
 				return answers, err
 			}
 		}
 		retryMCPs, err := commitInitHuhMCPs(opts, &answers, mcps)
 		if err != nil {
+			recordInitAbandon(answers.Root, "mcp")
 			return answers, err
 		}
 		if retryMCPs {
