@@ -609,6 +609,9 @@ func (m *MicrosandboxRuntime) start(ctx context.Context, bindings []resolvedBind
 	if err := m.startInstanceWithBackendPreflight(ctx, bindings, preflightSkills); err != nil {
 		return err
 	}
+	if err := m.validateExistingGitHubPublicationPolicy(ctx); err != nil {
+		return err
+	}
 	// Idempotent: a guest that already carries its repository is left
 	// untouched. Refreshing an existing workspace is explicit
 	// (SyncGuestWorkspace / 'just-code workspace sync'), never a side effect

@@ -7,14 +7,18 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"reflect"
 	"slices"
 	"strconv"
 	"strings"
+	"unsafe"
 
+	"charm.land/bubbles/v2/viewport"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/huh/v2"
 	lipgloss "charm.land/lipgloss/v2"
 	lipglosstable "charm.land/lipgloss/v2/table"
+	"github.com/charmbracelet/x/ansi"
 	"github.com/etalab-ia/just-code/internal/justcode"
 	"golang.org/x/term"
 )
@@ -139,6 +143,60 @@ func huhApplyAccessible(plan justcode.InitPlan, showDiff *bool) (string, error) 
 // Enter had selected the highlighted item, and the project was created with
 // nothing (#156).
 const multiSelectKeyHint = "Space or x toggles an item; Enter confirms the list; / filters."
+
+// resizeCursorMultiSelect compensates for huh 2.0.3 resizing a MultiSelect's
+// viewport without bringing its current option back into view.
+type resizeCursorMultiSelect struct {
+	*huh.MultiSelect[string]
+}
+
+func (m *resizeCursorMultiSelect) Update(msg tea.Msg) (huh.Model, tea.Cmd) {
+	_, cmd := m.MultiSelect.Update(msg)
+	if _, resizing := msg.(tea.WindowSizeMsg); resizing {
+		m.ensureCursorVisible()
+	}
+	return m, cmd
+}
+
+// multiSelectViewport accesses huh's existing viewport by field name. Huh does
+// not expose a visibility-only resize operation; keeping this in one adapter
+// avoids changing the cursor, filter, options, or selection.
+func (m *resizeCursorMultiSelect) multiSelectViewport() *viewport.Model {
+	field := reflect.ValueOf(m.MultiSelect).Elem().FieldByName("viewport")
+	if !field.IsValid() || field.Type() != reflect.TypeOf(viewport.Model{}) {
+		return nil
+	}
+	return (*viewport.Model)(unsafe.Pointer(field.UnsafeAddr()))
+}
+
+func (m *resizeCursorMultiSelect) ensureCursorVisible() {
+	viewport := m.multiSelectViewport()
+	if viewport == nil {
+		return
+	}
+	content := ansi.Strip(viewport.GetContent())
+	cursorLine := -1
+	for i, line := range strings.Split(content, "\n") {
+		line = strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(line), "┃"))
+		if strings.HasPrefix(line, ">") && (strings.Contains(line, "•") || strings.Contains(line, "✓")) {
+			cursorLine = i
+			break
+		}
+	}
+	if cursorLine < 0 || viewport.Height() <= 0 {
+		return
+	}
+	offset, height := viewport.YOffset(), viewport.Height()
+	if cursorLine < offset {
+		viewport.ScrollUp(offset - cursorLine)
+	} else if cursorLine >= offset+height {
+		viewport.ScrollDown(cursorLine + 1 - offset - height)
+	}
+}
+
+func keepMultiSelectCursorOnResize(field *huh.MultiSelect[string]) huh.Field {
+	return &resizeCursorMultiSelect{MultiSelect: field}
+}
 
 var initSkillDescriptions = map[string]string{
 	"official/securite-developpement": "règles de sécurité de l'État, issues des guides ANSSI",
@@ -296,13 +354,14 @@ func newInitSkillsGroup(skillOptions []huh.Option[string], skills *[]string, ski
 	return huh.NewGroup(fields...).Title("Skills")
 }
 
-func newProjectMCPsMultiSelect(mcpOptions []huh.Option[string], value *[]string) *huh.MultiSelect[string] {
-	return huh.NewMultiSelect[string]().
+func newProjectMCPsMultiSelect(mcpOptions []huh.Option[string], value *[]string) huh.Field {
+	return keepMultiSelectCursorOnResize(huh.NewMultiSelect[string]().
 		Title("MCPs").
 		Description("Curated remote services and optional guest-local browser tools. " + multiSelectKeyHint).
+		Height(len(mcpOptions) + 10).
 		Filterable(true).
 		Options(mcpOptions...).
-		Value(value)
+		Value(value))
 }
 
 // retainedMCPOptions appends non-selectable options for withdrawn MCP ids
