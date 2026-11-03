@@ -352,10 +352,10 @@ func TestGuestBranchStatus(t *testing.T) {
 			t.Run(baseline, func(t *testing.T) {
 				client := sealedFakeMSB()
 				client.execCaptureResults = []fakeMSBExecCaptureResult{
-					{code: 1},                       // no workflow marker
-					{stdout: baseline + "\x001000\n"}, // the sealed initial snapshot
-					{stdout: ""},                    // no remote refs
-					{code: 1},                       // no remote HEAD
+					{code: 1},
+					{stdout: baseline + "\x001000\n"},
+					{stdout: ""},
+					{code: 1},
 				}
 				m, _ := applyTestRuntime(t, client)
 				status, err := m.GuestBranchStatus(context.Background())
