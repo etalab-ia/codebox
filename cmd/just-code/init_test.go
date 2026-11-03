@@ -2408,9 +2408,8 @@ func TestGitHubScreensAvoidInternalTerms(t *testing.T) {
 }
 
 // TestInitRendersGitHubStepAfterSkillsAndMCP pins the on-screen step order:
-// the GitHub screen must not be printed before skills and MCP. This invocation
-// supplies --root, so the expert-option rule hides step counters; their
-// beginner/expert rendering is covered separately by TestInitStepPrefixCounters.
+// the GitHub screen must not be printed before skills and MCP. A displayed
+// root does not suppress the beginner counters (#312).
 func TestInitRendersGitHubStepAfterSkillsAndMCP(t *testing.T) {
 	root := initTestProject(t)
 	stubProjectSkills(t)
@@ -2431,8 +2430,8 @@ func TestInitRendersGitHubStepAfterSkillsAndMCP(t *testing.T) {
 		t.Fatalf("initRun: code=%d err=%v out=\n%s", code, err, out)
 	}
 	skillsAt := strings.Index(out, "Skills (facultatif)")
-	mcpAt := strings.Index(out, "MCP (facultatif)")
-	githubAt := strings.Index(out, "GitHub (facultatif)")
+	mcpAt := strings.Index(out, justcode.MCPStepTitle)
+	githubAt := strings.Index(out, "[3/3] GitHub (facultatif)")
 	if skillsAt < 0 || mcpAt < 0 || githubAt < 0 {
 		t.Fatalf("all three step screens must be rendered (skills %d, MCP %d, GitHub %d):\n%s", skillsAt, mcpAt, githubAt, out)
 	}
@@ -2754,17 +2753,26 @@ func TestInitIntroOmitsLegacyRuntimes(t *testing.T) {
 // numbers the three steps, and any flag-provided expert setting hides the
 // numbers instead of showing a misleading one.
 func TestInitStepPrefixCounters(t *testing.T) {
-	beginner := initOptions{Set: map[string]bool{}}
-	if got := initSkillsStepPrefix(beginner); got != "[1/3] " {
-		t.Errorf("skills prefix = %q", got)
+	assertBeginner := func(name string, opts initOptions) {
+		t.Helper()
+		if got := initSkillsStepPrefix(opts); got != "[1/3] " {
+			t.Errorf("%s: skills prefix = %q", name, got)
+		}
+		if got := initMCPStepTitle(opts); got != "[2/3] MCP (facultatif)" {
+			t.Errorf("%s: MCP title = %q", name, got)
+		}
+		if got := initGitHubStepTitle(opts); got != "[3/3] GitHub (facultatif)" {
+			t.Errorf("%s: GitHub title = %q", name, got)
+		}
 	}
-	if got := initMCPStepTitle(beginner); got != "[2/3] MCP (facultatif)" {
-		t.Errorf("MCP title = %q", got)
+	assertBeginner("no options", initOptions{Set: map[string]bool{}})
+	displayed := initOptionsWithDisplayedRoot(initOptions{Set: map[string]bool{}})
+	if !displayed.Set["root"] {
+		t.Fatal("the displayed root must still be recorded in the options")
 	}
-	if got := initGitHubStepTitle(beginner); got != "[3/3] GitHub (facultatif)" {
-		t.Errorf("GitHub title = %q", got)
-	}
-	for _, field := range []string{"root", "runtime", "github", "model"} {
+	assertBeginner("displayed root", displayed)
+	assertBeginner("explicit root", initOptions{Set: map[string]bool{"root": true}})
+	for _, field := range []string{"runtime", "github", "model", "skills", "mcps"} {
 		expert := initOptions{Set: map[string]bool{field: true}}
 		if got := initSkillsStepPrefix(expert); got != "" {
 			t.Errorf("with --%s, skills prefix = %q, want no counter", field, got)
