@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	tea "charm.land/bubbletea/v2"
 	"charm.land/huh/v2"
 	"github.com/etalab-ia/just-code/internal/justcode"
 )
@@ -398,37 +399,56 @@ func TestSetupPlatformStageResumeOpenAICompatible(t *testing.T) {
 	})
 }
 
-// TestSetupPlatformStageResumeHuhModifyRunsChooser: in the interactive
-// renderer, choosing "modify" at the resume prompt re-runs the platform
-// chooser; an already-stored key is not re-asked.
-func TestSetupPlatformStageResumeHuhModifyRunsChooser(t *testing.T) {
-	stateDir, _ := setupTestEnv(t)
-	originalHuh, originalRun := wizardHuhFn, huhRun
-	origResume := setupResumePlatformsFn
-	wizardHuhFn = func() bool { return true }
-	setupResumePlatformsFn = func(_ []justcode.SetupPlatform, _ *bufio.Reader, _ string) (bool, error) {
-		return false, nil // the user picked "Modifier la sélection"
-	}
-	chooserForms := 0
-	huhRun = func(form *huh.Form) error {
-		chooserForms++
-		return nil
-	}
-	t.Cleanup(func() {
-		wizardHuhFn, huhRun, setupResumePlatformsFn = originalHuh, originalRun, origResume
-	})
-	j := resumeTestJournal([]justcode.SetupPlatform{{Kind: "mistral"}}, string(justcode.CredentialMistral))
-	store := &fakeSetupStore{}
-	w := resumeTestWizard(stateDir, store)
-	providers, err := setupPlatformStage(context.Background(), w, bufio.NewReader(strings.NewReader("")), true, &j, false, justcode.DefaultFS, stateDir)
-	if err != nil {
-		t.Fatalf("stage: %v", err)
-	}
-	if chooserForms != 1 {
-		t.Fatalf("the chooser must run exactly once after 'modify': %d forms", chooserForms)
-	}
-	if len(providers) != 1 || providers[0].Kind != justcode.ProviderMistral {
-		t.Fatalf("providers = %+v", providers)
+// TestSetupPlatformStageResumeHuhModifyDeselectsProvider drives the real
+// interactive chooser with keyboard input: each provider can be removed after
+// "Modifier", while the retained provider's stored key is not re-asked (#305).
+func TestSetupPlatformStageResumeHuhModifyDeselectsProvider(t *testing.T) {
+	openAI := justcode.SetupPlatform{Kind: "openai-compatible", Name: "Scaleway", BaseURL: "https://api.scaleway.ai/v1"}
+	for _, tc := range []struct {
+		name      string
+		platforms []justcode.SetupPlatform
+		stored    justcode.CredentialKind
+		moves     int
+		want      justcode.ProviderKind
+	}{
+		{name: "drop Albert", platforms: []justcode.SetupPlatform{{Kind: "albert"}, {Kind: "mistral"}}, stored: justcode.CredentialMistral, moves: 0, want: justcode.ProviderMistral},
+		{name: "drop Mistral", platforms: []justcode.SetupPlatform{{Kind: "albert"}, {Kind: "mistral"}}, stored: justcode.CredentialAlbert, moves: 1, want: justcode.ProviderAlbert},
+		{name: "drop OpenAI-compatible", platforms: []justcode.SetupPlatform{{Kind: "albert"}, openAI}, stored: justcode.CredentialAlbert, moves: 2, want: justcode.ProviderAlbert},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			stateDir, _ := setupTestEnv(t)
+			originalHuh, originalRun := wizardHuhFn, huhRun
+			origResume := setupResumePlatformsFn
+			wizardHuhFn = func() bool { return true }
+			setupResumePlatformsFn = func(_ []justcode.SetupPlatform, _ *bufio.Reader, _ string) (bool, error) {
+				return false, nil // the user picked "Modifier la sélection"
+			}
+			huhRun = func(form *huh.Form) error {
+				form.Init()
+				_, _ = form.Update(tea.WindowSizeMsg{Width: 100, Height: 24})
+				for range tc.moves {
+					_, _ = form.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyDown}))
+				}
+				_, _ = form.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeySpace, Text: " "}))
+				return nil
+			}
+			t.Cleanup(func() {
+				wizardHuhFn, huhRun, setupResumePlatformsFn = originalHuh, originalRun, origResume
+			})
+			j := resumeTestJournal(tc.platforms, string(tc.stored))
+			store := &fakeSetupStore{}
+			w := resumeTestWizard(stateDir, store)
+			providers, err := setupPlatformStage(context.Background(), w, bufio.NewReader(strings.NewReader("")), true, &j, false, justcode.DefaultFS, stateDir)
+			if err != nil {
+				t.Fatalf("stage: %v", err)
+			}
+			if len(providers) != 1 || providers[0].Kind != tc.want {
+				t.Fatalf("providers = %+v, want only %s", providers, tc.want)
+			}
+			if len(store.puts) != 0 {
+				t.Fatalf("the retained stored key must not be re-asked: %+v", store.puts)
+			}
+		})
 	}
 }
 
@@ -523,5 +543,67 @@ func TestProviderKeyStagePresentsIncompatibleURLMessage(t *testing.T) {
 	}
 	if len(store.puts) != 0 {
 		t.Fatalf("nothing may be stored: %+v", store.puts)
+// TestSetupWizardResumeDroppingAlbertRepairsModels covers the full text-rendered
+// resume: after Albert is removed, the old Albert model defaults cannot be
+// persisted with a Mistral-only provider set (#305).
+func TestSetupWizardResumeDroppingAlbertRepairsModels(t *testing.T) {
+	stateDir, _ := setupTestEnv(t)
+	forceLineWizard(t)
+	previousPresent := setupCredentialPresentFn
+	setupCredentialPresentFn = func(context.Context, justcode.CredentialKind) bool { return false }
+	t.Cleanup(func() { setupCredentialPresentFn = previousPresent })
+	j := resumeTestJournal(
+		[]justcode.SetupPlatform{{Kind: "albert"}, {Kind: "mistral"}},
+		string(justcode.CredentialMistral),
+	)
+	j.SkipGitHub = true
+	j.GitName, j.GitEmail = "Test User", "test@example.test"
+	if err := justcode.WriteSetupJournal(justcode.DefaultFS, stateDir, j); err != nil {
+		t.Fatal(err)
+	}
+	// Modify the platforms, keep Mistral only, press Enter on the now-empty
+	// model state, then try a bare ID and an explicit Albert reference before
+	// providing a provider-valid model and applying.
+	input := "m\n2\n\nmistral-large-latest\nalbert/Qwen3-Coder-30B-A3B-Instruct\nmistral/mistral-large-latest\na\n"
+	out := captureStdout(t, func() {
+		code, err := setupWizardRun(true, bufio.NewReader(strings.NewReader(input)),
+			nil, func(context.Context) error { return nil }, func(string) string { return "" })
+		if code != 0 || err != nil {
+			t.Fatalf("resume run: code=%d err=%v", code, err)
+		}
+	})
+	if got := strings.Count(out, "Aucun modèle valide n'est actuellement sélectionné"); got != 3 {
+		t.Fatalf("the empty state and both provider-invalid answers must require another answer (got %d):\n%s", got, out)
+	}
+	settingsPath, err := justcode.UserSettingsPath()
+	if err != nil {
+		t.Fatal(err)
+	}
+	settings, err := justcode.ReadUserSettings(justcode.DefaultFS, settingsPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if settings.DefaultModel != "mistral/mistral-large-latest" {
+		t.Fatalf("default model = %q", settings.DefaultModel)
+	}
+	if len(settings.Models) != 1 || settings.Models[0] != "mistral/mistral-large-latest" {
+		t.Fatalf("models = %v", settings.Models)
+	}
+	if len(settings.Providers) != 1 || settings.Providers[0].Kind != justcode.ProviderMistral {
+		t.Fatalf("providers = %+v", settings.Providers)
+	}
+}
+
+func TestSetupStatsConsentHuhAbortCancelsInFrench(t *testing.T) {
+	originalHuh, originalRun := wizardHuhFn, huhRun
+	wizardHuhFn = func() bool { return true }
+	huhRun = func(*huh.Form) error { return huh.ErrUserAborted }
+	t.Cleanup(func() { wizardHuhFn, huhRun = originalHuh, originalRun })
+	_, _, err := setupStatsConsent(bufio.NewReader(strings.NewReader("")))
+	if !errors.Is(err, errSetupCancelled) {
+		t.Fatalf("abort error = %v", err)
+	}
+	if !strings.Contains(err.Error(), "setup annulé") || strings.Contains(err.Error(), "setup cancelled") {
+		t.Fatalf("cancellation must be French: %v", err)
 	}
 }
