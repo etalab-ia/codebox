@@ -135,20 +135,30 @@ func truncate(s string, n int) string {
 	return s[:n] + "..."
 }
 
-// ProbeHealth performs one health request against <endpoint>/global/health.
+// ProbeHealth performs one health request against <endpoint>/api/info.
 func ProbeHealth(ctx context.Context, client *http.Client, endpoint, username, password string) HealthProbe {
 	if client == nil {
 		client = &http.Client{Timeout: 5 * time.Second}
 	}
-	body, status, err := fetch(ctx, client, endpoint, username, password, "/global/health")
+	body, status, err := fetch(ctx, client, endpoint, username, password, "/api/info")
 	p := HealthProbe{Status: status, Body: body, Err: err}
 	if err == nil && status == http.StatusOK {
-		p.Healthy = strings.Contains(body, "healthy")
+		var info struct {
+			Version string   `json:"version"`
+			PID     *int     `json:"pid"`
+			URLs    []string `json:"urls"`
+			Paths   struct {
+				Tmp string `json:"tmp"`
+			} `json:"paths"`
+		}
+		p.Healthy = json.Unmarshal([]byte(body), &info) == nil &&
+			strings.HasPrefix(info.Version, "2.") && info.PID != nil && *info.PID >= 0 &&
+			info.URLs != nil && info.Paths.Tmp != ""
 	}
 	return p
 }
 
-// WaitHealthy polls <endpoint>/global/health until the body reports healthy or
+// WaitHealthy polls <endpoint>/api/info until the body reports healthy or
 // the wall-clock deadline expires. On failure the error carries the last probe
 // outcome, so an auth failure, a refused connection, and a still-starting
 // backend are distinguishable.
@@ -193,10 +203,9 @@ func WaitHealthy(ctx context.Context, endpoint, username, password string, cfg H
 }
 
 type providerList struct {
-	All []struct {
+	Data []struct {
 		ID string `json:"id"`
-	} `json:"all"`
-	Default map[string]any `json:"default"`
+	} `json:"data"`
 }
 
 // ReportRunningHealth prints an accurate status line for a runtime that is
@@ -219,25 +228,25 @@ func CheckBackend(ctx context.Context, client *http.Client, endpoint, username, 
 	if client == nil {
 		client = &http.Client{Timeout: 5 * time.Second}
 	}
-	body, err := FetchBody(ctx, client, endpoint, username, password, "/global/health")
+	body, err := FetchBody(ctx, client, endpoint, username, password, "/api/info")
 	if err != nil {
 		return err
 	}
 	fmt.Println(body)
 
 	var pl providerList
-	if err := FetchJSON(ctx, client, endpoint, username, password, "/provider", &pl); err != nil {
+	if err := FetchJSON(ctx, client, endpoint, username, password, "/api/provider", &pl); err != nil {
 		return err
 	}
 	registered := false
-	for _, p := range pl.All {
+	for _, p := range pl.Data {
 		if p.ID == "albert" {
 			registered = true
 			break
 		}
 	}
 	if registered {
-		fmt.Printf("albert provider: registered, default %v\n", pl.Default["albert"])
+		fmt.Println("albert provider: registered")
 	} else {
 		fmt.Println("albert provider: MISSING")
 	}

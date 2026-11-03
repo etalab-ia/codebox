@@ -21,10 +21,14 @@ type fakeRunner struct {
 
 func (f *fakeRunner) run(name string, args ...string) (ExecResult, error) {
 	f.calls = append(f.calls, name+" "+strings.Join(args, " "))
+	result := ExecResult{ExitCode: 0}
 	if f.onRun != nil {
-		return f.onRun(name, args), nil
+		result = f.onRun(name, args)
 	}
-	return ExecResult{ExitCode: 0}, nil
+	if result.ExitCode == 0 && result.Stdout == "" && strings.HasSuffix(name+" "+strings.Join(args, " "), "opencode --version") {
+		result.Stdout = "opencode v" + OpenCodeVersion + "\n"
+	}
+	return result, nil
 }
 
 func (f *fakeRunner) Run(_ context.Context, name string, args ...string) (ExecResult, error) {
@@ -441,7 +445,7 @@ func TestTartRunAgentPushesSecretsOnStdinOnly(t *testing.T) {
 	}
 	r := &fakeRunner{onRun: func(name string, args []string) ExecResult {
 		joined := strings.Join(args, " ")
-		if name == "tart" && strings.Contains(joined, "opencode session list --format json") {
+		if name == "tart" && strings.Contains(joined, "opencode session list --standalone --format json") {
 			return ExecResult{ExitCode: 0, Stdout: `[{"id":"ses_existing"}]`}
 		}
 		if name == "tart" && strings.Contains(joined, "opencode --help") {
@@ -486,7 +490,7 @@ func TestTartRunAgentPushesSecretsOnStdinOnly(t *testing.T) {
 	if !r.hasCall("exec opencode-tahoe-base-latest " + guestLocalBinary + " " + GuestPrepareCommand + " opencode Albert Code Agent albert-code@noreply.etalab.gouv.fr") {
 		t.Fatalf("prepare argv must be __guest-prepare <username> <gitName> <gitEmail>; calls: %v", r.calls)
 	}
-	if !r.hasCall("exec opencode-tahoe-base-latest /bin/zsh -lc set -a; . " + shellQuote(guestSecretsEnvPath) + "; set +a; cd '" + guestWorkspaceDir + "' && opencode session list --format json") {
+	if !r.hasCall("exec opencode-tahoe-base-latest /bin/zsh -lc set -a; . " + shellQuote(guestSecretsEnvPath) + "; set +a; cd '" + guestWorkspaceDir + "' && opencode session list --standalone --format json") {
 		t.Fatalf("the session-list probe must use the same login-shell PATH as the TUI: %v", r.calls)
 	}
 	if !r.hasCall("exec opencode-tahoe-base-latest /bin/zsh -lc set -a; . " + shellQuote(guestSecretsEnvPath) + "; set +a; opencode --help") {
@@ -501,7 +505,7 @@ func TestTartRunAgentPushesSecretsOnStdinOnly(t *testing.T) {
 	if !strings.HasPrefix(joined, "tart exec -it opencode-tahoe-base-latest /bin/zsh -lc ") {
 		t.Fatalf("interactive argv = %q", joined)
 	}
-	if !strings.Contains(joined, guestSecretsEnvPath) || !strings.Contains(joined, guestWorkspaceDir) || !strings.Contains(joined, "exec opencode --continue") {
+	if !strings.Contains(joined, guestSecretsEnvPath) || !strings.Contains(joined, guestWorkspaceDir) || !strings.Contains(joined, "exec opencode --standalone --continue") {
 		t.Fatalf("launch line must source secrets and resume OpenCode in the workspace: %q", joined)
 	}
 	if strings.Contains(joined, "pw") || strings.Contains(joined, "key") {
@@ -581,7 +585,7 @@ func TestTartStartRestartsHealthyBackendWhenOverlayChanges(t *testing.T) {
 
 // TestTartAgentLaunchQuotesPaths pins the fix for the workspace share path:
 // it contains spaces, and the line runs under `zsh -lc`, so an unquoted `cd`
-// would receive multiple arguments and never reach `exec opencode --continue`.
+// would receive multiple arguments and never reach `exec opencode --standalone --continue`.
 func TestTartAgentLaunchQuotesPaths(t *testing.T) {
 	line := tartAgentLaunch(guestSecretsEnvPath, guestWorkspaceDir, true)
 	if !strings.Contains(line, "cd '"+guestWorkspaceDir+"'") {
@@ -590,7 +594,7 @@ func TestTartAgentLaunchQuotesPaths(t *testing.T) {
 	if !strings.Contains(line, ". '"+guestSecretsEnvPath+"'") {
 		t.Fatalf("secrets path must be shell-quoted: %q", line)
 	}
-	if !strings.Contains(line, "exec opencode --continue") {
+	if !strings.Contains(line, "exec opencode --standalone --continue") {
 		t.Fatalf("Tart full mode must resume the latest session: %q", line)
 	}
 	fresh := tartAgentLaunch(guestSecretsEnvPath, guestWorkspaceDir, false)

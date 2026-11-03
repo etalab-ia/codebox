@@ -2,6 +2,7 @@ package justcode
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -423,10 +424,48 @@ func TestAgentVMLogPath(t *testing.T) {
 	}
 }
 
+func TestAgentVMV2UpgradeAndCustomTemplatePolicy(t *testing.T) {
+	for _, managed := range []bool{true, false} {
+		t.Run(fmt.Sprint(managed), func(t *testing.T) {
+			updated := false
+			r := &fakeRunner{onRun: func(name string, args []string) ExecResult {
+				joined := strings.Join(args, " ")
+				if strings.HasSuffix(joined, "opencode --version") {
+					version := "1.19.5"
+					if updated {
+						version = "opencode v" + OpenCodeVersion
+					}
+					return ExecResult{Stdout: version}
+				}
+				if strings.Contains(joined, "https://opencode.ai/v2/install") {
+					if !strings.Contains(joined, "--version "+OpenCodeVersion) {
+						t.Fatal("upgrade is not pinned")
+					}
+					updated = true
+				}
+				return ExecResult{}
+			}}
+			template := "user-template"
+			if managed {
+				template = DefaultAgentVMTemplate
+			}
+			a := NewAgentVM(Config{AgentVMTemplate: template})
+			a.Runner = r
+			err := a.ensureOpenCode(context.Background())
+			if managed && (err != nil || !updated) {
+				t.Fatalf("managed upgrade: %v, calls %v", err, r.calls)
+			}
+			if !managed && (err == nil || updated) {
+				t.Fatalf("custom template must be rejected without modification: %v, calls %v", err, r.calls)
+			}
+		})
+	}
+}
+
 func TestAgentVMRunAgentPushesSecretsAndLaunchesTUI(t *testing.T) {
 	r := &fakeRunner{onRun: func(name string, args []string) ExecResult {
 		joined := strings.Join(args, " ")
-		if name == "limactl" && strings.Contains(joined, "opencode session list --format json") {
+		if name == "limactl" && strings.Contains(joined, "opencode session list --standalone --format json") {
 			return ExecResult{ExitCode: 0, Stdout: `[{"id":"ses_existing"}]`}
 		}
 		if name == "limactl" && strings.Contains(joined, "opencode --help") {
@@ -468,7 +507,7 @@ func TestAgentVMRunAgentPushesSecretsAndLaunchesTUI(t *testing.T) {
 	if !strings.HasPrefix(joined, "limactl shell "+DefaultAgentVMVM+" sh -c ") {
 		t.Fatalf("interactive argv = %q", joined)
 	}
-	if !strings.Contains(joined, "/tmp/just-code-opencode.env") || !strings.Contains(joined, a.Config.WorkspaceDir) || !strings.Contains(joined, "exec opencode --continue") {
+	if !strings.Contains(joined, "/tmp/just-code-opencode.env") || !strings.Contains(joined, a.Config.WorkspaceDir) || !strings.Contains(joined, "exec opencode --standalone --continue") {
 		t.Fatalf("launch line must source secrets and resume OpenCode in the workspace: %q", joined)
 	}
 	// The workspace path is user-configurable and lands in a `sh -c` string,
@@ -480,7 +519,7 @@ func TestAgentVMRunAgentPushesSecretsAndLaunchesTUI(t *testing.T) {
 
 func TestAgentVMRunAgentFallsBackWhenContinueIsUnsupported(t *testing.T) {
 	r := &fakeRunner{onRun: func(name string, args []string) ExecResult {
-		if name == "limactl" && strings.Contains(strings.Join(args, " "), "opencode session list --format json") {
+		if name == "limactl" && strings.Contains(strings.Join(args, " "), "opencode session list --standalone --format json") {
 			return ExecResult{ExitCode: 0, Stdout: `[{"id":"ses_existing"}]`}
 		}
 		return ExecResult{ExitCode: 0}

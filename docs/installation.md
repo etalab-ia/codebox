@@ -49,7 +49,7 @@ Les binaires macOS ne sont ni signés ni notariés, et portent une signature ad-
 ## Dépendances de l'hôte
 
 - Une **clé d'au moins une plateforme d'inférence** : Albert API (par défaut), Mistral AI ou une plateforme compatible OpenAI, dans l'environnement ou dans le magasin d'identifiants (voir [Identifiants et secrets](credentials.md))
-- OpenCode CLI sur l'hôte (`npm install -g opencode-ai`) **uniquement en isolation partielle** : en isolation complète (le défaut), just-code installe OpenCode dans l'invité et ne le vérifie pas sur l'hôte.
+- OpenCode CLI sur l'hôte (`npm uninstall -g opencode-ai && npm install -g @opencode/cli@2.2.5`) **uniquement en isolation partielle** : en isolation complète (le défaut), just-code installe OpenCode dans l'invité et ne le vérifie pas sur l'hôte.
 - L'un des runtimes disponibles :
   - [Microsandbox](https://github.com/superradcompany/microsandbox) sur un Mac Apple Silicon, Linux (KVM) ou Windows arm64/x64 (Windows Hypervisor Platform / WHP) — **rien à installer** : just-code télécharge et vérifie l'exécutable `msb` automatiquement au premier démarrage ;
   - [Tart](https://github.com/openai/tart) (`brew install openai/tools/tart`) sur un Mac Apple Silicon pour les environnements de dev macOS (notamment Xcode / iOS) ;

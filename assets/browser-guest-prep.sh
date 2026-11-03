@@ -53,8 +53,9 @@ if [ ! -f "$toolchain_marker" ]; then
 
   test "$(node --version)" = "v${JUST_CODE_NODE_VERSION}"
   test "$(npm --version)" = "$JUST_CODE_NODE_NPM_VERSION"
-  npm install --global "opencode-ai@${JUST_CODE_OPENCODE_VERSION}"
-  test "$(opencode --version)" = "$JUST_CODE_OPENCODE_VERSION"
+  npm install --global --prefix /opt/just-code/opencode "@opencode/cli@${JUST_CODE_OPENCODE_VERSION}"
+  ln -sf /opt/just-code/opencode/bin/opencode /usr/local/bin/opencode
+  test "$(opencode --version)" = "opencode v$JUST_CODE_OPENCODE_VERSION"
   test "$(dpkg-query -W -f='${Version}' chromium)" = "$chromium_package_version"
   test "$(dpkg-query -W -f='${Version}' fonts-liberation)" = "$JUST_CODE_FONTS_LIBERATION_VERSION"
   test "$(chromium --version | sed 's/^Chromium //; s/ .*//')" = "$chromium_version"

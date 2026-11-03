@@ -1,10 +1,10 @@
 {
   "$schema": "https://opencode.ai/config.json",
-  "provider": {
+  "providers": {
     "albert": {
-      "npm": "@ai-sdk/openai-compatible",
+      "package": "@ai-sdk/openai-compatible",
       "name": "Albert API (État)",
-      "options": {
+      "settings": {
         "baseURL": "https://albert.api.etalab.gouv.fr/v1",
         "apiKey": "{env:ALBERT_API_KEY}"
       },
@@ -36,17 +36,16 @@
   },
   "model": "albert/qwen3-coder",
   "small_model": "albert/qwen3-coder",
-  "permission": {
-    "edit": "allow",
-    "external_directory": "allow",
-    "bash": {
-      ".*": "allow",
-      "git push.*(--force|-f | --force-with-lease)": "deny",
-      "sudo .*": "deny"
-    },
-    "webfetch": "allow",
-    "websearch": "allow",
-    "skill": "allow",
-    "task": "allow"
-  }
+  "permissions": [
+    { "action": "edit", "resource": "*", "effect": "allow" },
+    { "action": "external_directory", "resource": "*", "effect": "allow" },
+    { "action": "shell", "resource": "*", "effect": "allow" },
+    { "action": "shell", "resource": "git push* --force*", "effect": "deny" },
+    { "action": "shell", "resource": "git push* -f*", "effect": "deny" },
+    { "action": "shell", "resource": "sudo *", "effect": "deny" },
+    { "action": "webfetch", "resource": "*", "effect": "allow" },
+    { "action": "websearch", "resource": "*", "effect": "allow" },
+    { "action": "skill", "resource": "*", "effect": "allow" },
+    { "action": "subagent", "resource": "*", "effect": "allow" }
+  ]
 }

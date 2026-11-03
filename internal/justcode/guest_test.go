@@ -4,6 +4,7 @@ import (
 	"context"
 	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -285,24 +286,77 @@ func TestGuestDisablesOpenCodeUpdateCheck(t *testing.T) {
 	}
 }
 
-func TestGuestInstallsOpencodeViaBrew(t *testing.T) {
+func TestGuestVersionProbeUsesResolvedPrivateBinary(t *testing.T) {
 	skipUnixGuest(t)
-	// brew present, opencode absent; a successful brew install drops it on PATH.
+	oldDir, home := t.TempDir(), t.TempDir()
+	private := filepath.Join(home, ".opencode", "bin")
+	if err := os.MkdirAll(private, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for dir, version := range map[string]string{oldDir: "1.18.32", private: "opencode v" + OpenCodeVersion} {
+		if err := os.WriteFile(filepath.Join(dir, "opencode"), []byte("#!/bin/sh\nprintf '%s\\n' '"+version+"'\n"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	t.Setenv("PATH", oldDir)
+	cfg := GuestConfig{Runner: OSRunner{}, Home: home, Environ: []string{"PATH=" + oldDir}, HTTPGet: func(string) ([]byte, error) {
+		t.Fatal("correct private v2 binary must not trigger installation")
+		return nil, nil
+	}}
+	applyGuestDefaults(&cfg)
+	pathEnv := guestPath(cfg.Environ, home)
+	g := &guest{cfg: cfg, pathEnv: pathEnv, env: withEnv(cfg.Environ, "PATH="+pathEnv)}
+	if err := g.ensureOpencode(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestGuestUpgradesLegacyOpenCodeInPlace(t *testing.T) {
+	skipUnixGuest(t)
+	updated := false
+	r := &fakeRunner{onRun: func(name string, args []string) ExecResult {
+		if name == "bash" {
+			if !strings.Contains(strings.Join(args, " "), "--version "+OpenCodeVersion+" --no-modify-path") {
+				t.Fatal("guest upgrade must pin the v2 installer")
+			}
+			updated = true
+		}
+		if filepath.Base(name) == "opencode" && len(args) == 1 && args[0] == "--version" {
+			version := "1.19.5"
+			if updated {
+				version = "opencode v" + OpenCodeVersion
+			}
+			return ExecResult{Stdout: version}
+		}
+		return ExecResult{}
+	}}
+	cfg, _ := guestTest(t, r, "", "opencode")
+	if err := RunGuestPrepare(context.Background(), cfg); err != nil {
+		t.Fatal(err)
+	}
+	if !updated || r.hasCall("npm install") || r.hasCall("brew install") {
+		t.Fatalf("existing guest binary must migrate via its private installer, not collide with a global bin: %v", r.calls)
+	}
+}
+
+func TestGuestInstallsPinnedOpenCodeViaNPM(t *testing.T) {
+	skipUnixGuest(t)
+	// npm present, opencode absent; a pinned v2 install drops it on PATH.
 	var binDir string
 	r := &fakeRunner{onRun: func(name string, args []string) ExecResult {
-		if name == "brew" {
+		if name == "npm" {
 			_ = os.WriteFile(filepath.Join(binDir, "opencode"), []byte("#!/bin/sh\n"), 0o755)
 		}
 		return ExecResult{ExitCode: 0}
 	}}
-	cfg, execer, dir := guestTestDir(t, r, "pw\nkey\n", "brew")
+	cfg, execer, dir := guestTestDir(t, r, "pw\nkey\n", "npm")
 	binDir = dir
 
 	if err := RunGuestBootstrap(context.Background(), cfg); err != nil {
 		t.Fatalf("RunGuestBootstrap: %v", err)
 	}
-	if !r.hasCall("brew install anomalyco/tap/opencode") {
-		t.Fatalf("brew install not attempted; calls: %v", r.calls)
+	if !r.hasCall("npm install -g @opencode/cli@" + OpenCodeVersion) {
+		t.Fatalf("pinned v2 install not attempted; calls: %v", r.calls)
 	}
 	if !execer.called {
 		t.Fatal("expected opencode to be exec'd after install")
@@ -329,7 +383,7 @@ func TestGuestInstallFallsBackToInstallerScript(t *testing.T) {
 	if err := RunGuestBootstrap(context.Background(), cfg); err != nil {
 		t.Fatalf("RunGuestBootstrap: %v", err)
 	}
-	if !r.hasCall("npm install -g opencode-ai") {
+	if !r.hasCall("npm install -g @opencode/cli@" + OpenCodeVersion) {
 		t.Fatalf("npm fallback not attempted; calls: %v", r.calls)
 	}
 	if !r.hasCall("bash ") {
@@ -400,5 +454,39 @@ func TestGuestSecretsEnvCarriesProviderConfig(t *testing.T) {
 	// update-check opt-out must be here too.
 	if !strings.Contains(content, "OPENCODE_DISABLE_AUTOUPDATE=1") {
 		t.Fatalf("secrets env must disable the update check: %q", content)
+	}
+}
+
+func TestTartAgentLaunchUsesUpgradedPrivateOpenCode(t *testing.T) {
+	skipUnixGuest(t)
+	home, workspace := t.TempDir(), t.TempDir()
+	legacyBin := t.TempDir()
+	privateBin := filepath.Join(home, ".opencode", "bin")
+	for _, dir := range []string{legacyBin, privateBin} {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	writeOpenCode := func(dir, version string) {
+		script := "#!/bin/sh\nprintf '%s\\n' '" + version + "'\n"
+		if err := os.WriteFile(filepath.Join(dir, "opencode"), []byte(script), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	writeOpenCode(legacyBin, "1.18.32")
+	writeOpenCode(privateBin, "opencode v"+OpenCodeVersion)
+
+	envPath := filepath.Join(t.TempDir(), "agent.env")
+	if err := os.WriteFile(envPath, []byte(guestSecretsEnv("pw", "opencode", nil, ManagedOverlay{})), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cmd := exec.Command("/bin/sh", "-c", tartAgentLaunch(envPath, workspace, false))
+	cmd.Env = []string{"HOME=" + home, "PATH=" + legacyBin}
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("launch upgraded guest TUI: %v: %s", err, output)
+	}
+	if got := strings.TrimSpace(string(output)); got != "opencode v"+OpenCodeVersion {
+		t.Fatalf("Tart launch selected OpenCode %q, want the private upgraded v%s binary", got, OpenCodeVersion)
 	}
 }

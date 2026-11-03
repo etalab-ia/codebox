@@ -326,7 +326,7 @@ func TestReconcileNoOpInstallsNewProjectSkills(t *testing.T) {
 		exists: true, status: "running",
 		execCaptureResults: []fakeMSBExecCaptureResult{
 			{stdout: `{"schemaVersion":1,"skills":[]}`},
-			{stdout: `[{"name":"rgaa"}]`},
+			{stdout: `{"data":[{"name":"rgaa"}]}`},
 		},
 	}
 	m := newTestMicrosandbox(t, client)
@@ -346,7 +346,7 @@ func TestReconcileNoOpInstallsNewProjectSkills(t *testing.T) {
 	if len(client.written) != 2 || countCalls(client, "create") != 0 || countCalls(client, "start") != 0 {
 		t.Fatalf("no-op reconcile did not install skills without restarting the guest: writes=%d calls=%v", len(client.written), client.calls)
 	}
-	if !hasCall(client, "execcapture "+m.InstanceName()+" opencode debug skill") {
+	if !hasCall(client, "execcapture "+m.InstanceName()+" opencode api --standalone GET /api/skill") {
 		t.Fatal("no-op reconcile returned before verifying OpenCode skill discovery")
 	}
 	_ = os.Remove(statePath)
@@ -370,7 +370,7 @@ func TestReconcileBackendRestartInstallsSkillsBeforeRelaunch(t *testing.T) {
 		exists: true, status: "running", startScript: msbStartScript(IsolationBackend),
 		execCaptureResults: []fakeMSBExecCaptureResult{
 			{stdout: `{"schemaVersion":1,"skills":[]}`},
-			{stdout: `[{"name":"rgaa"}]`},
+			{stdout: `{"data":[{"name":"rgaa"}]}`},
 		},
 	}
 	m := newTestMicrosandbox(t, client)

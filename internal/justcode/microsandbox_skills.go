@@ -408,17 +408,19 @@ func (m *MicrosandboxRuntime) verifyProjectSkills(ctx context.Context) error {
 	if len(m.cfg.ProjectSkills) == 0 {
 		return nil
 	}
-	stdout, stderr, code, err := m.Client.ExecCapture(ctx, m.InstanceName(), "opencode debug skill")
+	stdout, stderr, code, err := m.Client.ExecCapture(ctx, m.InstanceName(), "opencode api --standalone GET /api/skill")
 	if err != nil {
 		return fmt.Errorf("verify guest skill discovery: %w", err)
 	}
 	if code != 0 {
-		return fmt.Errorf("verify guest skill discovery: opencode debug skill exited %d: %s", code, strings.TrimSpace(stderr))
+		return fmt.Errorf("verify guest skill discovery: opencode api --standalone GET /api/skill exited %d: %s", code, strings.TrimSpace(stderr))
 	}
-	var found []struct {
-		Name string `json:"name"`
+	var response struct {
+		Data []struct {
+			Name string `json:"name"`
+		} `json:"data"`
 	}
-	if err := json.Unmarshal([]byte(stdout), &found); err != nil {
+	if err := json.Unmarshal([]byte(stdout), &response); err != nil {
 		return fmt.Errorf("verify guest skill discovery: invalid OpenCode response: %w", err)
 	}
 	expected := make(map[string]bool, len(m.cfg.ProjectSkills))
@@ -426,7 +428,7 @@ func (m *MicrosandboxRuntime) verifyProjectSkills(ctx context.Context) error {
 		expected[skill.Name] = true
 	}
 	seen := make(map[string]int, len(expected))
-	for _, item := range found {
+	for _, item := range response.Data {
 		if expected[item.Name] {
 			seen[item.Name]++
 		}
