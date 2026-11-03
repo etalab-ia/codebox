@@ -126,7 +126,7 @@ func (m *MicrosandboxRuntime) SyncGuestWorkspace(ctx context.Context, opts SyncO
 	}
 	if changed {
 		if !opts.Force {
-			return fmt.Errorf("the guest workspace has committed changes since the last host transfer; "+
+			return fmt.Errorf("the guest workspace has committed changes since the last host transfer; " +
 				"export or apply them first ('just-code workspace export' or 'just-code workspace apply'), push them, or pass --force to refresh anyway")
 		}
 		preserveBase = true
