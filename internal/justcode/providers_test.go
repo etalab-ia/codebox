@@ -3,6 +3,7 @@ package justcode
 import (
 	"context"
 	"encoding/json"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"reflect"
@@ -162,6 +163,38 @@ func TestValidateProviderKeyClassifiesHTTPFailures(t *testing.T) {
 	}
 }
 
+// TestValidateProviderKeyMistralKeepsFailuresRetryable: a fixed-endpoint
+// provider cannot correct its URL, so incompatibility-shaped responses retain
+// the pre-#309 retry/continue-unverified path (#309).
+func TestValidateProviderKeyMistralKeepsFailuresRetryable(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		status int
+		body   string
+	}{
+		{name: "redirect", status: http.StatusFound},
+		{name: "missing models route", status: http.StatusNotFound},
+		{name: "invalid catalogue", status: http.StatusOK, body: `<html>portal</html>`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.WriteHeader(tc.status)
+				_, _ = w.Write([]byte(tc.body))
+			}))
+			defer server.Close()
+			provider, err := ResolveProvider(ProviderSettings{Kind: ProviderMistral})
+			if err != nil {
+				t.Fatal(err)
+			}
+			provider.CatalogueURL = server.URL
+			probe := ValidateProviderKey(context.Background(), server.Client(), provider, "key")
+			if !probe.Unreachable || probe.Incompatible || probe.Rejected {
+				t.Fatalf("fixed-endpoint failure must stay retryable: %+v", probe)
+			}
+		})
+	}
+}
+
 // TestValidateProviderKeyRedirectIsIncompatibleAndNeverReplayed: a redirect
 // means a wrong base URL (incompatible), and the credential never reaches
 // the redirect target.
@@ -189,7 +222,12 @@ func TestValidateProviderKeyRedirectIsIncompatibleAndNeverReplayed(t *testing.T)
 // timeout are temporary unavailability, never an URL compatibility verdict.
 func TestValidateProviderKeyTransportFailuresStayUnreachable(t *testing.T) {
 	t.Run("DNS failure", func(t *testing.T) {
-		probe := ValidateProviderKey(context.Background(), nil, testProviderAt("http://nonexistent.invalid"), "key")
+		transport := http.DefaultTransport.(*http.Transport).Clone()
+		transport.DialContext = func(context.Context, string, string) (net.Conn, error) {
+			return nil, &net.DNSError{Err: "simulated DNS failure", Name: "nonexistent.invalid"}
+		}
+		client := &http.Client{Transport: transport}
+		probe := ValidateProviderKey(context.Background(), client, testProviderAt("http://nonexistent.invalid"), "key")
 		if !probe.Unreachable || probe.Incompatible {
 			t.Fatalf("a DNS failure must be unreachable, got %+v", probe)
 		}

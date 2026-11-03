@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"errors"
+	"os"
 	"strings"
 	"testing"
 
@@ -45,6 +46,13 @@ func envTestWizard(stateDir string, store *fakeSetupStore, probes []justcode.Cre
 			return probes[calls-1]
 		},
 	}
+}
+
+func stubEnvPasswordReader(t *testing.T, value string) {
+	t.Helper()
+	original := passwordReaderFn
+	passwordReaderFn = func() (string, error) { return value, nil }
+	t.Cleanup(func() { passwordReaderFn = original })
 }
 
 func TestAlbertEnvKeyAcceptedStoresWithoutPrintingValue(t *testing.T) {
@@ -207,7 +215,8 @@ func TestAlbertEnvKeyUnreachableContinueStoresUnverified(t *testing.T) {
 
 func TestAlbertEnvKeyEmptyMeansNoProposal(t *testing.T) {
 	stateDir, _ := setupTestEnv(t)
-	forcePipedWizard(t)
+	forceLineWizard(t)
+	stubEnvPasswordReader(t, "typed-key")
 	t.Setenv("ALBERT_API_KEY", "")
 	store := &fakeSetupStore{}
 	var validated []string
@@ -222,6 +231,30 @@ func TestAlbertEnvKeyEmptyMeansNoProposal(t *testing.T) {
 	}
 	if strings.Contains(out, "ALBERT_API_KEY") {
 		t.Errorf("an empty variable must not trigger the proposal; output:\n%s", out)
+	}
+}
+
+func TestAlbertEnvKeyAbsentMeansNoProposal(t *testing.T) {
+	stateDir, _ := setupTestEnv(t)
+	forceLineWizard(t)
+	stubEnvPasswordReader(t, "typed-key")
+	t.Setenv("ALBERT_API_KEY", "placeholder")
+	if err := os.Unsetenv("ALBERT_API_KEY"); err != nil {
+		t.Fatal(err)
+	}
+	store := &fakeSetupStore{}
+	var validated []string
+	w := envTestWizard(stateDir, store, nil, &validated)
+	out := captureStdout(t, func() {
+		if _, _, err := providerKeyStage(context.Background(), w, bufio.NewReader(strings.NewReader("typed-key\n")), envTestProvider(t), true, stateDir); err != nil {
+			t.Fatalf("stage: %v", err)
+		}
+	})
+	if store.puts[justcode.CredentialAlbert] != "typed-key" {
+		t.Fatalf("puts = %+v", store.puts)
+	}
+	if strings.Contains(out, "ALBERT_API_KEY") {
+		t.Errorf("an absent variable must not trigger the proposal; output:\n%s", out)
 	}
 }
 
@@ -303,5 +336,33 @@ func TestAlbertEnvKeyStoredJournalTakesPriority(t *testing.T) {
 	}
 	if len(store.puts) != 0 || len(validated) != 0 {
 		t.Fatalf("nothing new may be stored or validated: puts=%+v validated=%v", store.puts, validated)
+	}
+}
+
+// TestAlbertEnvKeyEditReplaceAllowsManualReplacement drives the edit/replace
+// path with an environment key present: declining it validates and stores only
+// the manually entered replacement (#308).
+func TestAlbertEnvKeyEditReplaceAllowsManualReplacement(t *testing.T) {
+	stateDir, _ := setupTestEnv(t)
+	forceLineWizard(t)
+	stubEnvPasswordReader(t, "manual-key")
+	t.Setenv("ALBERT_API_KEY", envTestSecret)
+	j := resumeTestJournal([]justcode.SetupPlatform{{Kind: "albert"}}, string(justcode.CredentialAlbert))
+	store := &fakeSetupStore{}
+	var validated []string
+	w := envTestWizard(stateDir, store, nil, &validated)
+	out := captureStdout(t, func() {
+		if _, err := setupPlatformStage(context.Background(), w, bufio.NewReader(strings.NewReader("\nr\ns\nmanual-key\n")), true, &j, true, justcode.DefaultFS, stateDir); err != nil {
+			t.Fatalf("stage: %v", err)
+		}
+	})
+	if store.puts[justcode.CredentialAlbert] != "manual-key" {
+		t.Fatalf("puts = %+v, want only the manual replacement", store.puts)
+	}
+	if len(validated) != 1 || validated[0] != "manual-key" {
+		t.Fatalf("validated = %v, want only the manual replacement", validated)
+	}
+	if strings.Contains(out, envTestSecret) {
+		t.Fatal("the environment secret leaked into the output")
 	}
 }

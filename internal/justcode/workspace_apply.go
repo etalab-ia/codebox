@@ -369,11 +369,13 @@ type guestLocalBranch struct {
 // most recently committed pushed branch is used, so a branch the agent
 // created under another name is still found. Without any push, the marker
 // branch (or the latest local branch) is reported as not pushed. The default
-// branch and the workflow's snapshot-backup branch are never candidates.
+// branch and the workflow's snapshot-backup branch are never candidates; with
+// no remote HEAD, the sealed bootstrap's main/master baseline is excluded too.
 func selectGuestWorkBranch(marker string, locals []guestLocalBranch, remotes map[string]bool, defaultBranch string) (string, bool) {
 	var candidates []guestLocalBranch
 	for _, local := range locals {
-		if local.name == "" || local.name == defaultBranch || local.name == marker+"-snapshot-backup" {
+		bootstrapBaseline := defaultBranch == "" && (local.name == "main" || local.name == "master")
+		if local.name == "" || local.name == defaultBranch || bootstrapBaseline || local.name == marker+"-snapshot-backup" {
 			continue
 		}
 		candidates = append(candidates, local)

@@ -347,6 +347,24 @@ func TestGuestBranchStatus(t *testing.T) {
 			t.Fatalf("GuestBranchStatus = (%+v, %v), want nothing to report", status, err)
 		}
 	})
+	t.Run("never created without marker or origin", func(t *testing.T) {
+		for _, baseline := range []string{"main", "master"} {
+			t.Run(baseline, func(t *testing.T) {
+				client := sealedFakeMSB()
+				client.execCaptureResults = []fakeMSBExecCaptureResult{
+					{code: 1},
+					{stdout: baseline + "\x001000\n"},
+					{stdout: ""},
+					{code: 1},
+				}
+				m, _ := applyTestRuntime(t, client)
+				status, err := m.GuestBranchStatus(context.Background())
+				if err != nil || status.Branch != "" || status.Pushed {
+					t.Fatalf("GuestBranchStatus = (%+v, %v), want the bootstrap baseline ignored", status, err)
+				}
+			})
+		}
+	})
 	t.Run("created but never pushed", func(t *testing.T) {
 		client := sealedFakeMSB()
 		client.execCaptureResults = []fakeMSBExecCaptureResult{

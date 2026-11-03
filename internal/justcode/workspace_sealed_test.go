@@ -80,6 +80,7 @@ func TestSyncRefusesOverGuestChanges(t *testing.T) {
 		},
 	}
 	m := newTestMicrosandbox(t, client)
+	writeRecoveryBase(t, m.StateDir, m.InstanceName(), testRecoveryBaseSHA)
 	writeFile(t, m.cfg.WorkspaceDir, "main.go", "package main\n")
 	gitInitForTransfer(t, m.cfg.WorkspaceDir)
 
@@ -104,6 +105,89 @@ func TestSyncRefusesOverGuestChanges(t *testing.T) {
 	}
 	if len(client.written) != 1 {
 		t.Fatalf("the forced refresh must write one payload, got %d", len(client.written))
+	}
+}
+
+// TestSyncRefusesOverCommittedGuestChanges covers a clean working tree with
+// committed guest work: refresh refuses by default, and Force preserves the
+// previous recovery base instead of absorbing those commits (#313).
+func TestSyncRefusesOverCommittedGuestChanges(t *testing.T) {
+	client := &fakeMSBClient{exists: true,
+		execCaptureResults: []fakeMSBExecCaptureResult{
+			{stdout: "yes"},
+			{stdout: ""},
+			{code: 1},
+		},
+	}
+	m := newTestMicrosandbox(t, client)
+	writeRecoveryBase(t, m.StateDir, m.InstanceName(), testRecoveryBaseSHA)
+	writeFile(t, m.cfg.WorkspaceDir, "main.go", "package main\n")
+	gitInitForTransfer(t, m.cfg.WorkspaceDir)
+
+	err := m.SyncGuestWorkspace(context.Background(), SyncOptions{Print: func(string) {}})
+	if err == nil || !strings.Contains(err.Error(), "committed changes") {
+		t.Fatalf("a refresh over committed guest work must be refused: %v", err)
+	}
+	if len(client.written) != 0 {
+		t.Fatal("a refused refresh must not write anything")
+	}
+
+	client.execCaptureResults = []fakeMSBExecCaptureResult{
+		{stdout: "yes"},
+		{stdout: ""},
+		{code: 1},
+	}
+	client.execCaptureDefault = &fakeMSBExecCaptureResult{stdout: testRecoveryBaseSHA}
+	client.calls = nil
+	if err := m.SyncGuestWorkspace(context.Background(), SyncOptions{Force: true, Print: func(string) {}}); err != nil {
+		t.Fatalf("forced refresh: %v", err)
+	}
+	if len(client.written) != 1 {
+		t.Fatalf("the forced refresh must write one payload, got %d", len(client.written))
+	}
+	if got := m.guestDiffBase(); got != testRecoveryBaseSHA {
+		t.Fatalf("forced refresh advanced the recovery base to %q", got)
+	}
+	if joined := strings.Join(client.calls, "\n"); strings.Contains(joined, "git rev-parse HEAD") {
+		t.Fatalf("a base-preserving refresh must not record a new HEAD: %v", client.calls)
+	}
+}
+
+func TestSyncCleanGuestAdvancesRecoveryBase(t *testing.T) {
+	previousSHA := "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+	client := &fakeMSBClient{exists: true,
+		execCaptureResults: []fakeMSBExecCaptureResult{
+			{stdout: "yes"},
+			{stdout: ""},
+			{code: 0},
+			{stdout: testRecoveryBaseSHA},
+		},
+	}
+	m := newTestMicrosandbox(t, client)
+	writeRecoveryBase(t, m.StateDir, m.InstanceName(), previousSHA)
+	writeFile(t, m.cfg.WorkspaceDir, "main.go", "package main\n")
+	gitInitForTransfer(t, m.cfg.WorkspaceDir)
+	if err := m.SyncGuestWorkspace(context.Background(), SyncOptions{Print: func(string) {}}); err != nil {
+		t.Fatalf("clean refresh: %v", err)
+	}
+	if got := m.guestDiffBase(); got != testRecoveryBaseSHA {
+		t.Fatalf("recovery base = %q, want the new snapshot %q", got, testRecoveryBaseSHA)
+	}
+}
+
+func TestSyncRefusesLegacyGuestWithoutRecoveryBase(t *testing.T) {
+	client := &fakeMSBClient{exists: true,
+		execCaptureResults: []fakeMSBExecCaptureResult{{stdout: "yes"}},
+	}
+	m := newTestMicrosandbox(t, client)
+	writeFile(t, m.cfg.WorkspaceDir, "main.go", "package main\n")
+	gitInitForTransfer(t, m.cfg.WorkspaceDir)
+	err := m.SyncGuestWorkspace(context.Background(), SyncOptions{Force: true, Print: func(string) {}})
+	if err == nil || !strings.Contains(err.Error(), "predates recovery-base tracking") {
+		t.Fatalf("a legacy refresh must be refused rather than risk hiding commits: %v", err)
+	}
+	if len(client.written) != 0 {
+		t.Fatal("a refused legacy refresh must not write anything")
 	}
 }
 
@@ -356,6 +440,7 @@ func TestWorkspaceOpsRefuseMissingInstance(t *testing.T) {
 func TestSyncHonoursRecordedOptInWithoutTheFlag(t *testing.T) {
 	client := &fakeMSBClient{exists: true, execCaptureDefault: &fakeMSBExecCaptureResult{stdout: testRecoveryBaseSHA}}
 	m := newTestMicrosandbox(t, client)
+	writeRecoveryBase(t, m.StateDir, m.InstanceName(), testRecoveryBaseSHA)
 	writeFile(t, m.cfg.WorkspaceDir, ".env", "SECRET=allowed-by-decision\n")
 	gitInitForTransfer(t, m.cfg.WorkspaceDir)
 

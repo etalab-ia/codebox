@@ -322,7 +322,14 @@ func ValidateProviderKey(ctx context.Context, client *http.Client, p InferencePr
 	if p.Kind == ProviderAlbert {
 		return validateAlbertKeyAt(ctx, client, key, p.CatalogueURL)
 	}
-	return validateModelsEndpointKey(ctx, client, key, p.CatalogueURL)
+	probe := validateModelsEndpointKey(ctx, client, key, p.CatalogueURL)
+	if p.Kind != ProviderOpenAICompatible && probe.Incompatible {
+		// A fixed-endpoint provider cannot correct its URL in the wizard. Keep
+		// these responses on the retry/continue-unverified path instead (#309).
+		probe.Incompatible = false
+		probe.Unreachable = true
+	}
+	return probe
 }
 
 // validateModelsEndpointKey is the generic OpenAI-compatible probe. It
