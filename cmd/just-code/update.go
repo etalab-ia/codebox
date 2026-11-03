@@ -164,7 +164,7 @@ func updateCmd(args []string, projectRoot string) (int, error) {
 	if err := plan.Apply(justcode.DefaultFS); err != nil {
 		return 1, err
 	}
-	fmt.Printf("Mis à jour de %d skills de projet et de leurs instructions gérées.\n", len(plan.Changes))
+	fmt.Printf("Mise à jour de %d skills de projet et de leurs instructions gérées.\n", len(plan.Changes))
 	fmt.Println("Guest packages and runtime images are not changed or recreated by this command.")
 	return 0, nil
 }

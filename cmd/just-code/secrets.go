@@ -285,7 +285,7 @@ func projectSecretsSelectFiles(candidates []string) ([]string, error) {
 func newDotenvFilesMultiSelect(options []huh.Option[string], value *[]string) *huh.MultiSelect[string] {
 	return huh.NewMultiSelect[string]().
 		Title("Dotenv files").
-		Description("Choisissez les fichiers à importer dans le projet ; la détection ne les lit ni ne les importe automatiquement. Espace ou x pour cocher/décocher ; Entrée pour valider la liste.").
+		Description("Choisissez les fichiers du projet dont vous voulez importer les secrets ; la détection ne les lit ni ne les importe automatiquement. Espace ou x pour cocher/décocher ; Entrée pour valider la liste.").
 		Options(options...).
 		Value(value)
 }

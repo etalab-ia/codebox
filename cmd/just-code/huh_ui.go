@@ -265,11 +265,11 @@ func retainedSkillOptions(options []huh.Option[string], selected []string) []huh
 }
 
 // initStepPrefix numbers the three-step init flow ([1/3], [2/3], [3/3]) for
-// the beginner path. When any expert setting comes from a flag, the counter
-// is omitted rather than risk a misleading number (#312), the rule the
-// skills screen already followed.
+// the beginner path. When an expert setting or an entire step comes from a
+// flag, the counter is omitted rather than risk a misleading number (#312).
+// The displayed root never skips a step, so it does not suppress the counter.
 func initStepPrefix(opts initOptions, step int) string {
-	for _, field := range []string{"root", "runtime", "isolation", "model", "small-model", "cpus", "memory-mb", "credential-ref", "github"} {
+	for _, field := range []string{"runtime", "isolation", "model", "small-model", "cpus", "memory-mb", "credential-ref", "github", "skills", "mcps"} {
 		if opts.Set[field] {
 			return ""
 		}
