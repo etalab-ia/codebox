@@ -29,8 +29,12 @@ func TransferOptInPath(stateDir, instance string) string {
 // SyncOptions tunes a workspace provisioning or refresh.
 type SyncOptions struct {
 	// Force allows a refresh over guest-local uncommitted work, which is
-	// otherwise refused so nothing is overwritten silently.
+	// otherwise refused so nothing is overwritten silently. The previous
+	// recovery base is preserved so the overwritten work remains recoverable.
 	Force bool
+	// preserveRecoveryBase is set when a forced refresh must not absorb guest
+	// commits into the recovery baseline.
+	preserveRecoveryBase bool
 	// OptIn carries the recorded per-file re-inclusions (see
 	// TransferOptInStore).
 	OptIn map[string]bool
@@ -100,16 +104,34 @@ func (m *MicrosandboxRuntime) SyncGuestWorkspace(ctx context.Context, opts SyncO
 		// below applies.)
 		return m.transferIntoGuest(ctx, opts, "Provisioning the sealed guest workspace")
 	}
-	if !opts.Force {
-		dirty, err := m.guestWorkingTreeDirty(ctx)
-		if err != nil {
-			return err
-		}
-		if dirty != "" {
+	base := m.guestDiffBase()
+	if base == "HEAD" {
+		return fmt.Errorf("the guest workspace predates recovery-base tracking, so a refresh could hide committed work; push or recover that work and recreate the guest before refreshing")
+	}
+	preserveBase := false
+	dirty, err := m.guestWorkingTreeDirty(ctx)
+	if err != nil {
+		return err
+	}
+	if dirty != "" {
+		if !opts.Force {
 			return fmt.Errorf("the guest workspace has uncommitted changes, so a refresh could overwrite them; "+
 				"export them first ('just-code workspace export') or pass --force to refresh anyway:\n%s", dirty)
 		}
+		preserveBase = true
 	}
+	changed, err := m.guestChangesSinceBase(ctx, base)
+	if err != nil {
+		return err
+	}
+	if changed {
+		if !opts.Force {
+			return fmt.Errorf("the guest workspace has committed changes since the last host transfer; "+
+				"export or apply them first ('just-code workspace export' or 'just-code workspace apply'), push them, or pass --force to refresh anyway")
+		}
+		preserveBase = true
+	}
+	opts.preserveRecoveryBase = preserveBase
 	return m.transferIntoGuest(ctx, opts, "Refreshing the sealed guest workspace")
 }
 
@@ -194,12 +216,13 @@ func (m *MicrosandboxRuntime) transferIntoGuest(ctx context.Context, opts SyncOp
 		}
 		return err
 	}
-	// The recovery base is the host-initiated snapshot commit (#313): diffs
-	// are taken against it, not against HEAD, so work the AGENT committed in
-	// the guest stays visible to export/apply. It advances only on a host
-	// transfer (provision or refresh), never on an agent commit.
-	if err := m.recordRecoveryBase(ctx); err != nil {
-		return err
+	// The recovery base advances only when the guest had no changes of its own
+	// before the host transfer. A forced refresh preserves the previous base so
+	// committed guest work cannot be absorbed into the new snapshot (#313).
+	if !opts.preserveRecoveryBase {
+		if err := m.recordRecoveryBase(ctx); err != nil {
+			return err
+		}
 	}
 	opts.print(fmt.Sprintf("Guest workspace ready: %d file(s) in %s.\n", len(included), msbGuestWorkspace))
 	return nil
@@ -360,6 +383,25 @@ func (m *MicrosandboxRuntime) guestWorkingTreeDirty(ctx context.Context) (string
 		return "", fmt.Errorf("cannot read the state of the guest workspace: %s", detail)
 	}
 	return strings.TrimSpace(stdout), nil
+}
+
+// guestChangesSinceBase reports whether tracked guest content differs from the
+// last host snapshot, including committed work that a HEAD-only dirty check
+// would miss. Untracked files are covered separately by guestWorkingTreeDirty.
+func (m *MicrosandboxRuntime) guestChangesSinceBase(ctx context.Context, base string) (bool, error) {
+	_, stderr, code, err := m.Client.ExecCapture(ctx, m.InstanceName(),
+		"cd "+shellQuote(msbGuestWorkspace)+" && git diff --quiet "+base+" --")
+	if err != nil {
+		return false, err
+	}
+	switch code {
+	case 0:
+		return false, nil
+	case 1:
+		return true, nil
+	default:
+		return false, fmt.Errorf("cannot compare the guest workspace with its recovery base: %s", strings.TrimSpace(stderr))
+	}
 }
 
 // guestShell runs a command in the guest, surfacing stderr on failure.
