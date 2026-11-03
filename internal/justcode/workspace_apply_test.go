@@ -3,6 +3,7 @@ package justcode
 import (
 	"context"
 	"encoding/base64"
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -331,52 +332,152 @@ func TestApplyRecordStoreLoadsOldSchemasWithoutBaselines(t *testing.T) {
 	}
 }
 
-func TestGuestPushedBranch(t *testing.T) {
+func TestGuestBranchStatus(t *testing.T) {
 	t.Run("never created", func(t *testing.T) {
 		client := sealedFakeMSB()
-		client.execCaptureResults = []fakeMSBExecCaptureResult{{code: 1}}
+		client.execCaptureResults = []fakeMSBExecCaptureResult{
+			{code: 1},                              // git config --get: no marker
+			{stdout: "main\x001000\n"},             // local branches
+			{stdout: "origin/main\norigin/HEAD\n"}, // remote refs
+			{stdout: "origin/main\n"},              // remote HEAD
+		}
 		m, _ := applyTestRuntime(t, client)
-		branch, prURL, pushed, err := m.GuestPushedBranch(context.Background())
-		if err != nil || pushed || branch != "" || prURL != "" {
-			t.Fatalf("GuestPushedBranch = (%q, %q, %v, %v), want empty and not pushed", branch, prURL, pushed, err)
+		status, err := m.GuestBranchStatus(context.Background())
+		if err != nil || status.Branch != "" || status.Pushed {
+			t.Fatalf("GuestBranchStatus = (%+v, %v), want nothing to report", status, err)
 		}
 	})
 	t.Run("created but never pushed", func(t *testing.T) {
 		client := sealedFakeMSB()
 		client.execCaptureResults = []fakeMSBExecCaptureResult{
-			{stdout: "letta/fix\n"}, // git config --get
-			{code: 1},               // rev-parse: no remote ref
+			{stdout: "letta/fix\n"},
+			{stdout: "letta/fix\x001000\n"},
+			{stdout: "origin/main\n"},
+			{stdout: "origin/main\n"},
 		}
 		m, _ := applyTestRuntime(t, client)
-		branch, prURL, pushed, err := m.GuestPushedBranch(context.Background())
-		if err != nil || pushed || branch != "letta/fix" || prURL != "" {
-			t.Fatalf("GuestPushedBranch = (%q, %q, %v, %v), want the branch, not pushed", branch, prURL, pushed, err)
+		status, err := m.GuestBranchStatus(context.Background())
+		if err != nil || status.Pushed || status.Branch != "letta/fix" || status.PRURL != "" {
+			t.Fatalf("GuestBranchStatus = (%+v, %v), want the branch, not pushed", status, err)
 		}
 	})
 	t.Run("pushed with a draft pull request", func(t *testing.T) {
 		client := sealedFakeMSB()
 		client.execCaptureResults = []fakeMSBExecCaptureResult{
 			{stdout: "letta/fix\n"},
-			{stdout: "refs/remotes/origin/letta/fix\n"},
-			{stdout: `[{"url":"https://github.com/owner/repo/pull/9"}]`},
+			{stdout: "letta/fix\x001000\n"},
+			{stdout: "origin/main\norigin/letta/fix\n"},
+			{stdout: "origin/main\n"},
+			{stdout: `[{"url":"https://github.com/owner/repo/pull/9","isDraft":true}]`},
 		}
 		m, _ := applyTestRuntime(t, client)
-		branch, prURL, pushed, err := m.GuestPushedBranch(context.Background())
-		if err != nil || !pushed || branch != "letta/fix" || prURL != "https://github.com/owner/repo/pull/9" {
-			t.Fatalf("GuestPushedBranch = (%q, %q, %v, %v), want pushed with the pull request", branch, prURL, pushed, err)
+		status, err := m.GuestBranchStatus(context.Background())
+		if err != nil || !status.Pushed || status.Branch != "letta/fix" ||
+			status.PRURL != "https://github.com/owner/repo/pull/9" || !status.PRDraft || !status.PRKnown {
+			t.Fatalf("GuestBranchStatus = (%+v, %v), want pushed with the draft pull request", status, err)
 		}
 	})
-	t.Run("pushed without a usable gh", func(t *testing.T) {
+	t.Run("pushed without a usable gh means PR unknown", func(t *testing.T) {
 		client := sealedFakeMSB()
 		client.execCaptureResults = []fakeMSBExecCaptureResult{
 			{stdout: "letta/fix\n"},
-			{stdout: "refs/remotes/origin/letta/fix\n"},
+			{stdout: "letta/fix\x001000\n"},
+			{stdout: "origin/main\norigin/letta/fix\n"},
+			{stdout: "origin/main\n"},
 			{code: 1}, // gh pr list fails; the branch still counts as pushed
 		}
 		m, _ := applyTestRuntime(t, client)
-		branch, prURL, pushed, err := m.GuestPushedBranch(context.Background())
-		if err != nil || !pushed || branch != "letta/fix" || prURL != "" {
-			t.Fatalf("GuestPushedBranch = (%q, %q, %v, %v), want pushed without a pull request", branch, prURL, pushed, err)
+		status, err := m.GuestBranchStatus(context.Background())
+		if err != nil || !status.Pushed || status.Branch != "letta/fix" || status.PRURL != "" || status.PRKnown {
+			t.Fatalf("GuestBranchStatus = (%+v, %v), want pushed with an unknown PR state", status, err)
+		}
+	})
+	t.Run("pushed without a pull request", func(t *testing.T) {
+		client := sealedFakeMSB()
+		client.execCaptureResults = []fakeMSBExecCaptureResult{
+			{stdout: "letta/fix\n"},
+			{stdout: "letta/fix\x001000\n"},
+			{stdout: "origin/main\norigin/letta/fix\n"},
+			{stdout: "origin/main\n"},
+			{stdout: `[]`},
+		}
+		m, _ := applyTestRuntime(t, client)
+		status, err := m.GuestBranchStatus(context.Background())
+		if err != nil || !status.Pushed || status.PRURL != "" || !status.PRKnown {
+			t.Fatalf("GuestBranchStatus = (%+v, %v), want pushed with no PR, known state", status, err)
+		}
+	})
+	// The QA case of #306: the agent created and pushed its own branch
+	// instead of the generated marker branch. The exit screen must find the
+	// branch that was ACTUALLY pushed, with its non-draft PR.
+	t.Run("pushed branch differs from the marker", func(t *testing.T) {
+		client := sealedFakeMSB()
+		client.execCaptureResults = []fakeMSBExecCaptureResult{
+			{stdout: "just-code/generated-123\n"},
+			{stdout: "just-code/generated-123\x001000\nmy-fix\x002000\n"},
+			{stdout: "origin/main\norigin/my-fix\n"},
+			{stdout: "origin/main\n"},
+			{stdout: `[{"url":"https://github.com/owner/repo/pull/12","isDraft":false}]`},
+		}
+		m, _ := applyTestRuntime(t, client)
+		status, err := m.GuestBranchStatus(context.Background())
+		if err != nil || !status.Pushed || status.Branch != "my-fix" ||
+			status.PRURL != "https://github.com/owner/repo/pull/12" || status.PRDraft || !status.PRKnown {
+			t.Fatalf("GuestBranchStatus = (%+v, %v), want the actually-pushed branch and its PR", status, err)
+		}
+	})
+	t.Run("latest pushed branch wins without a marker", func(t *testing.T) {
+		client := sealedFakeMSB()
+		client.execCaptureResults = []fakeMSBExecCaptureResult{
+			{code: 1}, // no marker
+			{stdout: "main\x001000\nfeature-a\x001000\nfeature-b\x002000\n"},
+			{stdout: "origin/main\norigin/feature-a\norigin/feature-b\n"},
+			{stdout: "origin/main\n"},
+			{stdout: `[]`},
+		}
+		m, _ := applyTestRuntime(t, client)
+		status, err := m.GuestBranchStatus(context.Background())
+		if err != nil || status.Branch != "feature-b" || !status.Pushed {
+			t.Fatalf("GuestBranchStatus = (%+v, %v), want the most recently committed branch", status, err)
+		}
+	})
+	t.Run("the snapshot backup is never a candidate", func(t *testing.T) {
+		client := sealedFakeMSB()
+		client.execCaptureResults = []fakeMSBExecCaptureResult{
+			{stdout: "letta/fix\n"},
+			{stdout: "letta/fix\x001000\nletta/fix-snapshot-backup\x002000\n"},
+			{stdout: "origin/main\norigin/letta/fix-snapshot-backup\n"},
+			{stdout: "origin/main\n"},
+			{stdout: `[]`},
+		}
+		m, _ := applyTestRuntime(t, client)
+		status, err := m.GuestBranchStatus(context.Background())
+		// Only the backup was pushed; it is a workflow artifact, not agent
+		// work, so the marker branch is reported as not pushed.
+		if err != nil || status.Branch != "letta/fix" || status.Pushed {
+			t.Fatalf("GuestBranchStatus = (%+v, %v), want the marker, not pushed", status, err)
+		}
+	})
+	t.Run("a git read failure is an error, not an absence", func(t *testing.T) {
+		client := sealedFakeMSB()
+		client.execCaptureResults = []fakeMSBExecCaptureResult{
+			{stdout: "letta/fix\n"},
+			{code: 1, stderr: "fatal: not a git repository"},
+		}
+		m, _ := applyTestRuntime(t, client)
+		status, err := m.GuestBranchStatus(context.Background())
+		if err == nil {
+			t.Fatalf("a failed git read must surface an error, got %+v", status)
+		}
+	})
+	t.Run("a transport failure is an error, not an absence", func(t *testing.T) {
+		client := sealedFakeMSB()
+		client.execCaptureResults = []fakeMSBExecCaptureResult{
+			{err: errors.New("sandbox unreachable")},
+		}
+		m, _ := applyTestRuntime(t, client)
+		if _, err := m.GuestBranchStatus(context.Background()); err == nil {
+			t.Fatal("a transport failure must surface an error")
 		}
 	})
 }
