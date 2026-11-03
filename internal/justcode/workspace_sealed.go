@@ -314,7 +314,7 @@ func guestRepositoryBootstrapScript(workspace, gitName, gitEmail string) string 
 	return "set -eu; cd " + shellQuote(workspace) +
 		"; if git config --local --get just-code.github-workflow-origin >/dev/null 2>&1 || git config --local --get just-code.github-workflow-branch >/dev/null 2>&1 || git config --local --get just-code.github-workflow-snapshot-policy >/dev/null 2>&1; then " +
 		"echo 'GitHub : publication automatique refusée. La copie hôte a été transférée dans la machine isolée mais pas commitée sur la branche publiable. Relisez et récupérez ces changements avec just-code workspace apply.' >&2; exit 1; fi" +
-		"; git rev-parse --git-dir >/dev/null 2>&1 || git init -q" +
+		"; if ! git rev-parse --git-dir >/dev/null 2>&1; then git init -q; git symbolic-ref HEAD refs/heads/main; fi" +
 		"; git add -A" +
 		"; git -c user.name=" + shellQuote(gitName) + " -c user.email=" + shellQuote(gitEmail) +
 		" commit -q -m " + shellQuote("just-code: initial guest snapshot from the host working tree") + " --allow-empty"
