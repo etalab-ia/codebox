@@ -543,6 +543,9 @@ func TestProviderKeyStagePresentsIncompatibleURLMessage(t *testing.T) {
 	}
 	if len(store.puts) != 0 {
 		t.Fatalf("nothing may be stored: %+v", store.puts)
+	}
+}
+
 // TestSetupWizardResumeDroppingAlbertRepairsModels covers the full text-rendered
 // resume: after Albert is removed, the old Albert model defaults cannot be
 // persisted with a Mistral-only provider set (#305).
