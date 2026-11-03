@@ -144,8 +144,8 @@ et les fichiers ignorés par git ne sont pas copiés.
 
 Les réglages techniques (ressources, isolation…) ont des valeurs par défaut,
 modifiables depuis le récapitulatif. Les autres types de machine isolée
-(Tart, agent-vm) et le partage du dossier qu'ils impliquent sont expliqués
-dans les réglages avancés.
+et le partage du dossier qu'ils impliquent sont expliqués dans les
+réglages avancés.
 
 Rien n'est enregistré avant le récapitulatif final.
 Appuyez sur Entrée pour commencer, ou sur Ctrl+C pour quitter.

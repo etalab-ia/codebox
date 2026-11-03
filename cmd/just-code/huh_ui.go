@@ -142,7 +142,7 @@ func huhApplyAccessible(plan justcode.InitPlan, showDiff *bool) (string, error) 
 // and nothing else on the screen says so. Testers completed init believing
 // Enter had selected the highlighted item, and the project was created with
 // nothing (#156).
-const multiSelectKeyHint = "Espace ou x pour cocher/décocher ; Entrée pour valider ; / pour filtrer."
+const multiSelectKeyHint = "Espace ou x pour cocher/décocher ; Entrée pour valider la liste ; / pour filtrer."
 
 // resizeCursorMultiSelect compensates for huh 2.0.3 resizing a MultiSelect's
 // viewport without bringing its current option back into view.
