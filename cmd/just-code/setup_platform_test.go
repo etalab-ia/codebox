@@ -4,6 +4,8 @@ import (
 	"bufio"
 	"context"
 	"errors"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 
@@ -476,5 +478,50 @@ func TestSetupWizardResumeNeverRestoresWithdrawnStatsConsent(t *testing.T) {
 	enabled, asked := justcode.ReadStatsConsent(justcode.DefaultFS, settingsPath)
 	if !asked || enabled {
 		t.Fatalf("withdrawn consent must stay withdrawn: enabled=%v asked=%v", enabled, asked)
+	}
+}
+
+// TestProviderKeyStagePresentsIncompatibleURLMessage pins the message the
+// user actually sees for a 404 on /models (#309): a French URL-compatibility
+// explanation and the URL re-prompt, never "check your connection".
+func TestProviderKeyStagePresentsIncompatibleURLMessage(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	defer server.Close()
+	stateDir, _ := setupTestEnv(t)
+	forcePipedWizard(t)
+	provider := justcode.InferenceProvider{
+		Kind: justcode.ProviderOpenAICompatible, Name: "Test", BaseURL: server.URL,
+		CatalogueURL: server.URL + "/models", CredentialKind: justcode.CredentialOpenAICompatible,
+		APIKeyEnv: justcode.OpenAICompatibleAPIKeyEnv, Host: "api.example.com",
+	}
+	store := &fakeSetupStore{}
+	w := justcode.SetupWizard{
+		FS: justcode.DefaultFS, StateDir: stateDir,
+		Store: func(context.Context) (justcode.SetupStore, error) { return store, nil },
+		// ValidateProvider is nil on purpose: the real HTTP probe runs
+		// against the local 404 server.
+	}
+	var err error
+	out := captureStdout(t, func() {
+		// After the incompatibility message, the wizard offers to correct
+		// the URL; EOF there cancels without storing anything.
+		_, _, err = providerKeyStage(context.Background(), w, bufio.NewReader(strings.NewReader("typed-key\n")), provider, true, stateDir)
+	})
+	if !errors.Is(err, errSetupCancelled) {
+		t.Fatalf("the URL correction prompt must follow the message; err = %v", err)
+	}
+	if !strings.Contains(out, "n'est pas un catalogue de modèles compatible OpenAI") || !strings.Contains(out, "Vérifiez l'URL de base") {
+		t.Errorf("the French URL-compatibility message is missing; output:\n%s", out)
+	}
+	if !strings.Contains(out, "Nom de la plateforme") {
+		t.Errorf("the URL correction prompt must be offered; output:\n%s", out)
+	}
+	if strings.Contains(out, "Vérifiez votre connexion") {
+		t.Errorf("a 404 must not read as a connection problem; output:\n%s", out)
+	}
+	if len(store.puts) != 0 {
+		t.Fatalf("nothing may be stored: %+v", store.puts)
 	}
 }

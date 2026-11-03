@@ -9,6 +9,7 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
+	"time"
 )
 
 func TestResolveProvidersDefaultsToAlbert(t *testing.T) {
@@ -118,6 +119,107 @@ func TestValidateProviderKeyDistinguishesOutcomes(t *testing.T) {
 	if probe := ValidateProviderKey(context.Background(), nil, provider, "boom"); !probe.Unreachable || probe.Rejected {
 		t.Fatalf("500 must be unreachable, got %+v", probe)
 	}
+}
+
+// TestValidateProviderKeyClassifiesHTTPFailures pins the #309 taxonomy: an
+// absent models route or a redirect is an URL COMPATIBILITY problem, while
+// 429/5xx and transport failures stay temporary unavailability, and 401/403
+// stays a key rejection.
+func TestValidateProviderKeyClassifiesHTTPFailures(t *testing.T) {
+	cases := []struct {
+		name           string
+		status         int
+		body           string
+		wantRejected   bool
+		wantUnreach    bool
+		wantIncompat   bool
+		wantDetailPart string
+	}{
+		{name: "404 is incompatible, not a connection problem", status: 404, wantIncompat: true, wantDetailPart: "404"},
+		{name: "401 is a rejection", status: 401, wantRejected: true, wantDetailPart: "401"},
+		{name: "403 is a rejection", status: 403, wantRejected: true, wantDetailPart: "403"},
+		{name: "429 is temporary", status: 429, wantUnreach: true, wantDetailPart: "429"},
+		{name: "500 is temporary", status: 500, wantUnreach: true, wantDetailPart: "500"},
+		{name: "502 is temporary", status: 502, wantUnreach: true, wantDetailPart: "502"},
+		{name: "200 without a data array is incompatible", status: 200, body: `{"models":[]}`, wantIncompat: true, wantDetailPart: "data array"},
+		{name: "200 with invalid JSON is incompatible", status: 200, body: `<html>portal</html>`, wantIncompat: true, wantDetailPart: "not a models listing"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.WriteHeader(tc.status)
+				_, _ = w.Write([]byte(tc.body))
+			}))
+			defer server.Close()
+			probe := ValidateProviderKey(context.Background(), nil, testProviderAt(server.URL), "key")
+			if probe.Rejected != tc.wantRejected || probe.Unreachable != tc.wantUnreach || probe.Incompatible != tc.wantIncompat {
+				t.Fatalf("probe = %+v, want rejected=%v unreachable=%v incompatible=%v", probe, tc.wantRejected, tc.wantUnreach, tc.wantIncompat)
+			}
+			if !strings.Contains(probe.Detail, tc.wantDetailPart) {
+				t.Fatalf("detail = %q, want it to mention %q", probe.Detail, tc.wantDetailPart)
+			}
+		})
+	}
+}
+
+// TestValidateProviderKeyRedirectIsIncompatibleAndNeverReplayed: a redirect
+// means a wrong base URL (incompatible), and the credential never reaches
+// the redirect target.
+func TestValidateProviderKeyRedirectIsIncompatibleAndNeverReplayed(t *testing.T) {
+	var reached int32
+	target := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		atomic.AddInt32(&reached, 1)
+		_, _ = w.Write([]byte(`{"data":[{"id":"leaked"}]}`))
+	}))
+	defer target.Close()
+	redirect := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, target.URL, http.StatusFound)
+	}))
+	defer redirect.Close()
+	probe := ValidateProviderKey(context.Background(), nil, testProviderAt(redirect.URL), "secret")
+	if !probe.Incompatible {
+		t.Fatalf("a redirect must be an URL compatibility problem, got %+v", probe)
+	}
+	if atomic.LoadInt32(&reached) != 0 {
+		t.Fatal("the redirect target received the credential")
+	}
+}
+
+// TestValidateProviderKeyTransportFailuresStayUnreachable: DNS, TLS and
+// timeout are temporary unavailability, never an URL compatibility verdict.
+func TestValidateProviderKeyTransportFailuresStayUnreachable(t *testing.T) {
+	t.Run("DNS failure", func(t *testing.T) {
+		probe := ValidateProviderKey(context.Background(), nil, testProviderAt("http://nonexistent.invalid"), "key")
+		if !probe.Unreachable || probe.Incompatible {
+			t.Fatalf("a DNS failure must be unreachable, got %+v", probe)
+		}
+	})
+	t.Run("TLS failure", func(t *testing.T) {
+		server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			_, _ = w.Write([]byte(`{"data":[]}`))
+		}))
+		defer server.Close()
+		// The default client does not trust the test CA: a TLS error.
+		probe := ValidateProviderKey(context.Background(), nil, testProviderAt(server.URL), "key")
+		if !probe.Unreachable || probe.Incompatible {
+			t.Fatalf("a TLS failure must be unreachable, got %+v", probe)
+		}
+	})
+	t.Run("timeout", func(t *testing.T) {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			time.Sleep(250 * time.Millisecond)
+			_, _ = w.Write([]byte(`{"data":[]}`))
+		}))
+		defer server.Close()
+		client := &http.Client{Timeout: 20 * time.Millisecond}
+		probe := ValidateProviderKey(context.Background(), client, testProviderAt(server.URL), "key")
+		if !probe.Unreachable || probe.Incompatible {
+			t.Fatalf("a timeout must be unreachable, got %+v", probe)
+		}
+		if !strings.Contains(probe.Detail, "timeout") {
+			t.Fatalf("the timeout must be identifiable in the detail: %q", probe.Detail)
+		}
+	})
 }
 
 func TestFetchProviderModelsReturnsRawSortedIDs(t *testing.T) {
