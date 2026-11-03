@@ -1,6 +1,7 @@
 package justcode
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"net/http"
@@ -301,7 +302,7 @@ func TestGitHubBranchNameIsUniqueAndScoped(t *testing.T) {
 	}
 }
 
-func TestGitHubSnapshotBranchScriptKeepsRemoteBaseAndOverlaysFilteredSnapshot(t *testing.T) {
+func TestGitHubSnapshotBranchScriptRefusesChangesAndKeepsRemoteBase(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("guest branch bootstrap uses POSIX shell commands")
 	}
@@ -353,7 +354,7 @@ func TestGitHubSnapshotBranchScriptKeepsRemoteBaseAndOverlaysFilteredSnapshot(t 
 	runGitTest(t, snapshot, "commit", "-qm", "P22 filtered snapshot")
 	runGitTest(t, snapshot, "commit", "--allow-empty", "-qm", "Prior guest history")
 
-	script := githubSnapshotBranchScript(snapshot, GitHubRemote{URL: remote, Repo: "owner/repo"}, "main", "just-code/test", "Albert Code Agent", "agent@example.test")
+	script := githubSnapshotBranchScript(snapshot, GitHubRemote{URL: remote, Repo: "owner/repo"}, "main", "just-code/test")
 	ignored := filepath.Join(snapshot, "ignored", "keep.txt")
 	if err := os.MkdirAll(filepath.Dir(ignored), 0o755); err != nil {
 		t.Fatal(err)
@@ -384,9 +385,8 @@ func TestGitHubSnapshotBranchScriptKeepsRemoteBaseAndOverlaysFilteredSnapshot(t 
 		t.Fatal(err)
 	}
 	before := strings.TrimSpace(gitTestOutput(t, snapshot, "rev-parse", "HEAD"))
-	failingScript := githubSnapshotBranchScript(snapshot, GitHubRemote{URL: remote}, "main", "just-code/test", "", "")
-	if out, err := runShellTest(failingScript, snapshot); err == nil {
-		t.Fatalf("empty commit identity must fail before publishing the branch: %s", out)
+	if out, err := runShellTest(script, snapshot); err == nil || !strings.Contains(string(out), "publication n’a pas été approuvée") {
+		t.Fatalf("unapproved snapshot must fail before publishing the branch: err=%v out=%s", err, out)
 	}
 	if got := strings.TrimSpace(gitTestOutput(t, snapshot, "rev-parse", "HEAD")); got != before {
 		t.Fatal("failed tree preparation changed guest HEAD")
@@ -394,11 +394,30 @@ func TestGitHubSnapshotBranchScriptKeepsRemoteBaseAndOverlaysFilteredSnapshot(t 
 	if got := gitTestOutput(t, snapshot, "status", "--porcelain"); got != "" {
 		t.Fatalf("failed tree preparation changed the live index: %s", got)
 	}
+	if got := gitTestOutput(t, snapshot, "remote"); got != "" {
+		t.Fatalf("refusal configured a remote: %s", got)
+	}
+	if got := gitTestOutput(t, snapshot, "for-each-ref", "--format=%(refname)", "refs/heads/just-code/"); got != "" {
+		t.Fatalf("refusal created a publishable branch or backup: %s", got)
+	}
+	// Resolve the delta explicitly in the fixture. Remote-only files remain
+	// preserved by the overlay; missing filtered files are not deletions.
+	if err := os.WriteFile(filepath.Join(snapshot, "shared.txt"), []byte("remote version\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	for _, path := range []string{"host-only.txt", ".gitignore"} {
+		if err := os.Remove(filepath.Join(snapshot, path)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	runGitTest(t, snapshot, "add", "-A")
+	runGitTest(t, snapshot, "commit", "-qm", "reviewed remote-equivalent snapshot")
+	before = strings.TrimSpace(gitTestOutput(t, snapshot, "rev-parse", "HEAD"))
 	shim := t.TempDir()
 	if err := os.WriteFile(filepath.Join(shim, "mv"), []byte("#!/bin/sh\nexit 70\n"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	interrupted := githubSnapshotBranchScript(snapshot, GitHubRemote{URL: remote}, "main", "just-code/interrupted", "Guest", "guest@example.test")
+	interrupted := githubSnapshotBranchScript(snapshot, GitHubRemote{URL: remote}, "main", "just-code/interrupted")
 	cmd = exec.Command("/bin/sh", "-c", interrupted)
 	cmd.Dir = snapshot
 	cmd.Env = append(os.Environ(), "PATH="+shim+string(os.PathListSeparator)+os.Getenv("PATH"),
@@ -426,13 +445,12 @@ func TestGitHubSnapshotBranchScriptKeepsRemoteBaseAndOverlaysFilteredSnapshot(t 
 	if got := strings.TrimSpace(gitTestOutput(t, snapshot, "branch", "--show-current")); got != "just-code/test" {
 		t.Fatalf("current branch = %q", got)
 	}
-	if got := strings.TrimSpace(gitTestOutput(t, snapshot, "rev-parse", "HEAD^")); got != baseCommit {
-		t.Fatalf("branch parent = %s, want remote base %s", got, baseCommit)
+	if got := strings.TrimSpace(gitTestOutput(t, snapshot, "rev-parse", "HEAD")); got != baseCommit {
+		t.Fatalf("branch tip = %s, want remote base %s without a synthetic commit", got, baseCommit)
 	}
 	for path, want := range map[string]string{
-		"shared.txt":      "filtered host version\n",
+		"shared.txt":      "remote version\n",
 		"remote-only.txt": "preserve me\n",
-		"host-only.txt":   "filtered new file\n",
 	} {
 		if got := gitTestOutput(t, snapshot, "show", "HEAD:"+path); got != want {
 			t.Errorf("HEAD:%s = %q, want %q", path, got, want)
@@ -453,6 +471,9 @@ func TestGitHubSnapshotBranchScriptKeepsRemoteBaseAndOverlaysFilteredSnapshot(t 
 	if got := strings.TrimSpace(gitTestOutput(t, snapshot, "config", "--local", "remote.origin.fetch")); got != "+refs/heads/*:refs/remotes/origin/*" {
 		t.Fatalf("published origin fetch refspec = %q", got)
 	}
+	if got := strings.TrimSpace(gitTestOutput(t, snapshot, "config", "--local", "just-code.github-workflow-snapshot-policy")); got != "remote-only-v1" {
+		t.Fatalf("published snapshot policy = %q", got)
+	}
 	runGitTest(t, snapshot, "push", "-u", "origin", "HEAD")
 	if got, want := strings.TrimSpace(gitTestOutput(t, remote, "rev-parse", "refs/heads/just-code/test")), strings.TrimSpace(gitTestOutput(t, snapshot, "rev-parse", "HEAD")); got != want {
 		t.Fatalf("remote branch tip = %s, want pushed guest commit %s", got, want)
@@ -470,6 +491,285 @@ func TestConfigureGitHubWorkspaceRequiresResolvedApproval(t *testing.T) {
 	}
 	if len(client.calls) != 0 {
 		t.Fatalf("disabled GitHub workflow touched the guest: %v", client.calls)
+	}
+}
+
+func TestGitHubSnapshotPublicationGateAfterFilteredTransfer(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("guest branch bootstrap uses POSIX shell commands")
+	}
+	for _, tc := range []struct {
+		name   string
+		refuse bool
+	}{
+		{"tracked modification", true},
+		{"untracked file", true},
+		{"init configuration", true},
+		{"local unpushed feature commit", true},
+		{"host behind default branch", true},
+		{"ignored file explicitly included", true},
+		{"dotenv excluded", false},
+		{"ignored file excluded", false},
+		{"local deletion preserved remotely", false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			root := t.TempDir()
+			base := filepath.Join(root, "base")
+			if err := os.Mkdir(base, 0o755); err != nil {
+				t.Fatal(err)
+			}
+			writeFile(t, base, "shared.txt", "published content\n")
+			writeFile(t, base, ".gitignore", "private.txt\n")
+			gitInitForTransfer(t, base)
+			runGitTest(t, base, "branch", "-M", "main")
+			remote := filepath.Join(root, "origin.git")
+			runGitTest(t, root, "clone", "-q", "--bare", base, remote)
+			host := filepath.Join(root, "host")
+			runGitTest(t, root, "clone", "-q", remote, host)
+			runGitTest(t, host, "config", "user.name", "Host")
+			runGitTest(t, host, "config", "user.email", "host@example.test")
+			opts := TransferOptions{}
+			switch tc.name {
+			case "tracked modification":
+				writeFile(t, host, "shared.txt", "not reviewed\n")
+			case "untracked file":
+				writeFile(t, host, "notes.txt", "not reviewed\n")
+			case "init configuration":
+				for _, path := range []string{".just-code/project.json", ".just-code/lock.json", "AGENTS.md"} {
+					writeFile(t, host, path, "generated by init\n")
+				}
+			case "local unpushed feature commit":
+				runGitTest(t, host, "checkout", "-qb", "feature")
+				writeFile(t, host, "shared.txt", "local feature\n")
+				runGitTest(t, host, "add", "shared.txt")
+				runGitTest(t, host, "commit", "-qm", "local feature, not pushed")
+			case "host behind default branch":
+				writeFile(t, base, "shared.txt", "newer remote content\n")
+				runGitTest(t, base, "add", "shared.txt")
+				runGitTest(t, base, "commit", "-qm", "remote update")
+				runGitTest(t, base, "push", remote, "main")
+			case "ignored file explicitly included":
+				writeFile(t, host, "private.txt", "guest-readable, not publishable\n")
+				opts.OptIn = map[string]bool{"private.txt": true}
+			case "dotenv excluded":
+				writeFile(t, host, ".env", "LOCAL_ONLY=canary\n")
+			case "ignored file excluded":
+				writeFile(t, host, "private.txt", "local only\n")
+			case "local deletion preserved remotely":
+				if err := os.Remove(filepath.Join(host, "shared.txt")); err != nil {
+					t.Fatal(err)
+				}
+			}
+			hostBefore := gitTestOutput(t, host, "status", "--porcelain") + gitTestOutput(t, host, "rev-parse", "HEAD")
+			manifest, err := ResolveTransferSet(context.Background(), host, opts)
+			if err != nil {
+				t.Fatal(err)
+			}
+			payload, err := BuildTransferArchive(manifest)
+			if err != nil {
+				t.Fatal(err)
+			}
+			guest := filepath.Join(root, "guest")
+			if err := os.Mkdir(guest, 0o755); err != nil {
+				t.Fatal(err)
+			}
+			cmd := exec.Command("tar", "-xzf", "-", "-C", guest)
+			cmd.Stdin = bytes.NewReader(payload)
+			if out, err := cmd.CombinedOutput(); err != nil {
+				t.Fatalf("extract filtered payload: %v: %s", err, out)
+			}
+			gitInitForTransfer(t, guest)
+			before := gitTestOutput(t, guest, "rev-parse", "HEAD")
+			refsBefore := gitTestOutput(t, guest, "show-ref")
+			configBefore, err := os.ReadFile(filepath.Join(guest, ".git", "config"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			// No stdin/TTY is supplied: a file transfer opt-in must never be
+			// interpreted as publication consent in unattended launches.
+			out, err := runShellTest(githubSnapshotBranchScript(guest, GitHubRemote{URL: remote}, "main", "just-code/test"), guest)
+			if tc.refuse {
+				want := "publication n’a pas été approuvée"
+				if tc.name == "ignored file explicitly included" {
+					// The repository bootstrap deliberately does not force-add
+					// ignored files; its existing ignored-work guard runs first.
+					want = "ignored files"
+				}
+				if err == nil || !strings.Contains(string(out), want) {
+					t.Fatalf("want publication refusal: err=%v out=%s", err, out)
+				}
+				if got := gitTestOutput(t, guest, "rev-parse", "HEAD"); got != before {
+					t.Fatal("refusal changed guest HEAD")
+				}
+				if got := gitTestOutput(t, guest, "show-ref"); got != refsBefore {
+					t.Fatal("refusal created or changed a guest branch")
+				}
+				configAfter, err := os.ReadFile(filepath.Join(guest, ".git", "config"))
+				if err != nil || !bytes.Equal(configBefore, configAfter) {
+					t.Fatalf("refusal changed guest configuration: %v", err)
+				}
+				if tc.name == "init configuration" {
+					for _, path := range []string{".just-code/project.json", ".just-code/lock.json", "AGENTS.md"} {
+						if !strings.Contains(string(out), path) {
+							t.Errorf("missing refused path %s: %s", path, out)
+						}
+					}
+				}
+			} else {
+				if err != nil {
+					t.Fatalf("remote-equivalent filtered snapshot: %v: %s", err, out)
+				}
+				if got, want := gitTestOutput(t, guest, "rev-parse", "HEAD"), gitTestOutput(t, remote, "rev-parse", "main"); got != want {
+					t.Fatal("clean bootstrap created a synthetic commit")
+				}
+				for _, path := range []string{".env", "private.txt"} {
+					if _, err := os.Stat(filepath.Join(guest, path)); !os.IsNotExist(err) {
+						t.Fatalf("excluded %s appeared in guest: %v", path, err)
+					}
+				}
+				if tc.name == "local deletion preserved remotely" {
+					if got := gitTestOutput(t, guest, "show", "HEAD:shared.txt"); got != "published content\n" {
+						t.Fatalf("remote-only file must retain existing overlay behavior: %q", got)
+					}
+				}
+			}
+			if got := gitTestOutput(t, guest, "status", "--porcelain"); got != "" {
+				t.Fatalf("bootstrap left a dirty guest: %s", got)
+			}
+			if got := gitTestOutput(t, host, "status", "--porcelain") + gitTestOutput(t, host, "rev-parse", "HEAD"); got != hostBefore {
+				t.Fatal("bootstrap modified the host checkout")
+			}
+			if got := gitTestOutput(t, remote, "for-each-ref", "refs/heads/just-code/"); got != "" {
+				t.Fatal("bootstrap published a branch")
+			}
+		})
+	}
+}
+
+func TestReconcileNoOpValidatesExistingGitHubSnapshotPolicy(t *testing.T) {
+	isolateHostState(t)
+	remote := GitHubRemote{URL: "https://github.com/owner/repo.git", Repo: "owner/repo"}
+	for _, tc := range []struct {
+		name  string
+		valid bool
+	}{
+		{name: "legacy marker", valid: false},
+		{name: "current marker", valid: true},
+		{name: "approved credential missing", valid: false},
+		{name: "credential store unavailable", valid: false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			isolateHostState(t)
+			client := &fakeMSBClient{exists: true, status: "running"}
+			m := newTestMicrosandbox(t, client)
+			m.cfg.Isolation = IsolationFull
+			m.cfg.GitHubRemote = remote
+			m.Probe = func(context.Context, string, string, string) HealthProbe { return HealthProbe{Healthy: true} }
+			m.credentialRead = stubReader("stored")
+			if tc.name == "approved credential missing" {
+				m.credentialRead = func(_ context.Context, kind CredentialKind, _ string) (string, string, error) {
+					if kind == CredentialGithub {
+						return "", "", ErrCredentialNotFound
+					}
+					return "stored", "test", nil
+				}
+			}
+			if tc.name == "credential store unavailable" {
+				m.credentialRead = func(_ context.Context, kind CredentialKind, _ string) (string, string, error) {
+					if kind == CredentialGithub {
+						return "", "", storeErrorf("get", "test", "locked", "")
+					}
+					return "stored", "test", nil
+				}
+			}
+			if err := ApproveBinding(DefaultFS, bindingApprovalsPath(m.stateDirOrDefault(), m.InstanceName()), CredentialGithub); err != nil {
+				t.Fatal(err)
+			}
+			resolved, resolveErr := m.resolveBindings(context.Background())
+			if tc.name == "approved credential missing" {
+				if resolveErr != nil || hasResolvedGitHubBinding(resolved) {
+					t.Fatalf("fixture must omit the missing approved GitHub credential: %v", resolveErr)
+				}
+			} else if tc.name == "credential store unavailable" {
+				if resolveErr == nil {
+					t.Fatal("fixture must exercise an unavailable GitHub credential store")
+				}
+			} else if resolveErr != nil || !hasResolvedGitHubBinding(resolved) {
+				t.Fatalf("fixture must resolve the approved GitHub binding: %v", resolveErr)
+			}
+			desired := m.desiredState(resolveErr == nil, resolved, nil)
+			statePath := instanceStatePath(DefaultStateDir(), m.InstanceName())
+			if err := WriteInstanceState(DefaultFS, statePath, desired.toState()); err != nil {
+				t.Fatal(err)
+			}
+			policy := ""
+			if tc.valid {
+				policy = "remote-only-v1\n"
+			}
+			client.execCaptureDefault = &fakeMSBExecCaptureResult{stdout: "yes"}
+			client.execCaptureResults = []fakeMSBExecCaptureResult{
+				{stdout: remote.URL + "\n"},
+				{stdout: remote.URL + "\n"},
+				{stdout: policy},
+			}
+			callsBefore := len(client.calls)
+			err := m.Reconcile(context.Background())
+			if tc.valid && err != nil {
+				t.Fatalf("current publication policy must remain a healthy no-op: %v", err)
+			}
+			if !tc.valid && (err == nil || !strings.Contains(err.Error(), "ancienne règle")) {
+				t.Fatalf("healthy no-op launch must reject the legacy publication policy: %v", err)
+			}
+			foundPolicyProbe := false
+			for _, call := range client.calls[callsBefore:] {
+				if strings.Contains(call, "just-code.github-workflow-snapshot-policy") {
+					foundPolicyProbe = true
+				}
+				if strings.Contains(call, "git reset") || strings.Contains(call, "git branch ") || strings.Contains(call, "git config --file") {
+					t.Fatalf("the no-op policy check rewrote guest history or config: %s", call)
+				}
+			}
+			if !foundPolicyProbe {
+				t.Fatalf("healthy no-op launch bypassed the policy check: %v", client.calls)
+			}
+		})
+	}
+}
+
+func TestExistingGitHubPublicationPolicyAllowsUninitializedGuestWorkspace(t *testing.T) {
+	remote := GitHubRemote{URL: "https://github.com/owner/repo.git", Repo: "owner/repo"}
+	client := &fakeMSBClient{exists: true, status: "running", execCaptureResults: []fakeMSBExecCaptureResult{
+		{code: 128, stderr: "fatal: --local can only be used inside a git repository"},
+	}}
+	m := NewMicrosandboxRuntimeForInstance(Config{GitHubRemote: remote}, "opencode-jc-test-12345")
+	m.Client = client
+	if err := m.validateExistingGitHubPublicationPolicy(context.Background()); err != nil {
+		t.Fatalf("a guest workspace not yet initialized as a repository must be provisioned normally: %v", err)
+	}
+	for _, call := range client.calls {
+		if strings.Contains(call, "git reset") || strings.Contains(call, "git branch ") || strings.Contains(call, "git config --file") {
+			t.Fatalf("the fresh-workspace policy probe modified the guest: %s", call)
+		}
+	}
+}
+
+func TestConfigureGitHubWorkspaceRefusesLegacySnapshotPolicy(t *testing.T) {
+	remote := GitHubRemote{URL: "https://github.com/owner/repo.git", Repo: "owner/repo"}
+	for _, policy := range []fakeMSBExecCaptureResult{{code: 1}, {stdout: "unknown-policy\n"}, {err: errors.New("cannot read policy")}} {
+		client := &fakeMSBClient{execCaptureResults: []fakeMSBExecCaptureResult{
+			{stdout: remote.URL}, {stdout: remote.URL}, policy,
+		}}
+		m := NewMicrosandboxRuntimeForInstance(Config{GitHubRemote: remote}, "opencode-jc-test-12345")
+		m.Client = client
+		err := m.configureGitHubWorkspace(context.Background(), []resolvedBinding{{msbSecretBinding: msbSecretBinding{Kind: CredentialGithub}}})
+		if err == nil || !strings.Contains(err.Error(), "ancienne règle") || !strings.Contains(err.Error(), "workspace apply ne les récupère pas") {
+			t.Fatalf("legacy guest must refuse with honest recovery guidance: %v", err)
+		}
+		for _, call := range client.calls {
+			if strings.Contains(call, "git fetch") || strings.Contains(call, "git reset") || strings.Contains(call, "git branch ") || strings.Contains(call, "git config --file") {
+				t.Fatalf("legacy guest history/config was rewritten: %s", call)
+			}
+		}
 	}
 }
 
@@ -600,7 +900,7 @@ func TestConfigureGitHubWorkspaceRejectsAuthenticationBeforeSeeding(t *testing.T
 func TestConfigureGitHubWorkspaceDoesNotReseedAnInitializedGuest(t *testing.T) {
 	remote := GitHubRemote{URL: "https://github.com/owner/repo.git", Repo: "owner/repo"}
 	client := &fakeMSBClient{execCaptureResults: []fakeMSBExecCaptureResult{
-		{stdout: remote.URL}, {stdout: remote.URL},
+		{stdout: remote.URL}, {stdout: remote.URL}, {stdout: "remote-only-v1\n"},
 	}}
 	m := NewMicrosandboxRuntimeForInstance(Config{GitHubRemote: remote}, "opencode-jc-test-12345")
 	m.Client = client
