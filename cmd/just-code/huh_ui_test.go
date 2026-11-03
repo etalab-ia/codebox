@@ -1226,6 +1226,10 @@ func writeManifest(t *testing.T, root string, manifest justcode.ProjectManifest)
 func initAbandonRun(t *testing.T, skills, mcps []string, abortOn map[int]bool, confirmErr error, consent bool) ([]string, error) {
 	t.Helper()
 	stateDir, _ := setupTestEnv(t)
+	// Queue events without starting a detached copy of the Go test binary.
+	previousSpawn := justcode.StatsFlushSpawn
+	justcode.StatsFlushSpawn = func() {}
+	t.Cleanup(func() { justcode.StatsFlushSpawn = previousSpawn })
 	settingsPath, err := justcode.UserSettingsPath()
 	if err != nil {
 		t.Fatal(err)
