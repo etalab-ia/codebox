@@ -985,7 +985,7 @@ func (t *Tart) RunAgent(ctx context.Context) error {
 	// TUI: the vendor installer may keep OpenCode in ~/.opencode/bin. Source
 	// the same managed environment so project config and plugins resolve alike.
 	envPrefix := fmt.Sprintf("set -a; . %s; set +a; ", shellQuote(guestSecretsEnvPath))
-	listCommand := fmt.Sprintf("%scd %s && opencode session list --format json", envPrefix, shellQuote(guestWorkspaceDir))
+	listCommand := fmt.Sprintf("%scd %s && opencode session list --standalone --format json", envPrefix, shellQuote(guestWorkspaceDir))
 	sessions, err := t.Runner.Run(ctx, "tart", "exec", vm, "/bin/zsh", "-lc", listCommand)
 	var listErr error
 	if err != nil {
@@ -1029,7 +1029,7 @@ func tartAgentLaunch(secretsPath, workspaceDir string, continueSession bool) str
 	if continueSession {
 		resume = " --continue"
 	}
-	return fmt.Sprintf("set -a; . %s; set +a; cd %s; exec opencode%s", shellQuote(secretsPath), shellQuote(workspaceDir), resume)
+	return fmt.Sprintf("set -a; . %s; set +a; cd %s; exec opencode --standalone%s", shellQuote(secretsPath), shellQuote(workspaceDir), resume)
 }
 
 // Status describes the managed VM's current state, for `check` in isolation

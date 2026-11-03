@@ -22,15 +22,15 @@ func TestComposeConfigContentOverridesModelOnly(t *testing.T) {
 		t.Fatalf("small_model must follow model: %v", parsed["small_model"])
 	}
 	// The base asset's provider block and permissions survive the compose.
-	provider, ok := parsed["provider"].(map[string]any)
+	provider, ok := parsed["providers"].(map[string]any)
 	if !ok {
-		t.Fatalf("provider block lost: %v", parsed["provider"])
+		t.Fatalf("provider block lost: %v", parsed["providers"])
 	}
 	albert, ok := provider["albert"].(map[string]any)
-	if !ok || albert["npm"] != "@ai-sdk/openai-compatible" {
+	if !ok || albert["package"] != "@ai-sdk/openai-compatible" {
 		t.Fatalf("albert provider lost: %v", provider)
 	}
-	if _, ok := parsed["permission"]; !ok {
+	if _, ok := parsed["permissions"]; !ok {
 		t.Fatal("permissions block lost")
 	}
 	// The API key reference survives (never a literal).
@@ -66,7 +66,7 @@ func TestComposeConfigContentRestrictsAlbertModelsToSelection(t *testing.T) {
 	if err := json.Unmarshal([]byte(content), &parsed); err != nil {
 		t.Fatal(err)
 	}
-	provider := parsed["provider"].(map[string]any)["albert"].(map[string]any)
+	provider := parsed["providers"].(map[string]any)["albert"].(map[string]any)
 	models := provider["models"].(map[string]any)
 	if len(models) != 1 {
 		t.Fatalf("models = %v; unselected base models must not remain visible", models)
@@ -102,7 +102,7 @@ func TestComposeConfigContentMarksGemmaAsVisionCapable(t *testing.T) {
 	if err := json.Unmarshal([]byte(content), &parsed); err != nil {
 		t.Fatal(err)
 	}
-	provider := parsed["provider"].(map[string]any)["albert"].(map[string]any)
+	provider := parsed["providers"].(map[string]any)["albert"].(map[string]any)
 	gemma := provider["models"].(map[string]any)[choice.OpenCodeID].(map[string]any)
 	inputs := gemma["capabilities"].(map[string]any)["input"].([]any)
 	if len(inputs) != 2 || inputs[0] != "text" || inputs[1] != "image" {
@@ -128,7 +128,7 @@ func TestComposeConfigContentNeverEmitsPartialModelLimits(t *testing.T) {
 			if config["model"] != choice.Ref() || config["small_model"] != choice.Ref() {
 				t.Fatalf("model selection = %v / %v, want %s", config["model"], config["small_model"], choice.Ref())
 			}
-			models := config["provider"].(map[string]any)["albert"].(map[string]any)["models"].(map[string]any)
+			models := config["providers"].(map[string]any)["albert"].(map[string]any)["models"].(map[string]any)
 			if len(models) != 1 || models[choice.OpenCodeID] == nil {
 				t.Fatalf("an unselected model survived selection: %v", models)
 			}
@@ -158,7 +158,7 @@ func TestComposeConfigContentHandlesPartialProviderLimits(t *testing.T) {
 	if err := json.Unmarshal([]byte(content), &config); err != nil {
 		t.Fatal(err)
 	}
-	models := config["provider"].(map[string]any)["openai-compatible"].(map[string]any)["models"].(map[string]any)
+	models := config["providers"].(map[string]any)["openai-compatible"].(map[string]any)["models"].(map[string]any)
 	assertValidModelLimits(t, models)
 
 	complete := models["complete"].(map[string]any)

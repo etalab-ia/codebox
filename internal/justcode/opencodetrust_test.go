@@ -76,6 +76,39 @@ func TestTrustLifecycle(t *testing.T) {
 	}
 }
 
+func TestV2ExecutionDeclarationsRequireFreshTrust(t *testing.T) {
+	for name, config := range map[string]string{
+		"plugin string":      `{"plugins":["./declared-plugin"]}`,
+		"plugin object":      `{"plugins":[{"package":"./declared-plugin","options":{"enabled":true}}]}`,
+		"native MCP command": `{"mcp":{"servers":{"local":{"type":"local","command":["node","server.js"]}}}}`,
+		"legacy MCP array":   `{"mcp":{"local":{"type":"local","command":["node","server.js"]}}}`,
+		"native remote MCP":  `{"mcp":{"servers":{"docs":{"type":"remote","url":"https://docs.example/mcp"}}}}`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			root, state := t.TempDir(), t.TempDir()
+			path := filepath.Join(root, "opencode.json")
+			if err := os.WriteFile(path, []byte(config), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			if got, err := DiscoverUnapprovedInputs(DefaultFS, state, root); err != nil || len(got) != 1 {
+				t.Fatalf("v2 execution declaration bypassed approval: %+v, %v", got, err)
+			}
+			if err := ApproveExecutionInputs(DefaultFS, state, root); err != nil {
+				t.Fatal(err)
+			}
+			if got, err := DiscoverUnapprovedInputs(DefaultFS, state, root); err != nil || len(got) != 0 {
+				t.Fatalf("approved declaration not recognized: %+v, %v", got, err)
+			}
+			if err := os.WriteFile(path, []byte(config+"\n"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			if got, err := DiscoverUnapprovedInputs(DefaultFS, state, root); err != nil || len(got) != 1 || got[0].Reason != "changed since approval" {
+				t.Fatalf("changed v2 declaration kept prior approval: %+v, %v", got, err)
+			}
+		})
+	}
+}
+
 func TestTrustRecordNeverInRepository(t *testing.T) {
 	root := trustProject(t)
 	fs, stateDir := DefaultFS, t.TempDir()

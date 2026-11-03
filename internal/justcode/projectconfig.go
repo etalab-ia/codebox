@@ -292,25 +292,41 @@ func DiscoverProjectExecutionInputs(root string) (ProjectExecutionInputs, error)
 		if err != nil {
 			return out, err
 		}
-		if plugins, ok := cfg["plugin"].([]any); ok {
-			for _, p := range plugins {
-				if s, ok := p.(string); ok {
-					out.Plugins = append(out.Plugins, s)
+		for _, key := range []string{"plugin", "plugins"} {
+			if plugins, ok := cfg[key].([]any); ok {
+				for _, p := range plugins {
+					s, _ := p.(string)
+					if entry, ok := p.(map[string]any); ok {
+						s, _ = entry["package"].(string)
+					}
+					if s != "" {
+						out.Plugins = append(out.Plugins, s)
+					}
 				}
 			}
 		}
 		if mcp, ok := cfg["mcp"].(map[string]any); ok {
-			for _, server := range mcp {
-				m, ok := server.(map[string]any)
-				if !ok {
-					continue
-				}
-				// Local servers carry a command; remote servers carry a URL.
-				if cmd, ok := m["command"].(string); ok && cmd != "" {
-					out.MCPCommands = append(out.MCPCommands, cmd)
-				}
-				if endpoint, ok := m["url"].(string); ok && endpoint != "" {
-					out.MCPEndpoints = append(out.MCPEndpoints, endpoint)
+			servers := []map[string]any{mcp}
+			if native, ok := mcp["servers"].(map[string]any); ok {
+				servers = append(servers, native)
+			}
+			for _, entries := range servers {
+				for _, server := range entries {
+					m, ok := server.(map[string]any)
+					if !ok {
+						continue
+					}
+					// Local servers carry a command; remote servers carry a URL.
+					if cmd, ok := m["command"].(string); ok && cmd != "" {
+						out.MCPCommands = append(out.MCPCommands, cmd)
+					}
+					if argv, ok := m["command"].([]any); ok && len(argv) > 0 {
+						encoded, _ := json.Marshal(argv)
+						out.MCPCommands = append(out.MCPCommands, string(encoded))
+					}
+					if endpoint, ok := m["url"].(string); ok && endpoint != "" {
+						out.MCPEndpoints = append(out.MCPEndpoints, endpoint)
+					}
 				}
 			}
 		}

@@ -30,7 +30,7 @@ const (
 	msbBrowserNodeNPMVersion              = "10.9.2"
 	msbBrowserNodeSHA256AMD64             = "69b09dba5c8dcb05c4e4273a4340db1005abeafe3927efda2bc5b249e80437ec"
 	msbBrowserNodeSHA256ARM64             = "08bfbf538bad0e8cbb0269f0173cca28d705874a67a22f60b57d99dc99e30050"
-	msbBrowserOpenCodeVersion             = "1.18.32"
+	msbBrowserOpenCodeVersion             = OpenCodeVersion
 
 	// msbSandbox is the legacy singleton instance name, used before project
 	// identity (P05). It is kept only to recognize the legacy instance: an
@@ -65,7 +65,7 @@ const (
 	// probe skips its own PID: its command line necessarily contains the
 	// entrypoint path it greps for.
 	msbGuestPrepareProbe = "fingerprint=\"${" + msbBrowserMCPFingerprintEnv + ":-}\"; " +
-		"if [ -f " + msbToolchainMarker + " ]; then " +
+		"if [ -f " + msbToolchainMarker + " ] && [ \"$(opencode --version 2>/dev/null)\" = \"opencode v" + OpenCodeVersion + "\" ]; then " +
 		"if [ -z \"$fingerprint\" ] || [ \"$(cat " + msbBrowserMCPMarker + " 2>/dev/null)\" = \"$fingerprint\" ]; then exit 0; fi; fi; " +
 		"self=$$; " +
 		"for p in /proc/[0-9]*/cmdline; do " +
@@ -997,12 +997,14 @@ func (m *MicrosandboxRuntime) nextStartEnv() map[string]string {
 	}
 	name, email := guestGitIdentity(m.guestGitConfig())
 	env := map[string]string{
-		OpenCodeDisableUpdateEnv:   "1",
-		"OPENCODE_SERVER_PASSWORD": m.cfg.Password,
-		"OPENCODE_SERVER_USERNAME": m.cfg.Username,
-		"OPENCODE_CONFIG_CONTENT":  content,
-		msbGitNameEnv:              name,
-		msbGitEmailEnv:             email,
+		"JUST_CODE_OPENCODE_VERSION": OpenCodeVersion,
+		OpenCodeDisableUpdateEnv:     "1",
+		"OPENCODE_PASSWORD":          m.cfg.Password,
+		"OPENCODE_SERVER_PASSWORD":   m.cfg.Password,
+		"OPENCODE_SERVER_USERNAME":   m.cfg.Username,
+		"OPENCODE_CONFIG_CONTENT":    content,
+		msbGitNameEnv:                name,
+		msbGitEmailEnv:               email,
 	}
 	for key, value := range browserGuestEnv(m.OpenCodeOverlay.MCPConnectors) {
 		env[key] = value
@@ -1023,10 +1025,12 @@ func (m *MicrosandboxRuntime) sandboxEnv() map[string]string {
 		content = opencodeConfigContent
 	}
 	env := map[string]string{
-		OpenCodeDisableUpdateEnv:   "1",
-		"OPENCODE_SERVER_PASSWORD": m.cfg.Password,
-		"OPENCODE_SERVER_USERNAME": m.cfg.Username,
-		"OPENCODE_CONFIG_CONTENT":  content,
+		"JUST_CODE_OPENCODE_VERSION": OpenCodeVersion,
+		OpenCodeDisableUpdateEnv:     "1",
+		"OPENCODE_PASSWORD":          m.cfg.Password,
+		"OPENCODE_SERVER_PASSWORD":   m.cfg.Password,
+		"OPENCODE_SERVER_USERNAME":   m.cfg.Username,
+		"OPENCODE_CONFIG_CONTENT":    content,
 	}
 	// The commit identity for guest work (P11 settings, documented defaults
 	// otherwise). It is configuration, not a secret.
@@ -1278,6 +1282,9 @@ func (m *MicrosandboxRuntime) rejectIsolationMismatch(ctx context.Context, sandb
 	}
 	createdFull := strings.Contains(script, "sleep infinity")
 	if createdFull == (m.cfg.Isolation == IsolationFull) {
+		if !strings.Contains(script, "@opencode/cli@") {
+			return fmt.Errorf("%s has a legacy OpenCode start script fixed at creation; OpenCode v%s requires 'just-code recreate --microsandbox'. Export any guest sessions and changes first: recreation deletes guest-only state", sandbox.Name, OpenCodeVersion)
+		}
 		return nil
 	}
 	createdMode := IsolationBackend
@@ -1471,7 +1478,7 @@ func (m *MicrosandboxRuntime) Shell() error {
 // with /workspace as its working directory (isolation full). The SDK attach
 // channel passes the host terminal through.
 func (m *MicrosandboxRuntime) RunAgent(ctx context.Context) error {
-	sessions, _, listCode, listErr := m.Client.ExecCapture(ctx, m.InstanceName(), "cd /workspace && opencode session list --format json")
+	sessions, _, listCode, listErr := m.Client.ExecCapture(ctx, m.InstanceName(), "cd /workspace && opencode session list --standalone --format json")
 	if listErr == nil && listCode != 0 {
 		listErr = fmt.Errorf("OpenCode session list exited with code %d", listCode)
 	}
@@ -1501,7 +1508,7 @@ func (m *MicrosandboxRuntime) RunAgent(ctx context.Context) error {
 			fmt.Fprintln(os.Stderr, line)
 		}
 	}
-	code, err := m.Client.AttachInteractive(ctx, m.InstanceName(), "opencode", resumeArgs, "/workspace")
+	code, err := m.Client.AttachInteractive(ctx, m.InstanceName(), "opencode", append([]string{"--standalone"}, resumeArgs...), "/workspace")
 	if err != nil {
 		return err
 	}

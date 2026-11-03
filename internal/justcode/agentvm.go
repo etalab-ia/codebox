@@ -349,8 +349,8 @@ func (a *AgentVM) writeSecretsEnv(dir string, keys map[string]string) (string, e
 	// is the only environment the guest processes inherit; the managed config
 	// cannot carry the setting (see OpenCodeDisableUpdateEnv).
 	var b strings.Builder
-	fmt.Fprintf(&b, "%s\nOPENCODE_SERVER_PASSWORD=%s\nOPENCODE_SERVER_USERNAME=%s\nOPENCODE_CONFIG_CONTENT=%s\n",
-		OpenCodeDisableUpdateAssignment, shellQuote(a.Config.Password), shellQuote(a.Config.Username), shellQuote(configContent))
+	fmt.Fprintf(&b, "%s\nOPENCODE_PASSWORD=%s\nOPENCODE_SERVER_PASSWORD=%s\nOPENCODE_SERVER_USERNAME=%s\nOPENCODE_CONFIG_CONTENT=%s\n",
+		OpenCodeDisableUpdateAssignment, shellQuote(a.Config.Password), shellQuote(a.Config.Password), shellQuote(a.Config.Username), shellQuote(configContent))
 	for _, assignment := range providerKeyAssignments(keys) {
 		name, value, _ := strings.Cut(assignment, "=")
 		fmt.Fprintf(&b, "%s=%s\n", name, shellQuote(value))
@@ -369,9 +369,35 @@ func shellQuote(s string) string {
 	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
 }
 
+// ensureOpenCode upgrades the managed default guest in place. A custom
+// template is user-owned and must provide the supported CLI itself.
+func (a *AgentVM) ensureOpenCode(ctx context.Context) error {
+	probe := func() bool {
+		result, err := a.Runner.Run(ctx, "limactl", "shell", a.VMName(), "opencode", "--version")
+		return err == nil && result.ExitCode == 0 && strings.TrimSpace(result.Stdout) == "opencode v"+OpenCodeVersion
+	}
+	if probe() {
+		return nil
+	}
+	if a.Config.AgentVMTemplate != DefaultAgentVMTemplate {
+		return fmt.Errorf("custom agent-vm template requires OpenCode v%s; install @opencode/cli@%s in the guest before starting just-code", OpenCodeVersion, OpenCodeVersion)
+	}
+	fmt.Println("Updating managed OpenCode inside agent-vm (sessions are retained)...")
+	if err := a.guestRun(ctx, "sh", "-c", "curl -fsSL https://opencode.ai/v2/install | bash -s -- --version "+OpenCodeVersion+" --no-modify-path"); err != nil {
+		return err
+	}
+	if !probe() {
+		return fmt.Errorf("agent-vm must provide OpenCode v%s after installation; check the guest PATH", OpenCodeVersion)
+	}
+	return nil
+}
+
 // launchBackend pushes the secrets env file into the guest and starts the
 // OpenCode server detached, mirroring the Tart launch flow.
 func (a *AgentVM) launchBackend(ctx context.Context) error {
+	if err := a.ensureOpenCode(ctx); err != nil {
+		return err
+	}
 	vm := a.VMName()
 	fmt.Printf("Launching OpenCode server inside %s...\n", vm)
 	if err := os.MkdirAll(a.StateDir, 0o755); err != nil {
@@ -712,6 +738,9 @@ func (a *AgentVM) Shell() error {
 // mount, which shares the host's absolute path. The TUI's /new command starts
 // a fresh session.
 func (a *AgentVM) RunAgent(ctx context.Context) error {
+	if err := a.ensureOpenCode(ctx); err != nil {
+		return err
+	}
 	cfg := a.Config
 	vm := a.VMName()
 	if err := os.MkdirAll(a.StateDir, 0o755); err != nil {
@@ -731,7 +760,7 @@ func (a *AgentVM) RunAgent(ctx context.Context) error {
 	if err := a.guestRun(ctx, "chmod", "600", agentVMSecretsEnvPath); err != nil {
 		return err
 	}
-	listCommand := fmt.Sprintf("set -a; . %s; set +a; cd %s && opencode session list --format json", agentVMSecretsEnvPath, shellQuote(cfg.WorkspaceDir))
+	listCommand := fmt.Sprintf("set -a; . %s; set +a; cd %s && opencode session list --standalone --format json", agentVMSecretsEnvPath, shellQuote(cfg.WorkspaceDir))
 	sessions, err := a.Runner.Run(ctx, "limactl", "shell", vm, "sh", "-c", listCommand)
 	var listErr error
 	if err != nil {
@@ -764,7 +793,7 @@ func (a *AgentVM) RunAgent(ctx context.Context) error {
 	if resumeFlag != "" {
 		resumeFlag = " " + resumeFlag
 	}
-	launch := fmt.Sprintf(`set -a; . %s; set +a; cd %s; exec opencode%s`, agentVMSecretsEnvPath, shellQuote(cfg.WorkspaceDir), resumeFlag)
+	launch := fmt.Sprintf(`set -a; . %s; set +a; cd %s; exec opencode --standalone%s`, agentVMSecretsEnvPath, shellQuote(cfg.WorkspaceDir), resumeFlag)
 	interactive := a.Interactive
 	if interactive == nil {
 		interactive = RunInteractive

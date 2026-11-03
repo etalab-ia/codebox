@@ -213,7 +213,7 @@ func RunInteractiveEnv(env []string, name string, args ...string) error {
 
 // interactiveCommand builds the *exec.Cmd for an interactive command. On
 // Windows, when the resolved program is a batch shim (.cmd/.bat, as produced by
-// `npm install -g opencode-ai`), it is invoked through the command processor
+// `npm install -g @opencode/cli`), it is invoked through the command processor
 // (cmd.exe /c) because CreateProcess cannot execute a batch file directly.
 func interactiveCommand(name string, args ...string) *exec.Cmd {
 	if runtime.GOOS == "windows" {
@@ -222,6 +222,27 @@ func interactiveCommand(name string, args ...string) *exec.Cmd {
 		}
 	}
 	return exec.Command(name, args...)
+}
+
+// ValidateOpenCodeBackend rejects v1 auth settings that v2 cannot honour.
+// It is intentionally start-only: cleanup and inspection must remain usable.
+func ValidateOpenCodeBackend(cfg Config) error {
+	if cfg.Isolation == IsolationFull {
+		return nil
+	}
+	if cfg.Username != "" && cfg.Username != DefaultUsername {
+		return fmt.Errorf("OpenCode v2 requires OPENCODE_SERVER_USERNAME=opencode; custom backend usernames are no longer supported")
+	}
+	if cfg.Password == "" {
+		return fmt.Errorf("OpenCode v2 requires a non-empty OPENCODE_SERVER_PASSWORD; unauthenticated backend mode is no longer supported")
+	}
+	return nil
+}
+
+// OpenCodeClientEnv carries the v2 credential only in the child environment,
+// overriding inherited OPENCODE_PASSWORD (which has precedence over the old name).
+func OpenCodeClientEnv(password string) []string {
+	return []string{OpenCodeDisableUpdateAssignment, "OPENCODE_PASSWORD=" + password}
 }
 
 // OpenCodeHelp captures the installed OpenCode CLI's help using the same
@@ -256,16 +277,29 @@ func OpenCodeHasSessions(output string) (bool, error) {
 // OpenCodeRemoteHasSessions checks the running backend server's session API;
 // the instance context scopes the list to that project's sessions.
 func OpenCodeRemoteHasSessions(ctx context.Context, endpoint, username, password string) (bool, error) {
-	target, err := url.JoinPath(endpoint, "session")
+	client := &http.Client{Timeout: 5 * time.Second}
+	var location struct {
+		Project struct {
+			ID string `json:"id"`
+		} `json:"project"`
+	}
+	if err := FetchJSON(ctx, client, endpoint, username, password, "/api/location", &location); err != nil {
+		return false, fmt.Errorf("resolve remote OpenCode project: %w", err)
+	}
+	if location.Project.ID == "" {
+		return false, fmt.Errorf("remote OpenCode location has no project ID")
+	}
+	target, err := url.JoinPath(endpoint, "api/session")
 	if err != nil {
 		return false, fmt.Errorf("build OpenCode session URL: %w", err)
 	}
+	query := url.Values{"project": {location.Project.ID}, "parentID": {"null"}, "limit": {"1"}, "order": {"desc"}}
+	target += "?" + query.Encode()
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, target, nil)
 	if err != nil {
 		return false, fmt.Errorf("create OpenCode session request: %w", err)
 	}
 	req.SetBasicAuth(username, password)
-	client := &http.Client{Timeout: 5 * time.Second}
 	resp, err := client.Do(req)
 	if err != nil {
 		return false, fmt.Errorf("list remote OpenCode sessions: %w", err)
@@ -282,7 +316,13 @@ func OpenCodeRemoteHasSessions(ctx context.Context, endpoint, username, password
 	if len(body) > maxSessionListBytes {
 		return false, fmt.Errorf("remote OpenCode session list exceeds %d bytes", maxSessionListBytes)
 	}
-	return OpenCodeHasSessions(string(body))
+	var page struct {
+		Data json.RawMessage `json:"data"`
+	}
+	if err := json.Unmarshal(body, &page); err != nil || len(page.Data) == 0 || string(page.Data) == "null" {
+		return false, fmt.Errorf("invalid OpenCode v2 session page")
+	}
+	return OpenCodeHasSessions(string(page.Data))
 }
 
 // OpenCodeContinueArgs returns the session-resume flag only when the

@@ -49,7 +49,7 @@ irm https://raw.githubusercontent.com/etalab-ia/just-code/main/scripts/install.p
 
 L'installateur choisit une seule release stable, télécharge le binaire et `SHA256SUMS` depuis cette même release, puis compare l'empreinte avant de remplacer l'installation. Il annonce le résultat, traite `PATH` (en demandant l'autorisation avant de modifier un fichier de shell) puis lance l'assistant `just-code setup`.
 
-Prérequis : une **clé d'au moins une plateforme d'inférence** — Albert API par défaut, Mistral AI ou une plateforme compatible OpenAI au choix (`just-code setup`). Le runtime Microsandbox est téléchargé et vérifié automatiquement au premier démarrage. En isolation complète (le défaut), OpenCode est installé dans l'invité : aucune installation sur l'hôte n'est nécessaire. En isolation partielle, l'hôte doit fournir l'OpenCode CLI (`npm install -g opencode-ai`).
+Prérequis : une **clé d'au moins une plateforme d'inférence** — Albert API par défaut, Mistral AI ou une plateforme compatible OpenAI au choix (`just-code setup`). Le runtime Microsandbox est téléchargé et vérifié automatiquement au premier démarrage. En isolation complète (le défaut), OpenCode est installé dans l'invité : aucune installation sur l'hôte n'est nécessaire. En isolation partielle, l'hôte doit fournir l'OpenCode CLI (`npm uninstall -g opencode-ai && npm install -g @opencode/cli@2.2.5`).
 
 Binaires par plateforme, installation manuelle, vérification, compilation depuis les sources : [docs/installation.md](docs/installation.md).
 

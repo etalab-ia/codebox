@@ -183,14 +183,14 @@ func TestComposeConfigContentCarriesEveryConfiguredProvider(t *testing.T) {
 	if err := json.Unmarshal([]byte(content), &config); err != nil {
 		t.Fatal(err)
 	}
-	providers, _ := config["provider"].(map[string]any)
+	providers, _ := config["providers"].(map[string]any)
 	for _, kind := range []string{"albert", "mistral", "openai-compatible"} {
 		if _, ok := providers[kind]; !ok {
 			t.Fatalf("provider %s missing from composed config: %s", kind, content)
 		}
 	}
 	mistral, _ := providers["mistral"].(map[string]any)
-	options, _ := mistral["options"].(map[string]any)
+	options, _ := mistral["settings"].(map[string]any)
 	if options["baseURL"] != "https://api.mistral.ai/v1" || options["apiKey"] != "{env:MISTRAL_API_KEY}" {
 		t.Fatalf("Mistral provider options = %+v", options)
 	}
@@ -214,7 +214,7 @@ func TestComposeConfigContentDropsUnconnectedAlbert(t *testing.T) {
 	if err := json.Unmarshal([]byte(content), &config); err != nil {
 		t.Fatal(err)
 	}
-	providers, _ := config["provider"].(map[string]any)
+	providers, _ := config["providers"].(map[string]any)
 	if _, ok := providers["albert"]; ok {
 		t.Fatalf("an unconnected Albert block must be removed: %s", content)
 	}

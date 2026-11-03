@@ -5,7 +5,7 @@
     "alpine": "alpine",
     "debian": "debian:bookworm-slim"
   },
-  "opencode_version": "1.18.32",
+  "opencode_version": "2.2.5",
   "node_version": "v22.14.0",
   "playwright_mcp_version": "0.0.82",
   "chrome_devtools_mcp_version": "1.10.1"

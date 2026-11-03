@@ -69,7 +69,7 @@ $SUDO apt-get install -y --no-install-recommends nodejs
 echo "just-code: installing OpenCode..."
 # --no-modify-path: just-code owns PATH below. Letting the installer edit shell
 # rc files would tie the install to the installer's shell detection.
-curl -fsSL https://opencode.ai/install | bash -s -- --no-modify-path
+curl -fsSL https://opencode.ai/v2/install | bash -s -- --version 2.2.5 --no-modify-path
 
 # Fail loudly here rather than at backend launch: a base template without
 # OpenCode is unusable, and the failure would otherwise surface much later as

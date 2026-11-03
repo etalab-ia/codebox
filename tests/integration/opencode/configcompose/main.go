@@ -47,6 +47,8 @@ func main() {
 		Models:     allModels,
 	})
 
+	writeCompose(dir, "05-managed-mcp", justcode.ManagedOverlay{MCPConnectors: []string{"playwright", "context7"}})
+
 	writeCompose(dir, "04-provider-partial-metadata", justcode.ManagedOverlay{
 		Model:      "openai-compatible/complete",
 		SmallModel: "openai-compatible/context-only",
