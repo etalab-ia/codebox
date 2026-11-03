@@ -48,6 +48,13 @@ func envTestWizard(stateDir string, store *fakeSetupStore, probes []justcode.Cre
 	}
 }
 
+func stubEnvPasswordReader(t *testing.T, value string) {
+	t.Helper()
+	original := passwordReaderFn
+	passwordReaderFn = func() (string, error) { return value, nil }
+	t.Cleanup(func() { passwordReaderFn = original })
+}
+
 func TestAlbertEnvKeyAcceptedStoresWithoutPrintingValue(t *testing.T) {
 	stateDir, _ := setupTestEnv(t)
 	forceLineWizard(t)
@@ -209,6 +216,7 @@ func TestAlbertEnvKeyUnreachableContinueStoresUnverified(t *testing.T) {
 func TestAlbertEnvKeyEmptyMeansNoProposal(t *testing.T) {
 	stateDir, _ := setupTestEnv(t)
 	forceLineWizard(t)
+	stubEnvPasswordReader(t, "typed-key")
 	t.Setenv("ALBERT_API_KEY", "")
 	store := &fakeSetupStore{}
 	var validated []string
@@ -229,6 +237,7 @@ func TestAlbertEnvKeyEmptyMeansNoProposal(t *testing.T) {
 func TestAlbertEnvKeyAbsentMeansNoProposal(t *testing.T) {
 	stateDir, _ := setupTestEnv(t)
 	forceLineWizard(t)
+	stubEnvPasswordReader(t, "typed-key")
 	t.Setenv("ALBERT_API_KEY", "placeholder")
 	if err := os.Unsetenv("ALBERT_API_KEY"); err != nil {
 		t.Fatal(err)
@@ -336,13 +345,14 @@ func TestAlbertEnvKeyStoredJournalTakesPriority(t *testing.T) {
 func TestAlbertEnvKeyEditReplaceAllowsManualReplacement(t *testing.T) {
 	stateDir, _ := setupTestEnv(t)
 	forceLineWizard(t)
+	stubEnvPasswordReader(t, "manual-key")
 	t.Setenv("ALBERT_API_KEY", envTestSecret)
 	j := resumeTestJournal([]justcode.SetupPlatform{{Kind: "albert"}}, string(justcode.CredentialAlbert))
 	store := &fakeSetupStore{}
 	var validated []string
 	w := envTestWizard(stateDir, store, nil, &validated)
 	out := captureStdout(t, func() {
-		if _, err := setupPlatformStage(context.Background(), w, bufio.NewReader(strings.NewReader("r\ns\nmanual-key\n")), true, &j, true, justcode.DefaultFS, stateDir); err != nil {
+		if _, err := setupPlatformStage(context.Background(), w, bufio.NewReader(strings.NewReader("\nr\ns\nmanual-key\n")), true, &j, true, justcode.DefaultFS, stateDir); err != nil {
 			t.Fatalf("stage: %v", err)
 		}
 	})
