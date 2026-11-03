@@ -411,7 +411,7 @@ func TestSetupPlatformStageResumeHuhModifyDeselectsProvider(t *testing.T) {
 	}{
 		{name: "drop Albert", platforms: []justcode.SetupPlatform{{Kind: "albert"}, {Kind: "mistral"}}, stored: justcode.CredentialMistral, moves: 0, want: justcode.ProviderMistral},
 		{name: "drop Mistral", platforms: []justcode.SetupPlatform{{Kind: "albert"}, {Kind: "mistral"}}, stored: justcode.CredentialAlbert, moves: 1, want: justcode.ProviderAlbert},
-		{name: "drop OpenAI-compatible", platforms: []justcode.SetupPlatform{{Kind: "albert"}, openAI}, stored: justcode.CredentialAlbert, moves: 1, want: justcode.ProviderAlbert},
+		{name: "drop OpenAI-compatible", platforms: []justcode.SetupPlatform{{Kind: "albert"}, openAI}, stored: justcode.CredentialAlbert, moves: 2, want: justcode.ProviderAlbert},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			stateDir, _ := setupTestEnv(t)
