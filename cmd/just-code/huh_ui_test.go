@@ -14,6 +14,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/huh/v2"
 	lipgloss "charm.land/lipgloss/v2"
+	"github.com/charmbracelet/x/ansi"
 	"github.com/etalab-ia/just-code/internal/justcode"
 )
 
@@ -253,6 +254,70 @@ func TestInitHuhNonEmptySkillsAskNoConfirmation(t *testing.T) {
 	}
 	if !equalStringSlices(got.Skills, []string{"official/rgaa"}) {
 		t.Fatalf("skills = %+v, want the submitted selection", got)
+	}
+}
+
+// TestInitHuhEmptySkillsAcceptedOnceAcrossMCPRetry drives the real Huh
+// selections: clear skills once, clear and decline MCP, then clear and accept
+// it on retry. The accepted zero-skills decision must not be asked again (#307).
+func TestInitHuhEmptySkillsAcceptedOnceAcrossMCPRetry(t *testing.T) {
+	root := initTestProject(t)
+	originalCatalogue, originalHuhRun, originalConfirm := projectSkillCatalogueFn, huhRun, initEmptySkillsConfirmFn
+	projectSkillCatalogueFn = func(context.Context) ([]justcode.ProjectSkill, error) {
+		return initSkillFixtureCatalogue(), nil
+	}
+	var events []string
+	skillsCleared := false
+	mcpConfirmations := 0
+	huhRun = func(form *huh.Form) error {
+		form.Init()
+		_, _ = form.Update(tea.WindowSizeMsg{Width: 100, Height: 24})
+		view := ansi.Strip(form.View())
+		switch {
+		case strings.Contains(view, "Aucun MCP sélectionné"):
+			mcpConfirmations++
+			if mcpConfirmations == 1 {
+				events = append(events, "mcp-decline")
+				return nil // the confirmation's default is to return to the MCP form
+			}
+			events = append(events, "mcp-accept")
+			_, _ = form.Update(tea.KeyPressMsg(tea.Key{Code: 'y', Text: "y"}))
+		case strings.Contains(view, justcode.MCPStepTitle):
+			events = append(events, "mcp-clear")
+			_, _ = form.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeySpace, Text: " "}))
+		case strings.Contains(view, "Une skill apporte"):
+			events = append(events, "skills")
+			if !skillsCleared {
+				_, _ = form.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeySpace, Text: " "}))
+				skillsCleared = true
+			}
+		default:
+			t.Fatalf("unexpected form:\n%s", view)
+		}
+		return nil
+	}
+	initEmptySkillsConfirmFn = func() (bool, error) {
+		events = append(events, "skills-confirm")
+		return true, nil
+	}
+	t.Cleanup(func() {
+		projectSkillCatalogueFn, huhRun, initEmptySkillsConfirmFn = originalCatalogue, originalHuhRun, originalConfirm
+	})
+	opts := initOptions{Set: map[string]bool{"root": true, "github": true, "skills-storage": true},
+		hostCPUs: 8, hostMemoryMB: 16384, maxCPUs: 8, maxMemoryMB: 8192}
+	got, err := askInitQuestionsHuh(opts, justcode.InitAnswers{
+		Root: root, SkillsSet: true, Skills: []string{"official/securite-developpement"},
+		MCPsSet: true, MCPConnectors: []string{"data-gouv"},
+	})
+	if err != nil {
+		t.Fatalf("askInitQuestionsHuh: %v", err)
+	}
+	wantEvents := []string{"skills", "skills-confirm", "mcp-clear", "mcp-decline", "skills", "mcp-clear", "mcp-accept"}
+	if !equalStringSlices(events, wantEvents) {
+		t.Fatalf("events = %v, want %v", events, wantEvents)
+	}
+	if len(got.Skills) != 0 || len(got.MCPConnectors) != 0 {
+		t.Fatalf("confirmed empty selections were not preserved: %+v", got)
 	}
 }
 

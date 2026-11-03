@@ -906,6 +906,9 @@ func askInitQuestionsHuh(opts initOptions, answers justcode.InitAnswers) (justco
 	// The form runs in a loop: when the user changes the project root, the
 	// answers are reseeded from the target project's manifest (matching
 	// the line wizard) and the form reopens with the reseeded defaults.
+	// An accepted empty-skills decision covers later MCP retries; it is reset
+	// only when the project changes or the user selects a skill again.
+	emptySkillsConfirmed := false
 	for {
 		// Local copies the form binds to; written back to answers on success.
 		// The root field starts empty each pass: an empty submission keeps the
@@ -1019,13 +1022,18 @@ func askInitQuestionsHuh(opts initOptions, answers justcode.InitAnswers) (justco
 			if !opts.Set["mcps"] {
 				answers.MCPsSet = false
 			}
+			emptySkillsConfirmed = false
 			continue
 		}
 		answers.Root = newRoot
 		// Commit the skills answers BEFORE the confirmation: a declined
 		// confirmation reopens the form, which reseeds from answers, so the
 		// storage choice and the other answers must already be safe (#307).
-		if commitInitHuhSkills(opts, &answers, skills, skillsLocalOnly, skillOptions, skipSkills) {
+		needsSkillsConfirm := commitInitHuhSkills(opts, &answers, skills, skillsLocalOnly, skillOptions, skipSkills)
+		if len(skills) > 0 {
+			emptySkillsConfirmed = false
+		}
+		if needsSkillsConfirm && !emptySkillsConfirmed {
 			proceed, err := initEmptySkillsConfirmFn()
 			if err != nil {
 				return answers, err
@@ -1036,6 +1044,7 @@ func askInitQuestionsHuh(opts initOptions, answers justcode.InitAnswers) (justco
 			}
 			answers.Skills = nil
 			answers.SkillsSet = true
+			emptySkillsConfirmed = true
 		}
 		if mcpGroup != nil {
 			if err := huhRun(huh.NewForm(mcpGroup)); err != nil {
