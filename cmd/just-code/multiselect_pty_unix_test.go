@@ -65,6 +65,22 @@ func TestMultiSelectPTYResizePreservesCursorAndSelection(t *testing.T) {
 	session.submit()
 }
 
+func TestMultiSelectPTYShrinkPreservesNonFinalCursorAndSelection(t *testing.T) {
+	session := newMultiSelectPTYSession(t, "resize", 100, 24)
+	_ = session.waitFor("mcp-00")
+	session.write(strings.Repeat("\x1b[B", 4) + " ")
+	output := session.waitFor("✓ mcp-04")
+	if !multiSelectSelectionOnOption(output, "mcp-04") {
+		t.Fatalf("PTY setup did not select mcp-04:\n%s", output)
+	}
+	session.resize(48, 8)
+	output = session.waitForNew("> ✓ mcp-04")
+	if !multiSelectCursorOnOption(output, "mcp-04") || !multiSelectSelectionOnOption(output, "mcp-04") {
+		t.Fatalf("PTY shrink moved or hid the cursor:\n%s", output)
+	}
+	session.submit()
+}
+
 func TestMultiSelectPTYResizePreservesActiveFilter(t *testing.T) {
 	session := newMultiSelectPTYSession(t, "filter", 80, 24)
 	_ = session.waitFor("data.gouv.fr")

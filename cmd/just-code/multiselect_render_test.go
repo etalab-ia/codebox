@@ -98,6 +98,36 @@ func TestMultiSelectCursorSelectionScrollingAndResize(t *testing.T) {
 	}
 }
 
+func TestMultiSelectShrinkPreservesNonFinalCursorAndSelection(t *testing.T) {
+	options := make([]huh.Option[string], 12)
+	for i := range options {
+		label := fmt.Sprintf("mcp-%02d", i)
+		options[i] = huh.NewOption(label, label)
+	}
+	selected := []string{}
+	field := newProjectMCPsMultiSelect(options, &selected).(*resizeCursorMultiSelect)
+	form := huh.NewForm(huh.NewGroup(field))
+	form.Init()
+	_, _ = form.Update(tea.WindowSizeMsg{Width: 100, Height: 24})
+	for range 4 {
+		_, _ = form.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyDown}))
+	}
+	_, _ = form.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeySpace, Text: " "}))
+	_, _ = form.Update(tea.WindowSizeMsg{Width: 48, Height: 8})
+	view := ansi.Strip(form.View())
+	hovered, ok := field.Hovered()
+	if !ok || hovered != "mcp-04" {
+		t.Fatalf("shrink moved the cursor to %q:\n%s", hovered, view)
+	}
+	if !multiSelectCursorOnOption(view, "mcp-04") || !multiSelectSelectionOnOption(view, "mcp-04") {
+		t.Fatalf("shrink hid the cursor or its selection:\n%s", view)
+	}
+	_, _ = form.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeySpace, Text: " "}))
+	if len(selected) != 0 {
+		t.Fatalf("Space after shrink toggled %v instead of mcp-04", selected)
+	}
+}
+
 func TestMultiSelectResizePreservesFirstVisibleRowAfterScrolling(t *testing.T) {
 	options := make([]huh.Option[string], 12)
 	for i := range options {

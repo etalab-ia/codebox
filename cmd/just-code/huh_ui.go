@@ -7,10 +7,13 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"reflect"
 	"slices"
 	"strconv"
 	"strings"
+	"unsafe"
 
+	"charm.land/bubbles/v2/viewport"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/huh/v2"
 	lipgloss "charm.land/lipgloss/v2"
@@ -142,8 +145,7 @@ func huhApplyAccessible(plan justcode.InitPlan, showDiff *bool) (string, error) 
 const multiSelectKeyHint = "Space or x toggles an item; Enter confirms the list; / filters."
 
 // resizeCursorMultiSelect compensates for huh 2.0.3 resizing a MultiSelect's
-// viewport without bringing its current option back into view. Non-text
-// navigation restores the same row without modifying an active filter.
+// viewport without bringing its current option back into view.
 type resizeCursorMultiSelect struct {
 	*huh.MultiSelect[string]
 }
@@ -151,23 +153,44 @@ type resizeCursorMultiSelect struct {
 func (m *resizeCursorMultiSelect) Update(msg tea.Msg) (huh.Model, tea.Cmd) {
 	_, cmd := m.MultiSelect.Update(msg)
 	if _, resizing := msg.(tea.WindowSizeMsg); resizing {
-		if _, ok := m.Hovered(); !ok {
-			return m, cmd
-		}
-		if !multiSelectCursorVisible(m.MultiSelect.View()) {
-			_, _ = m.MultiSelect.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyDown}))
-		}
+		m.ensureCursorVisible()
 	}
 	return m, cmd
 }
 
-func multiSelectCursorVisible(view string) bool {
-	for _, line := range strings.Split(ansi.Strip(view), "\n") {
+// multiSelectViewport accesses huh's existing viewport by field name. Huh does
+// not expose a visibility-only resize operation; keeping this in one adapter
+// avoids changing the cursor, filter, options, or selection.
+func (m *resizeCursorMultiSelect) multiSelectViewport() *viewport.Model {
+	field := reflect.ValueOf(m.MultiSelect).Elem().FieldByName("viewport")
+	if !field.IsValid() || field.Type() != reflect.TypeOf(viewport.Model{}) {
+		return nil
+	}
+	return (*viewport.Model)(unsafe.Pointer(field.UnsafeAddr()))
+}
+
+func (m *resizeCursorMultiSelect) ensureCursorVisible() {
+	viewport := m.multiSelectViewport()
+	if viewport == nil {
+		return
+	}
+	content := ansi.Strip(viewport.GetContent())
+	cursorLine := -1
+	for i, line := range strings.Split(content, "\n") {
 		if strings.Contains(line, ">") && (strings.Contains(line, "•") || strings.Contains(line, "✓")) {
-			return true
+			cursorLine = i
+			break
 		}
 	}
-	return false
+	if cursorLine < 0 || viewport.Height() <= 0 {
+		return
+	}
+	offset, height := viewport.YOffset(), viewport.Height()
+	if cursorLine < offset {
+		viewport.ScrollUp(offset - cursorLine)
+	} else if cursorLine >= offset+height {
+		viewport.ScrollDown(cursorLine + 1 - offset - height)
+	}
 }
 
 func keepMultiSelectCursorOnResize(field *huh.MultiSelect[string]) huh.Field {
