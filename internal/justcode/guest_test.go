@@ -4,6 +4,7 @@ import (
 	"context"
 	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -453,5 +454,39 @@ func TestGuestSecretsEnvCarriesProviderConfig(t *testing.T) {
 	// update-check opt-out must be here too.
 	if !strings.Contains(content, "OPENCODE_DISABLE_AUTOUPDATE=1") {
 		t.Fatalf("secrets env must disable the update check: %q", content)
+	}
+}
+
+func TestTartAgentLaunchUsesUpgradedPrivateOpenCode(t *testing.T) {
+	skipUnixGuest(t)
+	home, workspace := t.TempDir(), t.TempDir()
+	legacyBin := t.TempDir()
+	privateBin := filepath.Join(home, ".opencode", "bin")
+	for _, dir := range []string{legacyBin, privateBin} {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	writeOpenCode := func(dir, version string) {
+		script := "#!/bin/sh\nprintf '%s\\n' '" + version + "'\n"
+		if err := os.WriteFile(filepath.Join(dir, "opencode"), []byte(script), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	writeOpenCode(legacyBin, "1.18.32")
+	writeOpenCode(privateBin, "opencode v"+OpenCodeVersion)
+
+	envPath := filepath.Join(t.TempDir(), "agent.env")
+	if err := os.WriteFile(envPath, []byte(guestSecretsEnv("pw", "opencode", nil, ManagedOverlay{})), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cmd := exec.Command("/bin/sh", "-c", tartAgentLaunch(envPath, workspace, false))
+	cmd.Env = []string{"HOME=" + home, "PATH=" + legacyBin}
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("launch upgraded guest TUI: %v: %s", err, output)
+	}
+	if got := strings.TrimSpace(string(output)); got != "opencode v"+OpenCodeVersion {
+		t.Fatalf("Tart launch selected OpenCode %q, want the private upgraded v%s binary", got, OpenCodeVersion)
 	}
 }

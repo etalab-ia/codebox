@@ -515,6 +515,9 @@ func guestSecretsEnv(password, username string, keys map[string]string, overlay 
 	var b strings.Builder
 	fmt.Fprintf(&b, "%s\nOPENCODE_PASSWORD=%s\nOPENCODE_SERVER_PASSWORD=%s\nOPENCODE_SERVER_USERNAME=%s\nOPENCODE_CONFIG_CONTENT=%s\n",
 		OpenCodeDisableUpdateAssignment, shellQuote(password), shellQuote(password), shellQuote(username), shellQuote(configContent))
+	// Preparation resolves this private binary explicitly, but session probes
+	// and the TUI start a new login shell. Preserve the same selection there.
+	b.WriteString("PATH=\"$HOME/.opencode/bin:$PATH\"\n")
 	for _, assignment := range providerKeyAssignments(keys) {
 		name, value, _ := strings.Cut(assignment, "=")
 		fmt.Fprintf(&b, "%s=%s\n", name, shellQuote(value))
