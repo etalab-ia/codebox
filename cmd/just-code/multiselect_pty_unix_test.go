@@ -83,6 +83,26 @@ func TestMultiSelectPTYShrinkPreservesNonFinalCursorAndSelection(t *testing.T) {
 	session.submit()
 }
 
+func TestMultiSelectPTYWaitAccumulatesFragmentedOutput(t *testing.T) {
+	s := &multiSelectPTYSession{t: t}
+	s.output.WriteString("> ✓ mcp-")
+	matched := make(chan string, 1)
+	go func() { matched <- s.waitFor("> ✓ mcp-11") }()
+	// Force at least one poll with only the prefix present.
+	time.Sleep(50 * time.Millisecond)
+	s.mu.Lock()
+	s.output.WriteString("11")
+	s.mu.Unlock()
+	select {
+	case view := <-matched:
+		if !strings.Contains(view, "> ✓ mcp-11") {
+			t.Fatalf("fragmented output did not match the complete frame: %q", view)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("fragmented PTY output was discarded instead of accumulated")
+	}
+}
+
 func TestMultiSelectPTYResizePreservesActiveFilter(t *testing.T) {
 	session := newMultiSelectPTYSession(t, "filter", 80, 24)
 	_ = session.waitFor("data.gouv.fr")
@@ -192,9 +212,11 @@ func (s *multiSelectPTYSession) waitFor(fragment string) string {
 	for {
 		s.mu.Lock()
 		view := ansi.Strip(s.output.String()[s.waited:])
-		s.waited = s.output.Len()
 		s.mu.Unlock()
 		if strings.Contains(view, fragment) {
+			s.mu.Lock()
+			s.waited = s.output.Len()
+			s.mu.Unlock()
 			return view
 		}
 		if time.Now().After(deadline) {
