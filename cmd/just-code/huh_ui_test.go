@@ -63,7 +63,7 @@ func TestInitMultiSelectsAnnounceSelectionKeys(t *testing.T) {
 		[]huh.Option[string]{huh.NewOption("pdf", "pdf")}, &skillsValue, "[1/3] "))
 	mcpValue := []string{}
 	assertHint("MCPs", newProjectMCPsMultiSelect(
-		[]huh.Option[string]{huh.NewOption("data-gouv", "data-gouv")}, &mcpValue))
+		[]huh.Option[string]{huh.NewOption("data-gouv", "data-gouv")}, &mcpValue, justcode.MCPStepTitle))
 	dotenvValue := []string{}
 	assertHint("Dotenv files", newDotenvFilesMultiSelect(
 		[]huh.Option[string]{huh.NewOption(".env", ".env")}, &dotenvValue))
@@ -77,7 +77,7 @@ func TestInitMultiSelectsAnnounceSelectionKeys(t *testing.T) {
 func TestProjectMCPsScreenUsesWizardTexts(t *testing.T) {
 	mcpValue := []string{}
 	field := newProjectMCPsMultiSelect(
-		[]huh.Option[string]{huh.NewOption("data-gouv — données publiques", "data-gouv")}, &mcpValue)
+		[]huh.Option[string]{huh.NewOption("data-gouv — données publiques", "data-gouv")}, &mcpValue, justcode.MCPStepTitle)
 	content := huh.NewGroup(field).Content()
 	for _, want := range []string{justcode.MCPStepTitle, justcode.MCPStepIntro, "data-gouv"} {
 		if !strings.Contains(content, want) {
