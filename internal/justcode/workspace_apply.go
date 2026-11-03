@@ -354,28 +354,26 @@ type GuestBranchStatus struct {
 	PRKnown bool
 }
 
-// guestLocalBranch is one refs/heads entry with its committer date, used to
-// pick the most recently worked-on branch when the marker is stale.
+// guestLocalBranch is a branch entry with its committer date, used to pick
+// the most recently worked-on branch when the marker is stale.
 type guestLocalBranch struct {
 	name          string
 	committerUnix int64
 }
 
 // selectGuestWorkBranch picks the branch the exit screen reports (#306). The
-// workflow marker wins when its branch was actually pushed; otherwise the
-// most recently committed pushed branch is used, so a branch the agent
-// created under another name is still found. Without any push, the marker
-// branch (or the latest local branch) is reported as not pushed. The default
-// branch and the workflow's snapshot-backup branch are never candidates; with
-// no remote HEAD, the sealed bootstrap's main/master baseline is excluded too.
-func selectGuestWorkBranch(marker string, locals []guestLocalBranch, remotes map[string]bool, defaultBranch string) (string, bool) {
-	var candidates []guestLocalBranch
-	for _, local := range locals {
-		bootstrapBaseline := defaultBranch == "" && (local.name == "main" || local.name == "master")
-		if local.name == "" || local.name == defaultBranch || bootstrapBaseline || local.name == marker+"-snapshot-backup" {
-			continue
+// most recently committed pushed branch wins, including a branch that exists
+// only on the remote; an older workflow marker must not hide newer agent work.
+// Without any push, the marker branch (or the latest local branch) is reported
+// as not pushed. The default branch and the workflow's snapshot-backup branch
+// are never candidates; with no remote HEAD, the sealed bootstrap's main/master
+// baseline is excluded too.
+func selectGuestWorkBranch(marker string, locals []guestLocalBranch, remotes []guestLocalBranch, defaultBranch string) (string, bool) {
+	isCandidate := func(name string) bool {
+		if name == "" || name == "HEAD" || name == defaultBranch || name == marker+"-snapshot-backup" {
+			return false
 		}
-		candidates = append(candidates, local)
+		return defaultBranch != "" || (name != "main" && name != "master")
 	}
 	latest := func(branches []guestLocalBranch) string {
 		best := ""
@@ -387,18 +385,26 @@ func selectGuestWorkBranch(marker string, locals []guestLocalBranch, remotes map
 		}
 		return best
 	}
-	var pushed []guestLocalBranch
-	for _, b := range candidates {
-		if remotes["origin/"+b.name] {
-			pushed = append(pushed, b)
+
+	var candidates []guestLocalBranch
+	for _, local := range locals {
+		if isCandidate(local.name) {
+			candidates = append(candidates, local)
 		}
 	}
-	if len(pushed) > 0 {
-		for _, b := range pushed {
-			if b.name == marker {
-				return marker, true
-			}
+	var pushed []guestLocalBranch
+	for _, remote := range remotes {
+		if !strings.HasPrefix(remote.name, "origin/") {
+			continue
 		}
+		name := strings.TrimPrefix(remote.name, "origin/")
+		if !isCandidate(name) {
+			continue
+		}
+		remote.name = name
+		pushed = append(pushed, remote)
+	}
+	if len(pushed) > 0 {
 		return latest(pushed), true
 	}
 	for _, b := range candidates {
@@ -458,19 +464,14 @@ func (m *MicrosandboxRuntime) GuestBranchStatus(ctx context.Context) (GuestBranc
 		return GuestBranchStatus{}, fmt.Errorf("git for-each-ref refs/heads: %s", strings.TrimSpace(stderr))
 	}
 	remotesOut, stderr, code, err := m.Client.ExecCapture(ctx, m.InstanceName(),
-		prefix+"git for-each-ref --format="+shellQuote("%(refname:short)")+" refs/remotes/origin")
+		prefix+"git for-each-ref --format="+shellQuote("%(refname:short)%00%(committerdate:unix)")+" refs/remotes/origin")
 	if err != nil {
 		return GuestBranchStatus{}, err
 	}
 	if code != 0 {
 		return GuestBranchStatus{}, fmt.Errorf("git for-each-ref refs/remotes/origin: %s", strings.TrimSpace(stderr))
 	}
-	remotes := map[string]bool{}
-	for _, line := range strings.Split(remotesOut, "\n") {
-		if ref := strings.TrimSpace(line); ref != "" {
-			remotes[ref] = true
-		}
-	}
+	remoteBranches := parseGuestLocalBranches(remotesOut)
 	// The remote HEAD names the default branch, which is not agent work.
 	// Best-effort: an unborn or detached HEAD just means no exclusion.
 	defaultOut, _, code, err := m.Client.ExecCapture(ctx, m.InstanceName(),
@@ -482,7 +483,7 @@ func (m *MicrosandboxRuntime) GuestBranchStatus(ctx context.Context) (GuestBranc
 	if code == 0 {
 		defaultBranch = strings.TrimPrefix(strings.TrimSpace(defaultOut), "origin/")
 	}
-	branch, pushed := selectGuestWorkBranch(marker, parseGuestLocalBranches(localsOut), remotes, defaultBranch)
+	branch, pushed := selectGuestWorkBranch(marker, parseGuestLocalBranches(localsOut), remoteBranches, defaultBranch)
 	if branch == "" {
 		return GuestBranchStatus{PRKnown: true}, nil
 	}
