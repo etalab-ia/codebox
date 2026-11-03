@@ -1151,3 +1151,123 @@ func writeManifest(t *testing.T, root string, manifest justcode.ProjectManifest)
 		t.Fatal(err)
 	}
 }
+
+// initAbandonRun drives askInitQuestionsHuh to an interruption and returns
+// the abandon stages actually queued (#310), exercising the interactive
+// paths rather than recordInitAbandon directly. abortOn maps 1-based huhRun
+// call indices to an abort; confirmErr, when set, fails the zero-skills
+// confirmation. Consent is granted or refused through durable settings, so
+// the #181 guard is exercised for real.
+func initAbandonRun(t *testing.T, skills, mcps []string, abortOn map[int]bool, confirmErr error, consent bool) ([]string, error) {
+	t.Helper()
+	stateDir, _ := setupTestEnv(t)
+	settingsPath, err := justcode.UserSettingsPath()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := justcode.WriteUserSettings(justcode.DefaultFS, settingsPath, justcode.UserSettings{
+		SchemaVersion: 1, StatsEnabled: consent, StatsConsentAsked: true,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	root := initTestProject(t)
+	originalCatalogue, originalHuhRun, originalConfirm := projectSkillCatalogueFn, huhRun, initEmptySkillsConfirmFn
+	projectSkillCatalogueFn = func(context.Context) ([]justcode.ProjectSkill, error) {
+		return initSkillFixtureCatalogue(), nil
+	}
+	calls := 0
+	huhRun = func(*huh.Form) error {
+		calls++
+		if abortOn[calls] {
+			return huh.ErrUserAborted
+		}
+		return nil
+	}
+	initEmptySkillsConfirmFn = func() (bool, error) {
+		if confirmErr != nil {
+			return false, confirmErr
+		}
+		return true, nil
+	}
+	t.Cleanup(func() {
+		projectSkillCatalogueFn, huhRun, initEmptySkillsConfirmFn = originalCatalogue, originalHuhRun, originalConfirm
+	})
+	opts := initOptions{Set: map[string]bool{"root": true, "github": true, "skills-storage": true},
+		hostCPUs: 8, hostMemoryMB: 16384, maxCPUs: 8, maxMemoryMB: 8192}
+	_, err = askInitQuestionsHuh(opts, justcode.InitAnswers{
+		Root: root, SkillsSet: true, Skills: skills,
+		MCPsSet: true, MCPConnectors: mcps,
+	})
+	events, readErr := justcode.PendingStatsEvents(justcode.DefaultFS, stateDir)
+	if readErr != nil {
+		t.Fatal(readErr)
+	}
+	var stages []string
+	for _, ev := range events {
+		if ev.Kind == "abandon" && ev.Payload.Abandon != nil {
+			stages = append(stages, ev.Payload.Abandon.Stage)
+		}
+	}
+	return stages, err
+}
+
+// TestInitHuhAbandonStages covers real form interruptions (#310): each abort
+// is attributed to the step the user was actually on, never to another one,
+// and a completed run records nothing.
+func TestInitHuhAbandonStages(t *testing.T) {
+	nonEmpty := []string{"official/rgaa"}
+	t.Run("abort on the skills form", func(t *testing.T) {
+		stages, err := initAbandonRun(t, nonEmpty, []string{"github"}, map[int]bool{1: true}, nil, true)
+		if err == nil {
+			t.Fatal("an aborted form must return an error")
+		}
+		if !equalStringSlices(stages, []string{"skills"}) {
+			t.Fatalf("stages = %v, want skills only (no invented MCP abandon)", stages)
+		}
+	})
+	t.Run("abort on the MCP form", func(t *testing.T) {
+		stages, err := initAbandonRun(t, nonEmpty, []string{"github"}, map[int]bool{2: true}, nil, true)
+		if err == nil {
+			t.Fatal("an aborted form must return an error")
+		}
+		if !equalStringSlices(stages, []string{"mcp"}) {
+			t.Fatalf("stages = %v, want mcp only", stages)
+		}
+	})
+	t.Run("abort on the zero-skills confirmation", func(t *testing.T) {
+		stages, err := initAbandonRun(t, nil, []string{"github"}, nil, huh.ErrUserAborted, true)
+		if err == nil {
+			t.Fatal("an aborted confirmation must return an error")
+		}
+		if !equalStringSlices(stages, []string{"skills"}) {
+			t.Fatalf("stages = %v, want skills", stages)
+		}
+	})
+	t.Run("abort on the zero-MCP confirmation", func(t *testing.T) {
+		stages, err := initAbandonRun(t, nonEmpty, nil, map[int]bool{3: true}, nil, true)
+		if err == nil {
+			t.Fatal("an aborted confirmation must return an error")
+		}
+		if !equalStringSlices(stages, []string{"mcp"}) {
+			t.Fatalf("stages = %v, want mcp", stages)
+		}
+	})
+	t.Run("no consent means no event", func(t *testing.T) {
+		stages, err := initAbandonRun(t, nonEmpty, []string{"github"}, map[int]bool{2: true}, nil, false)
+		if err == nil {
+			t.Fatal("an aborted form must return an error")
+		}
+		if len(stages) != 0 {
+			t.Fatalf("the #181 consent guard must suppress every event: %v", stages)
+		}
+	})
+	t.Run("a completed run records no abandon", func(t *testing.T) {
+		stages, err := initAbandonRun(t, nonEmpty, []string{"github"}, nil, nil, true)
+		if err != nil {
+			t.Fatalf("run: %v", err)
+		}
+		if len(stages) != 0 {
+			t.Fatalf("a successful run must not record an abandon: %v", stages)
+		}
+	})
+}
