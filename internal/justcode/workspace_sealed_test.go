@@ -190,6 +190,25 @@ func TestEnsureGuestRepositoryDoesNotAutoCommitOnPublishableBranch(t *testing.T)
 	}
 }
 
+func TestGuestRepositoryBootstrapIgnoresCustomDefaultBranch(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("guest repository bootstrap uses POSIX shell commands")
+	}
+	root := t.TempDir()
+	// runShellTest isolates global Git configuration in this file, so a custom
+	// initial branch exercises the guest default without touching the host's.
+	if err := os.WriteFile(filepath.Join(root, "empty-gitconfig"), []byte("[init]\n\tdefaultBranch = trunk\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	out, err := runShellTest(guestRepositoryBootstrapScript(root, "Guest", "guest@example.test"), root)
+	if err != nil {
+		t.Fatalf("bootstrap with a custom init.defaultBranch: %v: %s", err, out)
+	}
+	if got := strings.TrimSpace(gitTestOutput(t, root, "branch", "--show-current")); got != "main" {
+		t.Fatalf("bootstrap branch = %q, want main so it cannot be mistaken for agent work", got)
+	}
+}
+
 // TestProvisionEmptySourceCreatesEmptyRepository pins the other side of that
 // distinction: a source directory with no files at all is a legitimately
 // empty project (the default './workspace' on a fresh install), so it gets a
