@@ -190,7 +190,7 @@ var workspaceApplyDetailFn = func(applicable []justcode.GuestChange) ([]justcode
 		selected = append(selected, c.Rel)
 	}
 	err := huhRun(huh.NewForm(huh.NewGroup(
-		huh.NewMultiSelect[string]().Title("Fichiers à appliquer").Options(options...).Value(&selected),
+		keepMultiSelectCursorOnResize(huh.NewMultiSelect[string]().Title("Fichiers à appliquer").Height(len(options) + 10).Options(options...).Value(&selected)),
 	)))
 	if err != nil {
 		return nil, err
