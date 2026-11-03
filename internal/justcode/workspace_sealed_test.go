@@ -153,6 +153,30 @@ func TestSyncRefusesOverCommittedGuestChanges(t *testing.T) {
 	}
 }
 
+func TestSyncRecoveredGuestAdvancesRecoveryBase(t *testing.T) {
+	previousSHA := "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+	client := &fakeMSBClient{exists: true,
+		execCaptureResults: []fakeMSBExecCaptureResult{
+			{stdout: "yes"},
+			{stdout: ""},
+			{code: 1},
+			{stdout: guestRecoveryAdvanceMarker},
+			{stdout: testRecoveryBaseSHA},
+		},
+		execCaptureDefault: &fakeMSBExecCaptureResult{stdout: ""},
+	}
+	m := newTestMicrosandbox(t, client)
+	writeRecoveryBase(t, m.StateDir, m.InstanceName(), previousSHA)
+	writeFile(t, m.cfg.WorkspaceDir, "main.go", "package main\n")
+	gitInitForTransfer(t, m.cfg.WorkspaceDir)
+	if err := m.SyncGuestWorkspace(context.Background(), SyncOptions{Force: true, Print: func(string) {}}); err != nil {
+		t.Fatalf("refresh with recovered work: %v", err)
+	}
+	if got := m.guestDiffBase(); got != testRecoveryBaseSHA {
+		t.Fatalf("recovery base = %q, want the new snapshot %q", got, testRecoveryBaseSHA)
+	}
+}
+
 func TestSyncCleanGuestAdvancesRecoveryBase(t *testing.T) {
 	previousSHA := "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 	client := &fakeMSBClient{exists: true,
@@ -642,5 +666,74 @@ echo RECOVERY-BASE-OK
 	}
 	if !strings.Contains(string(out), "RECOVERY-BASE-OK") {
 		t.Fatalf("scenario did not complete: %s", out)
+	}
+}
+
+func TestRecoveryRefreshPreservesCommittedWork(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("recovery-refresh scenario uses POSIX shell commands")
+	}
+	for _, tc := range []struct {
+		name        string
+		hostContent string
+		wantMarker  bool
+		wantErr     bool
+	}{
+		{name: "overwritten committed work is restored", hostContent: "one\n"},
+		{name: "already recovered work advances the baseline", hostContent: "two\n", wantMarker: true},
+		{name: "conflicting host work rolls back intact", hostContent: "three\n", wantErr: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			root := t.TempDir()
+			guest := filepath.Join(root, "guest")
+			host := filepath.Join(root, "host")
+			for _, dir := range []string{guest, host} {
+				if err := os.MkdirAll(dir, 0o755); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if out, err := runShellTest(`
+set -eu
+git init -q
+git config user.name T
+git config user.email t@example.test
+echo one > a.txt
+git add -A
+git commit -q -m base
+echo two > a.txt
+git commit -q -am 'agent work'
+`, guest); err != nil {
+				t.Fatalf("prepare guest history: %v: %s", err, out)
+			}
+			base := strings.TrimSpace(gitTestOutput(t, guest, "rev-parse", "HEAD^"))
+			writeFile(t, host, "a.txt", tc.hostContent)
+			archive := filepath.Join(root, "refresh.tar.gz")
+			if out, err := runShellTest("tar -czf "+shellQuote(archive)+" -C "+shellQuote(host)+" .", root); err != nil {
+				t.Fatalf("build host archive: %v: %s", err, out)
+			}
+
+			out, err := runShellTest(guestRecoveryRefreshScript(guest, archive, base, "T", "t@example.test"), guest)
+			if tc.wantErr {
+				if err == nil || !strings.Contains(string(out), "pre-refresh state was restored") {
+					t.Fatalf("conflicting refresh must fail after restoring the backup: %v: %s", err, out)
+				}
+			} else {
+				if err != nil {
+					t.Fatalf("recovery refresh: %v: %s", err, out)
+				}
+				if got := strings.Contains(string(out), guestRecoveryAdvanceMarker); got != tc.wantMarker {
+					t.Fatalf("advance marker = %v, want %v: %s", got, tc.wantMarker, out)
+				}
+				runGitTest(t, guest, "add", "-A")
+				runGitTest(t, guest, "commit", "-q", "-m", "host snapshot", "--allow-empty")
+			}
+			content, readErr := os.ReadFile(filepath.Join(guest, "a.txt"))
+			if readErr != nil || string(content) != "two\n" {
+				t.Fatalf("agent content = %q, %v; want two", content, readErr)
+			}
+			if diff := gitTestOutput(t, guest, "diff", base, "--", "a.txt"); !strings.Contains(diff, "two") {
+				t.Fatalf("committed agent work is no longer recoverable: %s", diff)
+			}
+		})
 	}
 }
