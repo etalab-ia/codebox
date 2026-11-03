@@ -510,6 +510,7 @@ func forceNonTTY(t *testing.T) {
 	t.Helper()
 	orig := stdinIsTTYFn
 	origChoosePlatforms := setupChoosePlatformsFn
+	origResumePlatforms := setupResumePlatformsFn
 	stdinIsTTYFn = func() bool { return false }
 	setupChoosePlatformsFn = func(current []justcode.SetupPlatform, _ *bufio.Reader) ([]justcode.SetupPlatform, error) {
 		if len(current) > 0 {
@@ -517,9 +518,15 @@ func forceNonTTY(t *testing.T) {
 		}
 		return []justcode.SetupPlatform{{Kind: string(justcode.ProviderAlbert)}}, nil
 	}
+	// A journaled resume keeps its selection without consuming input, so the
+	// scripted tests below keep their pre-#305 prompt sequences.
+	setupResumePlatformsFn = func(_ []justcode.SetupPlatform, _ *bufio.Reader, _ string) (bool, error) {
+		return true, nil
+	}
 	t.Cleanup(func() {
 		stdinIsTTYFn = orig
 		setupChoosePlatformsFn = origChoosePlatforms
+		setupResumePlatformsFn = origResumePlatforms
 	})
 }
 
@@ -856,7 +863,7 @@ func TestSetupWizardResumeSkipsIntro(t *testing.T) {
 	if strings.Contains(out, "3 étapes :") {
 		t.Errorf("a resumed run must not re-print the intro screen; output:\n%s", out)
 	}
-	if !strings.Contains(out, "Resuming setup") {
+	if !strings.Contains(out, "Reprise de la configuration là où elle s'était arrêtée") {
 		t.Errorf("resume notice missing; output:\n%s", out)
 	}
 }
