@@ -69,6 +69,21 @@ updates:
     cooldown:
       default-days: 7
     open-pull-requests-limit: 5
+    # dotenv-expand 1000.0.0 is refused by the loader-contract suite: it
+    # imports child_process and evaluates `$(...)` command substitution inside
+    # .env values in every quote mode, so the tests named "dotenv-expand does
+    # not evaluate command substitution" fail and turn the fixture-contracts
+    # CI job red (see the Observed Matrix in
+    # tests/integration/project-secrets/README.md). Ignore the major here so
+    # Dependabot stops proposing it weekly; an `@dependabot ignore` comment is
+    # a no-op on a PR built from a group rule (see #271). Versions below 1000
+    # stay eligible: 13.0.0 keeps `$(...)` verbatim and passes the guards.
+    # As for the msb SDK entry above, this also suppresses security-update
+    # PRs whose only fix is a version >= 1000; the response then is the
+    # coordinated manual bump, never an automatic PR.
+    ignore:
+      - dependency-name: "dotenv-expand"
+        versions: [">=1000.0.0"]
     groups:
       npm-fixtures:
         group-by: "dependency-name"

@@ -37,14 +37,17 @@ same application key with distinct markers.
 
 Two majors were evaluated rather than applied blindly.
 
-`dotenv-expand` 1000.0.0 (Dependabot #258 / #264) is **refused**. It imports
+`dotenv-expand` 1000.0.0 (Dependabot #258 / #264 / #271 / #299) is **refused**. It imports
 `child_process` and executes `$(...)` command substitution found in a `.env`
 value in no, single *and* double quote modes, while 12.0.3 and 13.0.0 keep it
 verbatim in all three. The guard tests named `dotenv-expand does not evaluate
 command substitution` pin that property, so the refusal is enforced, not merely
 recorded: `npm test` against 1000.0.0 fails tests 43/44/45, which turns the
-`fixture-contracts` CI job red on any Dependabot PR to that version, and no
-`ignore` entry in `dependabot.yml` is needed.
+`fixture-contracts` CI job red on any Dependabot PR to that version. The major
+is additionally ignored in `dependabot.yml` so Dependabot stops proposing it
+weekly: an `@dependabot ignore` comment is a no-op on a PR built from a group
+rule (see #271), which is why the refusal kept returning. Versions below 1000
+remain eligible; 13.0.0 keeps `$(...)` verbatim.
 
 The reach of that hazard into just-code's own delivery is narrow, and the
 reason is worth keeping straight. `dotenvLiteral` refuses `$` in *both* the
@@ -72,7 +75,7 @@ Project bindings should use a stable opaque marker with no dollar references,
 for example `__JUST_CODE_SECRET_<opaque-id>__`. Quote selection alone is not a
 portable solution. This is a proposal, not a newly enabled runtime binding.
 
-The current Microsandbox runtime/SDK v0.7.11 passed the native canary matrix
+The current Microsandbox runtime/SDK v0.7.13 passed the native canary matrix
 twice on macOS arm64. See [the native runner and evidence](native/README.md)
 for custom opaque markers (raw and Basic), shared destinations, independent
 per-binding authorization, forbidden hosts/redirects, rotation, removal,
