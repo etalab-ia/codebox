@@ -204,11 +204,31 @@ func (m *MicrosandboxRuntime) transferIntoGuest(ctx context.Context, opts SyncOp
 		return fmt.Errorf("writing the transfer payload into the guest failed: %w", err)
 	}
 	// Extraction is the only thing that creates content in /workspace, and it
-	// consumes the payload built from the filtered set above.
-	script := fmt.Sprintf("mkdir -p %s && tar -xzf %s -C %s && rm -f %s",
-		shellQuote(msbGuestWorkspace), shellQuote(msbTransferArchivePath), shellQuote(msbGuestWorkspace), shellQuote(msbTransferArchivePath))
-	if err := m.guestShell(ctx, script); err != nil {
-		return fmt.Errorf("extracting the transfer payload inside the guest failed: %w", err)
+	// consumes the payload built from the filtered set above. A base-preserving
+	// refresh first backs up the guest's work and then either restores it over
+	// the new snapshot or proves the snapshot already contains it.
+	if opts.preserveRecoveryBase {
+		base := m.guestDiffBase()
+		if !isCommitSHA(base) {
+			return fmt.Errorf("the guest recovery base changed before the refresh; push or recover guest work and recreate the guest before refreshing")
+		}
+		stdout, stderr, code, err := m.Client.ExecCapture(ctx, m.InstanceName(), guestRecoveryRefreshScript(
+			msbGuestWorkspace, msbTransferArchivePath, base, m.gitIdentityName(), m.gitIdentityEmail()))
+		if err != nil {
+			return err
+		}
+		if code != 0 {
+			return fmt.Errorf("refreshing the guest workspace while preserving its changes failed: %s", strings.TrimSpace(stderr))
+		}
+		if strings.Contains(stdout, guestRecoveryAdvanceMarker) {
+			opts.preserveRecoveryBase = false
+		}
+	} else {
+		script := fmt.Sprintf("mkdir -p %s && tar -xzf %s -C %s && rm -f %s",
+			shellQuote(msbGuestWorkspace), shellQuote(msbTransferArchivePath), shellQuote(msbGuestWorkspace), shellQuote(msbTransferArchivePath))
+		if err := m.guestShell(ctx, script); err != nil {
+			return fmt.Errorf("extracting the transfer payload inside the guest failed: %w", err)
+		}
 	}
 	if err := m.ensureGuestRepository(ctx); err != nil {
 		if marker, markerErr := m.guestOutput(ctx, "git config --local --get just-code.github-workflow-origin"); markerErr == nil && strings.TrimSpace(marker) != "" {
@@ -216,9 +236,9 @@ func (m *MicrosandboxRuntime) transferIntoGuest(ctx context.Context, opts SyncOp
 		}
 		return err
 	}
-	// The recovery base advances only when the guest had no changes of its own
-	// before the host transfer. A forced refresh preserves the previous base so
-	// committed guest work cannot be absorbed into the new snapshot (#313).
+	// The recovery base advances after a clean transfer or when the incoming
+	// snapshot already contains the recovered work. Otherwise it stays behind
+	// so committed guest work remains visible to export and apply (#313).
 	if !opts.preserveRecoveryBase {
 		if err := m.recordRecoveryBase(ctx); err != nil {
 			return err
@@ -226,6 +246,27 @@ func (m *MicrosandboxRuntime) transferIntoGuest(ctx context.Context, opts SyncOp
 	}
 	opts.print(fmt.Sprintf("Guest workspace ready: %d file(s) in %s.\n", len(included), msbGuestWorkspace))
 	return nil
+}
+
+const guestRecoveryAdvanceMarker = "RECOVERY-BASE-ADVANCE"
+
+// guestRecoveryRefreshScript refreshes a guest without losing the diff from
+// its recovery base. The backup commit makes rollback possible even when the
+// patch conflicts with the incoming host snapshot. The marker means the host
+// already contains all recovered work, so the recovery base can advance.
+func guestRecoveryRefreshScript(workspace, archivePath, base, gitName, gitEmail string) string {
+	patchPath := "/tmp/just-code-refresh-recovery.patch"
+	return "set -eu; cd " + shellQuote(workspace) +
+		"; git add -A" +
+		"; TREE=$(git write-tree)" +
+		"; BACKUP=$(git -c user.name=" + shellQuote(gitName) + " -c user.email=" + shellQuote(gitEmail) +
+		" commit-tree \"$TREE\" -p HEAD -m " + shellQuote("just-code: pre-refresh recovery backup") + ")" +
+		"; git diff " + shellQuote(base) + " --binary > " + shellQuote(patchPath) +
+		"; mkdir -p " + shellQuote(workspace) + " && tar -xzf " + shellQuote(archivePath) + " -C " + shellQuote(workspace) + " && rm -f " + shellQuote(archivePath) +
+		"; if git apply --check " + shellQuote(patchPath) + "; then git apply " + shellQuote(patchPath) +
+		"; elif git apply --check --reverse " + shellQuote(patchPath) + "; then printf '%s\\n' " + guestRecoveryAdvanceMarker +
+		"; else git reset --hard \"$BACKUP\"; printf '%s\\n' 'The refreshed host snapshot conflicts with the guest work. The pre-refresh state was restored.' >&2; exit 1; fi" +
+		"; rm -f " + shellQuote(patchPath)
 }
 
 // recoveryBasePath is the host path of the recorded recovery base for one
