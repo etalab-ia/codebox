@@ -493,6 +493,9 @@ func TestGuestRecoveryWarning(t *testing.T) {
 // deletion, binary content, multiple commits — plus uncommitted work, and an
 // unchanged tree produces an empty diff.
 func TestRecoveryBaseDiffIncludesCommittedWork(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("recovery-base scenario uses POSIX shell commands")
+	}
 	dir := t.TempDir()
 	script := `
 set -eu
