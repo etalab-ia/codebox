@@ -76,8 +76,8 @@ func TestPrintInitIntroShowsProjectAndSteps(t *testing.T) {
 		"Dossier : " + root,
 		"Par défaut, Microsandbox travaille sur une copie filtrée",
 		"vos fichiers .env",
-		"Avec Tart et agent-vm, le dossier du projet est monté dans la machine",
-		"l'agent peut lire et modifier les fichiers qui s'y trouvent.",
+		"Les autres types de machine isolée",
+		"réglages avancés.",
 		"1. Skills (facultatif)",
 		"2. MCP (facultatif)",
 		"3. GitHub (facultatif)",
@@ -2402,11 +2402,10 @@ func TestGitHubScreensAvoidInternalTerms(t *testing.T) {
 	}
 }
 
-// TestInitRendersGitHubStepAfterSkillsAndMCP pins the on-screen step order: the
-// screens announce [1/3] skills, [2/3] MCP, [3/3] GitHub, so the GitHub screen
-// must not be printed before the other two. Rendering it first was a real bug
-// that only the transcript showed: the step numbering contradicted the order in
-// which the questions actually appeared.
+// TestInitRendersGitHubStepAfterSkillsAndMCP pins the on-screen step order:
+// the GitHub screen must not be printed before skills and MCP. This invocation
+// supplies --root, so the expert-option rule hides step counters; their
+// beginner/expert rendering is covered separately by TestInitStepPrefixCounters.
 func TestInitRendersGitHubStepAfterSkillsAndMCP(t *testing.T) {
 	root := initTestProject(t)
 	stubProjectSkills(t)
@@ -2428,7 +2427,7 @@ func TestInitRendersGitHubStepAfterSkillsAndMCP(t *testing.T) {
 	}
 	skillsAt := strings.Index(out, "Skills (facultatif)")
 	mcpAt := strings.Index(out, justcode.MCPStepTitle)
-	githubAt := strings.Index(out, "[3/3] GitHub (facultatif)")
+	githubAt := strings.Index(out, "GitHub (facultatif)")
 	if skillsAt < 0 || mcpAt < 0 || githubAt < 0 {
 		t.Fatalf("all three step screens must be rendered (skills %d, MCP %d, GitHub %d):\n%s", skillsAt, mcpAt, githubAt, out)
 	}
