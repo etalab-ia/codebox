@@ -2431,7 +2431,7 @@ func TestInitRendersGitHubStepAfterSkillsAndMCP(t *testing.T) {
 		t.Fatalf("initRun: code=%d err=%v out=\n%s", code, err, out)
 	}
 	skillsAt := strings.Index(out, "Skills (facultatif)")
-	mcpAt := strings.Index(out, justcode.MCPStepTitle)
+	mcpAt := strings.Index(out, "MCP (facultatif)")
 	githubAt := strings.Index(out, "GitHub (facultatif)")
 	if skillsAt < 0 || mcpAt < 0 || githubAt < 0 {
 		t.Fatalf("all three step screens must be rendered (skills %d, MCP %d, GitHub %d):\n%s", skillsAt, mcpAt, githubAt, out)
