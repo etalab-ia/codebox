@@ -384,3 +384,74 @@ func TestSetupSaveSettingsPersistsProviders(t *testing.T) {
 		t.Fatalf("resolved platform endpoints must be persisted: %+v", us.Providers[0])
 	}
 }
+
+func TestSetupSaveSettingsUsesStoredAlbertBeforeEnvironment(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
+	t.Setenv("XDG_STATE_HOME", filepath.Join(home, ".local", "state"))
+	providers, err := ResolveProviders([]ProviderSettings{{Kind: ProviderAlbert}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	stateDir := t.TempDir()
+	j := SetupJournal{SchemaVersion: 1, Stage: StageCredential, CredentialKinds: []string{string(CredentialAlbert)}}
+	if err := WriteSetupJournal(DefaultFS, stateDir, j); err != nil {
+		t.Fatal(err)
+	}
+	w := SetupWizard{FS: DefaultFS, StateDir: stateDir}
+	if err := w.SaveSettings("", nil, false, providers, false, false); err != nil {
+		t.Fatal(err)
+	}
+	path, err := UserSettingsPath()
+	if err != nil {
+		t.Fatal(err)
+	}
+	us, err := ReadUserSettings(DefaultFS, path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if us.CredentialRef != string(CredentialAlbert) {
+		t.Fatalf("credentialRef = %q, want albert", us.CredentialRef)
+	}
+	value, source, _, _, err := resolveAlbertWith(func(context.Context, CredentialKind, string) (string, string, error) {
+		return "stored-secret", "file", nil
+	}, context.Background(), Config{APIKey: "environment-secret", CredentialRef: us.CredentialRef}, "")
+	if err != nil || value != "stored-secret" || source != bindingSourceStore {
+		t.Fatalf("resolution = %q from %q, err %v; want the stored replacement", value, source, err)
+	}
+}
+
+func TestSetupSaveSettingsPreservesCustomCredentialRef(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
+	t.Setenv("XDG_STATE_HOME", filepath.Join(home, ".local", "state"))
+	path, err := UserSettingsPath()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := WriteUserSettings(DefaultFS, path, UserSettings{SchemaVersion: 1, CredentialRef: "work"}); err != nil {
+		t.Fatal(err)
+	}
+	providers, err := ResolveProviders([]ProviderSettings{{Kind: ProviderAlbert}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	stateDir := t.TempDir()
+	j := SetupJournal{SchemaVersion: 1, Stage: StageCredential, CredentialKinds: []string{string(CredentialAlbert)}}
+	if err := WriteSetupJournal(DefaultFS, stateDir, j); err != nil {
+		t.Fatal(err)
+	}
+	w := SetupWizard{FS: DefaultFS, StateDir: stateDir}
+	if err := w.SaveSettings("", nil, false, providers, false, false); err != nil {
+		t.Fatal(err)
+	}
+	us, err := ReadUserSettings(DefaultFS, path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if us.CredentialRef != "work" {
+		t.Fatalf("custom credentialRef was replaced: %q", us.CredentialRef)
+	}
+}
