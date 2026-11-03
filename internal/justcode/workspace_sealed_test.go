@@ -725,7 +725,7 @@ git commit -q -am 'agent work'
 					t.Fatalf("advance marker = %v, want %v: %s", got, tc.wantMarker, out)
 				}
 				runGitTest(t, guest, "add", "-A")
-				runGitTest(t, guest, "commit", "-q", "-m", "host snapshot")
+				runGitTest(t, guest, "commit", "-q", "--allow-empty", "-m", "host snapshot")
 			}
 			content, readErr := os.ReadFile(filepath.Join(guest, "a.txt"))
 			if readErr != nil || string(content) != "two\n" {
