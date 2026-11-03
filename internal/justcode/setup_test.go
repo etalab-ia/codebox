@@ -354,6 +354,8 @@ func TestInstallRuntimeCompletesAndClearsJournal(t *testing.T) {
 func TestSetupSaveSettingsPersistsProviders(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+	t.Setenv("AppData", filepath.Join(home, "AppData"))
 	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
 	t.Setenv("XDG_STATE_HOME", filepath.Join(home, ".local", "state"))
 
@@ -388,6 +390,8 @@ func TestSetupSaveSettingsPersistsProviders(t *testing.T) {
 func TestSetupSaveSettingsUsesStoredAlbertBeforeEnvironment(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+	t.Setenv("AppData", filepath.Join(home, "AppData"))
 	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
 	t.Setenv("XDG_STATE_HOME", filepath.Join(home, ".local", "state"))
 	providers, err := ResolveProviders([]ProviderSettings{{Kind: ProviderAlbert}})
@@ -425,6 +429,8 @@ func TestSetupSaveSettingsUsesStoredAlbertBeforeEnvironment(t *testing.T) {
 func TestSetupSaveSettingsPreservesCustomCredentialRef(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+	t.Setenv("AppData", filepath.Join(home, "AppData"))
 	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
 	t.Setenv("XDG_STATE_HOME", filepath.Join(home, ".local", "state"))
 	path, err := UserSettingsPath()
