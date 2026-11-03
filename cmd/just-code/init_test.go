@@ -2380,12 +2380,12 @@ func TestGitHubRightsMessagesAreDistinct(t *testing.T) {
 func TestGitHubScreensAvoidInternalTerms(t *testing.T) {
 	remote := justcode.GitHubRemote{URL: "https://github.com/etalab-ia/mon-projet.git", Repo: "etalab-ia/mon-projet"}
 	screens := []string{
-		gitHubApprovedScreen(justcode.GitHubProjectStatus{Remote: remote, HasOrigin: true, HasToken: true, Login: "kaaloo", Rights: justcode.GitHubRepoRightsOK}),
-		gitHubNoOriginScreen(),
-		gitHubNoTokenScreen(justcode.GitHubProjectStatus{Remote: remote, HasOrigin: true}),
-		gitHubInsufficientScreen(justcode.GitHubProjectStatus{Remote: remote, HasOrigin: true, HasToken: true, Rights: justcode.GitHubRepoRightsOrgPending}),
-		gitHubStoreErrorScreen(errors.New("secret-service locked")),
-		gitHubRuntimeScreen(justcode.RuntimeTart),
+		gitHubApprovedScreen(justcode.GitHubProjectStatus{Remote: remote, HasOrigin: true, HasToken: true, Login: "kaaloo", Rights: justcode.GitHubRepoRightsOK}, "[3/3] GitHub (facultatif)"),
+		gitHubNoOriginScreen("[3/3] GitHub (facultatif)"),
+		gitHubNoTokenScreen(justcode.GitHubProjectStatus{Remote: remote, HasOrigin: true}, "[3/3] GitHub (facultatif)"),
+		gitHubInsufficientScreen(justcode.GitHubProjectStatus{Remote: remote, HasOrigin: true, HasToken: true, Rights: justcode.GitHubRepoRightsOrgPending}, "[3/3] GitHub (facultatif)"),
+		gitHubStoreErrorScreen(errors.New("secret-service locked"), "[3/3] GitHub (facultatif)"),
+		gitHubRuntimeScreen(justcode.RuntimeTart, "[3/3] GitHub (facultatif)"),
 	}
 	// The failure surfaces reach the user too, so they are held to the same
 	// register as the screens themselves.
@@ -2447,7 +2447,7 @@ func TestInitRendersGitHubStepAfterSkillsAndMCP(t *testing.T) {
 // never as "compte ," with an empty name.
 func TestGitHubApprovedScreenWithoutLogin(t *testing.T) {
 	remote := justcode.GitHubRemote{URL: "https://github.com/etalab-ia/mon-projet.git", Repo: "etalab-ia/mon-projet"}
-	screen := gitHubApprovedScreen(justcode.GitHubProjectStatus{Remote: remote, HasOrigin: true, HasToken: true, Login: "", Rights: justcode.GitHubRepoRightsOK})
+	screen := gitHubApprovedScreen(justcode.GitHubProjectStatus{Remote: remote, HasOrigin: true, HasToken: true, Login: "", Rights: justcode.GitHubRepoRightsOK}, "[3/3] GitHub (facultatif)")
 	if strings.Contains(screen, "compte ,") || strings.Contains(screen, "compte  ,") {
 		t.Fatalf("an unknown login must not render an empty account name:\n%s", screen)
 	}
@@ -2727,5 +2727,54 @@ func TestGitHubRightsMessageCoversEveryCause(t *testing.T) {
 			t.Fatalf("rights %d and %d share a message: %q", prev, rights, msg)
 		}
 		seen[msg] = rights
+	}
+}
+
+// TestInitIntroOmitsLegacyRuntimes: the default intro presents Microsandbox
+// only; Tart and agent-vm stay explained in the advanced settings (#312).
+func TestInitIntroOmitsLegacyRuntimes(t *testing.T) {
+	out := captureStdout(t, func() {
+		if !printInitIntro(t.TempDir(), bufio.NewReader(strings.NewReader("\n"))) {
+			t.Fatal("the intro must accept Enter")
+		}
+	})
+	for _, unwanted := range []string{"Tart", "agent-vm"} {
+		if strings.Contains(out, unwanted) {
+			t.Errorf("the default intro must not name %s:\n%s", unwanted, out)
+		}
+	}
+	if !strings.Contains(out, "réglages avancés") {
+		t.Errorf("the intro must point at the advanced settings for the other runtimes:\n%s", out)
+	}
+	if !strings.Contains(out, ".env") {
+		t.Errorf("the .env filtering note must stay in the intro:\n%s", out)
+	}
+}
+
+// TestInitStepPrefixCounters pins the counter rule (#312): the beginner path
+// numbers the three steps, and any flag-provided expert setting hides the
+// numbers instead of showing a misleading one.
+func TestInitStepPrefixCounters(t *testing.T) {
+	beginner := initOptions{Set: map[string]bool{}}
+	if got := initSkillsStepPrefix(beginner); got != "[1/3] " {
+		t.Errorf("skills prefix = %q", got)
+	}
+	if got := initMCPStepTitle(beginner); got != "[2/3] MCP (facultatif)" {
+		t.Errorf("MCP title = %q", got)
+	}
+	if got := initGitHubStepTitle(beginner); got != "[3/3] GitHub (facultatif)" {
+		t.Errorf("GitHub title = %q", got)
+	}
+	for _, field := range []string{"root", "runtime", "github", "model"} {
+		expert := initOptions{Set: map[string]bool{field: true}}
+		if got := initSkillsStepPrefix(expert); got != "" {
+			t.Errorf("with --%s, skills prefix = %q, want no counter", field, got)
+		}
+		if got := initMCPStepTitle(expert); got != "MCP (facultatif)" {
+			t.Errorf("with --%s, MCP title = %q, want no counter", field, got)
+		}
+		if got := initGitHubStepTitle(expert); got != "GitHub (facultatif)" {
+			t.Errorf("with --%s, GitHub title = %q, want no counter", field, got)
+		}
 	}
 }

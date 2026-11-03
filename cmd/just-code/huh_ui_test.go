@@ -53,7 +53,7 @@ func TestInitMultiSelectsAnnounceSelectionKeys(t *testing.T) {
 	assertHint := func(name string, field huh.Field) {
 		t.Helper()
 		content := huh.NewGroup(field).Content()
-		for _, want := range []string{"Space or x toggles an item", "Enter confirms the list"} {
+		for _, want := range []string{"Espace ou x pour cocher/décocher", "Entrée pour valider la liste"} {
 			if !strings.Contains(content, want) {
 				t.Fatalf("%s must announce %q in its description, got:\n%s", name, want, content)
 			}
@@ -114,7 +114,7 @@ func TestInitSkillsAreTheSixDescribedOfficialEntries(t *testing.T) {
 	selected := []string{"official/securite-developpement"}
 	localOnly := false
 	content := newInitSkillsGroup(options, &selected, &localOnly, true, true, "[1/3] ").Content()
-	for _, want := range []string{"Space or x toggles", "Enter confirms", "règles, références, exemples"} {
+	for _, want := range []string{"Espace ou x pour cocher/décocher", "Entrée pour valider", "règles, références, exemples"} {
 		if !strings.Contains(content, want) {
 			t.Errorf("skills screen missing %q: %s", want, content)
 		}
