@@ -364,6 +364,10 @@ func newProjectMCPsMultiSelect(mcpOptions []huh.Option[string], value *[]string)
 		Value(value))
 }
 
+func newProjectMCPsGroup(fields []huh.Field) *huh.Group {
+	return huh.NewGroup(fields...).Title("MCP")
+}
+
 // retainedMCPOptions appends non-selectable options for withdrawn MCP ids
 // still referenced by the project's manifest. huh rebuilds a MultiSelect's
 // value from its options on submit, so without them a legacy context7 or
@@ -963,7 +967,7 @@ func askInitQuestionsHuh(opts initOptions, answers justcode.InitAnswers) (justco
 		}
 		var mcpGroup *huh.Group
 		if len(mcpFields) > 0 {
-			mcpGroup = huh.NewGroup(mcpFields...).Title("MCP")
+			mcpGroup = newProjectMCPsGroup(mcpFields)
 		}
 
 		// Groups are omitted structurally rather than via WithHideFunc:
