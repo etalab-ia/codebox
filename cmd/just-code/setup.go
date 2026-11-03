@@ -403,6 +403,11 @@ setupStages:
 				if len(models) == 0 {
 					return 1, fmt.Errorf("sélectionnez au moins un modèle")
 				}
+				models, model = reconcileSetupModelsForProviders(providers, models, "")
+				if len(models) == 0 {
+					fmt.Println("Aucun modèle valide n'est actuellement sélectionné. Saisissez au moins un identifiant de modèle.")
+					continue
+				}
 				model = setupModelRefForSelected(models[0])
 			}
 			modelAnswered = true

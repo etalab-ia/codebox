@@ -518,8 +518,9 @@ func TestSetupWizardResumeDroppingAlbertRepairsModels(t *testing.T) {
 		t.Fatal(err)
 	}
 	// Modify the platforms, keep Mistral only, press Enter on the now-empty
-	// model state, then provide a provider-valid model and apply.
-	input := "m\n2\n\nmistral/mistral-large-latest\na\n"
+	// model state, then try a bare ID and an explicit Albert reference before
+	// providing a provider-valid model and applying.
+	input := "m\n2\n\nmistral-large-latest\nalbert/Qwen3-Coder-30B-A3B-Instruct\nmistral/mistral-large-latest\na\n"
 	out := captureStdout(t, func() {
 		code, err := setupWizardRun(true, bufio.NewReader(strings.NewReader(input)),
 			nil, func(context.Context) error { return nil }, func(string) string { return "" })
@@ -527,8 +528,8 @@ func TestSetupWizardResumeDroppingAlbertRepairsModels(t *testing.T) {
 			t.Fatalf("resume run: code=%d err=%v", code, err)
 		}
 	})
-	if !strings.Contains(out, "Aucun modèle valide n'est actuellement sélectionné") {
-		t.Fatalf("the empty model state must require an explicit answer:\n%s", out)
+	if got := strings.Count(out, "Aucun modèle valide n'est actuellement sélectionné"); got != 3 {
+		t.Fatalf("the empty state and both provider-invalid answers must require another answer (got %d):\n%s", got, out)
 	}
 	settingsPath, err := justcode.UserSettingsPath()
 	if err != nil {
