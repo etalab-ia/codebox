@@ -4,8 +4,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net/url"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strings"
 )
@@ -267,6 +269,10 @@ type ProjectExecutionInputs struct {
 	// Plugins lists project plugin declarations (the "plugin" field values
 	// from the config).
 	Plugins []string
+	// DeclaredPluginFiles lists regular files reachable through explicit local
+	// plugin file/directory declarations. Their content needs approval too:
+	// hashing only the declaring config would miss later code changes.
+	DeclaredPluginFiles []string
 	// AutoDiscoveredPlugins lists .js/.ts files under .opencode/plugin/
 	// and .opencode/plugins/ — they execute without any declaration.
 	AutoDiscoveredPlugins []string
@@ -301,6 +307,11 @@ func DiscoverProjectExecutionInputs(root string) (ProjectExecutionInputs, error)
 					}
 					if s != "" {
 						out.Plugins = append(out.Plugins, s)
+						files, err := declaredPluginFiles(root, cfgPath, s)
+						if err != nil {
+							return out, fmt.Errorf("inspect declared plugin %q: %w", s, err)
+						}
+						out.DeclaredPluginFiles = append(out.DeclaredPluginFiles, files...)
 					}
 				}
 			}
@@ -357,8 +368,110 @@ func DiscoverProjectExecutionInputs(root string) (ProjectExecutionInputs, error)
 		}
 	}
 	sort.Strings(out.Plugins)
+	sort.Strings(out.DeclaredPluginFiles)
 	sort.Strings(out.AutoDiscoveredPlugins)
 	sort.Strings(out.MCPCommands)
 	sort.Strings(out.MCPEndpoints)
 	return out, nil
+}
+
+// declaredPluginFiles resolves explicit project-local plugin references without
+// following symlinks. Relative references use the declaring config file's
+// directory, matching OpenCode. Package names are not filesystem paths and
+// remain covered by the declaring config's hash. A missing local target is left
+// for OpenCode to diagnose, preserving the existing config-only behavior.
+func declaredPluginFiles(root, configPath, ref string) ([]string, error) {
+	target, local, err := declaredPluginTarget(configPath, ref)
+	if err != nil || !local {
+		return nil, err
+	}
+	rel, err := filepath.Rel(root, target)
+	if err != nil {
+		return nil, err
+	}
+	abs, err := confinedProjectPath(root, rel)
+	if os.IsNotExist(err) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	info, err := os.Lstat(abs)
+	if os.IsNotExist(err) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	if info.Mode().IsRegular() {
+		return []string{rel}, nil
+	}
+	if !info.IsDir() {
+		return nil, fmt.Errorf("%s is not a regular file or directory", abs)
+	}
+
+	var files []string
+	err = filepath.WalkDir(abs, func(path string, entry os.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		rel, err := filepath.Rel(root, path)
+		if err != nil {
+			return err
+		}
+		// WalkDir does not follow directory symlinks, but silently skipping one
+		// would leave executable content outside the approval boundary. Refuse
+		// every symlink and non-regular file explicitly instead.
+		if _, err := confinedProjectPath(root, rel); err != nil {
+			return err
+		}
+		if entry.IsDir() {
+			return nil
+		}
+		info, err := entry.Info()
+		if err != nil {
+			return err
+		}
+		if !info.Mode().IsRegular() {
+			return fmt.Errorf("%s is not a regular file", path)
+		}
+		files = append(files, rel)
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	sort.Strings(files)
+	return files, nil
+}
+
+func declaredPluginTarget(configPath, ref string) (target string, local bool, err error) {
+	if strings.HasPrefix(ref, "file://") {
+		parsed, err := url.Parse(ref)
+		if err != nil {
+			return "", true, fmt.Errorf("parse file URL: %w", err)
+		}
+		if parsed.Host != "" && parsed.Host != "localhost" {
+			return "", true, fmt.Errorf("file URL host %q is outside the local project", parsed.Host)
+		}
+		if parsed.RawQuery != "" || parsed.Fragment != "" {
+			return "", true, fmt.Errorf("file URL must not contain a query or fragment")
+		}
+		path := parsed.Path
+		if runtime.GOOS == "windows" && len(path) >= 3 && path[0] == '/' && path[2] == ':' {
+			path = path[1:]
+		}
+		target = filepath.FromSlash(path)
+		if !filepath.IsAbs(target) {
+			return "", true, fmt.Errorf("file URL %q does not resolve to an absolute path", ref)
+		}
+		return target, true, nil
+	}
+	if strings.HasPrefix(ref, "./") || strings.HasPrefix(ref, "../") {
+		return filepath.Join(filepath.Dir(configPath), ref), true, nil
+	}
+	if filepath.IsAbs(ref) {
+		return filepath.Clean(ref), true, nil
+	}
+	return "", false, nil
 }
