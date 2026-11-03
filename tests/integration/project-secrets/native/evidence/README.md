@@ -1,18 +1,17 @@
 # Native Qualification Evidence
 
-Date: 2026-10-27, two runs completed at approximately 15:26 and 15:28 UTC.
-Platform: macOS 27.0.1 arm64; native Go 1.27.3; SDK/runtime 0.7.11.
-Project fixture source: Microsandbox pin commit `35f5d312aed0a3ea2a972e7862a17987650b9c69`,
-with the SDK pin fix from `bb79304fe142a3d15447517e765d5b1c82560ab3`.
+Date: 2026-11-03, three runs completed at approximately 14:56, 14:57 and 14:58 UTC.
+Platform: macOS 27.0.1 arm64; native Go 1.27.3; SDK/runtime 0.7.13.
+Project fixture source: Microsandbox pin commit `3b853c61b95659c99769eda485dc7791cb44ea14`
+(the v0.7.13 pin update, including the native kit SDK pin).
 
-The Cloud-authored v3 test artifact was downloaded and checksum-verified
-before execution on the Mac:
+The v3 test artifact was taken from that commit's
+`tests/integration/project-secrets/native` directory and run on the Mac:
 
 ```text
-kit SHA256: 2afb0636e8a404ac8baea78fef12aa0e83bcb5964aa1f456dd958a725d946bf2
-runtime archive SHA256: 4669f08a31d115cc728ff216a0e5a5f8b8928a599a446b667120ab9ac52be46d
-run-1 results SHA256: 4245c72e2dbf47f6172d4f0559c284dc5336443157592385781cbc7523619691
-run-2 results SHA256: 4245c72e2dbf47f6172d4f0559c284dc5336443157592385781cbc7523619691
+runtime archive SHA256: 5eb53ca1d6beb36caa64d19602284b9ce37872eff340a8db0542ab91b5808c96
+run-1 results SHA256: f0ecd2b19c63ee1896b147558d384c48077a56fd76c2083022eea7b8a6ae4664
+run-2 results SHA256: f0ecd2b19c63ee1896b147558d384c48077a56fd76c2083022eea7b8a6ae4664
 ```
 
 Each run used a fresh random VM name, fresh isolated state, synthetic canaries,
@@ -23,16 +22,13 @@ values, paths, VM names or timestamps. Two separate native invocations passed
 all 29 assertions; independent cleanup also passed for each, and isolated
 `msb list` confirmed no sandboxes remained. Run 2 used a second verified-free
 port pair (19443/16354) because 18443 was held in TIME_WAIT with no listener.
-No process was killed or evicted.
+No process was killed or evicted. A third run reproduced the same transcript
+and is not recorded separately.
 
-Two earlier attempts are not counted as passes. The first invocation failed
-`create-inert-sentinels` with "runtime error: no tested sandbox launch
-contract for runtime 0.7.11" because the kit's own `go.mod` still pinned SDK
-0.7.8 while the runtime was 0.7.11. The kit is a separate module, so the root
-build never compiled it. The pin was corrected and
-`TestProjectSecretNativeKitMatchesRuntimeSDK` now fails when the kit's pin or
-`go.sum` coverage drifts from the embedded runtime version. The subsequent
-kit diff was exactly those two pin lines; no assertion was changed or weakened.
+The v0.7.11 evidence had recorded a kit SHA256 for the Cloud-authored artifact.
+This run took the kit directly from the pinned commit above, so that line is
+replaced by the pin commit itself rather than a re-derived archive digest.
+
 
 ## Qualified Contract
 

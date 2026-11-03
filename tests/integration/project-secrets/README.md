@@ -72,7 +72,7 @@ Project bindings should use a stable opaque marker with no dollar references,
 for example `__JUST_CODE_SECRET_<opaque-id>__`. Quote selection alone is not a
 portable solution. This is a proposal, not a newly enabled runtime binding.
 
-The current Microsandbox runtime/SDK v0.7.11 passed the native canary matrix
+The current Microsandbox runtime/SDK v0.7.13 passed the native canary matrix
 twice on macOS arm64. See [the native runner and evidence](native/README.md)
 for custom opaque markers (raw and Basic), shared destinations, independent
 per-binding authorization, forbidden hosts/redirects, rotation, removal,
