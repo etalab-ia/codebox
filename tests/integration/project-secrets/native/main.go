@@ -21,8 +21,8 @@ import (
 	"time"
 )
 
-const source = "35f5d312aed0a3ea2a972e7862a17987650b9c69"
-const archiveSHA = "4669f08a31d115cc728ff216a0e5a5f8b8928a599a446b667120ab9ac52be46d"
+const source = "3b853c61b95659c99769eda485dc7791cb44ea14"
+const archiveSHA = "5eb53ca1d6beb36caa64d19602284b9ce37872eff340a8db0542ab91b5808c96"
 const markerA = "__JUST_CODE_SECRET_a01__"
 const markerB = "__JUST_CODE_SECRET_b02__"
 const markerC = "__JUST_CODE_SECRET_c03__"
@@ -155,7 +155,7 @@ func run() {
 		result("native-darwin-arm64-required", false)
 		return
 	}
-	fmt.Printf("META kit=v3 source=%s sdk=0.7.11 runtime=0.7.11 archive_sha256=%s go=%s\n", source, archiveSHA, runtime.Version())
+	fmt.Printf("META kit=v3 source=%s sdk=0.7.13 runtime=0.7.13 archive_sha256=%s go=%s\n", source, archiveSHA, runtime.Version())
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	ctx, cancel := context.WithTimeout(ctx, 8*time.Minute)

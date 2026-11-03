@@ -14,6 +14,22 @@ import (
 // context never silently becomes stop-all; legacy instances remain
 // discoverable; per-instance state (logs, staged files) is separated.
 
+// sealMicrosandbox replaces the real SDK seam on every Microsandbox backend
+// with a fake that reports no sandboxes. The lifecycle tests below exercise the
+// dispatcher over faked tart/agent-vm backends, but supportedRuntimes() also
+// probes the Microsandbox backend, whose SDK adapter opens the runtime's
+// private storage catalog. From SDK/runtime 0.7.13 that catalog validates its
+// ancestors and rejects a storage root below a shared writable directory such
+// as GitHub Actions' /github/home, so without this seam the tests fail on
+// CI's HOME rather than on the behaviour they assert.
+func sealMicrosandbox(d *Dispatcher) {
+	for _, b := range d.backends {
+		if m, ok := b.(*MicrosandboxRuntime); ok {
+			m.Client = &fakeMSBClient{}
+		}
+	}
+}
+
 func TestStopProjectLeavesOtherProjectIntact(t *testing.T) {
 	// Two dispatchers bound to two instances over the same fake runtime
 	// surface: stopping one must not stop the other. The platform is pinned
@@ -27,6 +43,8 @@ func TestStopProjectLeavesOtherProjectIntact(t *testing.T) {
 	a.backends[RuntimeTart] = &fakeInstanceBackend{surface: surface, id: RuntimeTart, instance: "opencode-jc-a-11111"}
 	b := NewDispatcherForInstance(cfg, "jc-b-22222")
 	b.backends[RuntimeTart] = &fakeInstanceBackend{surface: surface, id: RuntimeTart, instance: "opencode-jc-b-22222"}
+	sealMicrosandbox(a)
+	sealMicrosandbox(b)
 
 	surface.running["opencode-jc-a-11111"] = true
 	surface.running["opencode-jc-b-22222"] = true
@@ -48,6 +66,7 @@ func TestStopAllStopsEveryInstance(t *testing.T) {
 	d := NewDispatcherForInstance(Config{}, "jc-a-11111")
 	d.backends[RuntimeTart] = &fakeInstanceBackend{surface: surface, id: RuntimeTart, instance: "opencode-jc-a-11111"}
 	d.backends[RuntimeAgentVM] = &fakeInstanceBackend{surface: surface, id: RuntimeAgentVM, instance: "opencode-jc-b-22222"}
+	sealMicrosandbox(d)
 
 	surface.running["opencode-jc-a-11111"] = true
 	surface.running["opencode-jc-b-22222"] = true
@@ -70,6 +89,7 @@ func TestMissingProjectContextDoesNotStopAll(t *testing.T) {
 	surface := newFakeInstanceSurface()
 	d := NewDispatcher(Config{})
 	d.backends[RuntimeTart] = &fakeInstanceBackend{surface: surface, id: RuntimeTart, instance: DefaultTartVMName()}
+	sealMicrosandbox(d)
 
 	surface.running[DefaultTartVMName()] = true
 	surface.running["opencode-jc-other-99999"] = true
@@ -308,6 +328,7 @@ func TestStopAllSweepsOtherProjectsInstances(t *testing.T) {
 	d := NewDispatcherForInstance(Config{}, "jc-a-11111")
 	d.backends[RuntimeTart] = &fakeInstanceBackend{surface: surface, id: RuntimeTart, instance: "opencode-jc-a-11111"}
 	d.backends[RuntimeAgentVM] = &fakeInstanceBackend{surface: surface, id: RuntimeAgentVM, instance: "opencode-jc-b-22222"}
+	sealMicrosandbox(d)
 
 	// Only another project's instance is running; A's own instance is down.
 	surface.running["opencode-jc-b-22222"] = true
@@ -331,6 +352,7 @@ func TestPrepareDetectsConflictsInOtherProjects(t *testing.T) {
 	d := NewDispatcherForInstance(Config{}, "jc-a-11111")
 	d.backends[RuntimeTart] = &fakeInstanceBackend{surface: surface, id: RuntimeTart, instance: "opencode-jc-a-11111"}
 	d.backends[RuntimeAgentVM] = &fakeInstanceBackend{surface: surface, id: RuntimeAgentVM, instance: "opencode-jc-b-22222"}
+	sealMicrosandbox(d)
 
 	surface.running["opencode-jc-b-22222"] = true
 
