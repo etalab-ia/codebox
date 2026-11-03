@@ -1042,7 +1042,7 @@ func askInitQuestions(in *bufio.Reader, opts initOptions, answers justcode.InitA
 	}
 	if !opts.Set["mcps"] {
 		fmt.Printf("\n%s\n", justcode.MCPStepTitle)
-		fmt.Println("Un MCP donne à l'agent l'accès à un service ou à un outil.")
+		fmt.Println(justcode.MCPStepIntro)
 		current := append([]string(nil), answers.MCPConnectors...)
 		haveManifest := false
 		if !answers.MCPsSet {
