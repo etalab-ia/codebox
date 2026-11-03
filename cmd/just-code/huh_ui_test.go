@@ -78,7 +78,7 @@ func TestProjectMCPsScreenUsesWizardTexts(t *testing.T) {
 	mcpValue := []string{}
 	field := newProjectMCPsMultiSelect(
 		[]huh.Option[string]{huh.NewOption("data-gouv — données publiques", "data-gouv")}, &mcpValue)
-	content := huh.NewGroup(field).Content()
+	content := newProjectMCPsGroup([]huh.Field{field}).Content()
 	for _, want := range []string{justcode.MCPStepTitle, justcode.MCPStepIntro, "data-gouv"} {
 		if !strings.Contains(content, want) {
 			t.Errorf("MCP screen must render %q, got:\n%s", want, content)
