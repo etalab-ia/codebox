@@ -282,7 +282,7 @@ func TestInitHuhEmptySkillsAcceptedOnceAcrossMCPRetry(t *testing.T) {
 			}
 			events = append(events, "mcp-accept")
 			_, _ = form.Update(tea.KeyPressMsg(tea.Key{Code: 'y', Text: "y"}))
-		case strings.Contains(view, justcode.MCPStepTitle):
+		case strings.Contains(view, "MCP (facultatif)"):
 			events = append(events, "mcp-clear")
 			_, _ = form.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeySpace, Text: " "}))
 		case strings.Contains(view, "Une skill apporte"):
@@ -1056,7 +1056,10 @@ func TestInitSkillsStepPrefixIsOmittedForPartialWizard(t *testing.T) {
 	if got := initSkillsStepPrefix(initOptions{}); got != "[1/3] " {
 		t.Fatalf("full wizard prefix = %q", got)
 	}
-	for _, field := range []string{"root", "runtime", "isolation", "model", "cpus", "memory-mb", "credential-ref", "github"} {
+	if got := initSkillsStepPrefix(initOptions{Set: map[string]bool{"root": true}}); got != "[1/3] " {
+		t.Fatalf("a displayed or explicit root must keep the beginner prefix = %q", got)
+	}
+	for _, field := range []string{"runtime", "isolation", "model", "cpus", "memory-mb", "credential-ref", "github", "skills", "mcps"} {
 		if got := initSkillsStepPrefix(initOptions{Set: map[string]bool{field: true}}); got != "" {
 			t.Errorf("prefix with %q supplied = %q", field, got)
 		}
