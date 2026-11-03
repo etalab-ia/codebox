@@ -177,7 +177,8 @@ func (m *resizeCursorMultiSelect) ensureCursorVisible() {
 	content := ansi.Strip(viewport.GetContent())
 	cursorLine := -1
 	for i, line := range strings.Split(content, "\n") {
-		if strings.Contains(line, ">") && (strings.Contains(line, "•") || strings.Contains(line, "✓")) {
+		line = strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(line), "┃"))
+		if strings.HasPrefix(line, ">") && (strings.Contains(line, "•") || strings.Contains(line, "✓")) {
 			cursorLine = i
 			break
 		}

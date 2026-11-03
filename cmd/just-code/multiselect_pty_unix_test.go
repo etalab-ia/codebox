@@ -56,8 +56,9 @@ func TestMultiSelectPTYResizePreservesCursorAndSelection(t *testing.T) {
 		t.Fatalf("PTY scrolling or selection lost the last option:\n%s", output)
 	}
 	for _, height := range []int{24, 8} {
+		mark := session.outputPosition()
 		session.resize(48, height)
-		output = session.waitForNew("> ✓ mcp-11")
+		output = session.waitFrom(mark, "> ✓ mcp-11")
 		if !multiSelectCursorOnOption(output, "mcp-11") || !multiSelectSelectionOnOption(output, "mcp-11") {
 			t.Fatalf("PTY resize to %d rows lost the cursor or selection:\n%s", height, output)
 		}
@@ -73,8 +74,9 @@ func TestMultiSelectPTYShrinkPreservesNonFinalCursorAndSelection(t *testing.T) {
 	if !multiSelectSelectionOnOption(output, "mcp-04") {
 		t.Fatalf("PTY setup did not select mcp-04:\n%s", output)
 	}
+	mark := session.outputPosition()
 	session.resize(48, 8)
-	output = session.waitForNew("> ✓ mcp-04")
+	output = session.waitFrom(mark, "> ✓ mcp-04")
 	if !multiSelectCursorOnOption(output, "mcp-04") || !multiSelectSelectionOnOption(output, "mcp-04") {
 		t.Fatalf("PTY shrink moved or hid the cursor:\n%s", output)
 	}
@@ -84,10 +86,12 @@ func TestMultiSelectPTYShrinkPreservesNonFinalCursorAndSelection(t *testing.T) {
 func TestMultiSelectPTYResizePreservesActiveFilter(t *testing.T) {
 	session := newMultiSelectPTYSession(t, "filter", 80, 24)
 	_ = session.waitFor("data.gouv.fr")
+	mark := session.outputPosition()
 	session.write("/data")
-	_ = session.waitForNew("set filter")
+	_ = session.waitFrom(mark, "set filter")
+	mark = session.outputPosition()
 	session.resize(80, 23)
-	output := session.waitForNew("> • data.gouv.fr")
+	output := session.waitFrom(mark, "> • data.gouv.fr")
 	if !multiSelectCursorOnOption(output, "data.gouv.fr") || strings.Contains(output, "/dataG") {
 		t.Fatalf("PTY resize lost the active filter's option:\n%s", output)
 	}
@@ -203,10 +207,17 @@ func (s *multiSelectPTYSession) waitFor(fragment string) string {
 	}
 }
 
-func (s *multiSelectPTYSession) waitForNew(fragment string) string {
+func (s *multiSelectPTYSession) outputPosition() int {
 	s.t.Helper()
 	s.mu.Lock()
-	s.waited = s.output.Len()
+	defer s.mu.Unlock()
+	return s.output.Len()
+}
+
+func (s *multiSelectPTYSession) waitFrom(mark int, fragment string) string {
+	s.t.Helper()
+	s.mu.Lock()
+	s.waited = mark
 	s.mu.Unlock()
 	return s.waitFor(fragment)
 }

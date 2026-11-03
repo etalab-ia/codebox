@@ -128,6 +128,32 @@ func TestMultiSelectShrinkPreservesNonFinalCursorAndSelection(t *testing.T) {
 	}
 }
 
+func TestMultiSelectResizeIgnoresGreaterThanInOptionLabel(t *testing.T) {
+	options := []huh.Option[string]{huh.NewOption("a>b.txt", "a>b.txt")}
+	for i := 1; i < 12; i++ {
+		label := fmt.Sprintf("file-%02d", i)
+		options = append(options, huh.NewOption(label, label))
+	}
+	selected := []string{}
+	field := newProjectMCPsMultiSelect(options, &selected).(*resizeCursorMultiSelect)
+	form := huh.NewForm(huh.NewGroup(field))
+	form.Init()
+	_, _ = form.Update(tea.WindowSizeMsg{Width: 100, Height: 24})
+	for range 11 {
+		_, _ = form.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyDown}))
+	}
+	_, _ = form.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeySpace, Text: " "}))
+	_, _ = form.Update(tea.WindowSizeMsg{Width: 48, Height: 8})
+	view := ansi.Strip(form.View())
+	hovered, ok := field.Hovered()
+	if !ok || hovered != "file-11" {
+		t.Fatalf("filename containing > moved the cursor to %q:\n%s", hovered, view)
+	}
+	if !multiSelectCursorOnOption(view, "file-11") || !multiSelectSelectionOnOption(view, "file-11") {
+		t.Fatalf("filename containing > hid the actual cursor:\n%s", view)
+	}
+}
+
 func TestMultiSelectResizePreservesFirstVisibleRowAfterScrolling(t *testing.T) {
 	options := make([]huh.Option[string], 12)
 	for i := range options {
