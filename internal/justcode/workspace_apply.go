@@ -52,9 +52,10 @@ func GuestChangeDigest(c GuestChange) string {
 	return hex.EncodeToString(h.Sum(nil))
 }
 
-// CollectGuestChanges reads the agent's uncommitted work in the isolated
-// machine as one change per file. It is the read half of `workspace apply`
-// (issue #173) and of the exit screen's recovery block (issue #174).
+// CollectGuestChanges reads the agent's work in the isolated machine as one
+// change per file, whether it is committed in the guest or still uncommitted
+// (#313). It is the read half of `workspace apply` (issue #173) and of the
+// exit screen's recovery block (issue #174).
 //
 // The paths and line counts come from `git diff --numstat -z`, which is
 // unambiguous even for paths with spaces or quotes; the per-file patches come
@@ -79,8 +80,10 @@ func (m *MicrosandboxRuntime) CollectGuestChanges(ctx context.Context) ([]GuestC
 		return nil, nil
 	}
 	// -N (intent-to-add) makes new files visible in the diff; --no-renames
-	// keeps one section per path so numstat and diff pair one-to-one.
-	const base = " && git add -A -N && git diff HEAD --binary --no-renames"
+	// keeps one section per path so numstat and diff pair one-to-one. The
+	// diff runs against the recovery base, not HEAD, so changes the agent
+	// already committed in the guest are collected too (#313).
+	base := " && git add -A -N && git diff " + m.guestDiffBase() + " --binary --no-renames"
 	numstatOut, stderr, code, err := m.Client.ExecCapture(ctx, m.InstanceName(),
 		"cd "+shellQuote(msbGuestWorkspace)+base+" --numstat -z")
 	if err != nil {

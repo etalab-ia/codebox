@@ -9,6 +9,10 @@ import (
 	"testing"
 )
 
+// testRecoveryBaseSHA is the canned `git rev-parse HEAD` answer for the
+// recovery-base recording that follows every host transfer (#313).
+const testRecoveryBaseSHA = "0123456789abcdef0123456789abcdef01234567"
+
 // TestProvisionGuestWorkspaceWritesFilteredPayload pins the provisioning
 // path end to end at the client boundary: the guest receives one archive,
 // built from the filtered set, and the .env in the checkout is not in it.
@@ -16,7 +20,8 @@ func TestProvisionGuestWorkspaceWritesFilteredPayload(t *testing.T) {
 	client := &fakeMSBClient{exists: true,
 		// The guest has no repository yet: provisioning must run.
 		execCaptureResults: []fakeMSBExecCaptureResult{
-			{stdout: "no"}, // guestWorkspaceProvisioned
+			{stdout: "no"},                // guestWorkspaceProvisioned
+			{stdout: testRecoveryBaseSHA}, // recordRecoveryBase
 		},
 	}
 	m := newTestMicrosandbox(t, client)
@@ -93,7 +98,7 @@ func TestSyncRefusesOverGuestChanges(t *testing.T) {
 
 	// With Force, the refresh proceeds and the payload is written.
 	client.execCaptureResults = nil
-	client.execCaptureDefault = &fakeMSBExecCaptureResult{stdout: ""}
+	client.execCaptureDefault = &fakeMSBExecCaptureResult{stdout: testRecoveryBaseSHA}
 	if err := m.SyncGuestWorkspace(context.Background(), SyncOptions{Force: true, Print: func(string) {}}); err != nil {
 		t.Fatalf("forced refresh: %v", err)
 	}
@@ -196,7 +201,7 @@ func TestEnsureGuestRepositoryDoesNotAutoCommitOnPublishableBranch(t *testing.T)
 // repository rather than an error.
 func TestProvisionEmptySourceCreatesEmptyRepository(t *testing.T) {
 	client := &fakeMSBClient{exists: true,
-		execCaptureResults: []fakeMSBExecCaptureResult{{stdout: "no"}},
+		execCaptureResults: []fakeMSBExecCaptureResult{{stdout: "no"}, {stdout: testRecoveryBaseSHA}},
 	}
 	m := newTestMicrosandbox(t, client)
 	gitInitForTransfer(t, m.cfg.WorkspaceDir)
@@ -349,7 +354,7 @@ func TestWorkspaceOpsRefuseMissingInstance(t *testing.T) {
 // decision reaches the transfer even when the caller passes no opt-in set:
 // otherwise the initial provisioning would silently ignore 'workspace allow'.
 func TestSyncHonoursRecordedOptInWithoutTheFlag(t *testing.T) {
-	client := &fakeMSBClient{exists: true, execCaptureDefault: &fakeMSBExecCaptureResult{stdout: ""}}
+	client := &fakeMSBClient{exists: true, execCaptureDefault: &fakeMSBExecCaptureResult{stdout: testRecoveryBaseSHA}}
 	m := newTestMicrosandbox(t, client)
 	writeFile(t, m.cfg.WorkspaceDir, ".env", "SECRET=allowed-by-decision\n")
 	gitInitForTransfer(t, m.cfg.WorkspaceDir)
@@ -372,5 +377,163 @@ func TestSyncHonoursRecordedOptInWithoutTheFlag(t *testing.T) {
 	}
 	if !strings.Contains(body, "SECRET=allowed-by-decision") {
 		t.Fatalf(".env content = %q", body)
+	}
+}
+
+// writeRecoveryBase records a canned recovery base for an instance, the way
+// recordRecoveryBase does after a host transfer (#313).
+func writeRecoveryBase(t *testing.T, stateDir, instance, sha string) {
+	t.Helper()
+	path := recoveryBasePath(stateDir, instance)
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte(sha+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// TestProvisionGuestWorkspaceRecordsRecoveryBase: the base recorded after a
+// host transfer is the guest's HEAD at that moment, so later agent commits
+// cannot move it (#313).
+func TestProvisionGuestWorkspaceRecordsRecoveryBase(t *testing.T) {
+	client := &fakeMSBClient{exists: true,
+		execCaptureResults: []fakeMSBExecCaptureResult{
+			{stdout: "no"},                // guestWorkspaceProvisioned
+			{stdout: testRecoveryBaseSHA}, // recordRecoveryBase
+		},
+	}
+	m := newTestMicrosandbox(t, client)
+	writeFile(t, m.cfg.WorkspaceDir, "main.go", "package main\n")
+	gitInitForTransfer(t, m.cfg.WorkspaceDir)
+	if err := m.ProvisionGuestWorkspace(context.Background(), SyncOptions{Print: func(string) {}}); err != nil {
+		t.Fatalf("ProvisionGuestWorkspace: %v", err)
+	}
+	data, err := os.ReadFile(recoveryBasePath(m.StateDir, m.InstanceName()))
+	if err != nil {
+		t.Fatalf("the recovery base must be recorded on the host: %v", err)
+	}
+	if strings.TrimSpace(string(data)) != testRecoveryBaseSHA {
+		t.Fatalf("recovery base = %q, want %q", data, testRecoveryBaseSHA)
+	}
+	if got := m.guestDiffBase(); got != testRecoveryBaseSHA {
+		t.Fatalf("guestDiffBase = %q, want the recorded base", got)
+	}
+}
+
+// TestProvisionGuestWorkspaceWithoutBaseFallsBackToHEAD: an environment with
+// no recorded base keeps the legacy HEAD diff, never a guessed base (#313).
+func TestProvisionGuestWorkspaceWithoutBaseFallsBackToHEAD(t *testing.T) {
+	m := newTestMicrosandbox(t, &fakeMSBClient{exists: true})
+	if got := m.guestDiffBase(); got != "HEAD" {
+		t.Fatalf("guestDiffBase without a record = %q, want HEAD", got)
+	}
+}
+
+// TestExportGuestChangesUsesRecordedRecoveryBase: the export diff runs
+// against the recorded base, with binary content enabled (#313).
+func TestExportGuestChangesUsesRecordedRecoveryBase(t *testing.T) {
+	patch := "diff --git a/main.go b/main.go\n--- a/main.go\n+++ b/main.go\n@@ -1 +1 @@\n-old\n+new\n"
+	client := &fakeMSBClient{exists: true, execCaptureDefault: &fakeMSBExecCaptureResult{stdout: patch}}
+	m := newTestMicrosandbox(t, client)
+	writeRecoveryBase(t, m.StateDir, m.InstanceName(), testRecoveryBaseSHA)
+	out := filepath.Join(t.TempDir(), "guest.patch")
+	if _, err := m.ExportGuestChanges(context.Background(), out); err != nil {
+		t.Fatalf("ExportGuestChanges: %v", err)
+	}
+	joined := strings.Join(client.calls, "\n")
+	if !strings.Contains(joined, "git diff "+testRecoveryBaseSHA+" --binary") {
+		t.Fatalf("the export must diff against the recovery base with --binary: %v", client.calls)
+	}
+	if strings.Contains(joined, "git diff HEAD") {
+		t.Fatalf("a recorded base must not fall back to HEAD: %v", client.calls)
+	}
+}
+
+// TestGuestRecoveryWarning pins the legacy-environment limitation (#313): a
+// provisioned guest without a base warns; a based or unprovisioned guest is
+// silent.
+func TestGuestRecoveryWarning(t *testing.T) {
+	t.Run("legacy provisioned guest warns", func(t *testing.T) {
+		client := sealedFakeMSB()
+		client.execCaptureResults = []fakeMSBExecCaptureResult{{stdout: "yes"}}
+		m, _ := applyTestRuntime(t, client)
+		warning, err := m.GuestRecoveryWarning(context.Background())
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !strings.Contains(warning, "commités") || !strings.Contains(warning, "Sauvegardez") {
+			t.Fatalf("the legacy limitation must be explicit: %q", warning)
+		}
+	})
+	t.Run("recorded base is silent", func(t *testing.T) {
+		client := sealedFakeMSB()
+		client.execCaptureResults = []fakeMSBExecCaptureResult{{stdout: "yes"}}
+		m, stateDir := applyTestRuntime(t, client)
+		writeRecoveryBase(t, stateDir, m.InstanceName(), testRecoveryBaseSHA)
+		warning, err := m.GuestRecoveryWarning(context.Background())
+		if err != nil || warning != "" {
+			t.Fatalf("warning = %q, err = %v; want silence", warning, err)
+		}
+	})
+	t.Run("unprovisioned guest is silent", func(t *testing.T) {
+		client := sealedFakeMSB()
+		client.execCaptureResults = []fakeMSBExecCaptureResult{{stdout: "no"}}
+		m, _ := applyTestRuntime(t, client)
+		warning, err := m.GuestRecoveryWarning(context.Background())
+		if err != nil || warning != "" {
+			t.Fatalf("warning = %q, err = %v; want silence", warning, err)
+		}
+	})
+}
+
+// TestRecoveryBaseDiffIncludesCommittedWork verifies the #313 mechanism with
+// real git: after agent commits, `git diff HEAD` sees nothing while the diff
+// against the recorded base sees every change — addition, modification,
+// deletion, binary content, multiple commits — plus uncommitted work, and an
+// unchanged tree produces an empty diff.
+func TestRecoveryBaseDiffIncludesCommittedWork(t *testing.T) {
+	dir := t.TempDir()
+	script := `
+set -eu
+git init -q
+git config user.name T
+git config user.email t@example.test
+echo one > a.txt
+echo keep > keep.txt
+echo gone > gone.txt
+git add -A
+git commit -q -m base
+BASE=$(git rev-parse HEAD)
+test -z "$(git add -A -N && git diff "$BASE" --binary)"
+echo two >> a.txt
+git commit -q -am 'modify a'
+echo new > new.txt
+git add new.txt
+git commit -q -m 'add new'
+git rm -q gone.txt
+git commit -q -m 'delete gone'
+printf '\000\001\002' > bin.dat
+git add bin.dat
+git commit -q -m 'binary'
+echo three >> a.txt
+git commit -q -am 'modify a again'
+test -z "$(git add -A -N && git diff HEAD --binary)"
+DIFF=$(git add -A -N && git diff "$BASE" --binary)
+printf '%s' "$DIFF" | grep -q 'a.txt'
+printf '%s' "$DIFF" | grep -q 'new.txt'
+printf '%s' "$DIFF" | grep -q 'gone.txt'
+printf '%s' "$DIFF" | grep -q 'GIT binary patch'
+echo dirty >> keep.txt
+DIFF2=$(git add -A -N && git diff "$BASE" --binary)
+printf '%s' "$DIFF2" | grep -q 'keep.txt'
+echo RECOVERY-BASE-OK
+`
+	out, err := runShellTest(script, dir)
+	if err != nil {
+		t.Fatalf("recovery-base scenario: %v\n%s", err, out)
+	}
+	if !strings.Contains(string(out), "RECOVERY-BASE-OK") {
+		t.Fatalf("scenario did not complete: %s", out)
 	}
 }

@@ -79,6 +79,12 @@ func exitRecoveryBlock(ctx context.Context, m *justcode.MicrosandboxRuntime, ins
 	} else if line := guestBranchLine(status); line != "" {
 		fmt.Println(line)
 	}
+	// A legacy guest has no recovery base: a clean tree there does NOT mean
+	// all work is recovered, because committed guest work is invisible to
+	// the legacy diff (#313). Say so instead of implying a full recovery.
+	if warning, werr := m.GuestRecoveryWarning(ctx); werr == nil && warning != "" {
+		fmt.Fprintln(os.Stderr, warning)
+	}
 	unrecovered, err := justcode.UnrecoveredGuestChanges(ctx, m)
 	if err != nil {
 		// A read failure must not read as "nothing to recover": the work is

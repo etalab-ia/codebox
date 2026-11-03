@@ -482,6 +482,47 @@ func TestGuestBranchStatus(t *testing.T) {
 	})
 }
 
+// TestCollectGuestChangesUsesRecordedRecoveryBase: with a recorded base, the
+// numstat and diff reads run against it, not HEAD, so committed guest work is
+// collected (#313); without one, the legacy HEAD command is kept.
+func TestCollectGuestChangesUsesRecordedRecoveryBase(t *testing.T) {
+	newClient := func() *fakeMSBClient {
+		client := sealedFakeMSB()
+		client.execCaptureResults = []fakeMSBExecCaptureResult{
+			{stdout: "yes"},           // provisioned probe
+			{stdout: applyNumstatTwo}, // numstat
+			{stdout: applyDiffTwoSections},
+		}
+		return client
+	}
+	t.Run("recorded base", func(t *testing.T) {
+		client := newClient()
+		m, stateDir := applyTestRuntime(t, client)
+		writeRecoveryBase(t, stateDir, m.InstanceName(), testRecoveryBaseSHA)
+		changes, err := m.CollectGuestChanges(context.Background())
+		if err != nil || len(changes) != 2 {
+			t.Fatalf("CollectGuestChanges = (%d changes, %v), want 2", len(changes), err)
+		}
+		joined := strings.Join(client.calls, "\n")
+		if !strings.Contains(joined, "git diff "+testRecoveryBaseSHA+" --binary --no-renames") {
+			t.Fatalf("the diff must run against the recovery base: %v", client.calls)
+		}
+		if strings.Contains(joined, "git diff HEAD") {
+			t.Fatalf("a recorded base must not fall back to HEAD: %v", client.calls)
+		}
+	})
+	t.Run("legacy HEAD fallback", func(t *testing.T) {
+		client := newClient()
+		m, _ := applyTestRuntime(t, client)
+		if _, err := m.CollectGuestChanges(context.Background()); err != nil {
+			t.Fatal(err)
+		}
+		if !strings.Contains(strings.Join(client.calls, "\n"), "git diff HEAD --binary --no-renames") {
+			t.Fatalf("a guest without a base must keep the legacy HEAD diff: %v", client.calls)
+		}
+	})
+}
+
 func TestCollectGuestChangesPairsNumstatWithDiff(t *testing.T) {
 	client := sealedFakeMSB()
 	client.execCaptureResults = []fakeMSBExecCaptureResult{

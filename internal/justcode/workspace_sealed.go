@@ -194,8 +194,86 @@ func (m *MicrosandboxRuntime) transferIntoGuest(ctx context.Context, opts SyncOp
 		}
 		return err
 	}
+	// The recovery base is the host-initiated snapshot commit (#313): diffs
+	// are taken against it, not against HEAD, so work the AGENT committed in
+	// the guest stays visible to export/apply. It advances only on a host
+	// transfer (provision or refresh), never on an agent commit.
+	if err := m.recordRecoveryBase(ctx); err != nil {
+		return err
+	}
 	opts.print(fmt.Sprintf("Guest workspace ready: %d file(s) in %s.\n", len(included), msbGuestWorkspace))
 	return nil
+}
+
+// recoveryBasePath is the host path of the recorded recovery base for one
+// instance (#313). Keeping it on the host, not as a guest git ref, puts it
+// out of the agent's reach: the base cannot move with the agent's commits.
+func recoveryBasePath(stateDir, instance string) string {
+	return filepath.Join(InstanceStateDir(stateDir, instance), "guest-recovery-base")
+}
+
+// isCommitSHA reports whether s looks like a full git commit id. The base is
+// interpolated into a guest shell command, so anything else (a flag, a ref
+// with shell metacharacters) is rejected and the legacy path is used.
+func isCommitSHA(s string) bool {
+	if len(s) != 40 && len(s) != 64 {
+		return false
+	}
+	for _, r := range s {
+		if (r < '0' || r > '9') && (r < 'a' || r > 'f') {
+			return false
+		}
+	}
+	return true
+}
+
+// recordRecoveryBase stores the guest's current HEAD as the recovery base
+// after a host-initiated snapshot commit.
+func (m *MicrosandboxRuntime) recordRecoveryBase(ctx context.Context) error {
+	head, err := m.guestOutput(ctx, "git rev-parse HEAD")
+	if err != nil {
+		return fmt.Errorf("recording the guest recovery base: %w", err)
+	}
+	sha := strings.TrimSpace(head)
+	if !isCommitSHA(sha) {
+		return fmt.Errorf("recording the guest recovery base: unexpected HEAD %q", sha)
+	}
+	path := recoveryBasePath(m.stateDirOrDefault(), m.InstanceName())
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return err
+	}
+	return os.WriteFile(path, []byte(sha+"\n"), 0o600)
+}
+
+// guestDiffBase returns the commit the guest diffs are taken against: the
+// recorded recovery base, or "HEAD" for an environment created before this
+// tracking existed (#313). The legacy fallback keeps old behavior, and
+// GuestRecoveryWarning makes its limit explicit instead of guessing a base.
+func (m *MicrosandboxRuntime) guestDiffBase() string {
+	data, err := os.ReadFile(recoveryBasePath(m.stateDirOrDefault(), m.InstanceName()))
+	if err != nil {
+		return "HEAD"
+	}
+	if sha := strings.TrimSpace(string(data)); isCommitSHA(sha) {
+		return sha
+	}
+	return "HEAD"
+}
+
+// GuestRecoveryWarning returns the limitation to show for an environment
+// created before recovery-base tracking (#313): committed guest work is
+// invisible to the legacy HEAD diff, so "no changes" must not read as "all
+// work recovered". It returns "" for a guest with a recorded base and for a
+// guest that was never provisioned (which holds no work at all).
+func (m *MicrosandboxRuntime) GuestRecoveryWarning(ctx context.Context) (string, error) {
+	provisioned, err := m.guestWorkspaceProvisioned(ctx)
+	if err != nil || !provisioned {
+		return "", err
+	}
+	if m.guestDiffBase() != "HEAD" {
+		return "", nil
+	}
+	return "Cet environnement a été créé avant le suivi des changements commités : les changements déjà commités dans la machine isolée ne sont PAS inclus dans l'export ni dans la récupération. Sauvegardez ces commits (push ou récupération manuelle) avant de recréer la machine.", nil
 }
 
 // ensureGuestRepository makes the initial guest workspace a Git repository
@@ -310,8 +388,11 @@ func (m *MicrosandboxRuntime) ExportGuestChanges(ctx context.Context, outPath st
 		return "", err
 	}
 	// `git add -A -N` marks untracked files intent-to-add so they appear in
-	// the diff; without it, new files would be invisible in the export.
-	cmd := "cd " + shellQuote(msbGuestWorkspace) + " && git add -A -N && git diff HEAD"
+	// the diff; without it, new files would be invisible in the export. The
+	// diff runs against the recovery base, not HEAD, so work the agent
+	// already committed is exported too (#313); --binary carries binary
+	// content.
+	cmd := "cd " + shellQuote(msbGuestWorkspace) + " && git add -A -N && git diff " + m.guestDiffBase() + " --binary"
 	stdout, stderr, code, err := m.Client.ExecCapture(ctx, m.InstanceName(), cmd)
 	if err != nil {
 		return "", err
