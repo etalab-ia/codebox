@@ -369,14 +369,12 @@ setupStages:
 	} else {
 		model = canonicalSetupModelRef(model)
 	}
-	if len(models) > 0 && !setupModelEnabled(model, models) && providersContain(providers, justcode.ProviderAlbert) {
-		model = setupModelRef(models[0])
-	}
+	models, model = reconcileSetupModelsForProviders(providers, models, model)
 	fmt.Println()
 	if wizardHuhFn() {
 		selected, defaultModel, ok, err := promptSetupModels(providers, models, model)
 		if errors.Is(err, huh.ErrUserAborted) {
-			fmt.Println("Setup cancelled.")
+			fmt.Println("Setup annulé.")
 			recordSetupAbandon(stateDir, "models")
 			return 1, nil
 		}
@@ -388,16 +386,27 @@ setupStages:
 		}
 	} else {
 		fmt.Println("Models (comma-separated references such as albert/Qwen3-Coder-30B-A3B-Instruct or mistral/mistral-large-latest; Enter keeps the current selection):")
-		chosen, answered := promptLine(in, "Models: ")
-		if answered {
+		for {
+			chosen, answered := promptLine(in, "Models: ")
+			if !answered {
+				if len(models) == 0 {
+					return 1, fmt.Errorf("aucun modèle valide pour les plateformes configurées ; relancez 'just-code setup' pour en choisir un")
+				}
+				break
+			}
+			if strings.TrimSpace(chosen) == "" && len(models) == 0 {
+				fmt.Println("Aucun modèle valide n'est actuellement sélectionné. Saisissez au moins un identifiant de modèle.")
+				continue
+			}
 			if strings.TrimSpace(chosen) != "" {
 				models = parseSetupModelIDs(chosen)
 				if len(models) == 0 {
-					return 1, fmt.Errorf("select at least one model")
+					return 1, fmt.Errorf("sélectionnez au moins un modèle")
 				}
 				model = setupModelRefForSelected(models[0])
 			}
 			modelAnswered = true
+			break
 		}
 	}
 	// Validate against the P10 catalogue when it is reachable; an
@@ -552,7 +561,7 @@ setupStages:
 			if errors.Is(err, huh.ErrUserAborted) {
 				// Identity is persisted here, not at final apply: an
 				// abort must cancel setup, not save partial values.
-				fmt.Println("\nSetup cancelled.")
+				fmt.Println("\nSetup annulé.")
 				recordSetupAbandon(stateDir, "identity")
 				return 1, nil
 			}
@@ -1314,7 +1323,7 @@ func setupStatsConsent(in *bufio.Reader) (enabled bool, answered bool, err error
 			Value(&value),
 	))); ferr != nil {
 		if errors.Is(ferr, huh.ErrUserAborted) {
-			return false, false, fmt.Errorf("setup cancelled")
+			return false, false, errSetupCancelled
 		}
 		return false, false, ferr
 	}
@@ -1490,6 +1499,28 @@ func defaultSetupModel() string {
 		}
 	}
 	return ""
+}
+
+// reconcileSetupModelsForProviders drops selections whose platform was removed
+// and chooses a default from the remaining provider-valid models. An empty
+// result requires an explicit model answer; it must never be persisted as an
+// Albert-only configuration alongside non-Albert providers (#305).
+func reconcileSetupModelsForProviders(providers []justcode.InferenceProvider, current []string, currentDefault string) ([]string, string) {
+	models := make([]string, 0, len(current))
+	for _, ref := range current {
+		kind, _ := justcode.ProviderModelID(ref)
+		if providersContain(providers, kind) {
+			models = append(models, ref)
+		}
+	}
+	if len(models) == 0 {
+		return nil, ""
+	}
+	model := canonicalSetupModelRef(currentDefault)
+	if model == "" || !setupModelEnabled(model, models) {
+		model = setupModelRefForSelected(models[0])
+	}
+	return models, model
 }
 
 func setupModelEnabled(model string, ids []string) bool {
