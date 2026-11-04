@@ -1,0 +1,35 @@
+name: QA issue 304 MCP screen
+
+on:
+  push:
+    branches: [letta/issue-304-visual-qa]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  capture:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache: true
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.x"
+      - name: Build the integrated QA binary
+        run: go build -o "$RUNNER_TEMP/just-code" ./cmd/just-code
+      - name: Install terminal capture dependencies
+        run: python -m pip install --disable-pip-version-check pyte pillow
+      - name: Capture the real interactive MCP journey
+        run: python .github/qa/issue_304_mcp.py "$RUNNER_TEMP/just-code" "$GITHUB_WORKSPACE/qa-304"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: issue-304-mcp-qa
+          path: qa-304
+          if-no-files-found: error
+          retention-days: 7
