@@ -99,7 +99,7 @@ func TestSyncRefusesOverGuestChanges(t *testing.T) {
 
 	// With Force, the refresh proceeds and the payload is written.
 	client.execCaptureResults = nil
-	client.execCaptureDefault = &fakeMSBExecCaptureResult{stdout: guestRecoveryBasePrefix + testRecoveryBaseSHA}
+	client.execCaptureDefault = &fakeMSBExecCaptureResult{stdout: testRecoveryBaseSHA}
 	if err := m.SyncGuestWorkspace(context.Background(), SyncOptions{Force: true, Print: func(string) {}}); err != nil {
 		t.Fatalf("forced refresh: %v", err)
 	}
