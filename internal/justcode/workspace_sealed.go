@@ -262,13 +262,13 @@ func (m *MicrosandboxRuntime) transferIntoGuest(ctx context.Context, opts SyncOp
 
 const guestRecoveryAdvanceMarker = "RECOVERY-BASE-ADVANCE"
 const guestRecoveryBasePrefix = "RECOVERY-BASE="
+const guestRecoveryBaseRef = "refs/just-code/recovery-base"
 
 // guestRecoveryRefreshScript refreshes a guest without losing the diff from
 // its recovery base. The backup commit makes rollback possible even when the
 // patch conflicts with the incoming host snapshot. The marker means the host
 // already contains all recovered work, so the recovery base can advance.
 func guestRecoveryRefreshScript(workspace, archivePath, base, gitName, gitEmail string) string {
-	patchPath := "/tmp/just-code-refresh-recovery.patch"
 	changedPath := "/tmp/just-code-refresh-changed"
 	incomingPath := "/tmp/just-code-refresh-incoming"
 	return "set -eu; cd " + shellQuote(workspace) +
@@ -278,13 +278,17 @@ func guestRecoveryRefreshScript(workspace, archivePath, base, gitName, gitEmail 
 		"; BACKUP=$(git -c user.name=" + shellQuote(gitName) + " -c user.email=" + shellQuote(gitEmail) +
 		" commit-tree \"$TREE\" -p HEAD -m " + shellQuote("just-code: pre-refresh recovery backup") + ")" +
 		"; rollback() { git reset --hard \"$BACKUP\" && git reset --mixed \"$ORIGINAL_HEAD\"; }" +
-		"; git diff --no-renames --binary " + shellQuote(base) + " > " + shellQuote(patchPath) +
-		"; rm -rf " + shellQuote(incomingPath) + " && mkdir " + shellQuote(incomingPath) + " && tar -xzf " + shellQuote(archivePath) + " -C " + shellQuote(incomingPath) +
-		"; mkdir -p " + shellQuote(workspace) + " && tar -xzf " + shellQuote(archivePath) + " -C " + shellQuote(workspace) + " && rm -f " + shellQuote(archivePath) +
+		// Capture guest paths before extraction can overwrite any of them.
+		"; git diff --name-only --diff-filter=ADMT --no-renames -z " + shellQuote(base) + " > " + shellQuote(changedPath) +
+		"; rm -rf " + shellQuote(incomingPath) + "; mkdir " + shellQuote(incomingPath) +
+		"; if ! tar -xzf " + shellQuote(archivePath) + " -C " + shellQuote(incomingPath) +
+		"; then rollback; printf '%s\\n' 'The refreshed host snapshot could not be read. The pre-refresh state was restored.' >&2; exit 1; fi" +
+		"; if ! mkdir -p " + shellQuote(workspace) + " || ! tar -xzf " + shellQuote(archivePath) + " -C " + shellQuote(workspace) +
+		"; then rollback; printf '%s\\n' 'The refreshed host snapshot could not be extracted. The pre-refresh state was restored.' >&2; exit 1; fi" +
+		"; rm -f " + shellQuote(archivePath) +
 		// Additive extraction leaves guest content in place when the archive
 		// omits a path. Restore omitted paths to their base state, or remove
 		// additions, so leftover guest content cannot prove its own recovery.
-		"; git diff --name-only --diff-filter=ADMT --no-renames -z " + shellQuote(base) + " > " + shellQuote(changedPath) +
 		"; if ! INCOMING=" + shellQuote(incomingPath) + " BASE=" + shellQuote(base) + " xargs -0 -n 50 sh -c 'set -e; for file do if [ ! -e \"$INCOMING/$file\" ] && [ ! -L \"$INCOMING/$file\" ]; then if git cat-file -e \"$BASE:$file\" 2>/dev/null; then git checkout -q \"$BASE\" -- \"$file\"; else rm -f -- \"$file\"; fi; fi; done' sh < " + shellQuote(changedPath) +
 		"; then rollback; rm -rf " + shellQuote(incomingPath) + "; printf '%s\\n' 'The guest changes could not be compared with the refreshed host snapshot. The pre-refresh state was restored.' >&2; exit 1; fi" +
 		// The comparison base describes the refreshed host tree before guest
@@ -294,12 +298,15 @@ func guestRecoveryRefreshScript(workspace, archivePath, base, gitName, gitEmail 
 		"; HOST_TREE=$(git write-tree)" +
 		"; REFRESH_BASE=$(git -c user.name=" + shellQuote(gitName) + " -c user.email=" + shellQuote(gitEmail) +
 		" commit-tree \"$HOST_TREE\" -p " + shellQuote(base) + " -m " + shellQuote("just-code: refreshed recovery comparison snapshot") + ")" +
+		// Apply each file independently: a host may already contain some, but
+		// not all, of the guest changes. Reverse-applicability identifies the
+		// recovered files; forward-applicability restores the outstanding ones.
+		"; if ! BASE=" + shellQuote(base) + " BACKUP=\"$BACKUP\" xargs -0 -n 50 sh -c 'set -e; for file do patch=$(mktemp /tmp/just-code-refresh-file.XXXXXX); git diff --no-renames --binary \"$BASE\" \"$BACKUP\" -- \"$file\" > \"$patch\"; if git apply --check \"$patch\"; then git apply \"$patch\"; elif ! git apply --check --reverse \"$patch\"; then rm -f \"$patch\"; printf '%s\\n' 'The refreshed host snapshot conflicts with the guest work. The pre-refresh state was restored.' >&2; exit 1; fi; rm -f \"$patch\"; done' sh < " + shellQuote(changedPath) +
+		"; then rollback; rm -rf " + shellQuote(incomingPath) + "; exit 1; fi" +
 		"; rm -f " + shellQuote(changedPath) + " && rm -rf " + shellQuote(incomingPath) +
-		"; if git apply --check " + shellQuote(patchPath) + "; then git apply " + shellQuote(patchPath) +
-		"; elif git apply --check --reverse " + shellQuote(patchPath) + "; then printf '%s\\n' " + guestRecoveryAdvanceMarker +
-		"; else rollback; printf '%s\\n' 'The refreshed host snapshot conflicts with the guest work. The pre-refresh state was restored.' >&2; exit 1; fi" +
-		"; printf '%s%s\\n' " + shellQuote(guestRecoveryBasePrefix) + " \"$REFRESH_BASE\"" +
-		"; rm -f " + shellQuote(patchPath)
+		"; git update-ref " + shellQuote(guestRecoveryBaseRef) + " \"$REFRESH_BASE\"" +
+		"; if git add -A -N && git diff --quiet \"$REFRESH_BASE\" --; then printf '%s\\n' " + guestRecoveryAdvanceMarker + "; fi" +
+		"; printf '%s%s\\n' " + shellQuote(guestRecoveryBasePrefix) + " \"$REFRESH_BASE\""
 }
 
 // recoveryBasePath is the host path of the recorded recovery base for one
