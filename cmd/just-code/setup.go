@@ -1779,8 +1779,28 @@ func providersContain(providers []justcode.InferenceProvider, kind justcode.Prov
 	return false
 }
 
+// resolveSetupCatalogueCredentialRef keeps an explicit custom reference
+// authoritative, but uses a newly stored Albert credential before final apply.
+// Without this setup-scoped fallback, a declined ALBERT_API_KEY would still be
+// used for catalogue discovery until SaveSettings ran (#308).
+func resolveSetupCatalogueCredentialRef() string {
+	return resolveSetupCatalogueCredentialRefAt(resolveProjectRootForAux())
+}
+
+func resolveSetupCatalogueCredentialRefAt(projectRoot string) string {
+	ref := resolveCredentialRef(projectRoot)
+	if strings.TrimSpace(ref) != "" {
+		return ref
+	}
+	j, err := justcode.ReadSetupJournal(justcode.DefaultFS, justcode.DefaultStateDir())
+	if err == nil && justcode.ContainsCredentialKind(j.CredentialKinds, string(justcode.CredentialAlbert)) {
+		return string(justcode.CredentialAlbert)
+	}
+	return ref
+}
+
 var setupModelCatalogueFn = func() (justcode.Catalogue, bool, error) {
-	apiKey, err := resolveAlbertKeyForCatalogue()
+	apiKey, err := resolveAlbertKeyForCredentialRef(resolveSetupCatalogueCredentialRef())
 	if err != nil {
 		return justcode.Catalogue{}, false, err
 	}

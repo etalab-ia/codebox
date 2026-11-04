@@ -461,3 +461,39 @@ func TestSetupSaveSettingsPreservesCustomCredentialRef(t *testing.T) {
 		t.Fatalf("custom credentialRef was replaced: %q", us.CredentialRef)
 	}
 }
+
+func TestSetupSaveSettingsReplacesWhitespaceCredentialRef(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+	t.Setenv("AppData", filepath.Join(home, "AppData"))
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
+	t.Setenv("XDG_STATE_HOME", filepath.Join(home, ".local", "state"))
+	path, err := UserSettingsPath()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := WriteUserSettings(DefaultFS, path, UserSettings{SchemaVersion: 1, CredentialRef: " \t"}); err != nil {
+		t.Fatal(err)
+	}
+	providers, err := ResolveProviders([]ProviderSettings{{Kind: ProviderAlbert}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	stateDir := t.TempDir()
+	j := SetupJournal{SchemaVersion: 1, Stage: StageCredential, CredentialKinds: []string{string(CredentialAlbert)}}
+	if err := WriteSetupJournal(DefaultFS, stateDir, j); err != nil {
+		t.Fatal(err)
+	}
+	w := SetupWizard{FS: DefaultFS, StateDir: stateDir}
+	if err := w.SaveSettings("", nil, false, providers, false, false); err != nil {
+		t.Fatal(err)
+	}
+	us, err := ReadUserSettings(DefaultFS, path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if us.CredentialRef != string(CredentialAlbert) {
+		t.Fatalf("whitespace credentialRef = %q, want albert so runtime cannot fall back to the environment", us.CredentialRef)
+	}
+}
