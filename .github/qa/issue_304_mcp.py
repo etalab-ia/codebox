@@ -18,7 +18,7 @@ from pathlib import Path
 import pyte
 from PIL import Image, ImageDraw, ImageFont
 
-COLS = 110
+COLS = 128
 ROWS = 30
 BEGIN = "Appuyez sur Entr\u00e9e"
 SKILLS_INTRO = "Une skill apporte \u00e0 l'agent"
@@ -153,6 +153,43 @@ def assert_selected(text, option, selected):
         raise AssertionError(f"{option} is still visibly selected: {line!r}")
 
 
+def terminal_color(value, background=False):
+    default = "#111418" if background else "#e9ecef"
+    named = {
+        "black": "#111418",
+        "red": "#ff6b6b",
+        "green": "#69db7c",
+        "yellow": "#ffd43b",
+        "blue": "#74c0fc",
+        "magenta": "#da77f2",
+        "cyan": "#66d9e8",
+        "white": "#f1f3f5",
+    }
+    if value in named:
+        return named[value]
+    try:
+        index = int(value)
+    except (TypeError, ValueError):
+        return default
+    palette = [
+        "#000000", "#cd3131", "#0dbc79", "#e5e510",
+        "#2472c8", "#bc3fbc", "#11a8cd", "#e5e5e5",
+        "#666666", "#f14c4c", "#23d18b", "#f5f543",
+        "#3b8eea", "#d670d6", "#29b8db", "#ffffff",
+    ]
+    if 0 <= index <= 15:
+        return palette[index]
+    if 16 <= index <= 231:
+        value = index - 16
+        levels = [0, 95, 135, 175, 215, 255]
+        red, green, blue = levels[value // 36], levels[(value % 36) // 6], levels[value % 6]
+        return f"#{red:02x}{green:02x}{blue:02x}"
+    if 232 <= index <= 255:
+        level = 8 + (index - 232) * 10
+        return f"#{level:02x}{level:02x}{level:02x}"
+    return default
+
+
 def render_png(screen, path):
     font_path = "/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf"
     font = ImageFont.truetype(font_path, 17)
@@ -162,22 +199,11 @@ def render_png(screen, path):
     margin = 16
     image = Image.new("RGB", (COLS * cell_w + margin * 2, ROWS * cell_h + margin * 2), "#111418")
     draw = ImageDraw.Draw(image)
-    colors = {
-        "black": "#111418",
-        "red": "#ff6b6b",
-        "green": "#69db7c",
-        "yellow": "#ffd43b",
-        "blue": "#74c0fc",
-        "magenta": "#da77f2",
-        "cyan": "#66d9e8",
-        "white": "#f1f3f5",
-        "default": "#e9ecef",
-    }
     for y in range(ROWS):
         for x in range(COLS):
             char = screen.buffer[y][x]
-            fg = colors.get(char.fg, colors["default"])
-            bg = colors.get(char.bg, "#111418") if char.bg != "default" else "#111418"
+            fg = terminal_color(char.fg)
+            bg = terminal_color(char.bg, background=True)
             if char.reverse:
                 fg, bg = bg, fg
             left = margin + x * cell_w
