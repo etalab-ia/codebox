@@ -205,6 +205,18 @@ func TestReconcileSetupModelsForProvidersPreservesUnmanagedDefault(t *testing.T)
 	}
 }
 
+func TestReconcileSetupModelsForProvidersReplacesRemovedManagedDefault(t *testing.T) {
+	providers, err := justcode.ResolveProviders([]justcode.ProviderSettings{{Kind: justcode.ProviderMistral}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	selected := []string{"mistral/mistral-large-latest"}
+	_, defaultModel := reconcileSetupModelsForProviders(providers, selected, "albert/qwen3-coder")
+	if defaultModel != selected[0] {
+		t.Fatalf("a removed managed platform's default must be replaced: default=%q", defaultModel)
+	}
+}
+
 func TestSetupPlatformStageSeedsFromSavedSettings(t *testing.T) {
 	stateDir, _ := setupTestEnv(t)
 	forceNonTTY(t)
