@@ -858,10 +858,9 @@ func TestAskInitQuestionsHuhMCPSeedingAndWithdrawnRetention(t *testing.T) {
 	}
 
 	// A manifest deliberately written with zero MCPs triggers the
-	// zero-selection confirmation before any write-back. The main form's
-	// stub must succeed once so the write-back runs, then the confirmation
-	// form's stub fails: the wizard asks instead of silently keeping or
-	// re-defaulting the empty set.
+	// zero-selection confirmation before any write-back. The skills form, the
+	// empty-skills confirmation and the MCP form must all succeed first; the
+	// abort is injected only when the zero-MCP confirmation is actually shown.
 	if err := justcode.WriteProjectManifest(justcode.DefaultFS, justcode.ProjectManifestPath(root), justcode.ProjectManifest{
 		MCPConnectors:   []string{},
 		SkillsLocalOnly: true,
@@ -869,15 +868,21 @@ func TestAskInitQuestionsHuhMCPSeedingAndWithdrawnRetention(t *testing.T) {
 		t.Fatalf("write manifest: %v", err)
 	}
 	formCalls := 0
-	huhRun = func(*huh.Form) error {
+	zeroMCPConfirmation := false
+	huhRun = func(form *huh.Form) error {
 		formCalls++
-		if formCalls > 1 {
+		form.Init()
+		if strings.Contains(ansi.Strip(form.View()), "Aucun MCP sélectionné") {
+			zeroMCPConfirmation = true
 			return huh.ErrUserAborted
 		}
 		return nil
 	}
 	if _, err = askInitQuestionsHuh(opts, justcode.InitAnswers{Root: root}); !errors.Is(err, huh.ErrUserAborted) {
 		t.Fatalf("a zero-MCP manifest must trigger the confirmation and an abort must surface, got %v", err)
+	}
+	if !zeroMCPConfirmation || formCalls != 4 {
+		t.Fatalf("the abort must come from the zero-MCP confirmation after all preceding forms (reached=%v, calls=%d)", zeroMCPConfirmation, formCalls)
 	}
 }
 
