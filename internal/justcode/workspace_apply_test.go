@@ -339,7 +339,8 @@ func TestGuestBranchStatus(t *testing.T) {
 			{code: 1},                  // git config --get: no marker
 			{stdout: "main\x001000\n"}, // local branches
 			{stdout: "origin/main\x001000\norigin/HEAD\x001000\n"}, // remote refs
-			{stdout: "origin/main\n"},                              // remote HEAD
+			{stdout: "refs/remotes/origin/main@{0}\x00fetch origin: storing head\n"},
+			{stdout: "origin/main\n"}, // remote HEAD
 		}
 		m, _ := applyTestRuntime(t, client)
 		status, err := m.GuestBranchStatus(context.Background())
@@ -354,6 +355,7 @@ func TestGuestBranchStatus(t *testing.T) {
 				client.execCaptureResults = []fakeMSBExecCaptureResult{
 					{code: 1},
 					{stdout: baseline + "\x001000\n"},
+					{stdout: ""},
 					{stdout: ""},
 					{code: 1},
 				}
@@ -371,6 +373,7 @@ func TestGuestBranchStatus(t *testing.T) {
 			{stdout: "letta/fix\n"},
 			{stdout: "letta/fix\x001000\n"},
 			{stdout: "origin/main\x001000\n"},
+			{stdout: "refs/remotes/origin/main@{0}\x00fetch origin: storing head\n"},
 			{stdout: "origin/main\n"},
 		}
 		m, _ := applyTestRuntime(t, client)
@@ -385,6 +388,7 @@ func TestGuestBranchStatus(t *testing.T) {
 			{stdout: "letta/fix\n"},
 			{stdout: "letta/fix\x001000\n"},
 			{stdout: "origin/main\x001000\norigin/letta/fix\x001000\n"},
+			{stdout: "refs/remotes/origin/letta/fix@{0}\x00update by push\n"},
 			{stdout: "origin/main\n"},
 			{stdout: `[{"url":"https://github.com/owner/repo/pull/9","isDraft":true}]`},
 		}
@@ -401,6 +405,7 @@ func TestGuestBranchStatus(t *testing.T) {
 			{stdout: "letta/fix\n"},
 			{stdout: "letta/fix\x001000\n"},
 			{stdout: "origin/main\x001000\norigin/letta/fix\x001000\n"},
+			{stdout: "refs/remotes/origin/letta/fix@{0}\x00update by push\n"},
 			{stdout: "origin/main\n"},
 			{code: 1}, // gh pr list fails; the branch still counts as pushed
 		}
@@ -416,6 +421,7 @@ func TestGuestBranchStatus(t *testing.T) {
 			{stdout: "letta/fix\n"},
 			{stdout: "letta/fix\x001000\n"},
 			{stdout: "origin/main\x001000\norigin/letta/fix\x001000\n"},
+			{stdout: "refs/remotes/origin/letta/fix@{0}\x00fetch origin: storing head\n"},
 			{stdout: "origin/main\n"},
 			{stdout: `[]`},
 		}
@@ -434,6 +440,7 @@ func TestGuestBranchStatus(t *testing.T) {
 			{stdout: "just-code/generated-123\n"},
 			{stdout: "just-code/generated-123\x001000\nmy-fix\x002000\n"},
 			{stdout: "origin/main\x001000\norigin/my-fix\x002000\n"},
+			{stdout: "refs/remotes/origin/my-fix@{0}\x00update by push\n"},
 			{stdout: "origin/main\n"},
 			{stdout: `[{"url":"https://github.com/owner/repo/pull/12","isDraft":false}]`},
 		}
@@ -450,6 +457,7 @@ func TestGuestBranchStatus(t *testing.T) {
 			{stdout: "just-code/generated-123\n"},
 			{stdout: "just-code/generated-123\x001000\nmy-fix\x002000\n"},
 			{stdout: "origin/main\x001000\norigin/just-code/generated-123\x001000\norigin/my-fix\x002000\n"},
+			{stdout: "refs/remotes/origin/just-code/generated-123@{0}\x00update by push\nrefs/remotes/origin/my-fix@{0}\x00update by push\n"},
 			{stdout: "origin/main\n"},
 			{stdout: `[{"url":"https://github.com/owner/repo/pull/13","isDraft":false}]`},
 		}
@@ -469,6 +477,7 @@ func TestGuestBranchStatus(t *testing.T) {
 			{stdout: "just-code/generated-123\n"},
 			{stdout: "just-code/generated-123\x001000\n"},
 			{stdout: "origin/main\x001000\norigin/my-fix\x002000\n"},
+			{stdout: "refs/remotes/origin/my-fix@{0}\x00update by push\n"},
 			{stdout: "origin/main\n"},
 			{stdout: `[{"url":"https://github.com/owner/repo/pull/14","isDraft":false}]`},
 		}
@@ -485,6 +494,7 @@ func TestGuestBranchStatus(t *testing.T) {
 			{code: 1}, // no marker
 			{stdout: "main\x001000\nfeature-a\x001000\nfeature-b\x002000\n"},
 			{stdout: "origin/main\x001000\norigin/feature-a\x001000\norigin/feature-b\x002000\n"},
+			{stdout: "refs/remotes/origin/feature-a@{0}\x00update by push\nrefs/remotes/origin/feature-b@{0}\x00update by push\n"},
 			{stdout: "origin/main\n"},
 			{stdout: `[]`},
 		}
@@ -494,12 +504,31 @@ func TestGuestBranchStatus(t *testing.T) {
 			t.Fatalf("GuestBranchStatus = (%+v, %v), want the most recently committed branch", status, err)
 		}
 	})
+	t.Run("fetched unrelated branches are not session pushes", func(t *testing.T) {
+		client := sealedFakeMSB()
+		client.execCaptureResults = []fakeMSBExecCaptureResult{
+			{stdout: "my-fix\n"},
+			{stdout: "main\x001000\nmy-fix\x002000\n"},
+			{stdout: "origin/main\x001000\norigin/unrelated\x003000\n"},
+			{stdout: "refs/remotes/origin/unrelated@{0}\x00fetch origin: storing head\n"},
+			{stdout: "origin/main\n"},
+		}
+		m, _ := applyTestRuntime(t, client)
+		status, err := m.GuestBranchStatus(context.Background())
+		if err != nil || status.Pushed || status.Branch != "my-fix" || status.PRURL != "" {
+			t.Fatalf("GuestBranchStatus = (%+v, %v), want the local work branch, not a fetched branch", status, err)
+		}
+		if len(client.calls) < 4 || !strings.Contains(client.calls[3], "git reflog --all") {
+			t.Fatalf("push attribution must inspect reflogs, calls: %v", client.calls)
+		}
+	})
 	t.Run("the snapshot backup is never a candidate", func(t *testing.T) {
 		client := sealedFakeMSB()
 		client.execCaptureResults = []fakeMSBExecCaptureResult{
 			{stdout: "letta/fix\n"},
 			{stdout: "letta/fix\x001000\nletta/fix-snapshot-backup\x002000\n"},
 			{stdout: "origin/main\x001000\norigin/letta/fix-snapshot-backup\x002000\n"},
+			{stdout: "refs/remotes/origin/letta/fix-snapshot-backup@{0}\x00update by push\n"},
 			{stdout: "origin/main\n"},
 			{stdout: `[]`},
 		}

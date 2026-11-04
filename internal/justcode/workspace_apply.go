@@ -341,7 +341,8 @@ func patchBinarySize(line, prefix string) (int64, bool) {
 type GuestBranchStatus struct {
 	// Branch is the selected work branch, "" when the guest has none.
 	Branch string
-	// Pushed reports that refs/remotes/origin/<Branch> exists in the guest.
+	// Pushed reports a session-owned marker remote or a remote ref with
+	// update-by-push reflog evidence in the guest.
 	Pushed bool
 	// PRURL is the open pull request found for Branch; empty when there is
 	// none or when the probe could not answer.
@@ -364,10 +365,11 @@ type guestLocalBranch struct {
 // selectGuestWorkBranch picks the branch the exit screen reports (#306). The
 // most recently committed pushed branch wins, including a branch that exists
 // only on the remote; an older workflow marker must not hide newer agent work.
-// Without any push, the marker branch (or the latest local branch) is reported
-// as not pushed. The default branch and the workflow's snapshot-backup branch
-// are never candidates; with no remote HEAD, the sealed bootstrap's main/master
-// baseline is excluded too.
+// The remotes argument contains only session-owned or push-proven refs, never
+// refs obtained merely by fetching. Without any push, the marker branch (or
+// the latest local branch) is reported as not pushed. The default branch and
+// the workflow's snapshot-backup branch are never candidates; with no remote
+// HEAD, the sealed bootstrap's main/master baseline is excluded too.
 func selectGuestWorkBranch(marker string, locals []guestLocalBranch, remotes []guestLocalBranch, defaultBranch string) (string, bool) {
 	isCandidate := func(name string) bool {
 		if name == "" || name == "HEAD" || name == defaultBranch || name == marker+"-snapshot-backup" {
@@ -438,6 +440,23 @@ func parseGuestLocalBranches(out string) []guestLocalBranch {
 	return locals
 }
 
+// parseGuestPushedRemoteRefs returns origin refs with update-by-push evidence.
+// Fetch entries are deliberately not evidence of work pushed by the guest.
+func parseGuestPushedRemoteRefs(out string) map[string]bool {
+	pushed := map[string]bool{}
+	for _, line := range strings.Split(out, "\n") {
+		selector, message, ok := strings.Cut(line, "\x00")
+		if !ok || strings.TrimSpace(message) != "update by push" {
+			continue
+		}
+		ref, _, _ := strings.Cut(selector, "@{")
+		if strings.HasPrefix(ref, "refs/remotes/origin/") {
+			pushed[strings.TrimPrefix(ref, "refs/remotes/")] = true
+		}
+	}
+	return pushed
+}
+
 // GuestBranchStatus discovers the agent's work branch in the guest and
 // whether it was pushed, with its open pull request, for the exit screen
 // (issue #306). Discovery no longer relies on the workflow marker alone: the
@@ -472,6 +491,24 @@ func (m *MicrosandboxRuntime) GuestBranchStatus(ctx context.Context) (GuestBranc
 		return GuestBranchStatus{}, fmt.Errorf("git for-each-ref refs/remotes/origin: %s", strings.TrimSpace(stderr))
 	}
 	remoteBranches := parseGuestLocalBranches(remotesOut)
+	reflogsOut, stderr, code, err := m.Client.ExecCapture(ctx, m.InstanceName(),
+		prefix+"git reflog --all --format="+shellQuote("%gD%x00%gs"))
+	if err != nil {
+		return GuestBranchStatus{}, err
+	}
+	if code != 0 {
+		return GuestBranchStatus{}, fmt.Errorf("git reflog --all: %s", strings.TrimSpace(stderr))
+	}
+	pushedRemoteRefs := parseGuestPushedRemoteRefs(reflogsOut)
+	sessionRemotes := make([]guestLocalBranch, 0, len(remoteBranches))
+	for _, remote := range remoteBranches {
+		// The generated marker names session-owned work. Any other remote
+		// branch needs push evidence: fetching alone must not attribute
+		// another contributor's branch to this guest session (#306).
+		if remote.name == "origin/"+marker || pushedRemoteRefs[remote.name] {
+			sessionRemotes = append(sessionRemotes, remote)
+		}
+	}
 	// The remote HEAD names the default branch, which is not agent work.
 	// Best-effort: an unborn or detached HEAD just means no exclusion.
 	defaultOut, _, code, err := m.Client.ExecCapture(ctx, m.InstanceName(),
@@ -483,7 +520,7 @@ func (m *MicrosandboxRuntime) GuestBranchStatus(ctx context.Context) (GuestBranc
 	if code == 0 {
 		defaultBranch = strings.TrimPrefix(strings.TrimSpace(defaultOut), "origin/")
 	}
-	branch, pushed := selectGuestWorkBranch(marker, parseGuestLocalBranches(localsOut), remoteBranches, defaultBranch)
+	branch, pushed := selectGuestWorkBranch(marker, parseGuestLocalBranches(localsOut), sessionRemotes, defaultBranch)
 	if branch == "" {
 		return GuestBranchStatus{PRKnown: true}, nil
 	}
