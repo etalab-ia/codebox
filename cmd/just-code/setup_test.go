@@ -190,6 +190,33 @@ func TestPromptSetupModelsReplacesADisconnectedPlatformDefault(t *testing.T) {
 	}
 }
 
+func TestReconcileSetupModelsForProvidersPreservesUnmanagedDefault(t *testing.T) {
+	providers, err := justcode.ResolveProviders([]justcode.ProviderSettings{{Kind: justcode.ProviderMistral}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	selected := []string{"mistral/mistral-large-latest"}
+	models, defaultModel := reconcileSetupModelsForProviders(providers, selected, "anthropic/claude")
+	if defaultModel != "anthropic/claude" {
+		t.Fatalf("an unmanaged default must survive an unchanged setup: default=%q", defaultModel)
+	}
+	if len(models) != 1 || models[0] != selected[0] {
+		t.Fatalf("the managed model selection must stay unchanged: models=%v", models)
+	}
+}
+
+func TestReconcileSetupModelsForProvidersReplacesRemovedManagedDefault(t *testing.T) {
+	providers, err := justcode.ResolveProviders([]justcode.ProviderSettings{{Kind: justcode.ProviderMistral}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	selected := []string{"mistral/mistral-large-latest"}
+	_, defaultModel := reconcileSetupModelsForProviders(providers, selected, "albert/qwen3-coder")
+	if defaultModel != selected[0] {
+		t.Fatalf("a removed managed platform's default must be replaced: default=%q", defaultModel)
+	}
+}
+
 func TestSetupPlatformStageSeedsFromSavedSettings(t *testing.T) {
 	stateDir, _ := setupTestEnv(t)
 	forceNonTTY(t)
@@ -510,6 +537,7 @@ func forceNonTTY(t *testing.T) {
 	t.Helper()
 	orig := stdinIsTTYFn
 	origChoosePlatforms := setupChoosePlatformsFn
+	origResumePlatforms := setupResumePlatformsFn
 	stdinIsTTYFn = func() bool { return false }
 	setupChoosePlatformsFn = func(current []justcode.SetupPlatform, _ *bufio.Reader) ([]justcode.SetupPlatform, error) {
 		if len(current) > 0 {
@@ -517,9 +545,15 @@ func forceNonTTY(t *testing.T) {
 		}
 		return []justcode.SetupPlatform{{Kind: string(justcode.ProviderAlbert)}}, nil
 	}
+	// A journaled resume keeps its selection without consuming input, so the
+	// scripted tests below keep their pre-#305 prompt sequences.
+	setupResumePlatformsFn = func(_ []justcode.SetupPlatform, _ *bufio.Reader, _ string) (bool, error) {
+		return true, nil
+	}
 	t.Cleanup(func() {
 		stdinIsTTYFn = orig
 		setupChoosePlatformsFn = origChoosePlatforms
+		setupResumePlatformsFn = origResumePlatforms
 	})
 }
 
@@ -856,7 +890,7 @@ func TestSetupWizardResumeSkipsIntro(t *testing.T) {
 	if strings.Contains(out, "3 étapes :") {
 		t.Errorf("a resumed run must not re-print the intro screen; output:\n%s", out)
 	}
-	if !strings.Contains(out, "Resuming setup") {
+	if !strings.Contains(out, "Reprise de la configuration là où elle s'était arrêtée") {
 		t.Errorf("resume notice missing; output:\n%s", out)
 	}
 }

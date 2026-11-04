@@ -293,7 +293,7 @@ func setupWizardRun(fallback bool, in *bufio.Reader, validate func(context.Conte
 			return 1, err
 		}
 	} else {
-		fmt.Println("Resuming setup where it stopped (credentials already stored are kept).")
+		fmt.Println("Reprise de la configuration là où elle s'était arrêtée (les clés déjà enregistrées sont conservées).")
 	}
 
 	validateAlbertKey := func(ctx context.Context, key string) error {
@@ -369,14 +369,12 @@ setupStages:
 	} else {
 		model = canonicalSetupModelRef(model)
 	}
-	if len(models) > 0 && !setupModelEnabled(model, models) && providersContain(providers, justcode.ProviderAlbert) {
-		model = setupModelRef(models[0])
-	}
+	models, model = reconcileSetupModelsForProviders(providers, models, model)
 	fmt.Println()
 	if wizardHuhFn() {
 		selected, defaultModel, ok, err := promptSetupModels(providers, models, model)
 		if errors.Is(err, huh.ErrUserAborted) {
-			fmt.Println("Setup cancelled.")
+			fmt.Println("Setup annulé.")
 			recordSetupAbandon(stateDir, "models")
 			return 1, nil
 		}
@@ -388,16 +386,32 @@ setupStages:
 		}
 	} else {
 		fmt.Println("Models (comma-separated references such as albert/Qwen3-Coder-30B-A3B-Instruct or mistral/mistral-large-latest; Enter keeps the current selection):")
-		chosen, answered := promptLine(in, "Models: ")
-		if answered {
+		for {
+			chosen, answered := promptLine(in, "Models: ")
+			if !answered {
+				if len(models) == 0 {
+					return 1, fmt.Errorf("aucun modèle valide pour les plateformes configurées ; relancez 'just-code setup' pour en choisir un")
+				}
+				break
+			}
+			if strings.TrimSpace(chosen) == "" && len(models) == 0 {
+				fmt.Println("Aucun modèle valide n'est actuellement sélectionné. Saisissez au moins un identifiant de modèle.")
+				continue
+			}
 			if strings.TrimSpace(chosen) != "" {
 				models = parseSetupModelIDs(chosen)
 				if len(models) == 0 {
-					return 1, fmt.Errorf("select at least one model")
+					return 1, fmt.Errorf("sélectionnez au moins un modèle")
+				}
+				models, model = reconcileSetupModelsForProviders(providers, models, "")
+				if len(models) == 0 {
+					fmt.Println("Aucun modèle valide n'est actuellement sélectionné. Saisissez au moins un identifiant de modèle.")
+					continue
 				}
 				model = setupModelRefForSelected(models[0])
 			}
 			modelAnswered = true
+			break
 		}
 	}
 	// Validate against the P10 catalogue when it is reachable; an
@@ -552,7 +566,7 @@ setupStages:
 			if errors.Is(err, huh.ErrUserAborted) {
 				// Identity is persisted here, not at final apply: an
 				// abort must cancel setup, not save partial values.
-				fmt.Println("\nSetup cancelled.")
+				fmt.Println("\nSetup annulé.")
 				recordSetupAbandon(stateDir, "identity")
 				return 1, nil
 			}
@@ -762,6 +776,8 @@ var setupCredentialPresentFn = func(ctx context.Context, kind justcode.Credentia
 
 var setupChoosePlatformsFn = chooseSetupPlatforms
 
+var setupResumePlatformsFn = confirmResumePlatforms
+
 // providerSettingsOf converts resolved providers back to the settings form.
 func providerSettingsOf(providers []justcode.InferenceProvider) []justcode.ProviderSettings {
 	out := make([]justcode.ProviderSettings, 0, len(providers))
@@ -812,6 +828,22 @@ func setupPlatformStage(ctx context.Context, w justcode.SetupWizard, in *bufio.R
 			return nil, err
 		}
 		platforms = chosen
+	} else if len(platforms) > 0 {
+		// A resumed run must be able to revisit its platform selection
+		// (#305): an interruption on a platform key must not lock the user
+		// into that platform. Stored keys and the other journaled answers
+		// stay untouched either way.
+		keep, err := setupResumePlatformsFn(platforms, in, stateDir)
+		if err != nil {
+			return nil, err
+		}
+		if !keep {
+			chosen, err := setupChoosePlatformsFn(platforms, in)
+			if err != nil {
+				return nil, err
+			}
+			platforms = chosen
+		}
 	}
 	// The OpenAI-compatible platform cannot be defaulted: collect its name and
 	// base URL before the resolver can validate the set.
@@ -932,7 +964,7 @@ func chooseSetupPlatforms(current []justcode.SetupPlatform, in *bufio.Reader) ([
 		}
 		answer, ok := promptLine(in, "Plateformes (Entrée pour confirmer la sélection affichée) : ")
 		if !ok {
-			return nil, fmt.Errorf("setup cancelled")
+			return nil, errSetupCancelled
 		}
 		answer = strings.TrimSpace(answer)
 		if answer != "" {
@@ -970,7 +1002,7 @@ func chooseSetupPlatforms(current []justcode.SetupPlatform, in *bufio.Reader) ([
 				Value(&selected)),
 		)))
 		if errors.Is(err, huh.ErrUserAborted) {
-			return nil, fmt.Errorf("setup cancelled")
+			return nil, errSetupCancelled
 		}
 		if err != nil {
 			return nil, err
@@ -1004,6 +1036,74 @@ func chooseSetupPlatforms(current []justcode.SetupPlatform, in *bufio.Reader) ([
 	return out, nil
 }
 
+// setupPlatformDisplayName maps a provider kind to the short label used in
+// resume wording. An unknown kind falls back to its raw value so the message
+// stays truthful.
+func setupPlatformDisplayName(kind string) string {
+	switch justcode.ProviderKind(kind) {
+	case justcode.ProviderAlbert:
+		return "Albert API"
+	case justcode.ProviderMistral:
+		return "Mistral AI"
+	case justcode.ProviderOpenAICompatible:
+		return "Compatible OpenAI"
+	default:
+		return kind
+	}
+}
+
+// confirmResumePlatforms asks, on a resumed run, whether to keep the platforms
+// selected before the interruption or to revisit the selection (#305). A piped
+// run keeps the journaled selection without asking: its next input line
+// belongs to the platform key prompts (same rule as the stats consent), so
+// pre-#305 scripts keep working. EOF on the line prompt also keeps the
+// selection; an explicit huh abort cancels the setup.
+func confirmResumePlatforms(platforms []justcode.SetupPlatform, in *bufio.Reader, stateDir string) (bool, error) {
+	if !stdinIsTTYFn() {
+		return true, nil
+	}
+	names := make([]string, 0, len(platforms))
+	for _, p := range platforms {
+		names = append(names, setupPlatformDisplayName(p.Kind))
+	}
+	selection := strings.Join(names, ", ")
+	if !wizardHuhFn() {
+		fmt.Printf("Plateformes sélectionnées avant l'interruption : %s.\n", selection)
+		for {
+			answer, ok := promptLine(in, "[C]ontinuer  [M]odifier : ")
+			if !ok {
+				return true, nil
+			}
+			switch strings.ToLower(strings.TrimSpace(answer)) {
+			case "", "c", "continuer":
+				return true, nil
+			case "m", "modifier":
+				return false, nil
+			default:
+				fmt.Println("Réponse non reconnue.")
+			}
+		}
+	}
+	keep := true
+	err := huhRun(huh.NewForm(huh.NewGroup(
+		huh.NewSelect[bool]().
+			Title("Reprise de la configuration").
+			Description("Plateformes sélectionnées avant l'interruption : "+selection+".").
+			Options(
+				huh.NewOption("Continuer avec ces plateformes", true),
+				huh.NewOption("Modifier la sélection", false),
+			).
+			Value(&keep),
+	)))
+	if errors.Is(err, huh.ErrUserAborted) {
+		return false, cancelledSetupError(stateDir)
+	}
+	if err != nil {
+		return false, err
+	}
+	return keep, nil
+}
+
 // promptProviderEndpoint collects the name and base URL of the
 // OpenAI-compatible platform, which cannot be defaulted.
 func promptProviderEndpoint(in *bufio.Reader, provider justcode.InferenceProvider) (justcode.InferenceProvider, error) {
@@ -1016,21 +1116,21 @@ func promptProviderEndpoint(in *bufio.Reader, provider justcode.InferenceProvide
 				huh.NewInput().Title("URL de base (ex. https://api.scaleway.ai/v1)").Value(&baseURL),
 			))); err != nil {
 				if errors.Is(err, huh.ErrUserAborted) {
-					return provider, fmt.Errorf("setup cancelled")
+					return provider, errSetupCancelled
 				}
 				return provider, err
 			}
 		} else {
 			answer, ok := promptLine(in, "Nom de la plateforme (ex. Scaleway) : ")
 			if !ok {
-				return provider, fmt.Errorf("setup cancelled")
+				return provider, errSetupCancelled
 			}
 			if strings.TrimSpace(answer) != "" {
 				name = strings.TrimSpace(answer)
 			}
 			answer, ok = promptLine(in, "URL de base (ex. https://api.scaleway.ai/v1) : ")
 			if !ok {
-				return provider, fmt.Errorf("setup cancelled")
+				return provider, errSetupCancelled
 			}
 			if strings.TrimSpace(answer) != "" {
 				baseURL = strings.TrimSpace(answer)
@@ -1228,7 +1328,7 @@ func setupStatsConsent(in *bufio.Reader) (enabled bool, answered bool, err error
 			Value(&value),
 	))); ferr != nil {
 		if errors.Is(ferr, huh.ErrUserAborted) {
-			return false, false, fmt.Errorf("setup cancelled")
+			return false, false, errSetupCancelled
 		}
 		return false, false, ferr
 	}
@@ -1404,6 +1504,35 @@ func defaultSetupModel() string {
 		}
 	}
 	return ""
+}
+
+// reconcileSetupModelsForProviders drops selections whose platform was removed
+// and replaces defaults belonging to removed managed platforms. An unmanaged
+// default remains valid outside the managed selection. An empty result requires
+// an explicit model answer; it must never be persisted as an Albert-only
+// configuration alongside non-Albert providers (#305).
+func reconcileSetupModelsForProviders(providers []justcode.InferenceProvider, current []string, currentDefault string) ([]string, string) {
+	models := make([]string, 0, len(current))
+	for _, ref := range current {
+		kind, _ := justcode.ProviderModelID(ref)
+		if providersContain(providers, kind) {
+			models = append(models, ref)
+		}
+	}
+	if len(models) == 0 {
+		return nil, ""
+	}
+	model := canonicalSetupModelRef(currentDefault)
+	if model == "" || (setupModelRefManaged(model) && !setupModelEnabled(model, models)) {
+		model = setupModelRefForSelected(models[0])
+	}
+	return models, model
+}
+
+func setupModelRefManaged(model string) bool {
+	return strings.HasPrefix(model, "albert/") ||
+		strings.HasPrefix(model, "mistral/") ||
+		strings.HasPrefix(model, "openai-compatible/")
 }
 
 func setupModelEnabled(model string, ids []string) bool {
@@ -1847,9 +1976,7 @@ func promptSetupModels(providers []justcode.InferenceProvider, current []string,
 	// A default belonging to a managed platform that is no longer connected
 	// must be replaced: keeping it would save an unusable model. Only a
 	// genuinely unmanaged reference (e.g. a custom provider) is preserved.
-	managedDefault := strings.HasPrefix(defaultModel, "albert/") ||
-		strings.HasPrefix(defaultModel, "mistral/") ||
-		strings.HasPrefix(defaultModel, "openai-compatible/")
+	managedDefault := setupModelRefManaged(defaultModel)
 	externalDefault := defaultModel != "" && !setupModelRefKnown(defaultModel, choices) && !managedDefault
 	if !selected[defaultModel] && !externalDefault {
 		defaultModel = firstSelectedChoiceRef(choices, selected)
@@ -1936,10 +2063,10 @@ func validateModelAgainstCatalogue(model string) string {
 
 // errSetupCancelled marks a user cancellation, so abandonment statistics are
 // only recorded for an explicit quit, never for a fatal error.
-var errSetupCancelled = errors.New("setup cancelled")
+var errSetupCancelled = errors.New("setup annulé")
 
 func cancelledSetupError(stateDir string) error {
-	return fmt.Errorf("%w; run 'just-code setup' to resume from where it stopped (journal: %s)", errSetupCancelled, justcode.SetupJournalPath(stateDir))
+	return fmt.Errorf("%w ; relancez 'just-code setup' pour reprendre là où il s'était arrêté (journal : %s)", errSetupCancelled, justcode.SetupJournalPath(stateDir))
 }
 
 // recordSetupAbandon queues the last stage reached when the user leaves the
