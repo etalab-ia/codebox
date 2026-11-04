@@ -1203,3 +1203,62 @@ func TestRecoveryRefreshSkipsRecoveredRepeatedInsertion(t *testing.T) {
 		t.Fatalf("repeated insertion was duplicated: %q, %v", content, readErr)
 	}
 }
+
+func TestRecoveryRefreshMergesIndependentHostEdits(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("recovery-refresh scenario uses POSIX shell commands")
+	}
+	root := t.TempDir()
+	guest := filepath.Join(root, "guest")
+	host := filepath.Join(root, "host")
+	for _, dir := range []string{guest, host} {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	var builder strings.Builder
+	for i := 0; i < 30; i++ {
+		builder.WriteByte(byte('A' + i))
+		builder.WriteByte('\n')
+	}
+	writeFile(t, guest, "a.txt", builder.String())
+	gitInitForTransfer(t, guest)
+	lines := strings.Split(strings.TrimSuffix(builder.String(), "\n"), "\n")
+	lines[1] = "guest"
+	writeFile(t, guest, "a.txt", strings.Join(lines, "\n")+"\n")
+	runGitTest(t, guest, "add", "a.txt")
+	runGitTest(t, guest, "commit", "-q", "-m", "guest edit")
+	base := strings.TrimSpace(gitTestOutput(t, guest, "rev-parse", "HEAD^"))
+	lines = strings.Split(strings.TrimSuffix(builder.String(), "\n"), "\n")
+	lines[28] = "host"
+	writeFile(t, host, "a.txt", strings.Join(lines, "\n")+"\n")
+	archive := filepath.Join(root, "refresh.tar.gz")
+	if out, err := runShellTest("tar -czf "+shellQuote(archive)+" -C "+shellQuote(host)+" .", root); err != nil {
+		t.Fatalf("build host archive: %v: %s", err, out)
+	}
+
+	out, err := runShellTest(guestRecoveryRefreshScript(guest, archive, base, "T", "t@example.test"), guest)
+	if err != nil {
+		t.Fatalf("independent host and guest edits must merge: %v: %s", err, out)
+	}
+	content, readErr := os.ReadFile(filepath.Join(guest, "a.txt"))
+	if readErr != nil || !strings.Contains(string(content), "guest\n") || !strings.Contains(string(content), "host\n") {
+		t.Fatalf("independent edits were not preserved: %q, %v", content, readErr)
+	}
+	refreshedBase := ""
+	for _, line := range strings.Split(string(out), "\n") {
+		if strings.HasPrefix(line, guestRecoveryBasePrefix) {
+			refreshedBase = strings.TrimSpace(strings.TrimPrefix(line, guestRecoveryBasePrefix))
+		}
+	}
+	if !isCommitSHA(refreshedBase) {
+		t.Fatalf("refresh did not return a comparison base: %s", out)
+	}
+	baseContent := gitTestOutput(t, guest, "show", refreshedBase+":a.txt")
+	if !strings.Contains(baseContent, "host\n") || strings.Contains(baseContent, "guest\n") {
+		t.Fatalf("comparison base must contain only the incoming host edit: %q", baseContent)
+	}
+	if diff := gitTestOutput(t, guest, "diff", refreshedBase, "--", "a.txt"); !strings.Contains(diff, "+guest") {
+		t.Fatalf("guest edit is not visible in the recovery diff: %s", diff)
+	}
+}
