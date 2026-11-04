@@ -269,7 +269,7 @@ func guestRecoveryRefreshScript(workspace, archivePath, base, gitName, gitEmail 
 		// Additive extraction leaves guest content in place when the archive
 		// omits a path. Restore omitted paths to their base state, or remove
 		// additions, so leftover guest content cannot prove its own recovery.
-		"; git diff --name-only --diff-filter=AMT --no-renames -z " + shellQuote(base) + " > " + shellQuote(changedPath) +
+		"; git diff --name-only --diff-filter=ADMT --no-renames -z " + shellQuote(base) + " > " + shellQuote(changedPath) +
 		"; if ! INCOMING=" + shellQuote(incomingPath) + " BASE=" + shellQuote(base) + " xargs -0 -n 50 sh -c 'set -e; for file do if [ ! -e \"$INCOMING/$file\" ] && [ ! -L \"$INCOMING/$file\" ]; then if git cat-file -e \"$BASE:$file\" 2>/dev/null; then git checkout -q \"$BASE\" -- \"$file\"; else rm -f -- \"$file\"; fi; fi; done' sh < " + shellQuote(changedPath) +
 		"; then git reset --hard \"$BACKUP\"; rm -rf " + shellQuote(incomingPath) + "; printf '%s\\n' 'The guest changes could not be compared with the refreshed host snapshot. The pre-refresh state was restored.' >&2; exit 1; fi" +
 		"; rm -f " + shellQuote(changedPath) + " && rm -rf " + shellQuote(incomingPath) +

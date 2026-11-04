@@ -808,3 +808,55 @@ git commit -q -m 'guest-only addition'
 		})
 	}
 }
+
+func TestRecoveryRefreshPreservesExcludedDeletion(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("recovery-refresh scenario uses POSIX shell commands")
+	}
+	root := t.TempDir()
+	guest := filepath.Join(root, "guest")
+	host := filepath.Join(root, "host")
+	payload := filepath.Join(root, "payload")
+	for _, dir := range []string{guest, host, payload} {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if out, err := runShellTest(`
+set -eu
+git init -q
+git config user.name T
+git config user.email t@example.test
+echo one > a.txt
+git add -A
+git commit -q -m base
+git rm -q a.txt
+git commit -q -m 'guest deletion'
+`, guest); err != nil {
+		t.Fatalf("prepare guest history: %v: %s", err, out)
+	}
+	base := strings.TrimSpace(gitTestOutput(t, guest, "rev-parse", "HEAD^"))
+	// The host still has the file, but the transfer filter excludes it from
+	// the archive. Archive absence must not prove the deletion was recovered.
+	writeFile(t, host, "a.txt", "one\n")
+	archive := filepath.Join(root, "refresh.tar.gz")
+	if out, err := runShellTest("tar -czf "+shellQuote(archive)+" -C "+shellQuote(payload)+" .", root); err != nil {
+		t.Fatalf("build host archive: %v: %s", err, out)
+	}
+
+	out, err := runShellTest(guestRecoveryRefreshScript(guest, archive, base, "T", "t@example.test"), guest)
+	if err != nil {
+		t.Fatalf("recovery refresh: %v: %s", err, out)
+	}
+	if strings.Contains(string(out), guestRecoveryAdvanceMarker) {
+		t.Fatalf("an excluded deletion must not advance the recovery base: %s", out)
+	}
+	runGitTest(t, guest, "add", "-A")
+	runGitTest(t, guest, "commit", "-q", "-m", "host snapshot", "--allow-empty")
+	if _, err := os.Stat(filepath.Join(guest, "a.txt")); !os.IsNotExist(err) {
+		t.Fatalf("guest deletion was not preserved: %v", err)
+	}
+	if diff := gitTestOutput(t, guest, "diff", base, "--", "a.txt"); !strings.Contains(diff, "-one") {
+		t.Fatalf("excluded deletion is no longer recoverable: %s", diff)
+	}
+}
