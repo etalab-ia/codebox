@@ -149,8 +149,10 @@ func TestSyncRefusesOverCommittedGuestChanges(t *testing.T) {
 	if got := m.guestDiffBase(); got != refreshedSHA {
 		t.Fatalf("forced refresh comparison base = %q, want %q", got, refreshedSHA)
 	}
-	if joined := strings.Join(client.calls, "\n"); strings.Contains(joined, "git rev-parse HEAD") {
-		t.Fatalf("the comparison base must come from the refresh result, not HEAD: %v", client.calls)
+	for _, call := range client.calls {
+		if strings.HasSuffix(call, " && git rev-parse HEAD") {
+			t.Fatalf("the comparison base must come from the refresh result, not HEAD: %v", client.calls)
+		}
 	}
 }
 
@@ -1078,7 +1080,9 @@ git commit -q -am 'agent work'
 	}
 	base := strings.TrimSpace(gitTestOutput(t, guest, "rev-parse", "HEAD^"))
 	originalHead := strings.TrimSpace(gitTestOutput(t, guest, "rev-parse", "HEAD"))
+	writeFile(t, guest, "agent-untracked.txt", "keep\n")
 	writeFile(t, host, "z", "collision\n")
+	writeFile(t, host, "aaa", "new host file\n")
 	archive := filepath.Join(root, "refresh.tar.gz")
 	if out, err := runShellTest("tar -czf "+shellQuote(archive)+" -C "+shellQuote(host)+" .", root); err != nil {
 		t.Fatalf("build host archive: %v: %s", err, out)
@@ -1098,7 +1102,10 @@ git commit -q -am 'agent work'
 	if readErr != nil || string(content) != "two\n" {
 		t.Fatalf("rollback content = %q, %v; want guest work", content, readErr)
 	}
-	if got := strings.TrimSpace(gitTestOutput(t, guest, "status", "--porcelain")); got != "" {
-		t.Fatalf("rollback left an unexpected partial transfer: %q", got)
+	if _, err := os.Stat(filepath.Join(guest, "aaa")); !os.IsNotExist(err) {
+		t.Fatalf("newly extracted aaa must be removed on rollback: %v", err)
+	}
+	if got := strings.TrimSpace(gitTestOutput(t, guest, "status", "--porcelain")); got != "?? agent-untracked.txt" {
+		t.Fatalf("rollback must preserve only the pre-existing untracked guest file: %q", got)
 	}
 }

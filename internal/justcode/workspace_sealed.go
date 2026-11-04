@@ -271,13 +271,20 @@ const guestRecoveryBaseRef = "refs/just-code/recovery-base"
 func guestRecoveryRefreshScript(workspace, archivePath, base, gitName, gitEmail string) string {
 	changedPath := "/tmp/just-code-refresh-changed"
 	incomingPath := "/tmp/just-code-refresh-incoming"
+	applyProgram := "set -e; for file do" +
+		" patch=$(mktemp /tmp/just-code-refresh-file.XXXXXX)" +
+		"; git diff --no-renames --binary \"$BASE\" \"$BACKUP\" -- \"$file\" > \"$patch\"" +
+		"; if git apply --check \"$patch\"; then git apply \"$patch\"" +
+		"; elif ! git apply --check --reverse \"$patch\"; then rm -f \"$patch\"" +
+		"; printf '%s\\n' " + shellQuote("The refreshed host snapshot conflicts with the guest work. The pre-refresh state was restored.") + " >&2; exit 1; fi" +
+		"; rm -f \"$patch\"; done"
 	return "set -eu; cd " + shellQuote(workspace) +
 		"; ORIGINAL_HEAD=$(git rev-parse HEAD)" +
 		"; git add -A" +
 		"; TREE=$(git write-tree)" +
 		"; BACKUP=$(git -c user.name=" + shellQuote(gitName) + " -c user.email=" + shellQuote(gitEmail) +
 		" commit-tree \"$TREE\" -p HEAD -m " + shellQuote("just-code: pre-refresh recovery backup") + ")" +
-		"; rollback() { git reset --hard \"$BACKUP\" && git reset --mixed \"$ORIGINAL_HEAD\"; }" +
+		"; rollback() { git reset --hard \"$BACKUP\" && git clean -fd && git reset --mixed \"$ORIGINAL_HEAD\"; }" +
 		// Capture guest paths before extraction can overwrite any of them.
 		"; git diff --name-only --diff-filter=ADMT --no-renames -z " + shellQuote(base) + " > " + shellQuote(changedPath) +
 		"; rm -rf " + shellQuote(incomingPath) + "; mkdir " + shellQuote(incomingPath) +
@@ -301,7 +308,7 @@ func guestRecoveryRefreshScript(workspace, archivePath, base, gitName, gitEmail 
 		// Apply each file independently: a host may already contain some, but
 		// not all, of the guest changes. Reverse-applicability identifies the
 		// recovered files; forward-applicability restores the outstanding ones.
-		"; if ! BASE=" + shellQuote(base) + " BACKUP=\"$BACKUP\" xargs -0 -n 50 sh -c 'set -e; for file do patch=$(mktemp /tmp/just-code-refresh-file.XXXXXX); git diff --no-renames --binary \"$BASE\" \"$BACKUP\" -- \"$file\" > \"$patch\"; if git apply --check \"$patch\"; then git apply \"$patch\"; elif ! git apply --check --reverse \"$patch\"; then rm -f \"$patch\"; printf '%s\\n' 'The refreshed host snapshot conflicts with the guest work. The pre-refresh state was restored.' >&2; exit 1; fi; rm -f \"$patch\"; done' sh < " + shellQuote(changedPath) +
+		"; if ! BASE=" + shellQuote(base) + " BACKUP=\"$BACKUP\" xargs -0 -n 50 sh -c " + shellQuote(applyProgram) + " sh < " + shellQuote(changedPath) +
 		"; then rollback; rm -rf " + shellQuote(incomingPath) + "; exit 1; fi" +
 		"; rm -f " + shellQuote(changedPath) + " && rm -rf " + shellQuote(incomingPath) +
 		"; git update-ref " + shellQuote(guestRecoveryBaseRef) + " \"$REFRESH_BASE\"" +
