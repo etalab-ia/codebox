@@ -256,13 +256,23 @@ const guestRecoveryAdvanceMarker = "RECOVERY-BASE-ADVANCE"
 // already contains all recovered work, so the recovery base can advance.
 func guestRecoveryRefreshScript(workspace, archivePath, base, gitName, gitEmail string) string {
 	patchPath := "/tmp/just-code-refresh-recovery.patch"
+	addedPath := "/tmp/just-code-refresh-added"
+	incomingPath := "/tmp/just-code-refresh-incoming"
 	return "set -eu; cd " + shellQuote(workspace) +
 		"; git add -A" +
 		"; TREE=$(git write-tree)" +
 		"; BACKUP=$(git -c user.name=" + shellQuote(gitName) + " -c user.email=" + shellQuote(gitEmail) +
 		" commit-tree \"$TREE\" -p HEAD -m " + shellQuote("just-code: pre-refresh recovery backup") + ")" +
-		"; git diff " + shellQuote(base) + " --binary > " + shellQuote(patchPath) +
+		"; git diff --no-renames --binary " + shellQuote(base) + " > " + shellQuote(patchPath) +
+		"; rm -rf " + shellQuote(incomingPath) + " && mkdir " + shellQuote(incomingPath) + " && tar -xzf " + shellQuote(archivePath) + " -C " + shellQuote(incomingPath) +
 		"; mkdir -p " + shellQuote(workspace) + " && tar -xzf " + shellQuote(archivePath) + " -C " + shellQuote(workspace) + " && rm -f " + shellQuote(archivePath) +
+		// Additive extraction leaves guest-only additions in place. Remove
+		// additions absent from the incoming archive so they cannot make the
+		// reverse check mistake them for work already recovered on the host.
+		"; git diff --name-only --diff-filter=A --no-renames -z " + shellQuote(base) + " > " + shellQuote(addedPath) +
+		"; if ! INCOMING=" + shellQuote(incomingPath) + " xargs -0 -n 50 sh -c 'set -e; for file do if [ ! -e \"$INCOMING/$file\" ] && [ ! -L \"$INCOMING/$file\" ]; then rm -f -- \"$file\"; fi; done' sh < " + shellQuote(addedPath) +
+		"; then git reset --hard \"$BACKUP\"; rm -rf " + shellQuote(incomingPath) + "; printf '%s\\n' 'The guest-only additions could not be compared with the refreshed host snapshot. The pre-refresh state was restored.' >&2; exit 1; fi" +
+		"; rm -f " + shellQuote(addedPath) + " && rm -rf " + shellQuote(incomingPath) +
 		"; if git apply --check " + shellQuote(patchPath) + "; then git apply " + shellQuote(patchPath) +
 		"; elif git apply --check --reverse " + shellQuote(patchPath) + "; then printf '%s\\n' " + guestRecoveryAdvanceMarker +
 		"; else git reset --hard \"$BACKUP\"; printf '%s\\n' 'The refreshed host snapshot conflicts with the guest work. The pre-refresh state was restored.' >&2; exit 1; fi" +

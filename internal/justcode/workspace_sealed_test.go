@@ -737,3 +737,70 @@ git commit -q -am 'agent work'
 		})
 	}
 }
+
+func TestRecoveryRefreshVerifiesGuestOnlyAdditionAgainstHost(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("recovery-refresh scenario uses POSIX shell commands")
+	}
+	for _, tc := range []struct {
+		name            string
+		hostHasAddition bool
+		wantMarker      bool
+	}{
+		{name: "addition missing from host preserves the recovery base"},
+		{name: "addition present in host advances the recovery base", hostHasAddition: true, wantMarker: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			root := t.TempDir()
+			guest := filepath.Join(root, "guest")
+			host := filepath.Join(root, "host")
+			for _, dir := range []string{guest, host} {
+				if err := os.MkdirAll(dir, 0o755); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if out, err := runShellTest(`
+set -eu
+git init -q
+git config user.name T
+git config user.email t@example.test
+echo one > a.txt
+git add -A
+git commit -q -m base
+echo recovered > 'guest only.txt'
+git add -A
+git commit -q -m 'guest-only addition'
+`, guest); err != nil {
+				t.Fatalf("prepare guest history: %v: %s", err, out)
+			}
+			base := strings.TrimSpace(gitTestOutput(t, guest, "rev-parse", "HEAD^"))
+			writeFile(t, host, "a.txt", "one\n")
+			if tc.hostHasAddition {
+				writeFile(t, host, "guest only.txt", "recovered\n")
+			}
+			archive := filepath.Join(root, "refresh.tar.gz")
+			if out, err := runShellTest("tar -czf "+shellQuote(archive)+" -C "+shellQuote(host)+" .", root); err != nil {
+				t.Fatalf("build host archive: %v: %s", err, out)
+			}
+
+			out, err := runShellTest(guestRecoveryRefreshScript(guest, archive, base, "T", "t@example.test"), guest)
+			if err != nil {
+				t.Fatalf("recovery refresh: %v: %s", err, out)
+			}
+			if got := strings.Contains(string(out), guestRecoveryAdvanceMarker); got != tc.wantMarker {
+				t.Fatalf("advance marker = %v, want %v: %s", got, tc.wantMarker, out)
+			}
+			runGitTest(t, guest, "add", "-A")
+			runGitTest(t, guest, "commit", "-q", "-m", "host snapshot", "--allow-empty")
+			content, readErr := os.ReadFile(filepath.Join(guest, "guest only.txt"))
+			if readErr != nil || string(content) != "recovered\n" {
+				t.Fatalf("guest-only content = %q, %v; want recovered", content, readErr)
+			}
+			if !tc.wantMarker {
+				if diff := gitTestOutput(t, guest, "diff", base, "--", "guest only.txt"); !strings.Contains(diff, "recovered") {
+					t.Fatalf("guest-only addition is no longer recoverable: %s", diff)
+				}
+			}
+		})
+	}
+}
