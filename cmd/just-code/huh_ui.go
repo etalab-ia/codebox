@@ -356,12 +356,16 @@ func newInitSkillsGroup(skillOptions []huh.Option[string], skills *[]string, ski
 
 func newProjectMCPsMultiSelect(mcpOptions []huh.Option[string], value *[]string) huh.Field {
 	return keepMultiSelectCursorOnResize(huh.NewMultiSelect[string]().
-		Title("MCPs").
-		Description("Curated remote services and optional guest-local browser tools. " + multiSelectKeyHint).
+		Title(justcode.MCPStepTitle).
+		Description(justcode.MCPStepIntro + " " + multiSelectKeyHint).
 		Height(len(mcpOptions) + 10).
 		Filterable(true).
 		Options(mcpOptions...).
 		Value(value))
+}
+
+func newProjectMCPsGroup(fields []huh.Field) *huh.Group {
+	return huh.NewGroup(fields...).Title("MCP")
 }
 
 // retainedMCPOptions appends non-selectable options for withdrawn MCP ids
@@ -963,7 +967,7 @@ func askInitQuestionsHuh(opts initOptions, answers justcode.InitAnswers) (justco
 		}
 		var mcpGroup *huh.Group
 		if len(mcpFields) > 0 {
-			mcpGroup = huh.NewGroup(mcpFields...).Title("MCPs and storage")
+			mcpGroup = newProjectMCPsGroup(mcpFields)
 		}
 
 		// Groups are omitted structurally rather than via WithHideFunc:

@@ -70,6 +70,11 @@ var DefaultFreshMCPIDs = []string{"data-gouv"}
 // screens, so the value lives here in one place.
 const MCPStepTitle = "[2/3] MCP (facultatif)"
 
+// MCPStepIntro is the one-line explanation printed under the MCP screen
+// title. The line wizard and the huh form both render it (#168 texts, QA
+// #301 bloquant 2), so the two renders cannot diverge again.
+const MCPStepIntro = "Un MCP donne à l'agent l'accès à un service ou à un outil."
+
 // ProbeRemoteMCPFunc probes a remote connector with an MCP initialize
 // handshake. The init wizard uses it for the review screen's reachability
 // line; nil skips the probe (offline runs, tests). It returns nil when the

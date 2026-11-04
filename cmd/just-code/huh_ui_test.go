@@ -69,6 +69,28 @@ func TestInitMultiSelectsAnnounceSelectionKeys(t *testing.T) {
 		[]huh.Option[string]{huh.NewOption(".env", ".env")}, &dotenvValue))
 }
 
+// TestProjectMCPsScreenUsesWizardTexts pins QA #301 bloquant 2: the huh MCP
+// screen must render the #168 French texts, and it must take them from the
+// same constants the line wizard prints, so the two renders cannot diverge
+// again. The group title is asserted too: the old "MCPs and storage" header
+// described a storage question that lives on the skills screen.
+func TestProjectMCPsScreenUsesWizardTexts(t *testing.T) {
+	mcpValue := []string{}
+	field := newProjectMCPsMultiSelect(
+		[]huh.Option[string]{huh.NewOption("data-gouv — données publiques", "data-gouv")}, &mcpValue)
+	content := newProjectMCPsGroup([]huh.Field{field}).Content()
+	for _, want := range []string{justcode.MCPStepTitle, justcode.MCPStepIntro, "data-gouv"} {
+		if !strings.Contains(content, want) {
+			t.Errorf("MCP screen must render %q, got:\n%s", want, content)
+		}
+	}
+	for _, forbidden := range []string{"MCPs and storage", "Curated remote services"} {
+		if strings.Contains(content, forbidden) {
+			t.Errorf("MCP screen must not keep the v0.8 text %q, got:\n%s", forbidden, content)
+		}
+	}
+}
+
 func TestInitSkillsAreTheSixDescribedOfficialEntries(t *testing.T) {
 	catalogue := []justcode.ProjectSkill{
 		{ID: "experimental/presentation-docs", Experimental: true},
