@@ -1166,3 +1166,40 @@ git commit -q -am 'agent work'
 		t.Fatalf("original staged content = %q, want staged guest content", got)
 	}
 }
+
+func TestRecoveryRefreshSkipsRecoveredRepeatedInsertion(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("recovery-refresh scenario uses POSIX shell commands")
+	}
+	root := t.TempDir()
+	guest := filepath.Join(root, "guest")
+	host := filepath.Join(root, "host")
+	for _, dir := range []string{guest, host} {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	writeFile(t, guest, "a.txt", strings.Repeat("same\n", 10))
+	gitInitForTransfer(t, guest)
+	writeFile(t, guest, "a.txt", strings.Repeat("same\n", 11))
+	runGitTest(t, guest, "add", "a.txt")
+	runGitTest(t, guest, "commit", "-q", "-m", "repeated insertion")
+	base := strings.TrimSpace(gitTestOutput(t, guest, "rev-parse", "HEAD^"))
+	writeFile(t, host, "a.txt", strings.Repeat("same\n", 11))
+	archive := filepath.Join(root, "refresh.tar.gz")
+	if out, err := runShellTest("tar -czf "+shellQuote(archive)+" -C "+shellQuote(host)+" .", root); err != nil {
+		t.Fatalf("build host archive: %v: %s", err, out)
+	}
+
+	out, err := runShellTest(guestRecoveryRefreshScript(guest, archive, base, "T", "t@example.test"), guest)
+	if err != nil {
+		t.Fatalf("already recovered insertion must not be reapplied: %v: %s", err, out)
+	}
+	if !strings.Contains(string(out), guestRecoveryAdvanceMarker) {
+		t.Fatalf("recovered insertion must leave no outstanding diff: %s", out)
+	}
+	content, readErr := os.ReadFile(filepath.Join(guest, "a.txt"))
+	if readErr != nil || strings.Count(string(content), "same\n") != 11 {
+		t.Fatalf("repeated insertion was duplicated: %q, %v", content, readErr)
+	}
+}

@@ -271,18 +271,22 @@ const guestRecoveryBaseRef = "refs/just-code/recovery-base"
 func guestRecoveryRefreshScript(workspace, archivePath, base, gitName, gitEmail string) string {
 	changedPath := "/tmp/just-code-refresh-changed"
 	incomingPath := "/tmp/just-code-refresh-incoming"
+	conflictMessage := "The refreshed host snapshot conflicts with the guest work. The pre-refresh state was restored."
 	applyProgram := "set -e; for file do" +
+		" if git diff --quiet \"$BACKUP\" -- \":(literal)$file\"; then :; else" +
 		" patch=$(mktemp /tmp/just-code-refresh-file.XXXXXX)" +
 		"; git diff --no-renames --binary \"$BASE\" \"$BACKUP\" -- \":(literal)$file\" > \"$patch\"" +
-		"; if git apply --check \"$patch\"; then git apply \"$patch\"" +
-		"; elif ! git apply --check --reverse \"$patch\"; then rm -f \"$patch\"" +
-		"; printf '%s\\n' " + shellQuote("The refreshed host snapshot conflicts with the guest work. The pre-refresh state was restored.") + " >&2; exit 1; fi" +
-		"; rm -f \"$patch\"; done"
+		"; if ! git apply --check \"$patch\" || ! git apply \"$patch\"; then rm -f \"$patch\"" +
+		"; printf '%s\\n' " + shellQuote(conflictMessage) + " >&2; exit 1; fi" +
+		"; git add -A -N" +
+		"; if ! git diff --quiet \"$BACKUP\" -- \":(literal)$file\"; then rm -f \"$patch\"" +
+		"; printf '%s\\n' " + shellQuote(conflictMessage) + " >&2; exit 1; fi" +
+		"; rm -f \"$patch\"; fi; done"
 	return "set -eu; cd " + shellQuote(workspace) +
 		"; REAL_INDEX=$(git rev-parse --git-path index)" +
 		"; SAVED_INDEX=$(mktemp /tmp/just-code-original-index.XXXXXX)" +
 		"; cp \"$REAL_INDEX\" \"$SAVED_INDEX\"" +
-		"; restore_index() { if [ -n \"$SAVED_INDEX\" ]; then cp \"$SAVED_INDEX\" \"$REAL_INDEX\"; rm -f \"$SAVED_INDEX\"; SAVED_INDEX=; fi; }" +
+		"; restore_index() { if [ -n \"$SAVED_INDEX\" ]; then cp \"$SAVED_INDEX\" \"$REAL_INDEX\"; git update-index -q --really-refresh || true; rm -f \"$SAVED_INDEX\"; SAVED_INDEX=; fi; }" +
 		"; trap restore_index EXIT HUP INT TERM" +
 		"; ORIGINAL_HEAD=$(git rev-parse HEAD)" +
 		"; git add -A" +
@@ -310,9 +314,10 @@ func guestRecoveryRefreshScript(workspace, archivePath, base, gitName, gitEmail 
 		"; HOST_TREE=$(git write-tree)" +
 		"; REFRESH_BASE=$(git -c user.name=" + shellQuote(gitName) + " -c user.email=" + shellQuote(gitEmail) +
 		" commit-tree \"$HOST_TREE\" -p " + shellQuote(base) + " -m " + shellQuote("just-code: refreshed recovery comparison snapshot") + ")" +
+		"; git add -A -N" +
 		// Apply each file independently: a host may already contain some, but
-		// not all, of the guest changes. Reverse-applicability identifies the
-		// recovered files; forward-applicability restores the outstanding ones.
+		// not all, of the guest changes. Compare against the saved guest tree
+		// before and after applying so recovered content is never duplicated.
 		"; if ! BASE=" + shellQuote(base) + " BACKUP=\"$BACKUP\" xargs -0 -n 50 sh -c " + shellQuote(applyProgram) + " sh < " + shellQuote(changedPath) +
 		"; then rollback; rm -rf " + shellQuote(incomingPath) + "; exit 1; fi" +
 		"; rm -f " + shellQuote(changedPath) + " && rm -rf " + shellQuote(incomingPath) +
