@@ -276,8 +276,7 @@ func guestRecoveryRefreshScript(workspace, archivePath, base, gitName, gitEmail 
 		" if git diff --quiet \"$BACKUP\" -- \":(literal)$file\"; then :; else" +
 		" patch=$(mktemp /tmp/just-code-refresh-file.XXXXXX)" +
 		"; git diff --no-renames --binary \"$BASE\" \"$BACKUP\" -- \":(literal)$file\" > \"$patch\"" +
-		"; if git apply --check --reverse \"$patch\"; then :;" +
-		" elif ! git apply --3way \"$patch\"; then rm -f \"$patch\"" +
+		"; if ! git apply --3way \"$patch\"; then rm -f \"$patch\"" +
 		"; printf '%s\\n' " + shellQuote(conflictMessage) + " >&2; exit 1; fi" +
 		"; rm -f \"$patch\"; fi; done"
 	return "set -eu; cd " + shellQuote(workspace) +
