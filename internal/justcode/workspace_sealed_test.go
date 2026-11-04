@@ -674,14 +674,16 @@ func TestRecoveryRefreshPreservesCommittedWork(t *testing.T) {
 		t.Skip("recovery-refresh scenario uses POSIX shell commands")
 	}
 	for _, tc := range []struct {
-		name        string
-		hostContent string
-		wantMarker  bool
-		wantErr     bool
+		name          string
+		hostContent   string
+		hostOmitsFile bool
+		wantMarker    bool
+		wantErr       bool
 	}{
 		{name: "overwritten committed work is restored", hostContent: "one\n"},
 		{name: "already recovered work advances the baseline", hostContent: "two\n", wantMarker: true},
 		{name: "conflicting host work rolls back intact", hostContent: "three\n", wantErr: true},
+		{name: "modified file missing from host preserves the recovery base", hostOmitsFile: true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			root := t.TempDir()
@@ -706,7 +708,9 @@ git commit -q -am 'agent work'
 				t.Fatalf("prepare guest history: %v: %s", err, out)
 			}
 			base := strings.TrimSpace(gitTestOutput(t, guest, "rev-parse", "HEAD^"))
-			writeFile(t, host, "a.txt", tc.hostContent)
+			if !tc.hostOmitsFile {
+				writeFile(t, host, "a.txt", tc.hostContent)
+			}
 			archive := filepath.Join(root, "refresh.tar.gz")
 			if out, err := runShellTest("tar -czf "+shellQuote(archive)+" -C "+shellQuote(host)+" .", root); err != nil {
 				t.Fatalf("build host archive: %v: %s", err, out)
