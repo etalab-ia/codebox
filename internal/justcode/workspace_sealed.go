@@ -273,12 +273,17 @@ func guestRecoveryRefreshScript(workspace, archivePath, base, gitName, gitEmail 
 	incomingPath := "/tmp/just-code-refresh-incoming"
 	applyProgram := "set -e; for file do" +
 		" patch=$(mktemp /tmp/just-code-refresh-file.XXXXXX)" +
-		"; git diff --no-renames --binary \"$BASE\" \"$BACKUP\" -- \"$file\" > \"$patch\"" +
+		"; git diff --no-renames --binary \"$BASE\" \"$BACKUP\" -- \":(literal)$file\" > \"$patch\"" +
 		"; if git apply --check \"$patch\"; then git apply \"$patch\"" +
 		"; elif ! git apply --check --reverse \"$patch\"; then rm -f \"$patch\"" +
 		"; printf '%s\\n' " + shellQuote("The refreshed host snapshot conflicts with the guest work. The pre-refresh state was restored.") + " >&2; exit 1; fi" +
 		"; rm -f \"$patch\"; done"
 	return "set -eu; cd " + shellQuote(workspace) +
+		"; REAL_INDEX=$(git rev-parse --git-path index)" +
+		"; SAVED_INDEX=$(mktemp /tmp/just-code-original-index.XXXXXX)" +
+		"; cp \"$REAL_INDEX\" \"$SAVED_INDEX\"" +
+		"; restore_index() { if [ -n \"$SAVED_INDEX\" ]; then cp \"$SAVED_INDEX\" \"$REAL_INDEX\"; rm -f \"$SAVED_INDEX\"; SAVED_INDEX=; fi; }" +
+		"; trap restore_index EXIT HUP INT TERM" +
 		"; ORIGINAL_HEAD=$(git rev-parse HEAD)" +
 		"; git add -A" +
 		"; TREE=$(git write-tree)" +
@@ -296,7 +301,7 @@ func guestRecoveryRefreshScript(workspace, archivePath, base, gitName, gitEmail 
 		// Additive extraction leaves guest content in place when the archive
 		// omits a path. Restore omitted paths to their base state, or remove
 		// additions, so leftover guest content cannot prove its own recovery.
-		"; if ! INCOMING=" + shellQuote(incomingPath) + " BASE=" + shellQuote(base) + " xargs -0 -n 50 sh -c 'set -e; for file do if [ ! -e \"$INCOMING/$file\" ] && [ ! -L \"$INCOMING/$file\" ]; then if git cat-file -e \"$BASE:$file\" 2>/dev/null; then git checkout -q \"$BASE\" -- \"$file\"; else rm -f -- \"$file\"; fi; fi; done' sh < " + shellQuote(changedPath) +
+		"; if ! INCOMING=" + shellQuote(incomingPath) + " BASE=" + shellQuote(base) + " xargs -0 -n 50 sh -c 'set -e; for file do if [ ! -e \"$INCOMING/$file\" ] && [ ! -L \"$INCOMING/$file\" ]; then if git cat-file -e \"$BASE:$file\" 2>/dev/null; then git restore --source=\"$BASE\" --worktree -- \":(literal)$file\"; else rm -f -- \"$file\"; fi; fi; done' sh < " + shellQuote(changedPath) +
 		"; then rollback; rm -rf " + shellQuote(incomingPath) + "; printf '%s\\n' 'The guest changes could not be compared with the refreshed host snapshot. The pre-refresh state was restored.' >&2; exit 1; fi" +
 		// The comparison base describes the refreshed host tree before guest
 		// work is reapplied. Later edits to refreshed files therefore remain
