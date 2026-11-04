@@ -29,11 +29,11 @@ func TransferOptInPath(stateDir, instance string) string {
 // SyncOptions tunes a workspace provisioning or refresh.
 type SyncOptions struct {
 	// Force allows a refresh over guest-local uncommitted work, which is
-	// otherwise refused so nothing is overwritten silently. The previous
-	// recovery base is preserved so the overwritten work remains recoverable.
+	// otherwise refused so nothing is overwritten silently. A refreshed
+	// comparison base keeps outstanding guest work recoverable.
 	Force bool
-	// preserveRecoveryBase is set when a forced refresh must not absorb guest
-	// commits into the recovery baseline.
+	// preserveRecoveryBase is set when a forced refresh must keep outstanding
+	// guest work distinguishable from the incoming host snapshot.
 	preserveRecoveryBase bool
 	// OptIn carries the recorded per-file re-inclusions (see
 	// TransferOptInStore).
@@ -220,8 +220,20 @@ func (m *MicrosandboxRuntime) transferIntoGuest(ctx context.Context, opts SyncOp
 		if code != 0 {
 			return fmt.Errorf("refreshing the guest workspace while preserving its changes failed: %s", strings.TrimSpace(stderr))
 		}
-		if strings.Contains(stdout, guestRecoveryAdvanceMarker) {
-			opts.preserveRecoveryBase = false
+		refreshedBase := ""
+		for _, line := range strings.Split(stdout, "\n") {
+			if strings.HasPrefix(line, guestRecoveryBasePrefix) {
+				refreshedBase = strings.TrimSpace(strings.TrimPrefix(line, guestRecoveryBasePrefix))
+			}
+		}
+		if !isCommitSHA(refreshedBase) {
+			return fmt.Errorf("the guest refresh did not return a valid recovery comparison base")
+		}
+		// Store the comparison snapshot before repository initialization: even
+		// when the GitHub publication guard refuses a snapshot commit, the host
+		// transfer has happened and later guest edits need this updated base.
+		if err := m.storeRecoveryBase(refreshedBase); err != nil {
+			return err
 		}
 	} else {
 		script := fmt.Sprintf("mkdir -p %s && tar -xzf %s -C %s && rm -f %s",
@@ -236,9 +248,9 @@ func (m *MicrosandboxRuntime) transferIntoGuest(ctx context.Context, opts SyncOp
 		}
 		return err
 	}
-	// The recovery base advances after a clean transfer or when the incoming
-	// snapshot already contains the recovered work. Otherwise it stays behind
-	// so committed guest work remains visible to export and apply (#313).
+	// Clean first transfers record the repository HEAD. A forced refresh has
+	// already stored its comparison snapshot above, whether or not outstanding
+	// guest work remains (#313).
 	if !opts.preserveRecoveryBase {
 		if err := m.recordRecoveryBase(ctx); err != nil {
 			return err
@@ -249,6 +261,7 @@ func (m *MicrosandboxRuntime) transferIntoGuest(ctx context.Context, opts SyncOp
 }
 
 const guestRecoveryAdvanceMarker = "RECOVERY-BASE-ADVANCE"
+const guestRecoveryBasePrefix = "RECOVERY-BASE="
 
 // guestRecoveryRefreshScript refreshes a guest without losing the diff from
 // its recovery base. The backup commit makes rollback possible even when the
@@ -259,10 +272,12 @@ func guestRecoveryRefreshScript(workspace, archivePath, base, gitName, gitEmail 
 	changedPath := "/tmp/just-code-refresh-changed"
 	incomingPath := "/tmp/just-code-refresh-incoming"
 	return "set -eu; cd " + shellQuote(workspace) +
+		"; ORIGINAL_HEAD=$(git rev-parse HEAD)" +
 		"; git add -A" +
 		"; TREE=$(git write-tree)" +
 		"; BACKUP=$(git -c user.name=" + shellQuote(gitName) + " -c user.email=" + shellQuote(gitEmail) +
 		" commit-tree \"$TREE\" -p HEAD -m " + shellQuote("just-code: pre-refresh recovery backup") + ")" +
+		"; rollback() { git reset --hard \"$BACKUP\" && git reset --mixed \"$ORIGINAL_HEAD\"; }" +
 		"; git diff --no-renames --binary " + shellQuote(base) + " > " + shellQuote(patchPath) +
 		"; rm -rf " + shellQuote(incomingPath) + " && mkdir " + shellQuote(incomingPath) + " && tar -xzf " + shellQuote(archivePath) + " -C " + shellQuote(incomingPath) +
 		"; mkdir -p " + shellQuote(workspace) + " && tar -xzf " + shellQuote(archivePath) + " -C " + shellQuote(workspace) + " && rm -f " + shellQuote(archivePath) +
@@ -271,11 +286,19 @@ func guestRecoveryRefreshScript(workspace, archivePath, base, gitName, gitEmail 
 		// additions, so leftover guest content cannot prove its own recovery.
 		"; git diff --name-only --diff-filter=ADMT --no-renames -z " + shellQuote(base) + " > " + shellQuote(changedPath) +
 		"; if ! INCOMING=" + shellQuote(incomingPath) + " BASE=" + shellQuote(base) + " xargs -0 -n 50 sh -c 'set -e; for file do if [ ! -e \"$INCOMING/$file\" ] && [ ! -L \"$INCOMING/$file\" ]; then if git cat-file -e \"$BASE:$file\" 2>/dev/null; then git checkout -q \"$BASE\" -- \"$file\"; else rm -f -- \"$file\"; fi; fi; done' sh < " + shellQuote(changedPath) +
-		"; then git reset --hard \"$BACKUP\"; rm -rf " + shellQuote(incomingPath) + "; printf '%s\\n' 'The guest changes could not be compared with the refreshed host snapshot. The pre-refresh state was restored.' >&2; exit 1; fi" +
+		"; then rollback; rm -rf " + shellQuote(incomingPath) + "; printf '%s\\n' 'The guest changes could not be compared with the refreshed host snapshot. The pre-refresh state was restored.' >&2; exit 1; fi" +
+		// The comparison base describes the refreshed host tree before guest
+		// work is reapplied. Later edits to refreshed files therefore remain
+		// visible while outstanding guest work stays distinguishable.
+		"; git add -A" +
+		"; HOST_TREE=$(git write-tree)" +
+		"; REFRESH_BASE=$(git -c user.name=" + shellQuote(gitName) + " -c user.email=" + shellQuote(gitEmail) +
+		" commit-tree \"$HOST_TREE\" -p " + shellQuote(base) + " -m " + shellQuote("just-code: refreshed recovery comparison snapshot") + ")" +
 		"; rm -f " + shellQuote(changedPath) + " && rm -rf " + shellQuote(incomingPath) +
 		"; if git apply --check " + shellQuote(patchPath) + "; then git apply " + shellQuote(patchPath) +
 		"; elif git apply --check --reverse " + shellQuote(patchPath) + "; then printf '%s\\n' " + guestRecoveryAdvanceMarker +
-		"; else git reset --hard \"$BACKUP\"; printf '%s\\n' 'The refreshed host snapshot conflicts with the guest work. The pre-refresh state was restored.' >&2; exit 1; fi" +
+		"; else rollback; printf '%s\\n' 'The refreshed host snapshot conflicts with the guest work. The pre-refresh state was restored.' >&2; exit 1; fi" +
+		"; printf '%s%s\\n' " + shellQuote(guestRecoveryBasePrefix) + " \"$REFRESH_BASE\"" +
 		"; rm -f " + shellQuote(patchPath)
 }
 
@@ -311,6 +334,14 @@ func (m *MicrosandboxRuntime) recordRecoveryBase(ctx context.Context) error {
 	sha := strings.TrimSpace(head)
 	if !isCommitSHA(sha) {
 		return fmt.Errorf("recording the guest recovery base: unexpected HEAD %q", sha)
+	}
+	return m.storeRecoveryBase(sha)
+}
+
+// storeRecoveryBase persists a validated guest commit as the comparison base.
+func (m *MicrosandboxRuntime) storeRecoveryBase(sha string) error {
+	if !isCommitSHA(sha) {
+		return fmt.Errorf("recording the guest recovery base: unexpected commit %q", sha)
 	}
 	path := recoveryBasePath(m.stateDirOrDefault(), m.InstanceName())
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {

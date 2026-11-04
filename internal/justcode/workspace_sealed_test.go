@@ -99,7 +99,7 @@ func TestSyncRefusesOverGuestChanges(t *testing.T) {
 
 	// With Force, the refresh proceeds and the payload is written.
 	client.execCaptureResults = nil
-	client.execCaptureDefault = &fakeMSBExecCaptureResult{stdout: testRecoveryBaseSHA}
+	client.execCaptureDefault = &fakeMSBExecCaptureResult{stdout: guestRecoveryBasePrefix + testRecoveryBaseSHA}
 	if err := m.SyncGuestWorkspace(context.Background(), SyncOptions{Force: true, Print: func(string) {}}); err != nil {
 		t.Fatalf("forced refresh: %v", err)
 	}
@@ -109,8 +109,8 @@ func TestSyncRefusesOverGuestChanges(t *testing.T) {
 }
 
 // TestSyncRefusesOverCommittedGuestChanges covers a clean working tree with
-// committed guest work: refresh refuses by default, and Force preserves the
-// previous recovery base instead of absorbing those commits (#313).
+// committed guest work: refresh refuses by default, and Force records a new
+// comparison base without absorbing those commits into the guest HEAD (#313).
 func TestSyncRefusesOverCommittedGuestChanges(t *testing.T) {
 	client := &fakeMSBClient{exists: true,
 		execCaptureResults: []fakeMSBExecCaptureResult{
@@ -132,12 +132,13 @@ func TestSyncRefusesOverCommittedGuestChanges(t *testing.T) {
 		t.Fatal("a refused refresh must not write anything")
 	}
 
+	refreshedSHA := "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
 	client.execCaptureResults = []fakeMSBExecCaptureResult{
 		{stdout: "yes"},
 		{stdout: ""},
 		{code: 1},
 	}
-	client.execCaptureDefault = &fakeMSBExecCaptureResult{stdout: testRecoveryBaseSHA}
+	client.execCaptureDefault = &fakeMSBExecCaptureResult{stdout: guestRecoveryBasePrefix + refreshedSHA}
 	client.calls = nil
 	if err := m.SyncGuestWorkspace(context.Background(), SyncOptions{Force: true, Print: func(string) {}}); err != nil {
 		t.Fatalf("forced refresh: %v", err)
@@ -145,11 +146,11 @@ func TestSyncRefusesOverCommittedGuestChanges(t *testing.T) {
 	if len(client.written) != 1 {
 		t.Fatalf("the forced refresh must write one payload, got %d", len(client.written))
 	}
-	if got := m.guestDiffBase(); got != testRecoveryBaseSHA {
-		t.Fatalf("forced refresh advanced the recovery base to %q", got)
+	if got := m.guestDiffBase(); got != refreshedSHA {
+		t.Fatalf("forced refresh comparison base = %q, want %q", got, refreshedSHA)
 	}
 	if joined := strings.Join(client.calls, "\n"); strings.Contains(joined, "git rev-parse HEAD") {
-		t.Fatalf("a base-preserving refresh must not record a new HEAD: %v", client.calls)
+		t.Fatalf("the comparison base must come from the refresh result, not HEAD: %v", client.calls)
 	}
 }
 
@@ -160,8 +161,7 @@ func TestSyncRecoveredGuestAdvancesRecoveryBase(t *testing.T) {
 			{stdout: "yes"},
 			{stdout: ""},
 			{code: 1},
-			{stdout: guestRecoveryAdvanceMarker},
-			{stdout: testRecoveryBaseSHA},
+			{stdout: guestRecoveryAdvanceMarker + "\n" + guestRecoveryBasePrefix + testRecoveryBaseSHA},
 		},
 		execCaptureDefault: &fakeMSBExecCaptureResult{stdout: ""},
 	}
@@ -858,5 +858,122 @@ git commit -q -m 'guest deletion'
 	}
 	if diff := gitTestOutput(t, guest, "diff", base, "--", "a.txt"); !strings.Contains(diff, "-one") {
 		t.Fatalf("excluded deletion is no longer recoverable: %s", diff)
+	}
+}
+
+func TestRecoveryRefreshBuildsUpdatedComparisonBase(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("recovery-refresh scenario uses POSIX shell commands")
+	}
+	root := t.TempDir()
+	guest := filepath.Join(root, "guest")
+	host := filepath.Join(root, "host")
+	for _, dir := range []string{guest, host} {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if out, err := runShellTest(`
+set -eu
+git init -q
+git config user.name T
+git config user.email t@example.test
+echo one > a.txt
+echo one > b.txt
+git add -A
+git commit -q -m base
+echo two > a.txt
+git commit -q -am 'agent work'
+`, guest); err != nil {
+		t.Fatalf("prepare guest history: %v: %s", err, out)
+	}
+	base := strings.TrimSpace(gitTestOutput(t, guest, "rev-parse", "HEAD^"))
+	writeFile(t, host, "a.txt", "one\n")
+	writeFile(t, host, "b.txt", "two\n")
+	archive := filepath.Join(root, "refresh.tar.gz")
+	if out, err := runShellTest("tar -czf "+shellQuote(archive)+" -C "+shellQuote(host)+" .", root); err != nil {
+		t.Fatalf("build host archive: %v: %s", err, out)
+	}
+
+	out, err := runShellTest(guestRecoveryRefreshScript(guest, archive, base, "T", "t@example.test"), guest)
+	if err != nil {
+		t.Fatalf("recovery refresh: %v: %s", err, out)
+	}
+	refreshedBase := ""
+	for _, line := range strings.Split(string(out), "\n") {
+		if strings.HasPrefix(line, guestRecoveryBasePrefix) {
+			refreshedBase = strings.TrimSpace(strings.TrimPrefix(line, guestRecoveryBasePrefix))
+		}
+	}
+	if !isCommitSHA(refreshedBase) {
+		t.Fatalf("refresh did not return a comparison base: %s", out)
+	}
+	if got := gitTestOutput(t, guest, "show", refreshedBase+":a.txt"); got != "one\n" {
+		t.Fatalf("comparison a.txt = %q, want the host version", got)
+	}
+	if got := gitTestOutput(t, guest, "show", refreshedBase+":b.txt"); got != "two\n" {
+		t.Fatalf("comparison b.txt = %q, want the refreshed host version", got)
+	}
+	runGitTest(t, guest, "add", "-A")
+	runGitTest(t, guest, "commit", "-q", "-m", "host snapshot", "--allow-empty")
+	if got := strings.TrimSpace(gitTestOutput(t, guest, "diff", "--name-only", refreshedBase)); got != "a.txt" {
+		t.Fatalf("outstanding work = %q, want only a.txt", got)
+	}
+	writeFile(t, guest, "b.txt", "one\n")
+	runGitTest(t, guest, "commit", "-q", "-am", "later edit to refreshed file")
+	if got := strings.TrimSpace(gitTestOutput(t, guest, "diff", "--name-only", refreshedBase, "--", "b.txt")); got != "b.txt" {
+		t.Fatalf("later edit to refreshed b.txt is invisible: %q", got)
+	}
+}
+
+func TestRecoveryRefreshRollbackRestoresOriginalHead(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("recovery-refresh scenario uses POSIX shell commands")
+	}
+	root := t.TempDir()
+	guest := filepath.Join(root, "guest")
+	host := filepath.Join(root, "host")
+	for _, dir := range []string{guest, host} {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if out, err := runShellTest(`
+set -eu
+git init -q
+git config user.name T
+git config user.email t@example.test
+echo one > a.txt
+git add -A
+git commit -q -m base
+echo two > a.txt
+git commit -q -am 'agent work'
+`, guest); err != nil {
+		t.Fatalf("prepare guest history: %v: %s", err, out)
+	}
+	base := strings.TrimSpace(gitTestOutput(t, guest, "rev-parse", "HEAD^"))
+	originalHead := strings.TrimSpace(gitTestOutput(t, guest, "rev-parse", "HEAD"))
+	writeFile(t, guest, "a.txt", "two\nuncommitted\n")
+	runGitTest(t, guest, "config", "--local", "just-code.github-workflow-branch", "just-code/test")
+	writeFile(t, host, "a.txt", "three\n")
+	archive := filepath.Join(root, "refresh.tar.gz")
+	if out, err := runShellTest("tar -czf "+shellQuote(archive)+" -C "+shellQuote(host)+" .", root); err != nil {
+		t.Fatalf("build host archive: %v: %s", err, out)
+	}
+
+	out, err := runShellTest(guestRecoveryRefreshScript(guest, archive, base, "T", "t@example.test"), guest)
+	if err == nil || !strings.Contains(string(out), "pre-refresh state was restored") {
+		t.Fatalf("conflicting refresh must fail after restoring the backup: %v: %s", err, out)
+	}
+	if got := strings.TrimSpace(gitTestOutput(t, guest, "rev-parse", "HEAD")); got != originalHead {
+		t.Fatalf("rollback HEAD = %s, want original %s", got, originalHead)
+	}
+	content, readErr := os.ReadFile(filepath.Join(guest, "a.txt"))
+	if readErr != nil || string(content) != "two\nuncommitted\n" {
+		t.Fatalf("rollback content = %q, %v; want committed and uncommitted work", content, readErr)
+	}
+	runGitTest(t, guest, "diff", "--cached", "--quiet")
+	if diff := gitTestOutput(t, guest, "diff", "HEAD", "--", "a.txt"); !strings.Contains(diff, "+uncommitted") {
+		t.Fatalf("uncommitted work is no longer visible after rollback: %s", diff)
 	}
 }
