@@ -14,6 +14,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/huh/v2"
 	lipgloss "charm.land/lipgloss/v2"
+	"github.com/charmbracelet/x/ansi"
 	"github.com/etalab-ia/just-code/internal/justcode"
 )
 
@@ -156,11 +157,176 @@ func TestInitHuhWizardDefaultsSecuritySkillForNewProject(t *testing.T) {
 	}
 }
 
-// Regression test for the zero-skills retry loop: the MCP and storage
-// choices submitted in the same pass as an empty skill selection must be
-// committed before the user declines the confirmation, because the next
-// form pass reseeds from answers and would otherwise reset them.
-func TestCommitInitHuhSubmissionKeepsSiblingChoicesForEmptySkillsRetry(t *testing.T) {
+// initEmptySkillsSequence runs askInitQuestionsHuh with an explicitly empty
+// skill selection and records the form/confirmation sequence (#307). The
+// scripted confirmation answers are returned in order.
+func initEmptySkillsSequence(t *testing.T, mcpsFlag bool, skills []string, confirms []bool) ([]string, justcode.InitAnswers) {
+	t.Helper()
+	root := initTestProject(t)
+	originalCatalogue, originalHuhRun, originalConfirm := projectSkillCatalogueFn, huhRun, initEmptySkillsConfirmFn
+	projectSkillCatalogueFn = func(context.Context) ([]justcode.ProjectSkill, error) {
+		return initSkillFixtureCatalogue(), nil
+	}
+	var events []string
+	huhRun = func(*huh.Form) error {
+		events = append(events, "form")
+		return nil
+	}
+	remaining := append([]bool(nil), confirms...)
+	initEmptySkillsConfirmFn = func() (bool, error) {
+		events = append(events, "confirm")
+		if len(remaining) == 0 {
+			t.Fatal("the zero-skills confirmation ran more often than scripted")
+		}
+		answer := remaining[0]
+		remaining = remaining[1:]
+		return answer, nil
+	}
+	t.Cleanup(func() {
+		projectSkillCatalogueFn, huhRun, initEmptySkillsConfirmFn = originalCatalogue, originalHuhRun, originalConfirm
+	})
+	set := map[string]bool{"root": true, "github": true, "skills-storage": true}
+	if mcpsFlag {
+		set["mcps"] = true
+	}
+	opts := initOptions{Set: set, hostCPUs: 8, hostMemoryMB: 16384, maxCPUs: 8, maxMemoryMB: 8192}
+	got, err := askInitQuestionsHuh(opts, justcode.InitAnswers{
+		Root: root, SkillsSet: true, Skills: skills,
+		MCPsSet: true, MCPConnectors: []string{"github"},
+	})
+	if err != nil {
+		t.Fatalf("askInitQuestionsHuh: %v", err)
+	}
+	if len(remaining) != 0 {
+		t.Fatalf("only %d of %d scripted confirmations ran (events: %v)", len(confirms)-len(remaining), len(confirms), events)
+	}
+	return events, got
+}
+
+// TestInitHuhEmptySkillsConfirmsBeforeMCP: leaving an empty skills selection
+// triggers exactly ONE confirmation, BEFORE the MCP form (#307), and
+// accepting keeps zero skills through the recap.
+func TestInitHuhEmptySkillsConfirmsBeforeMCP(t *testing.T) {
+	events, got := initEmptySkillsSequence(t, false, nil, []bool{true})
+	if !equalStringSlices(events, []string{"form", "confirm", "form"}) {
+		t.Fatalf("sequence = %v, want skills form, confirmation, MCP form", events)
+	}
+	if !got.SkillsSet || len(got.Skills) != 0 {
+		t.Fatalf("an accepted empty selection must stay explicitly empty: %+v", got)
+	}
+	if !equalStringSlices(got.MCPConnectors, []string{"github"}) {
+		t.Fatalf("MCP answers lost: %+v", got)
+	}
+}
+
+// TestInitHuhEmptySkillsConfirmWithoutMCPStep: the same single confirmation
+// when no MCP step runs (flag-provided MCPs).
+func TestInitHuhEmptySkillsConfirmWithoutMCPStep(t *testing.T) {
+	events, got := initEmptySkillsSequence(t, true, nil, []bool{true})
+	if !equalStringSlices(events, []string{"form", "confirm"}) {
+		t.Fatalf("sequence = %v, want skills form then confirmation only", events)
+	}
+	if !got.SkillsSet || len(got.Skills) != 0 {
+		t.Fatalf("an accepted empty selection must stay explicitly empty: %+v", got)
+	}
+}
+
+// TestInitHuhEmptySkillsDeclineReopensEmptySelection: declining returns to
+// the skills form with the selection still EMPTY (the default is not
+// restored), and each transition asks exactly once.
+func TestInitHuhEmptySkillsDeclineReopensEmptySelection(t *testing.T) {
+	events, got := initEmptySkillsSequence(t, false, nil, []bool{false, true})
+	want := []string{"form", "confirm", "form", "confirm", "form"}
+	if !equalStringSlices(events, want) {
+		t.Fatalf("sequence = %v, want %v", events, want)
+	}
+	if len(got.Skills) != 0 {
+		t.Fatalf("a declined retry must not restore the default skill: %+v", got)
+	}
+}
+
+// TestInitHuhNonEmptySkillsAskNoConfirmation: a non-empty selection never
+// triggers the confirmation.
+func TestInitHuhNonEmptySkillsAskNoConfirmation(t *testing.T) {
+	events, got := initEmptySkillsSequence(t, false, []string{"official/rgaa"}, nil)
+	if !equalStringSlices(events, []string{"form", "form"}) {
+		t.Fatalf("sequence = %v, want skills form then MCP form, no confirmation", events)
+	}
+	if !equalStringSlices(got.Skills, []string{"official/rgaa"}) {
+		t.Fatalf("skills = %+v, want the submitted selection", got)
+	}
+}
+
+// TestInitHuhEmptySkillsAcceptedOnceAcrossMCPRetry drives the real Huh
+// selections: clear skills once, clear and decline MCP, then clear and accept
+// it on retry. The accepted zero-skills decision must not be asked again (#307).
+func TestInitHuhEmptySkillsAcceptedOnceAcrossMCPRetry(t *testing.T) {
+	root := initTestProject(t)
+	originalCatalogue, originalHuhRun, originalConfirm := projectSkillCatalogueFn, huhRun, initEmptySkillsConfirmFn
+	projectSkillCatalogueFn = func(context.Context) ([]justcode.ProjectSkill, error) {
+		return initSkillFixtureCatalogue(), nil
+	}
+	var events []string
+	skillsCleared := false
+	mcpConfirmations := 0
+	huhRun = func(form *huh.Form) error {
+		form.Init()
+		_, _ = form.Update(tea.WindowSizeMsg{Width: 100, Height: 24})
+		view := ansi.Strip(form.View())
+		switch {
+		case strings.Contains(view, "Aucun MCP sélectionné"):
+			mcpConfirmations++
+			if mcpConfirmations == 1 {
+				events = append(events, "mcp-decline")
+				return nil // the confirmation's default is to return to the MCP form
+			}
+			events = append(events, "mcp-accept")
+			_, _ = form.Update(tea.KeyPressMsg(tea.Key{Code: 'y', Text: "y"}))
+		case strings.Contains(view, justcode.MCPStepTitle):
+			events = append(events, "mcp-clear")
+			_, _ = form.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeySpace, Text: " "}))
+		case strings.Contains(view, "Une skill apporte"):
+			events = append(events, "skills")
+			if !skillsCleared {
+				_, _ = form.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeySpace, Text: " "}))
+				skillsCleared = true
+			}
+		default:
+			t.Fatalf("unexpected form:\n%s", view)
+		}
+		return nil
+	}
+	initEmptySkillsConfirmFn = func() (bool, error) {
+		events = append(events, "skills-confirm")
+		return true, nil
+	}
+	t.Cleanup(func() {
+		projectSkillCatalogueFn, huhRun, initEmptySkillsConfirmFn = originalCatalogue, originalHuhRun, originalConfirm
+	})
+	opts := initOptions{Set: map[string]bool{"root": true, "github": true, "skills-storage": true},
+		hostCPUs: 8, hostMemoryMB: 16384, maxCPUs: 8, maxMemoryMB: 8192}
+	got, err := askInitQuestionsHuh(opts, justcode.InitAnswers{
+		Root: root, SkillsSet: true, Skills: []string{"official/securite-developpement"},
+		MCPsSet: true, MCPConnectors: []string{"data-gouv"},
+	})
+	if err != nil {
+		t.Fatalf("askInitQuestionsHuh: %v", err)
+	}
+	wantEvents := []string{"skills", "skills-confirm", "mcp-clear", "mcp-decline", "skills", "mcp-clear", "mcp-accept"}
+	if !equalStringSlices(events, wantEvents) {
+		t.Fatalf("events = %v, want %v", events, wantEvents)
+	}
+	if len(got.Skills) != 0 || len(got.MCPConnectors) != 0 {
+		t.Fatalf("confirmed empty selections were not preserved: %+v", got)
+	}
+}
+
+// Regression test for the zero-skills retry loop (#307): the skills and
+// storage choices are committed when the user leaves the skills selection,
+// BEFORE the empty-selection confirmation, because the next form pass
+// reseeds from answers and would otherwise reset them. The MCP choice is
+// committed at its own later step and survives just the same.
+func TestCommitInitHuhSkillsKeepsSiblingChoicesForEmptySkillsRetry(t *testing.T) {
 	options := initSkillOptions(initSkillFixtureCatalogue())
 	answers := justcode.InitAnswers{
 		Skills:          []string{"official/rgaa"},
@@ -168,38 +334,32 @@ func TestCommitInitHuhSubmissionKeepsSiblingChoicesForEmptySkillsRetry(t *testin
 		SkillsLocalOnly: false,
 	}
 	opts := initOptions{Set: map[string]bool{}}
-	needsSkillsConfirm, retryMCPs, err := commitInitHuhSubmission(opts, &answers, nil, []string{"github", "browser"}, true, options, false)
+	if !commitInitHuhSkills(opts, &answers, nil, true, options, false) {
+		t.Fatal("an empty skills submission must request the zero-skills confirmation")
+	}
+	if !answers.SkillsSet || len(answers.Skills) != 0 {
+		t.Fatalf("empty submission = %+v", answers)
+	}
+	if !answers.SkillsLocalOnlySet || !answers.SkillsLocalOnly {
+		t.Fatalf("sibling storage choice lost before the retry: %+v", answers)
+	}
+	retryMCPs, err := commitInitHuhMCPs(opts, &answers, []string{"github", "browser"})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if retryMCPs {
 		t.Fatal("a non-empty MCP submission must not reopen the form")
 	}
-	if !needsSkillsConfirm {
-		t.Fatal("an empty skills submission must request the zero-skills confirmation")
-	}
-	if !answers.SkillsSet || len(answers.Skills) != 0 {
-		t.Fatalf("empty submission = %+v", answers)
-	}
 	if !answers.MCPsSet || !equalStringSlices(answers.MCPConnectors, []string{"github", "browser"}) {
 		t.Fatalf("sibling MCP choice lost before the retry: %+v", answers)
 	}
-	if !answers.SkillsLocalOnlySet || !answers.SkillsLocalOnly {
-		t.Fatalf("sibling storage choice lost before the retry: %+v", answers)
-	}
 }
 
-func TestCommitInitHuhSubmissionRecordsRetainedSkills(t *testing.T) {
+func TestCommitInitHuhSkillsRecordsRetainedSkills(t *testing.T) {
 	options := initSkillOptions(initSkillFixtureCatalogue())
 	answers := justcode.InitAnswers{Skills: []string{"official/rgaa", "official/ancienne"}}
-	// The MCP answer is flag-provided so the zero-MCP confirmation cannot
-	// run: this test pins the skills write-back, not the MCP gate.
 	opts := initOptions{Set: map[string]bool{"mcps": true}}
-	needsSkillsConfirm, retryMCPs, err := commitInitHuhSubmission(opts, &answers, []string{"official/rgaa", "official/ancienne"}, nil, false, options, false)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if needsSkillsConfirm || retryMCPs {
+	if commitInitHuhSkills(opts, &answers, []string{"official/rgaa", "official/ancienne"}, false, options, false) {
 		t.Fatal("a non-empty skills submission must not request any confirmation")
 	}
 	if answers.SkillsSet {
@@ -211,38 +371,30 @@ func TestCommitInitHuhSubmissionRecordsRetainedSkills(t *testing.T) {
 }
 
 // Declining the zero-MCP confirmation must reopen the form without writing
-// the empty MCP selection back and without committing the storage choice
-// submitted in the same pass: the next pass reseeds from answers, like the
+// the empty MCP selection back: the next pass reseeds from answers, like the
 // line wizard.
-func TestCommitInitHuhSubmissionDeclinedMCPConfirmationKeepsPreviousSelection(t *testing.T) {
+func TestCommitInitHuhMCPsDeclinedConfirmationKeepsPreviousSelection(t *testing.T) {
 	originalHuhRun := huhRun
 	// confirmNoMCPsHuh binds a false keep value, so a no-op stub declines.
 	huhRun = func(*huh.Form) error { return nil }
 	t.Cleanup(func() { huhRun = originalHuhRun })
-	options := initSkillOptions(initSkillFixtureCatalogue())
 	answers := justcode.InitAnswers{
 		Skills:        []string{"official/rgaa"},
 		MCPConnectors: []string{"github"},
 	}
 	opts := initOptions{Set: map[string]bool{}}
-	needsSkillsConfirm, retryMCPs, err := commitInitHuhSubmission(opts, &answers, []string{"official/rgaa"}, nil, true, options, false)
+	retryMCPs, err := commitInitHuhMCPs(opts, &answers, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !retryMCPs {
 		t.Fatal("declining the zero-MCP confirmation must reopen the form")
 	}
-	if needsSkillsConfirm {
-		t.Fatal("a non-empty skills submission must not request the zero-skills confirmation")
-	}
 	if !equalStringSlices(answers.MCPConnectors, []string{"github"}) {
 		t.Fatalf("declining must keep the previous MCP selection: %+v", answers)
 	}
 	if answers.MCPsSet {
 		t.Fatalf("declining must not mark the MCP selection explicit: %+v", answers)
-	}
-	if answers.SkillsLocalOnlySet || answers.SkillsLocalOnly {
-		t.Fatalf("declining must not commit the storage choice: %+v", answers)
 	}
 }
 
