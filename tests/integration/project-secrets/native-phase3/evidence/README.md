@@ -69,14 +69,14 @@ The transcripts themselves record no package versions, only
 set comes from the guest manifests at the recorded commit `973ba24` (the
 `source=` field points at `f483a80`, where these paths did not yet exist):
 **Node dotenv 16.4.7 + dotenv-expand 12.0.2** and **python-dotenv 1.2.2**. The
-manifests under `guest/` have since moved to **16.6.1 / 12.0.3 / 1.2.4**
-(issue #246), and the
+manifests under `guest/` have since moved to **16.6.1 / 13.0.0 / 1.2.4**
+(issues #246 and #324), and the
 guest installs its packages from those manifests at run time. A fresh run
 therefore exercises a different loader set than the one recorded here, so this
-evidence should not be cited as covering the current pins. The bump is
-patch/minor within each package and the host-side loader suites re-measure the
-same encoding and substitution properties on the new set, but the native
-qualification itself needs one more macOS arm64 run to be restated. Treat
+evidence should not be cited as covering the current pins. The host-side loader
+suites re-measure the same encoding and substitution properties on the new set,
+but the native qualification itself needs one more macOS arm64 run to be
+restated. Treat
 `main_test.go`'s `TestGuestFixtureDependencyPins` as the authority on which
 pins the kit currently carries, and `git show 973ba24:` on the two guest
 manifests as the authority on what this evidence covers.
