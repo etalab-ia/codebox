@@ -211,7 +211,7 @@ func TestLaunchTimingPersistence(t *testing.T) {
 
 func TestLaunchTimingFingerprintIncludesImageDigest(t *testing.T) {
 	key := func(image string) string {
-		return LaunchTimingKey(image, "1.18.32", IsolationFull, 2, 4096, "linux", "arm64")
+		return LaunchTimingKey(image, OpenCodeVersion, IsolationFull, 2, 4096, "linux", "arm64")
 	}
 	if key("debian@sha256:a") == key("debian@sha256:b") {
 		t.Fatal("new images must not inherit old timing samples")

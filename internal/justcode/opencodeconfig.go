@@ -7,6 +7,9 @@ import (
 	"strings"
 )
 
+// OpenCodeVersion is the managed v2 CLI release (npm package @opencode/cli).
+const OpenCodeVersion = "2.2.5"
+
 // This file implements the P10 OpenCode configuration composer. Per
 // docs/decisions/2026-09-23-opencode-configuration-contract.md (D-001):
 //
@@ -147,12 +150,12 @@ func ComposeConfigContent(o ManagedOverlay) (string, error) {
 	// no Albert models, the platform is not connected: leaving the base entry
 	// would advertise models whose key is not bound in the guest.
 	if !o.AlbertEnabled && len(o.Providers) > 0 {
-		if provider, ok := base["provider"].(map[string]any); ok {
+		if provider, ok := base["providers"].(map[string]any); ok {
 			delete(provider, "albert")
 		}
 	}
 	if len(o.Models) > 0 {
-		provider, _ := base["provider"].(map[string]any)
+		provider, _ := base["providers"].(map[string]any)
 		albert, _ := provider["albert"].(map[string]any)
 		if albert != nil {
 			albert["models"] = map[string]any{}
@@ -230,10 +233,10 @@ func renderOverlayJSON(o ManagedOverlay) (string, error) {
 			}
 			models[model.ID] = definition
 		}
-		fields["provider"] = map[string]any{"albert": map[string]any{"models": models}}
+		fields["providers"] = map[string]any{"albert": map[string]any{"models": models}}
 	}
 	if len(o.Providers) > 0 {
-		providers, _ := fields["provider"].(map[string]any)
+		providers, _ := fields["providers"].(map[string]any)
 		if providers == nil {
 			providers = map[string]any{}
 		}
@@ -270,9 +273,9 @@ func renderOverlayJSON(o ManagedOverlay) (string, error) {
 				continue
 			}
 			providers[provider.Kind] = map[string]any{
-				"npm":  "@ai-sdk/openai-compatible",
-				"name": provider.Name,
-				"options": map[string]any{
+				"package": "@ai-sdk/openai-compatible",
+				"name":    provider.Name,
+				"settings": map[string]any{
 					"baseURL": provider.BaseURL,
 					"apiKey":  "{env:" + provider.APIKeyEnv + "}",
 				},
@@ -280,7 +283,7 @@ func renderOverlayJSON(o ManagedOverlay) (string, error) {
 			}
 		}
 		if len(providers) > 0 {
-			fields["provider"] = providers
+			fields["providers"] = providers
 		}
 	}
 	if len(o.MCPConnectors) > 0 {
@@ -365,6 +368,9 @@ func DetectOverlayConflicts(project map[string]any, overlay ManagedOverlay) []Co
 	managedMCP, err := managedMCPOverlay(overlay.MCPConnectors)
 	if err == nil {
 		projectMCP, _ := project["mcp"].(map[string]any)
+		if native, ok := projectMCP["servers"].(map[string]any); ok {
+			projectMCP = deepMergeMaps(projectMCP, native)
+		}
 		for name, managed := range managedMCP {
 			if projectValue, exists := projectMCP[name]; exists && canonicalMCPEntry(projectValue) != canonicalMCPEntry(managed) {
 				conflicts = append(conflicts, ConfigConflict{Field: "mcp." + name, ProjectValue: canonicalMCPEntry(projectValue), ManagedValue: canonicalMCPEntry(managed)})
@@ -392,27 +398,13 @@ func FormatConflicts(conflicts []ConfigConflict) string {
 
 // OpenCodeDisableUpdateEnv turns off OpenCode's update check in a process.
 //
-// The guest belongs to just-code: Microsandbox runs the OpenCode pinned by the
-// image, while Tart and agent-vm run the one their guest bootstrap or template
-// provides. An update notice invites the user out of the set just-code
-// supports, and on the pinned image it cannot even be honoured. `opencode
-// upgrade` stays available for a deliberate upgrade.
-//
-// Why the environment variable and not the `autoupdate` setting: in the pinned
-// 1.18.32 sources (packages/core/src/flag/flag.ts, config/config.ts,
-// cli/upgrade.ts), upgrade() reads `autoupdate` through getGlobal(), which
-// loads only the guest's global config files (Global.Path.config/config.json,
-// opencode.json, opencode.jsonc). just-code's managed settings travel inline in
-// OPENCODE_CONFIG_CONTENT, which getGlobal() never reads, so "autoupdate":
-// false there is silently inert. Writing the guest's global config would work,
-// but managed settings do not live in a file the user also edits. upgrade()
-// first loads that global config, then returns early when
-// OPENCODE_DISABLE_AUTOUPDATE is truthy, before any network request: every
-// process that can run the updater must start with it — the full-mode TUI, the
-// server a host TUI attaches to, and the attach client. One-shot probes
-// (`opencode --help`, `opencode --version`) never call upgrade() and are
-// deliberately left alone. A bare `just-code shell` is the one path that cannot
-// carry it: that shell sources neither the managed config nor these variables.
+// The managed guest CLI and host connection client must remain on the tested
+// release. In v2.2.5 packages/cli/src/services/updater.ts checks this variable
+// before automatic update discovery; a legacy inline `autoupdate` field is not
+// the process-level control. Carry it in both environments and sourced secret
+// files, without rewriting the user's global config. One-shot --help/--version
+// probes do not start the updater. A bare just-code shell does not source the
+// managed environment; deliberate manual upgrades remain the user's choice.
 const OpenCodeDisableUpdateEnv = "OPENCODE_DISABLE_AUTOUPDATE"
 
 // OpenCodeDisableUpdateAssignment is the KEY=VALUE form for exec environments

@@ -11,16 +11,32 @@ import (
 	"time"
 )
 
+func TestV2HealthRejectsLegacyAndMisleadingBodies(t *testing.T) {
+	for _, body := range []string{
+		`{"healthy":true}`, `{"status":"unhealthy"}`, "healthy", "<html>healthy</html>",
+		`{"version":"1.19.5","pid":1,"urls":[],"paths":{"tmp":"/tmp"}}`,
+		`{"version":"2.2.5"}`, `{"version":"2.2.5","pid":-1,"urls":[],"paths":{"tmp":"/tmp"}}`,
+	} {
+		t.Run(body, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { _, _ = w.Write([]byte(body)) }))
+			defer server.Close()
+			if probe := ProbeHealth(context.Background(), nil, server.URL, DefaultUsername, "pw"); probe.Healthy {
+				t.Fatalf("non-v2 readiness accepted: %s", body)
+			}
+		})
+	}
+}
+
 func TestWaitHealthyImmediate(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/global/health" {
-			t.Errorf("path = %q, want /global/health", r.URL.Path)
+		if r.URL.Path != "/api/info" {
+			t.Errorf("path = %q, want /api/info", r.URL.Path)
 		}
 		u, p, ok := r.BasicAuth()
 		if !ok || u != "opencode" || p != "pw" {
 			t.Errorf("basic auth = %q:%q (ok=%v), want opencode:pw", u, p, ok)
 		}
-		_, _ = w.Write([]byte(`{"status":"healthy"}`))
+		_, _ = w.Write([]byte(`{"version":"2.2.5","pid":1,"urls":[],"paths":{"tmp":"/tmp/opencode"}}`))
 	}))
 	defer srv.Close()
 
@@ -36,7 +52,7 @@ func TestWaitHealthyEmptyPassword(t *testing.T) {
 		if !ok || p != "" {
 			t.Errorf("password = %q (ok=%v), want empty (no auth)", p, ok)
 		}
-		_, _ = w.Write([]byte("healthy"))
+		_, _ = w.Write([]byte(`{"version":"2.2.5","pid":1,"urls":[],"paths":{"tmp":"/tmp/opencode"}}`))
 	}))
 	defer srv.Close()
 
@@ -68,7 +84,7 @@ func TestWaitHealthyPerRequestTimeout(t *testing.T) {
 	// each probe times out individually and the wall-clock deadline still wins.
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		time.Sleep(800 * time.Millisecond)
-		_, _ = w.Write([]byte("healthy"))
+		_, _ = w.Write([]byte(`{"version":"2.2.5","pid":1,"urls":[],"paths":{"tmp":"/tmp/opencode"}}`))
 	}))
 	t.Cleanup(func() {
 		srv.CloseClientConnections()
@@ -88,7 +104,7 @@ func TestWaitHealthyPerRequestTimeout(t *testing.T) {
 
 func TestProbeHealthReportsStatus(t *testing.T) {
 	healthy := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		_, _ = w.Write([]byte(`{"status":"healthy"}`))
+		_, _ = w.Write([]byte(`{"version":"2.2.5","pid":1,"urls":[],"paths":{"tmp":"/tmp/opencode"}}`))
 	}))
 	defer healthy.Close()
 	if p := ProbeHealth(context.Background(), nil, healthy.URL, "opencode", "pw"); !p.Healthy || p.Status != 200 {
@@ -206,20 +222,20 @@ func TestWaitHealthyContextCancel(t *testing.T) {
 // a bare "unexpected EOF" after printing the health line.
 func TestCheckBackendLargeProviderPayload(t *testing.T) {
 	var b strings.Builder
-	b.WriteString(`{"all":[{"id":"albert","name":"Albert","models":[`)
+	b.WriteString(`{"location":{"directory":"/workspace"},"data":[{"id":"albert","name":"Albert","models":[`)
 	for j := 0; j < 400; j++ {
 		if j > 0 {
 			b.WriteString(",")
 		}
 		fmt.Fprintf(&b, `{"id":"model-%d","name":"model-with-a-reasonably-long-name-%d","limit":{"context":131072,"output":65536}}`, j, j)
 	}
-	b.WriteString(`]}],"default":{"albert":"model-0"}}`)
+	b.WriteString(`]}]}`)
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
-		case "/global/health":
-			_, _ = w.Write([]byte(`{"healthy":true}`))
-		case "/provider":
+		case "/api/info":
+			_, _ = w.Write([]byte(`{"version":"2.2.5","pid":1,"urls":[],"paths":{"tmp":"/tmp/opencode"}}`))
+		case "/api/provider":
 			_, _ = w.Write([]byte(b.String()))
 		}
 	}))

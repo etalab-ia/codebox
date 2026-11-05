@@ -52,9 +52,10 @@ func GuestChangeDigest(c GuestChange) string {
 	return hex.EncodeToString(h.Sum(nil))
 }
 
-// CollectGuestChanges reads the agent's uncommitted work in the isolated
-// machine as one change per file. It is the read half of `workspace apply`
-// (issue #173) and of the exit screen's recovery block (issue #174).
+// CollectGuestChanges reads the agent's work in the isolated machine as one
+// change per file, whether it is committed in the guest or still uncommitted
+// (#313). It is the read half of `workspace apply` (issue #173) and of the
+// exit screen's recovery block (issue #174).
 //
 // The paths and line counts come from `git diff --numstat -z`, which is
 // unambiguous even for paths with spaces or quotes; the per-file patches come
@@ -79,8 +80,10 @@ func (m *MicrosandboxRuntime) CollectGuestChanges(ctx context.Context) ([]GuestC
 		return nil, nil
 	}
 	// -N (intent-to-add) makes new files visible in the diff; --no-renames
-	// keeps one section per path so numstat and diff pair one-to-one.
-	const base = " && git add -A -N && git diff HEAD --binary --no-renames"
+	// keeps one section per path so numstat and diff pair one-to-one. The
+	// diff runs against the recovery base, not HEAD, so changes the agent
+	// already committed in the guest are collected too (#313).
+	base := " && git add -A -N && git diff " + m.guestDiffBase() + " --binary --no-renames"
 	numstatOut, stderr, code, err := m.Client.ExecCapture(ctx, m.InstanceName(),
 		"cd "+shellQuote(msbGuestWorkspace)+base+" --numstat -z")
 	if err != nil {
@@ -335,45 +338,220 @@ func patchBinarySize(line, prefix string) (int64, bool) {
 	return n, true
 }
 
-// GuestPushedBranch reports whether the agent's work branch was pushed from
-// the isolated machine, and the draft pull request it opened, for the exit
-// screen (issue #174). A branch that was never created or never pushed is
-// reported as not pushed, not as an error.
-func (m *MicrosandboxRuntime) GuestPushedBranch(ctx context.Context) (branch, prURL string, pushed bool, err error) {
+// GuestBranchStatus is the agent's branch state in the isolated machine, for
+// the exit screen (issues #174, #306). The zero value means "nothing to
+// report": no work branch was created in the guest.
+type GuestBranchStatus struct {
+	// Branch is the selected work branch, "" when the guest has none.
+	Branch string
+	// Pushed reports a session-owned marker remote or a remote ref with
+	// update-by-push reflog evidence in the guest.
+	Pushed bool
+	// PRURL is the open pull request found for Branch; empty when there is
+	// none or when the probe could not answer.
+	PRURL string
+	// PRDraft selects the draft wording; meaningful only when PRURL is set.
+	PRDraft bool
+	// PRKnown reports that the pull-request probe answered. False means the
+	// PR state is unknown (gh unusable, network down), never that no PR
+	// exists.
+	PRKnown bool
+}
+
+// guestLocalBranch is a branch entry with its committer date, used to pick
+// the most recently worked-on branch when the marker is stale.
+type guestLocalBranch struct {
+	name          string
+	committerUnix int64
+}
+
+// selectGuestWorkBranch picks the branch the exit screen reports (#306). The
+// most recently committed pushed branch wins, including a branch that exists
+// only on the remote; an older workflow marker must not hide newer agent work.
+// The remotes argument contains only session-owned or push-proven refs, never
+// refs obtained merely by fetching. Without any push, the marker branch (or
+// the latest local branch) is reported as not pushed. The default branch and
+// the workflow's snapshot-backup branch are never candidates; with no remote
+// HEAD, the sealed bootstrap's main/master baseline is excluded too.
+func selectGuestWorkBranch(marker string, locals []guestLocalBranch, remotes []guestLocalBranch, defaultBranch string) (string, bool) {
+	isCandidate := func(name string) bool {
+		if name == "" || name == "HEAD" || name == defaultBranch || name == marker+"-snapshot-backup" {
+			return false
+		}
+		return defaultBranch != "" || (name != "main" && name != "master")
+	}
+	latest := func(branches []guestLocalBranch) string {
+		best := ""
+		var bestUnix int64 = -1
+		for _, b := range branches {
+			if b.committerUnix > bestUnix || (b.committerUnix == bestUnix && b.name < best) {
+				best, bestUnix = b.name, b.committerUnix
+			}
+		}
+		return best
+	}
+
+	var candidates []guestLocalBranch
+	for _, local := range locals {
+		if isCandidate(local.name) {
+			candidates = append(candidates, local)
+		}
+	}
+	var pushed []guestLocalBranch
+	for _, remote := range remotes {
+		if !strings.HasPrefix(remote.name, "origin/") {
+			continue
+		}
+		name := strings.TrimPrefix(remote.name, "origin/")
+		if !isCandidate(name) {
+			continue
+		}
+		remote.name = name
+		pushed = append(pushed, remote)
+	}
+	if len(pushed) > 0 {
+		return latest(pushed), true
+	}
+	for _, b := range candidates {
+		if b.name == marker {
+			return marker, false
+		}
+	}
+	return latest(candidates), false
+}
+
+// parseGuestLocalBranches parses `git for-each-ref` output whose format is
+// '%(refname:short)%00%(committerdate:unix)'. A malformed line is skipped:
+// one odd ref must not hide the others.
+func parseGuestLocalBranches(out string) []guestLocalBranch {
+	var locals []guestLocalBranch
+	for _, line := range strings.Split(out, "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		name, date, ok := strings.Cut(line, "\x00")
+		if !ok {
+			continue
+		}
+		unix, err := strconv.ParseInt(strings.TrimSpace(date), 10, 64)
+		if err != nil {
+			unix = 0
+		}
+		locals = append(locals, guestLocalBranch{name: strings.TrimSpace(name), committerUnix: unix})
+	}
+	return locals
+}
+
+// parseGuestPushedRemoteRefs returns origin refs with update-by-push evidence.
+// Fetch entries are deliberately not evidence of work pushed by the guest.
+func parseGuestPushedRemoteRefs(out string) map[string]bool {
+	pushed := map[string]bool{}
+	for _, line := range strings.Split(out, "\n") {
+		selector, message, ok := strings.Cut(line, "\x00")
+		if !ok || strings.TrimSpace(message) != "update by push" {
+			continue
+		}
+		ref, _, _ := strings.Cut(selector, "@{")
+		if strings.HasPrefix(ref, "refs/remotes/origin/") {
+			pushed[strings.TrimPrefix(ref, "refs/remotes/")] = true
+		}
+	}
+	return pushed
+}
+
+// GuestBranchStatus discovers the agent's work branch in the guest and
+// whether it was pushed, with its open pull request, for the exit screen
+// (issue #306). Discovery no longer relies on the workflow marker alone: the
+// agent may have created and pushed a branch under another name. A branch
+// that was never created or never pushed is reported as such, not as an
+// error; a git read failure is an error and must not read as "no push".
+func (m *MicrosandboxRuntime) GuestBranchStatus(ctx context.Context) (GuestBranchStatus, error) {
+	prefix := "cd " + shellQuote(msbGuestWorkspace) + " && "
 	stdout, _, code, err := m.Client.ExecCapture(ctx, m.InstanceName(),
-		"cd "+shellQuote(msbGuestWorkspace)+" && git config --get just-code.github-workflow-branch")
+		prefix+"git config --get just-code.github-workflow-branch")
 	if err != nil {
-		return "", "", false, err
+		return GuestBranchStatus{}, err
+	}
+	marker := ""
+	if code == 0 {
+		marker = strings.TrimSpace(stdout)
+	}
+	localsOut, stderr, code, err := m.Client.ExecCapture(ctx, m.InstanceName(),
+		prefix+"git for-each-ref --format="+shellQuote("%(refname:short)%00%(committerdate:unix)")+" refs/heads")
+	if err != nil {
+		return GuestBranchStatus{}, err
 	}
 	if code != 0 {
-		return "", "", false, nil
+		return GuestBranchStatus{}, fmt.Errorf("git for-each-ref refs/heads: %s", strings.TrimSpace(stderr))
 	}
-	branch = strings.TrimSpace(stdout)
+	remotesOut, stderr, code, err := m.Client.ExecCapture(ctx, m.InstanceName(),
+		prefix+"git for-each-ref --format="+shellQuote("%(refname:short)%00%(committerdate:unix)")+" refs/remotes/origin")
+	if err != nil {
+		return GuestBranchStatus{}, err
+	}
+	if code != 0 {
+		return GuestBranchStatus{}, fmt.Errorf("git for-each-ref refs/remotes/origin: %s", strings.TrimSpace(stderr))
+	}
+	remoteBranches := parseGuestLocalBranches(remotesOut)
+	reflogsOut, stderr, code, err := m.Client.ExecCapture(ctx, m.InstanceName(),
+		prefix+"git reflog --all --format="+shellQuote("%gD%x00%gs"))
+	if err != nil {
+		return GuestBranchStatus{}, err
+	}
+	if code != 0 {
+		return GuestBranchStatus{}, fmt.Errorf("git reflog --all: %s", strings.TrimSpace(stderr))
+	}
+	pushedRemoteRefs := parseGuestPushedRemoteRefs(reflogsOut)
+	sessionRemotes := make([]guestLocalBranch, 0, len(remoteBranches))
+	for _, remote := range remoteBranches {
+		// The generated marker names session-owned work. Any other remote
+		// branch needs push evidence: fetching alone must not attribute
+		// another contributor's branch to this guest session (#306).
+		if remote.name == "origin/"+marker || pushedRemoteRefs[remote.name] {
+			sessionRemotes = append(sessionRemotes, remote)
+		}
+	}
+	// The remote HEAD names the default branch, which is not agent work.
+	// Best-effort: an unborn or detached HEAD just means no exclusion.
+	defaultOut, _, code, err := m.Client.ExecCapture(ctx, m.InstanceName(),
+		prefix+"git symbolic-ref --quiet --short refs/remotes/origin/HEAD")
+	if err != nil {
+		return GuestBranchStatus{}, err
+	}
+	defaultBranch := ""
+	if code == 0 {
+		defaultBranch = strings.TrimPrefix(strings.TrimSpace(defaultOut), "origin/")
+	}
+	branch, pushed := selectGuestWorkBranch(marker, parseGuestLocalBranches(localsOut), sessionRemotes, defaultBranch)
 	if branch == "" {
-		return "", "", false, nil
+		return GuestBranchStatus{PRKnown: true}, nil
 	}
-	_, _, code, err = m.Client.ExecCapture(ctx, m.InstanceName(),
-		"cd "+shellQuote(msbGuestWorkspace)+" && git rev-parse --verify --quiet "+shellQuote("refs/remotes/origin/"+branch))
-	if err != nil {
-		return branch, "", false, err
-	}
-	if code != 0 {
-		return branch, "", false, nil
+	status := GuestBranchStatus{Branch: branch, Pushed: pushed}
+	if !pushed {
+		return status, nil
 	}
 	// The pull request probe is best-effort: a guest without a usable `gh`
-	// still pushed its branch, which the exit screen reports on its own.
+	// still pushed its branch. Its failure means "PR state unknown", not
+	// "no PR" and not a fatal read error (network may simply be down).
 	out, _, code, err := m.Client.ExecCapture(ctx, m.InstanceName(),
-		"cd "+shellQuote(msbGuestWorkspace)+" && gh pr list --head "+shellQuote(branch)+" --json url --limit 1")
+		prefix+"gh pr list --head "+shellQuote(branch)+" --json url,isDraft --limit 1")
 	if err != nil || code != 0 {
-		return branch, "", true, nil
+		return status, nil
 	}
 	var prs []struct {
-		URL string `json:"url"`
+		URL     string `json:"url"`
+		IsDraft bool   `json:"isDraft"`
 	}
-	if json.Unmarshal([]byte(strings.TrimSpace(out)), &prs) != nil || len(prs) == 0 {
-		return branch, "", true, nil
+	if json.Unmarshal([]byte(strings.TrimSpace(out)), &prs) != nil {
+		return status, nil
 	}
-	return branch, prs[0].URL, true, nil
+	status.PRKnown = true
+	if len(prs) > 0 {
+		status.PRURL = prs[0].URL
+		status.PRDraft = prs[0].IsDraft
+	}
+	return status, nil
 }
 
 // ApplyRecordPath is the host path of the applied-changes record for one

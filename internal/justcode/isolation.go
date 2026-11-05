@@ -9,7 +9,7 @@ type Isolation string
 
 const (
 	// IsolationBackend is the historical model: `opencode serve` inside the
-	// sandbox, `opencode attach` from the host.
+	// sandbox, `opencode --server <url>` from the host (v2).
 	IsolationBackend Isolation = "backend"
 	// IsolationFull runs the whole agent — process, TUI, sessions, config and
 	// provider credentials — inside the sandbox. The host is only a terminal

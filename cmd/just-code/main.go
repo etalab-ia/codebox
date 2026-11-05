@@ -308,6 +308,9 @@ func run(args []string) (int, error) {
 	// changed file is a new decision, not an inherited one. Only start paths
 	// are gated: stop, check, logs and shell operate on an existing guest.
 	if startPath {
+		if err := justcode.ValidateOpenCodeBackend(cfg); err != nil {
+			return 2, err
+		}
 		if err := requireTrustedExecutionInputs(projectRoot); err != nil {
 			return 1, err
 		}
@@ -1116,6 +1119,15 @@ func attachCmd(d *justcode.Dispatcher, cfg justcode.Config, rt justcode.Runtime,
 		return 0, err
 	}
 	ctx := context.Background()
+	if cfg.Isolation != justcode.IsolationFull {
+		if err := justcode.ValidateOpenCodeBackend(cfg); err != nil {
+			return 0, err
+		}
+		help, err := justcode.OpenCodeHelp(ctx, "--help")
+		if err != nil || !strings.Contains(help, "--server") {
+			return 0, fmt.Errorf("OpenCode v2 is required on the host; install it with 'npm install -g @opencode/cli@%s'", justcode.OpenCodeVersion)
+		}
+	}
 	if err := d.Prepare(ctx, rt); err != nil {
 		return 0, err
 	}
@@ -1144,7 +1156,7 @@ func attachCmd(d *justcode.Dispatcher, cfg justcode.Config, rt justcode.Runtime,
 	}
 	// Fail before starting a runtime rather than after, when the TUI cannot open.
 	if _, err := exec.LookPath("opencode"); err != nil {
-		return 0, fmt.Errorf("the 'opencode' CLI is required to attach the TUI but was not found on PATH; install it with 'npm install -g opencode-ai'")
+		return 0, fmt.Errorf("the 'opencode' CLI is required to attach the TUI but was not found on PATH; install it with 'npm install -g @opencode/cli@2.2.5'")
 	}
 	// Microsandbox's launch report has already waited before saving its timing.
 	if d.Launch == nil {
@@ -1161,7 +1173,7 @@ func attachCmd(d *justcode.Dispatcher, cfg justcode.Config, rt justcode.Runtime,
 	var help string
 	var helpErr error
 	if sessionErr == nil && hasSessions {
-		help, helpErr = justcode.OpenCodeHelp(ctx, "attach", "--help")
+		help, helpErr = justcode.OpenCodeHelp(ctx, "--help")
 	}
 	resumeArgs, warn := justcode.OpenCodeResumeArgs(hasSessions, sessionErr, help, helpErr)
 	if warn {
@@ -1172,7 +1184,7 @@ func attachCmd(d *justcode.Dispatcher, cfg justcode.Config, rt justcode.Runtime,
 		}
 	}
 	printLaunchReport(d.Launch)
-	attachErr := justcode.RunInteractiveEnv([]string{justcode.OpenCodeDisableUpdateAssignment}, "opencode", openCodeAttachArgs(endpoint, cfg.Username, cfg.Password, resumeArgs)...)
+	attachErr := justcode.RunInteractiveEnv(justcode.OpenCodeClientEnv(cfg.Password), "opencode", openCodeAttachArgs(endpoint, resumeArgs)...)
 	code := exitCodeOf(attachErr)
 	exitScreen(ctx, d, cfg, rt, instance)
 	return code, attachErr
@@ -1181,8 +1193,8 @@ func attachCmd(d *justcode.Dispatcher, cfg justcode.Config, rt justcode.Runtime,
 // openCodeAttachArgs keeps the host-TUI backend path consistent with the
 // guest TUI paths: resume the latest conversation, while leaving /new
 // available inside OpenCode to start a fresh one.
-func openCodeAttachArgs(endpoint, username, password string, resumeArgs []string) []string {
-	args := []string{"attach", endpoint, "--username", username, "--password", password}
+func openCodeAttachArgs(endpoint string, resumeArgs []string) []string {
+	args := []string{"--server", endpoint}
 	return append(args, resumeArgs...)
 }
 

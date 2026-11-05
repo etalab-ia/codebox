@@ -419,3 +419,51 @@ func TestWorkspaceApplyRejectsUnknownOption(t *testing.T) {
 		t.Fatalf("err = %v, want the unknown-option rejection", err)
 	}
 }
+
+// TestGuestBranchLine pins the exit screen's branch wording (#306): the
+// states must stay distinct and none may announce a false state.
+func TestGuestBranchLine(t *testing.T) {
+	cases := []struct {
+		name   string
+		status justcode.GuestBranchStatus
+		want   string
+	}{
+		{
+			"nothing to report",
+			justcode.GuestBranchStatus{PRKnown: true},
+			"",
+		},
+		{
+			"pushed with a draft PR",
+			justcode.GuestBranchStatus{Branch: "my-fix", Pushed: true, PRKnown: true, PRURL: "https://github.com/o/r/pull/12", PRDraft: true},
+			"Branche poussée : my-fix, pull request en brouillon : https://github.com/o/r/pull/12",
+		},
+		{
+			"pushed with a ready PR is not called a draft",
+			justcode.GuestBranchStatus{Branch: "my-fix", Pushed: true, PRKnown: true, PRURL: "https://github.com/o/r/pull/12", PRDraft: false},
+			"Branche poussée : my-fix, pull request : https://github.com/o/r/pull/12",
+		},
+		{
+			"pushed with an unverifiable PR state",
+			justcode.GuestBranchStatus{Branch: "my-fix", Pushed: true, PRKnown: false},
+			"Branche poussée : my-fix (pull request non vérifiée : gh ou réseau indisponible)",
+		},
+		{
+			"pushed without a PR",
+			justcode.GuestBranchStatus{Branch: "my-fix", Pushed: true, PRKnown: true},
+			"Branche poussée : my-fix",
+		},
+		{
+			"created but never pushed",
+			justcode.GuestBranchStatus{Branch: "my-fix"},
+			"Branche créée dans la machine isolée mais non poussée : my-fix",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := guestBranchLine(tc.status); got != tc.want {
+				t.Errorf("guestBranchLine = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}

@@ -320,8 +320,8 @@ func TestOpenCodeAttachArgsResumesLastSession(t *testing.T) {
 	if warn {
 		t.Fatal("supported CLI with a prior session must not warn")
 	}
-	got := strings.Join(openCodeAttachArgs("http://127.0.0.1:4096", "test-user", "test-password", resumeArgs), " ")
-	want := "attach http://127.0.0.1:4096 --username test-user --password test-password --continue"
+	got := strings.Join(openCodeAttachArgs("http://127.0.0.1:4096", resumeArgs), " ")
+	want := "--server http://127.0.0.1:4096 --continue"
 	if got != want {
 		t.Fatalf("OpenCode attach args = %q, want %q", got, want)
 	}
@@ -332,8 +332,8 @@ func TestOpenCodeAttachArgsFallsBackWhenContinueIsUnsupported(t *testing.T) {
 	if !warn {
 		t.Fatal("unsupported CLI with a prior session must warn")
 	}
-	got := strings.Join(openCodeAttachArgs("http://127.0.0.1:4096", "test-user", "test-password", resumeArgs), " ")
-	want := "attach http://127.0.0.1:4096 --username test-user --password test-password"
+	got := strings.Join(openCodeAttachArgs("http://127.0.0.1:4096", resumeArgs), " ")
+	want := "--server http://127.0.0.1:4096"
 	if got != want {
 		t.Fatalf("OpenCode attach args = %q, want the compatible fresh-session command %q", got, want)
 	}
@@ -344,8 +344,8 @@ func TestOpenCodeAttachArgsStartsNewWithoutPriorSession(t *testing.T) {
 	if warn || len(resumeArgs) != 0 {
 		t.Fatalf("first launch resume decision = (%v, %t), want no flag and no warning", resumeArgs, warn)
 	}
-	got := strings.Join(openCodeAttachArgs("http://127.0.0.1:4096", "test-user", "test-password", resumeArgs), " ")
-	want := "attach http://127.0.0.1:4096 --username test-user --password test-password"
+	got := strings.Join(openCodeAttachArgs("http://127.0.0.1:4096", resumeArgs), " ")
+	want := "--server http://127.0.0.1:4096"
 	if got != want {
 		t.Fatalf("OpenCode attach args = %q, want %q", got, want)
 	}

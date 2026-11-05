@@ -820,8 +820,10 @@ func TestConfigureGitHubWorkspaceChecksAccessBeforeSeedingBranch(t *testing.T) {
 		{stdout: "main\n"},
 		{stdout: ""},
 		{stdout: "true\n"},
+		{stdout: testRecoveryBaseSHA}, // recovery base after remote branch seeding
 	}}
 	m := NewMicrosandboxRuntimeForInstance(Config{GitHubRemote: remote}, "opencode-jc-test-12345")
+	m.StateDir = t.TempDir()
 	m.Client = client
 	bindings := []resolvedBinding{{msbSecretBinding: msbSecretBinding{Kind: CredentialGithub, GuestEnv: "GITHUB_TOKEN"}, value: "synthetic-test-token"}}
 	if err := m.configureGitHubWorkspace(context.Background(), bindings); err != nil {
@@ -829,6 +831,9 @@ func TestConfigureGitHubWorkspaceChecksAccessBeforeSeedingBranch(t *testing.T) {
 	}
 	if len(client.execCaptureResults) != 0 {
 		t.Fatalf("not all expected guest probes ran: %d results remain", len(client.execCaptureResults))
+	}
+	if got := m.guestDiffBase(); got != testRecoveryBaseSHA {
+		t.Fatalf("recovery base after GitHub initialization = %q, want %q", got, testRecoveryBaseSHA)
 	}
 	calls := strings.Join(client.calls, "\n")
 	for _, want := range []string{

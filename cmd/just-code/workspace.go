@@ -87,6 +87,11 @@ func workspaceCmd(args []string, cfg justcode.Config, instance string) (int, err
 			}
 		}
 		rt := justcode.NewMicrosandboxRuntimeForInstance(cfg, instance)
+		// A legacy guest's "no changes" does not cover committed work
+		// (#313): say so before reporting an empty export.
+		if warning, werr := rt.GuestRecoveryWarning(context.Background()); werr == nil && warning != "" {
+			fmt.Fprintln(os.Stderr, warning)
+		}
 		path, err := rt.ExportGuestChanges(context.Background(), out)
 		if err != nil {
 			return 1, err

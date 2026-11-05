@@ -220,7 +220,7 @@ func TestMicrosandboxInstallsPinnedSkillInOpenCodeGlobalDirectory(t *testing.T) 
 	lock := SkillLock{Repository: projectSkillsRepository, Revision: projectSkillsRevision, SHA256: hex.EncodeToString(digest[:])}
 	client := &fakeMSBClient{execCaptureResults: []fakeMSBExecCaptureResult{
 		{stdout: `{"schemaVersion":1,"skills":[]}`},
-		{stdout: `[{"name":"rgaa"}]`},
+		{stdout: `{"data":[{"name":"rgaa"}]}`},
 	}}
 	m := NewMicrosandboxRuntime(Config{
 		ProjectSkillIDs: []string{"official/rgaa"}, ProjectSkillsManaged: true,
@@ -254,7 +254,7 @@ func TestMicrosandboxInstallsPinnedSkillInOpenCodeGlobalDirectory(t *testing.T) 
 	if strings.Contains(installCommand, "/workspace/.opencode/skills") {
 		t.Fatalf("guest skill was installed in the agent checkout: %s", installCommand)
 	}
-	if !hasCall(client, "execcapture "+m.InstanceName()+" opencode debug skill") {
+	if !hasCall(client, "execcapture "+m.InstanceName()+" opencode api --standalone GET /api/skill") {
 		t.Fatal("startup did not verify that OpenCode discovered the installed skill")
 	}
 }
@@ -366,7 +366,7 @@ func TestEmptySelectionFailsClosedWhenGuestInventoryIsMissing(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "project-skill inventory") {
 		t.Fatalf("empty selection should reject an orphaned managed directory, got %v", err)
 	}
-	if len(client.written) != 0 || hasCall(client, "execcapture "+m.InstanceName()+" opencode debug skill") {
+	if len(client.written) != 0 || hasCall(client, "execcapture "+m.InstanceName()+" opencode api --standalone GET /api/skill") {
 		t.Fatalf("reconciliation continued despite missing inventory: writes=%+v calls=%+v", client.written, client.calls)
 	}
 	if len(client.calls) != 1 || !strings.Contains(client.calls[0], "for marker in ") || !strings.Contains(client.calls[0], ".just-code-source") {
@@ -412,7 +412,7 @@ func TestProjectSkillInstallRecoversAfterInventoryCommit(t *testing.T) {
 		execCaptureResults: []fakeMSBExecCaptureResult{
 			{stdout: `{"schemaVersion":1,"skills":[]}`},
 			{stdout: indexed},
-			{stdout: `[{"name":"rgaa"}]`},
+			{stdout: `{"data":[{"name":"rgaa"}]}`},
 		},
 	}
 	m := NewMicrosandboxRuntime(Config{
@@ -439,7 +439,7 @@ func TestProjectSkillInstallRecoversAfterInventoryCommit(t *testing.T) {
 
 func TestVerifyProjectSkillsRejectsDuplicateDiscovery(t *testing.T) {
 	client := &fakeMSBClient{execCaptureResults: []fakeMSBExecCaptureResult{{
-		stdout: `[{"name":"rgaa"},{"name":"rgaa"}]`,
+		stdout: `{"data":[{"name":"rgaa"},{"name":"rgaa"}]}`,
 	}}}
 	m := NewMicrosandboxRuntime(Config{ProjectSkills: []SkillPackage{{Name: "rgaa"}}})
 	m.Client = client
@@ -2007,6 +2007,27 @@ func TestWarnUnprotectedRuntimeNamesTheRuntimeAndTheRisk(t *testing.T) {
 // start script is persisted at creation and cannot be rewritten, so switching
 // isolation on an existing sandbox must fail with guidance instead of booting
 // the wrong process.
+func TestMicrosandboxLegacyOpenCodeScriptRequiresExplicitRecreation(t *testing.T) {
+	for _, isolation := range []Isolation{IsolationFull, IsolationBackend} {
+		for _, status := range []string{"stopped", "running"} {
+			script := "exec opencode serve --hostname 0.0.0.0 --port 4096"
+			if isolation == IsolationFull {
+				script = "exec sleep infinity"
+			}
+			client := &fakeMSBClient{exists: true, status: status, startScript: script}
+			m := newTestMicrosandbox(t, client)
+			m.cfg.Isolation = isolation
+			err := m.Start(context.Background())
+			if err == nil || !strings.Contains(err.Error(), "legacy OpenCode") || !strings.Contains(err.Error(), "Export") || !strings.Contains(err.Error(), "recreate") {
+				t.Fatalf("legacy immutable script needs an actionable, non-destructive refusal: %v", err)
+			}
+			if hasCall(client, "start "+msbSandbox) || hasCall(client, "stop "+msbSandbox) || hasCall(client, "remove "+msbSandbox) {
+				t.Fatalf("legacy refusal must not change the VM: %v", client.calls)
+			}
+		}
+	}
+}
+
 func TestMicrosandboxStartRejectsIsolationSwitch(t *testing.T) {
 	// A sandbox created in full mode, now requested in backend mode.
 	client := &fakeMSBClient{exists: true, status: "stopped", startScript: msbStartScript(IsolationFull)}
@@ -2154,7 +2175,7 @@ func TestMicrosandboxRunAgentAttachesTUI(t *testing.T) {
 	if err := m.RunAgent(context.Background()); err != nil {
 		t.Fatalf("RunAgent: %v", err)
 	}
-	if !hasCall(client, "attach "+msbSandbox+" opencode --continue /workspace") {
+	if !hasCall(client, "attach "+msbSandbox+" opencode --standalone --continue /workspace") {
 		t.Fatalf("RunAgent must resume the most recent session while attaching opencode at /workspace; calls: %v", client.calls)
 	}
 }
@@ -2168,7 +2189,7 @@ func TestMicrosandboxRunAgentFallsBackForOpenCodeWithoutContinue(t *testing.T) {
 	if err := m.RunAgent(context.Background()); err != nil {
 		t.Fatalf("RunAgent: %v", err)
 	}
-	if !hasCall(client, "attach "+msbSandbox+" opencode /workspace") {
+	if !hasCall(client, "attach "+msbSandbox+" opencode --standalone /workspace") {
 		t.Fatalf("an OpenCode CLI without --continue must still launch a fresh TUI session: %v", client.calls)
 	}
 }
@@ -2181,7 +2202,7 @@ func TestMicrosandboxRunAgentStartsNormallyWhenNoSessionExists(t *testing.T) {
 	if err := m.RunAgent(context.Background()); err != nil {
 		t.Fatalf("RunAgent: %v", err)
 	}
-	if !hasCall(client, "attach "+msbSandbox+" opencode /workspace") {
+	if !hasCall(client, "attach "+msbSandbox+" opencode --standalone /workspace") {
 		t.Fatalf("first launch without a stored session must use plain OpenCode TUI: %v", client.calls)
 	}
 	if hasCall(client, "execcapture "+msbSandbox+" opencode --help") {

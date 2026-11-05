@@ -398,6 +398,10 @@ func (w SetupWizard) SaveSettings(model string, models []string, modelChosen boo
 	if err != nil {
 		return err
 	}
+	j, err := ReadSetupJournal(w.FS, w.StateDir)
+	if err != nil {
+		return err
+	}
 	if modelChosen {
 		us.DefaultModel = model
 		us.Models = append([]string(nil), models...)
@@ -408,13 +412,22 @@ func (w SetupWizard) SaveSettings(model string, models []string, modelChosen boo
 			us.Providers = append(us.Providers, ProviderSettings{Kind: p.Kind, Name: p.Name, BaseURL: p.BaseURL})
 		}
 	}
+	albertConfigured := false
+	for _, provider := range providers {
+		if provider.Kind == ProviderAlbert {
+			albertConfigured = true
+			break
+		}
+	}
+	if strings.TrimSpace(us.CredentialRef) == "" && albertConfigured && ContainsCredentialKind(j.CredentialKinds, string(CredentialAlbert)) {
+		// Setup and runtime must agree on priority: a key the user stored or
+		// entered manually wins over ALBERT_API_KEY. Preserve any explicit
+		// custom credentialRef already chosen by the user (#308).
+		us.CredentialRef = string(CredentialAlbert)
+	}
 	us.StatsEnabled = statsEnabled
 	us.StatsConsentAsked = statsConsentAsked
 	if err := WriteUserSettings(w.FS, path, us); err != nil {
-		return err
-	}
-	j, err := ReadSetupJournal(w.FS, w.StateDir)
-	if err != nil {
 		return err
 	}
 	if modelChosen {
