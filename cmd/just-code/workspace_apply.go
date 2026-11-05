@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"os"
 	"strings"
 
 	"charm.land/huh/v2"
@@ -34,6 +35,10 @@ func runWorkspaceApply(rt *justcode.MicrosandboxRuntime, sourceDir, instance str
 	review, err := justcode.PrepareApplyReview(ctx, rt, sourceDir, optIn)
 	if err != nil {
 		return 1, err
+	}
+	// A legacy guest's "no changes" does not cover committed work (#313).
+	if warning, werr := rt.GuestRecoveryWarning(ctx); werr == nil && warning != "" {
+		fmt.Fprintln(os.Stderr, warning)
 	}
 	if len(review.Changes) == 0 {
 		fmt.Println("L'agent n'a pas modifié de fichiers dans la machine isolée.")
