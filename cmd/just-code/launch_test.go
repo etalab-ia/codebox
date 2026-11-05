@@ -55,7 +55,7 @@ func TestLifecycleLaunchWaitsForBackendReadiness(t *testing.T) {
 						w.WriteHeader(http.StatusServiceUnavailable)
 						return
 					}
-					fmt.Fprint(w, `{"status":"healthy"}`)
+					fmt.Fprint(w, `{"version":"2.2.5","pid":1,"urls":[],"paths":{"tmp":"/tmp/opencode"}}`)
 				}))
 				defer srv.Close()
 				b := &lifecycleLaunchBackend{endpoint: srv.URL}
@@ -100,7 +100,7 @@ func TestLaunchTimingWaitsForBackendReadiness(t *testing.T) {
 					w.WriteHeader(http.StatusServiceUnavailable)
 					return
 				}
-				fmt.Fprint(w, `{"status":"healthy"}`)
+				fmt.Fprint(w, `{"version":"2.2.5","pid":1,"urls":[],"paths":{"tmp":"/tmp/opencode"}}`)
 			}))
 			defer srv.Close()
 			store := justcode.NewLaunchTimingStore(justcode.DefaultFS, t.TempDir())

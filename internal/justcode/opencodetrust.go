@@ -130,8 +130,8 @@ func hashFileContent(root, rel string) (string, error) {
 // approved files whose content hash no longer matches (the recheck the plan
 // requires — approval is tied to content, and a changed file is a new
 // decision). Config-declared entries (plugins, MCP commands) hash the whole
-// config file: they are defined inside it, so any edit that changes them
-// changes the file hash.
+// config file to pin their declarations. Local plugin files are also hashed
+// individually, so editing code inside an approved plugin requires fresh review.
 type UnapprovedInput struct {
 	// Path is the input's path relative to the project root.
 	Path string
@@ -139,6 +139,22 @@ type UnapprovedInput struct {
 	Reason string
 	// Hash pins the content presented for interactive review. Empty is unreadable.
 	Hash string
+}
+
+// pluginInputPaths returns every local plugin file that executes directly or
+// through a declaration. A file can be both declared and auto-discovered; trust
+// review and approval must contain it only once.
+func pluginInputPaths(inputs ProjectExecutionInputs) []string {
+	seen := map[string]bool{}
+	var paths []string
+	for _, rel := range append(append([]string{}, inputs.AutoDiscoveredPlugins...), inputs.DeclaredPluginFiles...) {
+		if !seen[rel] {
+			seen[rel] = true
+			paths = append(paths, rel)
+		}
+	}
+	sort.Strings(paths)
+	return paths
 }
 
 func DiscoverUnapprovedInputs(fs FS, stateDir, projectRoot string) ([]UnapprovedInput, error) {
@@ -180,7 +196,7 @@ func DiscoverUnapprovedInputs(fs FS, stateDir, projectRoot string) ([]Unapproved
 			check(rel)
 		}
 	}
-	for _, rel := range inputs.AutoDiscoveredPlugins {
+	for _, rel := range pluginInputPaths(inputs) {
 		check(rel)
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Path < out[j].Path })
@@ -245,7 +261,7 @@ func ApproveExecutionInputs(fs FS, stateDir, projectRoot string) error {
 			live[rel] = true
 		}
 	}
-	for _, rel := range inputs.AutoDiscoveredPlugins {
+	for _, rel := range pluginInputPaths(inputs) {
 		live[rel] = true
 	}
 	keep := map[string]string{}
@@ -270,7 +286,7 @@ func ApproveExecutionInputs(fs FS, stateDir, projectRoot string) error {
 			}
 		}
 	}
-	for _, rel := range inputs.AutoDiscoveredPlugins {
+	for _, rel := range pluginInputPaths(inputs) {
 		if err := add(rel); err != nil {
 			return err
 		}

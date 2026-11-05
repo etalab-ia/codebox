@@ -1,4 +1,4 @@
 {
-  "npm_package": "opencode-ai",
-  "version": "1.18.32"
+  "npm_package": "@opencode/cli",
+  "version": "2.2.5"
 }

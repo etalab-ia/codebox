@@ -54,7 +54,7 @@ const (
 	guestLocalBinary = "/tmp/just-code-guest"
 
 	guestWorkspaceDir  = "/Volumes/My Shared Files/workspace"
-	opencodeInstallURL = "https://opencode.ai/install"
+	opencodeInstallURL = "https://opencode.ai/v2/install"
 )
 
 // Execer replaces the current process image, so the server inherits the
@@ -141,11 +141,8 @@ func RunGuestBootstrap(ctx context.Context, cfg GuestConfig) error {
 	}
 
 	g := &guest{cfg: cfg, pathEnv: pathEnv, env: env}
-	if _, err := g.resolve("opencode"); err != nil {
-		fmt.Fprintln(cfg.Stdout, "Installing OpenCode inside macOS VM...")
-		if err := g.installOpencode(ctx); err != nil {
-			return err
-		}
+	if err := g.ensureOpencode(ctx); err != nil {
+		return err
 	}
 	// The curl installer drops the binary in ~/.opencode/bin; guestPath already
 	// includes it, so a fresh resolve picks it up.
@@ -180,6 +177,7 @@ func RunGuestBootstrap(ctx context.Context, cfg GuestConfig) error {
 	}
 	envAssignments := []string{
 		OpenCodeDisableUpdateAssignment,
+		"OPENCODE_PASSWORD=" + password,
 		"OPENCODE_SERVER_PASSWORD=" + password,
 		"OPENCODE_SERVER_USERNAME=" + cfg.Username,
 		"OPENCODE_CONFIG_CONTENT=" + configContent,
@@ -242,10 +240,11 @@ func guestPath(environ []string, home string) string {
 			current = strings.TrimPrefix(kv, "PATH=")
 		}
 	}
-	dirs := []string{current, "/usr/sbin", "/sbin"}
+	dirs := []string{}
 	if home != "" {
 		dirs = append(dirs, filepath.Join(home, ".opencode", "bin"))
 	}
+	dirs = append(dirs, current, "/usr/sbin", "/sbin")
 	var out []string
 	for _, d := range dirs {
 		if d != "" {
@@ -366,18 +365,47 @@ func (g *guest) run(ctx context.Context, name string, args ...string) (int, erro
 	return res.ExitCode, nil
 }
 
-// installOpencode mirrors the shell fallback chain: Homebrew, then npm, then
-// the vendor installer script. The vendor installer is itself a shell script,
-// so it is run with bash — that is the vendor's choice, not our logic.
-func (g *guest) installOpencode(ctx context.Context) error {
-	if _, err := g.resolve("brew"); err == nil {
-		if code, _ := g.run(ctx, "brew", "install", "anomalyco/tap/opencode"); code == 0 {
-			return nil
+// ensureOpencode upgrades an existing guest in place without recreating it or
+// discarding sessions. The private vendor install wins over old system binaries.
+func (g *guest) ensureOpencode(ctx context.Context) error {
+	probe := func() bool {
+		// os/exec resolves a bare executable before applying Cmd.Env. Use the
+		// guest's absolute resolution, and re-resolve after installation so a
+		// stale system v1 binary cannot shadow the private v2 installation.
+		binary, err := g.resolve("opencode")
+		if err != nil {
+			return false
 		}
-		if _, err := g.resolve("npm"); err == nil {
-			if code, _ := g.run(ctx, "npm", "install", "-g", "opencode-ai"); code == 0 {
-				return nil
-			}
+		result, err := g.cfg.Runner.RunEnv(ctx, g.env, binary, "--version")
+		return err == nil && result.ExitCode == 0 && strings.TrimSpace(result.Stdout) == "opencode v"+OpenCodeVersion
+	}
+	if probe() {
+		return nil
+	}
+	if _, err := g.resolve("opencode"); err == nil {
+		fmt.Fprintln(g.cfg.Stdout, "Updating managed OpenCode inside macOS VM...")
+		if err := g.runInstallerScript(ctx); err != nil {
+			return err
+		}
+	} else {
+		fmt.Fprintln(g.cfg.Stdout, "Installing OpenCode inside macOS VM...")
+		if err := g.installOpencode(ctx); err != nil {
+			return err
+		}
+	}
+	if !probe() {
+		return fmt.Errorf("guest must provide OpenCode v%s after installation; check the guest PATH", OpenCodeVersion)
+	}
+	return nil
+}
+
+// installOpencode installs the managed v2 package, falling back to the vendor's
+// v2 installer with an explicit version. Homebrew's unversioned v1 formula is
+// deliberately not used.
+func (g *guest) installOpencode(ctx context.Context) error {
+	if _, err := g.resolve("npm"); err == nil {
+		if code, _ := g.run(ctx, "npm", "install", "-g", "@opencode/cli@"+OpenCodeVersion); code == 0 {
+			return nil
 		}
 	}
 	return g.runInstallerScript(ctx)
@@ -400,7 +428,7 @@ func (g *guest) runInstallerScript(ctx context.Context) error {
 	if err := tmp.Close(); err != nil {
 		return err
 	}
-	if code, err := g.run(ctx, "bash", tmp.Name()); err != nil {
+	if code, err := g.run(ctx, "bash", tmp.Name(), "--version", OpenCodeVersion, "--no-modify-path"); err != nil {
 		return err
 	} else if code != 0 {
 		return fmt.Errorf("the OpenCode installer failed (exit %d)", code)
@@ -433,11 +461,8 @@ func RunGuestPrepare(ctx context.Context, cfg GuestConfig) error {
 	env := withEnv(cfg.Environ, "PATH="+pathEnv)
 
 	g := &guest{cfg: cfg, pathEnv: pathEnv, env: env}
-	if _, err := g.resolve("opencode"); err != nil {
-		fmt.Fprintln(cfg.Stdout, "Installing OpenCode inside macOS VM...")
-		if err := g.installOpencode(ctx); err != nil {
-			return err
-		}
+	if err := g.ensureOpencode(ctx); err != nil {
+		return err
 	}
 	if _, err := g.resolve("opencode"); err != nil {
 		return fmt.Errorf("opencode is not available on PATH inside the VM")
@@ -488,8 +513,11 @@ func guestSecretsEnv(password, username string, keys map[string]string, overlay 
 	// OpenCodeDisableUpdateEnv), and this file is the only environment that
 	// TUI receives.
 	var b strings.Builder
-	fmt.Fprintf(&b, "%s\nOPENCODE_SERVER_PASSWORD=%s\nOPENCODE_SERVER_USERNAME=%s\nOPENCODE_CONFIG_CONTENT=%s\n",
-		OpenCodeDisableUpdateAssignment, shellQuote(password), shellQuote(username), shellQuote(configContent))
+	fmt.Fprintf(&b, "%s\nOPENCODE_PASSWORD=%s\nOPENCODE_SERVER_PASSWORD=%s\nOPENCODE_SERVER_USERNAME=%s\nOPENCODE_CONFIG_CONTENT=%s\n",
+		OpenCodeDisableUpdateAssignment, shellQuote(password), shellQuote(password), shellQuote(username), shellQuote(configContent))
+	// Preparation resolves this private binary explicitly, but session probes
+	// and the TUI start a new login shell. Preserve the same selection there.
+	b.WriteString("PATH=\"$HOME/.opencode/bin:$PATH\"\n")
 	for _, assignment := range providerKeyAssignments(keys) {
 		name, value, _ := strings.Cut(assignment, "=")
 		fmt.Fprintf(&b, "%s=%s\n", name, shellQuote(value))

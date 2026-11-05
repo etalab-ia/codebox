@@ -330,6 +330,19 @@ func TestLoadConfigEnvDoesNotApplyDotenvImplicitly(t *testing.T) {
 	}
 }
 
+func TestLoadConfigEnvTrimsAlbertAPIKey(t *testing.T) {
+	t.Setenv("ALBERT_API_KEY", "  environment-secret \n")
+	cfg := LoadConfigEnv()
+	if cfg.APIKey != "environment-secret" {
+		t.Fatalf("APIKey = %q, want the trimmed value", cfg.APIKey)
+	}
+	t.Setenv("ALBERT_API_KEY", " \n\t ")
+	cfg = LoadConfigEnv()
+	if cfg.APIKey != "" {
+		t.Fatalf("a whitespace-only APIKey must be empty, got %q", cfg.APIKey)
+	}
+}
+
 // TestSandboxResourceDefaultsAndParsing pins the guest sizing source: the
 // built-in default, an explicit variable, and the rejection of a value the
 // sandbox SDK cannot carry (its CPU count is a uint8, so 256 would wrap).

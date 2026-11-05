@@ -12,6 +12,27 @@ import (
 	"time"
 )
 
+func TestOpenCodeV2BackendAuthPolicyAndCredentialTransport(t *testing.T) {
+	for _, cfg := range []Config{
+		{Isolation: IsolationBackend, Username: "legacy-user", Password: "secret-marker"},
+		{Isolation: IsolationBackend, Username: DefaultUsername, Password: ""},
+	} {
+		if err := ValidateOpenCodeBackend(cfg); err == nil || strings.Contains(err.Error(), "secret-marker") {
+			t.Fatalf("incompatible auth must fail without the credential: %v", err)
+		}
+	}
+	if err := ValidateOpenCodeBackend(Config{Isolation: IsolationFull}); err != nil {
+		t.Fatal(err)
+	}
+	if err := ValidateOpenCodeBackend(Config{Isolation: IsolationBackend, Username: DefaultUsername, Password: "secret-marker"}); err != nil {
+		t.Fatal(err)
+	}
+	env := withEnv([]string{"OPENCODE_PASSWORD=stale", "OPENCODE_SERVER_PASSWORD=legacy"}, OpenCodeClientEnv("secret-marker")...)
+	if !envHas(env, "OPENCODE_PASSWORD=secret-marker") || envHas(env, "OPENCODE_PASSWORD=stale") || !envHas(env, OpenCodeDisableUpdateAssignment) {
+		t.Fatal("v2 credential must override inherited password and keep update checks disabled")
+	}
+}
+
 func TestOpenCodeContinueArgsUsesCapabilityOutput(t *testing.T) {
 	if got := strings.Join(OpenCodeContinueArgs("-c, --continue continue the last session"), " "); got != "--continue" {
 		t.Fatalf("supported help args = %q", got)
@@ -71,12 +92,19 @@ func TestOpenCodeResumeArgsOnlyContinuesExistingSessions(t *testing.T) {
 func TestOpenCodeRemoteHasSessionsUsesAuthenticatedSessionRoute(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		user, pass, ok := r.BasicAuth()
-		if r.URL.Path != "/session" || !ok || user != "test-user" || pass != "test-password" {
+		if !ok || user != "test-user" || pass != "test-password" {
 			http.Error(w, "unexpected request", http.StatusBadRequest)
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`[{"id":"ses_123","title":"existing"}]`))
+		if r.URL.Path == "/api/location" {
+			_, _ = w.Write([]byte(`{"project":{"id":"project-123"}}`))
+			return
+		}
+		if r.URL.Path != "/api/session" || r.URL.Query().Get("project") != "project-123" || r.URL.Query().Get("parentID") != "null" {
+			t.Errorf("session request must be project scoped: %s", r.URL)
+		}
+		_, _ = w.Write([]byte(`{"data":[{"id":"ses_123","title":"existing"}],"cursor":{}}`))
 	}))
 	defer server.Close()
 

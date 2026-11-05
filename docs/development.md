@@ -23,7 +23,7 @@ Le CLI est un binaire Go unique (`cmd/just-code`) qui remplace entièrement le `
 Les trois régressions shell de l'ancien `justfile` sont corrigées et couvertes par `go test` :
 
 - **Délai de santé à horloge murale** : la boucle attend une échéance mesurée en temps réel (300 s par défaut, `JUST_CODE_START_TIMEOUT` en secondes), avec un timeout de 5 s par requête (une connexion bloquée ne contourne plus la limite).
-- **Mot de passe vide préservé** : `OPENCODE_SERVER_PASSWORD=""` signifie « pas d'authentification », au lieu de retomber silencieusement sur `albert-dev-pass`.
+- **Mot de passe vide préservé** : `OPENCODE_SERVER_PASSWORD=""` ne retombe pas silencieusement sur `albert-dev-pass`. Depuis OpenCode v2, le démarrage backend refuse cette valeur explicitement : un serveur authentifié est obligatoire.
 - **Surface des flags** : `--microsandbox` et `--tart` sont reconnus (flag explicite prioritaire sur `RUNTIME`), et les messages d'erreur reflètent exactement cette surface.
 
 Défauts découverts ensuite et corrigés dans le même esprit :

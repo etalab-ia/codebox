@@ -144,7 +144,7 @@ func TestMultiSelectPTYChild(t *testing.T) {
 			options[i] = huh.NewOption(label, label)
 		}
 		selected := []string{}
-		form = huh.NewForm(huh.NewGroup(newProjectMCPsMultiSelect(options, &selected)))
+		form = huh.NewForm(huh.NewGroup(newProjectMCPsMultiSelect(options, &selected, "MCP (facultatif)")))
 	case "filter":
 		form = captureInitMCPsForm(t)
 	default:

@@ -354,6 +354,7 @@ func LoadConfig(lookup EnvLookup) Config {
 		cfg.Password = DefaultPassword
 	}
 	cfg.APIKey, _ = lookup("ALBERT_API_KEY")
+	cfg.APIKey = strings.TrimSpace(cfg.APIKey)
 	if abs, err := filepath.Abs(cfg.WorkspaceDir); err == nil {
 		cfg.WorkspaceDir = abs
 	}

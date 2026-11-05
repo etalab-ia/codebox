@@ -136,8 +136,6 @@ Dossier : %s
 just-code va préparer une machine isolée pour ce projet.
 Par défaut, Microsandbox travaille sur une copie filtrée : vos fichiers .env
 et les fichiers ignorés par git ne sont pas copiés.
-Avec Tart et agent-vm, le dossier du projet est monté dans la machine :
-l'agent peut lire et modifier les fichiers qui s'y trouvent.
 
 3 étapes :
   1. Skills (facultatif) : des savoir-faire pour l'agent (sécurité, accessibilité…).
@@ -145,7 +143,9 @@ l'agent peut lire et modifier les fichiers qui s'y trouvent.
   3. GitHub (facultatif) : autoriser l'agent à proposer ses modifications sur ce dépôt.
 
 Les réglages techniques (ressources, isolation…) ont des valeurs par défaut,
-modifiables depuis le récapitulatif.
+modifiables depuis le récapitulatif. Les autres types de machine isolée
+et le partage du dossier qu'ils impliquent sont expliqués dans les
+réglages avancés.
 
 Rien n'est enregistré avant le récapitulatif final.
 Appuyez sur Entrée pour commencer, ou sur Ctrl+C pour quitter.
@@ -1041,8 +1041,8 @@ func askInitQuestions(in *bufio.Reader, opts initOptions, answers justcode.InitA
 		answers.SkillsLocalOnlySet = true
 	}
 	if !opts.Set["mcps"] {
-		fmt.Printf("\n%s\n", justcode.MCPStepTitle)
-		fmt.Println("Un MCP donne à l'agent l'accès à un service ou à un outil.")
+		fmt.Printf("\n%s\n", initMCPStepTitle(opts))
+		fmt.Println(justcode.MCPStepIntro)
 		current := append([]string(nil), answers.MCPConnectors...)
 		haveManifest := false
 		if !answers.MCPsSet {
@@ -1131,7 +1131,7 @@ func askInitQuestions(in *bufio.Reader, opts initOptions, answers justcode.InitA
 				// approval under Tart or agent-vm would only fail at the end,
 				// after every other answer, which is the #155 symptom. Say so
 				// on this screen and keep the run going.
-				fmt.Println(gitHubRuntimeScreen(answers.Runtime))
+				fmt.Println(gitHubRuntimeScreen(answers.Runtime, initGitHubStepTitle(opts)))
 				quit, err := gitHubContinueLoop(in)
 				if err != nil {
 					return answers, err
@@ -1145,7 +1145,7 @@ func askInitQuestions(in *bufio.Reader, opts initOptions, answers justcode.InitA
 				break githubStep
 			case !probe.HasOrigin:
 				answers.GitHubCase = 2
-				fmt.Println(gitHubNoOriginScreen())
+				fmt.Println(gitHubNoOriginScreen(initGitHubStepTitle(opts)))
 				quit, err := gitHubContinueLoop(in)
 				if err != nil {
 					return answers, err
@@ -1163,7 +1163,7 @@ func askInitQuestions(in *bufio.Reader, opts initOptions, answers justcode.InitA
 				// token yet": the remedy is to unlock it, not to add a token.
 				// GitHub stays optional, so this is a screen with a way out
 				// rather than an abort of the whole wizard.
-				fmt.Println(gitHubStoreErrorScreen(probe.TokenError))
+				fmt.Println(gitHubStoreErrorScreen(probe.TokenError, initGitHubStepTitle(opts)))
 				quit, err := gitHubContinueLoop(in)
 				if err != nil {
 					return answers, err
@@ -1177,7 +1177,7 @@ func askInitQuestions(in *bufio.Reader, opts initOptions, answers justcode.InitA
 				break githubStep
 			case !probe.HasToken:
 				answers.GitHubCase = 3
-				fmt.Println(gitHubNoTokenScreen(probe))
+				fmt.Println(gitHubNoTokenScreen(probe, initGitHubStepTitle(opts)))
 				addNow, err := gitHubTokenLoop(in)
 				if err != nil {
 					return answers, err
@@ -1196,7 +1196,7 @@ func askInitQuestions(in *bufio.Reader, opts initOptions, answers justcode.InitA
 				break githubStep
 			case probe.Rights == justcode.GitHubRepoRightsOK:
 				answers.GitHubCase = 1
-				fmt.Println(gitHubApprovedScreen(probe))
+				fmt.Println(gitHubApprovedScreen(probe, initGitHubStepTitle(opts)))
 				yes, err := gitHubYesDefault(in)
 				if err != nil {
 					return answers, err
@@ -1206,7 +1206,7 @@ func askInitQuestions(in *bufio.Reader, opts initOptions, answers justcode.InitA
 				break githubStep
 			default:
 				answers.GitHubCase = 4
-				fmt.Println(gitHubInsufficientScreen(probe))
+				fmt.Println(gitHubInsufficientScreen(probe, initGitHubStepTitle(opts)))
 				reverify, err := gitHubRightsLoop(in)
 				if err != nil {
 					return answers, err
@@ -1568,8 +1568,8 @@ func gitHubAccountLabel(p justcode.GitHubProjectStatus) string {
 	return "compte " + p.Login
 }
 
-func gitHubApprovedScreen(p justcode.GitHubProjectStatus) string {
-	return fmt.Sprintf(`[3/3] GitHub (facultatif)
+func gitHubApprovedScreen(p justcode.GitHubProjectStatus, title string) string {
+	return fmt.Sprintf(`%s
 
 Dépôt détecté : %s
 Jeton GitHub : %s, droits vérifiés sur ce dépôt ✅
@@ -1577,11 +1577,11 @@ Jeton GitHub : %s, droits vérifiés sur ce dépôt ✅
 Autoriser l'agent à pousser ses modifications sur une branche
 et à ouvrir une pull request en brouillon sur ce dépôt ? (O/n)
 Vous gardez la main : rien n'est fusionné sans votre accord.
-`, gitHubRepoDisplay(p.Remote), gitHubAccountLabel(p))
+`, title, gitHubRepoDisplay(p.Remote), gitHubAccountLabel(p))
 }
 
-func gitHubStoreErrorScreen(err error) string {
-	return fmt.Sprintf(`[3/3] GitHub (facultatif)
+func gitHubStoreErrorScreen(err error, title string) string {
+	return fmt.Sprintf(`%s
 
 Le mot de passe de votre poste protège les identifiants, et il n'a pas pu être
 lu. Tant qu'il est verrouillé, just-code ne peut pas savoir si un jeton GitHub
@@ -1591,11 +1591,11 @@ est disponible.
     Quitter, déverrouiller le trousseau, puis relancer : just-code init
 
 Détail : %v
-`, err)
+`, title, err)
 }
 
-func gitHubNoOriginScreen() string {
-	return `[3/3] GitHub (facultatif)
+func gitHubNoOriginScreen(title string) string {
+	return title + `
 
 Ce projet n'est pas relié à GitHub.
 L'agent travaille sur une copie du projet. Pour récupérer ses modifications
@@ -1617,12 +1617,12 @@ func gitHubAvailableForRuntime(runtime justcode.Runtime) bool {
 	return runtime == justcode.RuntimeMicrosandbox
 }
 
-func gitHubRuntimeScreen(runtime justcode.Runtime) string {
+func gitHubRuntimeScreen(runtime justcode.Runtime, title string) string {
 	name := string(runtime)
 	if name == "" {
 		name = string(justcode.RuntimeMicrosandbox)
 	}
-	return fmt.Sprintf(`[3/3] GitHub (facultatif)
+	return fmt.Sprintf(`%s
 
 Le partage de modifications par GitHub n'est pas disponible avec %s.
 Il fonctionne avec Microsandbox, qui travaille sur une copie scellée du projet.
@@ -1631,28 +1631,28 @@ récupérez les modifications directement dans votre dossier.
 
   > Continuer sans GitHub
     Quitter, choisir Microsandbox dans les questions précédentes, puis relancer
-`, name)
+`, title, name)
 }
 
-func gitHubNoTokenScreen(p justcode.GitHubProjectStatus) string {
-	return fmt.Sprintf(`[3/3] GitHub (facultatif)
+func gitHubNoTokenScreen(p justcode.GitHubProjectStatus, title string) string {
+	return fmt.Sprintf(`%s
 
 Dépôt détecté : %s
 Aucun jeton GitHub n'est enregistré sur ce poste.
 
   > Plus tard (just-code auth add github, puis just-code init)
     Ajouter un jeton maintenant      → même écran qu'au setup (cf. 3.4)
-`, gitHubRepoDisplay(p.Remote))
+`, title, gitHubRepoDisplay(p.Remote))
 }
 
-func gitHubInsufficientScreen(p justcode.GitHubProjectStatus) string {
-	return fmt.Sprintf(`[3/3] GitHub (facultatif)
+func gitHubInsufficientScreen(p justcode.GitHubProjectStatus, title string) string {
+	return fmt.Sprintf(`%s
 
 Dépôt détecté : %s
 %s
 
 [R] Revérifier  [C] Continuer sans GitHub
-`, gitHubRepoDisplay(p.Remote), gitHubRightsMessage(p))
+`, title, gitHubRepoDisplay(p.Remote), gitHubRightsMessage(p))
 }
 
 func gitHubRightsMessage(p justcode.GitHubProjectStatus) string {

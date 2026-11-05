@@ -644,8 +644,8 @@ func resolveAlbertWith(read credentialReader, ctx context.Context, cfg Config, f
 		}
 		return v, bindingSourceStore, s, ref, nil
 	}
-	if cfg.APIKey != "" {
-		return cfg.APIKey, bindingSourceEnv, "", "", nil
+	if v := strings.TrimSpace(cfg.APIKey); v != "" {
+		return v, bindingSourceEnv, "", "", nil
 	}
 	v, s, rerr := read(ctx, CredentialAlbert, from)
 	if rerr == nil {

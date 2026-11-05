@@ -125,9 +125,9 @@ fi
 ' >/dev/null 2>&1
 NODE_VER="$("$MSB" exec "$SB_PREFIX-debian" -- sh -c 'node --version' 2>/dev/null)"
 check "T6a Node invité" "v22.14.0" "$NODE_VER"
-"$MSB" exec "$SB_PREFIX-debian" -- sh -c 'npm install -g opencode-ai@1.18.32 >/dev/null 2>&1' >/dev/null 2>&1
+"$MSB" exec "$SB_PREFIX-debian" -- sh -c 'npm install -g @opencode/cli@2.2.5 >/dev/null 2>&1' >/dev/null 2>&1
 OC_VER="$("$MSB" exec "$SB_PREFIX-debian" -- sh -c 'opencode --version' 2>/dev/null)"
-check "T6b OpenCode invité" "1.18.32" "$OC_VER"
+check "T6b OpenCode invité" "opencode v2.2.5" "$OC_VER"
 
 # T7: navigateur réel — navigation + DOM + capture d'écran.
 "$MSB" exec "$SB_PREFIX-debian" -- sh -c '

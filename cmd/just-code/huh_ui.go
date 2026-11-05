@@ -142,7 +142,7 @@ func huhApplyAccessible(plan justcode.InitPlan, showDiff *bool) (string, error) 
 // and nothing else on the screen says so. Testers completed init believing
 // Enter had selected the highlighted item, and the project was created with
 // nothing (#156).
-const multiSelectKeyHint = "Space or x toggles an item; Enter confirms the list; / filters."
+const multiSelectKeyHint = "Espace ou x pour cocher/décocher ; Entrée pour valider la liste ; / pour filtrer."
 
 // resizeCursorMultiSelect compensates for huh 2.0.3 resizing a MultiSelect's
 // viewport without bringing its current option back into view.
@@ -264,13 +264,33 @@ func retainedSkillOptions(options []huh.Option[string], selected []string) []huh
 	return retained
 }
 
-func initSkillsStepPrefix(opts initOptions) string {
-	for _, field := range []string{"root", "runtime", "isolation", "model", "small-model", "cpus", "memory-mb", "credential-ref", "github"} {
+// initStepPrefix numbers the three-step init flow ([1/3], [2/3], [3/3]) for
+// the beginner path. When an expert setting or an entire step comes from a
+// flag, the counter is omitted rather than risk a misleading number (#312).
+// The displayed root never skips a step, so it does not suppress the counter.
+func initStepPrefix(opts initOptions, step int) string {
+	for _, field := range []string{"runtime", "isolation", "model", "small-model", "cpus", "memory-mb", "credential-ref", "github", "skills", "mcps"} {
 		if opts.Set[field] {
 			return ""
 		}
 	}
-	return "[1/3] "
+	return fmt.Sprintf("[%d/3] ", step)
+}
+
+func initSkillsStepPrefix(opts initOptions) string {
+	return initStepPrefix(opts, 1)
+}
+
+// initMCPStepTitle is the MCP screen title with the same counter rule as the
+// other steps (#312); the base wording is justcode.MCPStepTitle's.
+func initMCPStepTitle(opts initOptions) string {
+	return initStepPrefix(opts, 2) + "MCP (facultatif)"
+}
+
+// initGitHubStepTitle is the GitHub screen title with the same counter rule
+// (#312).
+func initGitHubStepTitle(opts initOptions) string {
+	return initStepPrefix(opts, 3) + "GitHub (facultatif)"
 }
 
 func newProjectSkillsMultiSelect(skillOptions []huh.Option[string], value *[]string, stepPrefix string) *huh.MultiSelect[string] {
@@ -292,20 +312,15 @@ func keepEmptyInitSkillsForRetry(answers *justcode.InitAnswers) {
 	answers.SkillsSet = true
 }
 
-// commitInitHuhSubmission copies the submitted form values into answers.
-// It matches the line wizard's "Enter keeps" semantics: a submission only
-// marks a value explicit when it differs from the seeded value, so
-// accepting the defaults preserves the project's existing skill pins and
-// storage mode. huh rebuilds a MultiSelect's value in its own option
-// order, so it compares as sets: a reordered-but-identical selection is
-// not a change. Sibling choices are committed before the caller acts on
-// the skills decision, so a refused empty-skills retry keeps them.
-// The zero-MCP confirmation runs before the MCP and storage write-backs,
-// so declining it reopens the form with those answers unchanged, like
-// the line wizard. It reports whether the submission needs the
-// zero-skills confirmation, and whether the user declined the zero-MCP
-// confirmation.
-func commitInitHuhSubmission(opts initOptions, answers *justcode.InitAnswers, skills, mcps []string, skillsLocalOnly bool, skillOptions []huh.Option[string], skipSkills bool) (bool, bool, error) {
+// commitInitHuhSkills copies the skills group's submitted values into
+// answers. It runs when the user LEAVES the skills selection, before the MCP
+// step and before the empty-selection confirmation (#307), so a declined
+// confirmation reopens the form with every other answer kept. It matches the
+// line wizard's "Enter keeps" semantics: a submission only marks a value
+// explicit when it differs from the seeded value, and huh rebuilds a
+// MultiSelect's value in its own option order, so it compares as sets.
+// It reports whether the submission needs the zero-skills confirmation.
+func commitInitHuhSkills(opts initOptions, answers *justcode.InitAnswers, skills []string, skillsLocalOnly bool, skillOptions []huh.Option[string], skipSkills bool) bool {
 	needsSkillsConfirm := false
 	if !skipSkills {
 		selectedSkills := append([]string(nil), skills...)
@@ -314,26 +329,42 @@ func commitInitHuhSubmission(opts initOptions, answers *justcode.InitAnswers, sk
 		answers.RetainedSkills = retainedInitSkillIDs(selectedSkills, skillOptions)
 		needsSkillsConfirm = len(skills) == 0
 	}
-	if !opts.Set["mcps"] {
-		if len(mcps) == 0 {
-			// Same zero-selection confirmation as the line wizard;
-			// declining reopens the form with the answers unchanged.
-			keep, confirmErr := confirmNoMCPsHuh()
-			if confirmErr != nil {
-				return false, false, confirmErr
-			}
-			if !keep {
-				return needsSkillsConfirm, true, nil
-			}
-		}
-		answers.MCPsSet = answers.MCPsSet || !equalStringSets(answers.MCPConnectors, mcps)
-		answers.MCPConnectors = mcps
-	}
 	if !opts.Set["skills-storage"] {
 		answers.SkillsLocalOnlySet = answers.SkillsLocalOnlySet || answers.SkillsLocalOnly != skillsLocalOnly
 		answers.SkillsLocalOnly = skillsLocalOnly
 	}
-	return needsSkillsConfirm, false, nil
+	return needsSkillsConfirm
+}
+
+// initEmptySkillsConfirmFn asks the zero-skills confirmation (#307). It is a
+// var so tests can place the question in the form sequence and script its
+// answer, the same pattern as huhRun.
+var initEmptySkillsConfirmFn = func() (bool, error) {
+	return huhConfirm("Aucune skill sélectionnée. Continuer sans skill ? (O/n)", "Appuyez sur Entrée pour continuer, ou choisissez non pour revenir à la sélection.", true)
+}
+
+// commitInitHuhMCPs copies the MCP submission into answers. The zero-MCP
+// confirmation runs before the write-back, so declining it reopens the form
+// with those answers unchanged, like the line wizard. It reports whether the
+// user declined that confirmation.
+func commitInitHuhMCPs(opts initOptions, answers *justcode.InitAnswers, mcps []string) (bool, error) {
+	if opts.Set["mcps"] {
+		return false, nil
+	}
+	if len(mcps) == 0 {
+		// Same zero-selection confirmation as the line wizard;
+		// declining reopens the form with the answers unchanged.
+		keep, confirmErr := confirmNoMCPsHuh()
+		if confirmErr != nil {
+			return false, confirmErr
+		}
+		if !keep {
+			return true, nil
+		}
+	}
+	answers.MCPsSet = answers.MCPsSet || !equalStringSets(answers.MCPConnectors, mcps)
+	answers.MCPConnectors = mcps
+	return false, nil
 }
 
 func newInitSkillsGroup(skillOptions []huh.Option[string], skills *[]string, skillsLocalOnly *bool, includeSkills, includeStorage bool, stepPrefix string) *huh.Group {
@@ -354,14 +385,18 @@ func newInitSkillsGroup(skillOptions []huh.Option[string], skills *[]string, ski
 	return huh.NewGroup(fields...).Title("Skills")
 }
 
-func newProjectMCPsMultiSelect(mcpOptions []huh.Option[string], value *[]string) huh.Field {
+func newProjectMCPsMultiSelect(mcpOptions []huh.Option[string], value *[]string, title string) huh.Field {
 	return keepMultiSelectCursorOnResize(huh.NewMultiSelect[string]().
-		Title("MCPs").
-		Description("Curated remote services and optional guest-local browser tools. " + multiSelectKeyHint).
+		Title(title).
+		Description(justcode.MCPStepIntro + " " + multiSelectKeyHint).
 		Height(len(mcpOptions) + 10).
 		Filterable(true).
 		Options(mcpOptions...).
 		Value(value))
+}
+
+func newProjectMCPsGroup(fields []huh.Field) *huh.Group {
+	return huh.NewGroup(fields...).Title("MCP")
 }
 
 // retainedMCPOptions appends non-selectable options for withdrawn MCP ids
@@ -895,6 +930,9 @@ func askInitQuestionsHuh(opts initOptions, answers justcode.InitAnswers) (justco
 	// The form runs in a loop: when the user changes the project root, the
 	// answers are reseeded from the target project's manifest (matching
 	// the line wizard) and the form reopens with the reseeded defaults.
+	// An accepted empty-skills decision covers later MCP retries; it is reset
+	// only when the project changes or the user selects a skill again.
+	emptySkillsConfirmed := false
 	for {
 		// Local copies the form binds to; written back to answers on success.
 		// The root field starts empty each pass: an empty submission keeps the
@@ -959,26 +997,33 @@ func askInitQuestionsHuh(opts initOptions, answers justcode.InitAnswers) (justco
 
 		mcpFields := make([]huh.Field, 0, 2)
 		if !opts.Set["mcps"] {
-			mcpFields = append(mcpFields, newProjectMCPsMultiSelect(mcpOptionsPass, &mcps))
+			mcpFields = append(mcpFields, newProjectMCPsMultiSelect(mcpOptionsPass, &mcps, initMCPStepTitle(opts)))
 		}
 		var mcpGroup *huh.Group
 		if len(mcpFields) > 0 {
-			mcpGroup = huh.NewGroup(mcpFields...).Title("MCPs and storage")
+			mcpGroup = newProjectMCPsGroup(mcpFields)
 		}
 
 		// Groups are omitted structurally rather than via WithHideFunc:
 		// huh's accessible runner (TERM=dumb) iterates every group and
 		// never evaluates hide predicates, so a hidden group would still
 		// prompt there and its submitted value would override the flag.
-		var groups []*huh.Group
-		for _, g := range []*huh.Group{rootGroup, skillsGroup, mcpGroup} {
+		//
+		// The skills groups run in a FIRST form and the MCP group in a
+		// second one (#307): the empty-skills confirmation belongs to the
+		// moment the user leaves the skills selection, before the MCP
+		// step, like the line wizard — not after the whole form.
+		var skillsFormGroups []*huh.Group
+		for _, g := range []*huh.Group{rootGroup, skillsGroup} {
 			if g != nil {
-				groups = append(groups, g)
+				skillsFormGroups = append(skillsFormGroups, g)
 			}
 		}
-		if err := huhRun(huh.NewForm(groups...)); err != nil {
-			recordInitAbandon(answers.Root, "skills")
-			return answers, err
+		if len(skillsFormGroups) > 0 {
+			if err := huhRun(huh.NewForm(skillsFormGroups...)); err != nil {
+				recordInitAbandon(answers.Root, "skills")
+				return answers, err
+			}
 		}
 
 		// Write the form's answers back; a root change re-seeds every other
@@ -1001,19 +1046,23 @@ func askInitQuestionsHuh(opts initOptions, answers justcode.InitAnswers) (justco
 			if !opts.Set["mcps"] {
 				answers.MCPsSet = false
 			}
+			emptySkillsConfirmed = false
 			continue
 		}
 		answers.Root = newRoot
-		needsSkillsConfirm, retryMCPs, err := commitInitHuhSubmission(opts, &answers, skills, mcps, skillsLocalOnly, skillOptions, skipSkills)
-		if err != nil {
-			return answers, err
+		// Commit the skills answers BEFORE the confirmation: a declined
+		// confirmation reopens the form, which reseeds from answers, so the
+		// storage choice and the other answers must already be safe (#307).
+		needsSkillsConfirm := commitInitHuhSkills(opts, &answers, skills, skillsLocalOnly, skillOptions, skipSkills)
+		if len(skills) > 0 {
+			emptySkillsConfirmed = false
 		}
-		if retryMCPs {
-			continue
-		}
-		if needsSkillsConfirm {
-			proceed, err := huhConfirm("Aucune skill sélectionnée. Continuer sans skill ? (O/n)", "Appuyez sur Entrée pour continuer, ou choisissez non pour revenir à la sélection.", true)
+		if needsSkillsConfirm && !emptySkillsConfirmed {
+			proceed, err := initEmptySkillsConfirmFn()
 			if err != nil {
+				// An aborted confirmation is an interruption on the skills
+				// step, not a retry and not a successful return (#310).
+				recordInitAbandon(answers.Root, "skills")
 				return answers, err
 			}
 			if !proceed {
@@ -1022,6 +1071,23 @@ func askInitQuestionsHuh(opts initOptions, answers justcode.InitAnswers) (justco
 			}
 			answers.Skills = nil
 			answers.SkillsSet = true
+			emptySkillsConfirmed = true
+		}
+		if mcpGroup != nil {
+			if err := huhRun(huh.NewForm(mcpGroup)); err != nil {
+				// The MCP form is a distinct step: an interruption here
+				// must not be attributed to skills (#310).
+				recordInitAbandon(answers.Root, "mcp")
+				return answers, err
+			}
+		}
+		retryMCPs, err := commitInitHuhMCPs(opts, &answers, mcps)
+		if err != nil {
+			recordInitAbandon(answers.Root, "mcp")
+			return answers, err
+		}
+		if retryMCPs {
+			continue
 		}
 		// The GitHub step is a distinct screen, not a field of the main
 		// form: it renders one of the four situations and verifies on that
@@ -1030,7 +1096,7 @@ func askInitQuestionsHuh(opts initOptions, answers justcode.InitAnswers) (justco
 		// away the answers already collected (#155).
 		if !opts.Set["github"] {
 			var err error
-			answers, err = askGitHubStepHuh(answers)
+			answers, err = askGitHubStepHuh(answers, initGitHubStepTitle(opts))
 			if err != nil {
 				recordInitAbandon(answers.Root, "github")
 				return answers, err
@@ -1084,7 +1150,7 @@ func shouldSkipSkillsField(opts initOptions, catalogueErr error) bool {
 // askGitHubStepHuh renders the GitHub step (3.9) as its own screen with one
 // distinct form per situation (#169). It verifies on that screen, so a
 // refusal or a re-verify never throws away the other answers (#155).
-func askGitHubStepHuh(answers justcode.InitAnswers) (justcode.InitAnswers, error) {
+func askGitHubStepHuh(answers justcode.InitAnswers, title string) (justcode.InitAnswers, error) {
 	for {
 		probe := githubInitProbeFn(answers.Root)
 		switch {
@@ -1096,7 +1162,7 @@ func askGitHubStepHuh(answers justcode.InitAnswers) (justcode.InitAnswers, error
 			err := huhRun(huh.NewForm(
 				huh.NewGroup(
 					huh.NewNote().
-						Title("[3/3] GitHub (facultatif)").
+						Title(title).
 						Description(fmt.Sprintf("Le partage de modifications par GitHub n'est pas disponible avec %s.\nIl fonctionne avec Microsandbox, qui travaille sur une copie scellée du projet. Avec Tart et agent-vm, le dossier du projet est monté dans la machine : vous récupérez les modifications directement dans votre dossier.", string(answers.Runtime))),
 					huh.NewSelect[string]().
 						Title("GitHub").
@@ -1122,7 +1188,7 @@ func askGitHubStepHuh(answers justcode.InitAnswers) (justcode.InitAnswers, error
 			err := huhRun(huh.NewForm(
 				huh.NewGroup(
 					huh.NewNote().
-						Title("[3/3] GitHub (facultatif)").
+						Title(title).
 						Description("Ce projet n'est pas relié à GitHub.\nL'agent travaille sur une copie du projet. Pour récupérer ses modifications dans votre dossier, vous les relirez puis les appliquerez avec : just-code workspace apply"),
 					huh.NewSelect[string]().
 						Title("Que voulez-vous faire ?").
@@ -1151,7 +1217,7 @@ func askGitHubStepHuh(answers justcode.InitAnswers) (justcode.InitAnswers, error
 			err := huhRun(huh.NewForm(
 				huh.NewGroup(
 					huh.NewNote().
-						Title("[3/3] GitHub (facultatif)").
+						Title(title).
 						Description(fmt.Sprintf("Le mot de passe de votre poste protège les identifiants, et il n'a pas pu être lu.\nTant qu'il est verrouillé, just-code ne peut pas savoir si un jeton GitHub est disponible.\n\nDétail : %v", probe.TokenError)),
 					huh.NewSelect[string]().
 						Title("GitHub").
@@ -1177,7 +1243,7 @@ func askGitHubStepHuh(answers justcode.InitAnswers) (justcode.InitAnswers, error
 			err := huhRun(huh.NewForm(
 				huh.NewGroup(
 					huh.NewNote().
-						Title("[3/3] GitHub (facultatif)").
+						Title(title).
 						Description(fmt.Sprintf("Dépôt détecté : %s\nAucun jeton GitHub n'est enregistré sur ce poste.", gitHubRepoDisplay(probe.Remote))),
 					huh.NewSelect[string]().
 						Title("Jeton GitHub").
@@ -1213,11 +1279,13 @@ func askGitHubStepHuh(answers justcode.InitAnswers) (justcode.InitAnswers, error
 			err := huhRun(huh.NewForm(
 				huh.NewGroup(
 					huh.NewNote().
-						Title("[3/3] GitHub (facultatif)").
+						Title(title).
 						Description(fmt.Sprintf("Dépôt détecté : %s\nJeton GitHub : %s, droits vérifiés sur ce dépôt ✅", gitHubRepoDisplay(probe.Remote), gitHubAccountLabel(probe))),
 					huh.NewConfirm().
 						Title("Autoriser l'agent à pousser ses modifications sur une branche et à ouvrir une pull request en brouillon sur ce dépôt ?").
 						Description("Vous gardez la main : rien n'est fusionné sans votre accord.").
+						Affirmative("Oui").
+						Negative("Non").
 						Value(&yes),
 				),
 			))
@@ -1233,7 +1301,7 @@ func askGitHubStepHuh(answers justcode.InitAnswers) (justcode.InitAnswers, error
 			err := huhRun(huh.NewForm(
 				huh.NewGroup(
 					huh.NewNote().
-						Title("[3/3] GitHub (facultatif)").
+						Title(title).
 						Description(fmt.Sprintf("Dépôt détecté : %s\n%s", gitHubRepoDisplay(probe.Remote), gitHubRightsMessage(probe))),
 					huh.NewSelect[string]().
 						Title("Jeton GitHub").

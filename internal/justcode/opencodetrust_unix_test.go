@@ -50,3 +50,20 @@ func TestHashFileContentRefusesSymlinkedParentDir(t *testing.T) {
 		t.Fatal("hash must refuse a file reached through a symlinked parent directory")
 	}
 }
+
+func TestDeclaredPluginDirectoryRefusesSymlink(t *testing.T) {
+	root, outside := t.TempDir(), t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, ".opencode"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(outside, filepath.Join(root, ".opencode", "declared")); err != nil {
+		t.Fatal(err)
+	}
+	config := []byte(`{"plugins":["./.opencode/declared"]}`)
+	if err := os.WriteFile(filepath.Join(root, "opencode.json"), config, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := DiscoverProjectExecutionInputs(root); err == nil {
+		t.Fatal("declared plugin discovery must refuse a symlinked directory")
+	}
+}

@@ -4,8 +4,11 @@ import (
 	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
+	"net/url"
 	"os"
 	"path/filepath"
+	"runtime"
+	"strconv"
 	"testing"
 )
 
@@ -73,6 +76,151 @@ func TestTrustLifecycle(t *testing.T) {
 	}
 	if len(unapproved) != 2 {
 		t.Fatalf("changed + new plugin must both be unapproved: %+v", unapproved)
+	}
+}
+
+func TestV2ExecutionDeclarationsRequireFreshTrust(t *testing.T) {
+	for name, config := range map[string]string{
+		"plugin string":      `{"plugins":["./declared-plugin"]}`,
+		"plugin object":      `{"plugins":[{"package":"./declared-plugin","options":{"enabled":true}}]}`,
+		"native MCP command": `{"mcp":{"servers":{"local":{"type":"local","command":["node","server.js"]}}}}`,
+		"legacy MCP array":   `{"mcp":{"local":{"type":"local","command":["node","server.js"]}}}`,
+		"native remote MCP":  `{"mcp":{"servers":{"docs":{"type":"remote","url":"https://docs.example/mcp"}}}}`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			root, state := t.TempDir(), t.TempDir()
+			path := filepath.Join(root, "opencode.json")
+			if err := os.WriteFile(path, []byte(config), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			if got, err := DiscoverUnapprovedInputs(DefaultFS, state, root); err != nil || len(got) != 1 {
+				t.Fatalf("v2 execution declaration bypassed approval: %+v, %v", got, err)
+			}
+			if err := ApproveExecutionInputs(DefaultFS, state, root); err != nil {
+				t.Fatal(err)
+			}
+			if got, err := DiscoverUnapprovedInputs(DefaultFS, state, root); err != nil || len(got) != 0 {
+				t.Fatalf("approved declaration not recognized: %+v, %v", got, err)
+			}
+			if err := os.WriteFile(path, []byte(config+"\n"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			if got, err := DiscoverUnapprovedInputs(DefaultFS, state, root); err != nil || len(got) != 1 || got[0].Reason != "changed since approval" {
+				t.Fatalf("changed v2 declaration kept prior approval: %+v, %v", got, err)
+			}
+		})
+	}
+}
+
+func TestDeclaredPluginCodeChangeRequiresFreshTrust(t *testing.T) {
+	root, state := t.TempDir(), t.TempDir()
+	config := filepath.Join(root, "opencode.json")
+	if err := os.WriteFile(config, []byte(`{"plugins":["./.opencode/declared"]}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	plugin := filepath.Join(root, ".opencode", "declared", "lib", "hook.js")
+	if err := os.MkdirAll(filepath.Dir(plugin), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(plugin, []byte("export const approved = true\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := ApproveExecutionInputs(DefaultFS, state, root); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(plugin, []byte("export const approved = false\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	got, err := DiscoverUnapprovedInputs(DefaultFS, state, root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantPath := filepath.Join(".opencode", "declared", "lib", "hook.js")
+	if len(got) != 1 || got[0].Path != wantPath || got[0].Reason != "changed since approval" {
+		t.Fatalf("changed declared plugin code kept prior approval: %+v", got)
+	}
+}
+
+func TestNestedConfigDeclaredPluginCodeChangeRequiresFreshTrust(t *testing.T) {
+	root, state := t.TempDir(), t.TempDir()
+	config := filepath.Join(root, ".opencode", "opencode.json")
+	if err := os.MkdirAll(filepath.Dir(config), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(config, []byte(`{"plugins":["./declared"]}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	plugin := filepath.Join(root, ".opencode", "declared", "index.js")
+	if err := os.MkdirAll(filepath.Dir(plugin), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(plugin, []byte("export const approved = true\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := ApproveExecutionInputs(DefaultFS, state, root); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(plugin, []byte("export const approved = false\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	got, err := DiscoverUnapprovedInputs(DefaultFS, state, root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantPath := filepath.Join(".opencode", "declared", "index.js")
+	if len(got) != 1 || got[0].Path != wantPath || got[0].Reason != "changed since approval" {
+		t.Fatalf("nested config plugin code kept prior approval: %+v", got)
+	}
+}
+
+func TestFileURLDeclaredPluginCodeChangeRequiresFreshTrust(t *testing.T) {
+	root, state := t.TempDir(), t.TempDir()
+	pluginDir := filepath.Join(root, ".opencode", "declared")
+	plugin := filepath.Join(pluginDir, "index.js")
+	if err := os.MkdirAll(pluginDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(plugin, []byte("export const approved = true\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	pluginURLPath := filepath.ToSlash(pluginDir)
+	if runtime.GOOS == "windows" {
+		pluginURLPath = "/" + pluginURLPath
+	}
+	reference := (&url.URL{Scheme: "file", Path: pluginURLPath}).String()
+	config := []byte(`{"plugins":[` + strconv.Quote(reference) + `]}`)
+	if err := os.WriteFile(filepath.Join(root, "opencode.json"), config, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := ApproveExecutionInputs(DefaultFS, state, root); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(plugin, []byte("export const approved = false\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	got, err := DiscoverUnapprovedInputs(DefaultFS, state, root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantPath := filepath.Join(".opencode", "declared", "index.js")
+	if len(got) != 1 || got[0].Path != wantPath || got[0].Reason != "changed since approval" {
+		t.Fatalf("file URL plugin code kept prior approval: %+v", got)
+	}
+}
+
+func TestDeclaredPluginFileURLOutsideProjectRejected(t *testing.T) {
+	root, outside := t.TempDir(), t.TempDir()
+	outsidePath := filepath.ToSlash(outside)
+	if runtime.GOOS == "windows" {
+		outsidePath = "/" + outsidePath
+	}
+	reference := (&url.URL{Scheme: "file", Path: outsidePath}).String()
+	config := []byte(`{"plugins":[` + strconv.Quote(reference) + `]}`)
+	if err := os.WriteFile(filepath.Join(root, "opencode.json"), config, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := DiscoverProjectExecutionInputs(root); err == nil {
+		t.Fatal("declared plugin outside the project must not bypass confinement")
 	}
 }
 

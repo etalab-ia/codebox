@@ -46,17 +46,44 @@ func exitScreen(ctx context.Context, d *justcode.Dispatcher, cfg justcode.Config
 	fmt.Println("Pour reprendre cette session : just-code")
 }
 
+// guestBranchLine renders the branch report of the exit screen (#306). It
+// returns "" when there is nothing to report. The states stay distinct:
+// pushed with a draft or ready PR, pushed with an UNVERIFIED PR state (gh or
+// network unavailable is not "no PR"), pushed without a PR, and a branch
+// created but never pushed.
+func guestBranchLine(status justcode.GuestBranchStatus) string {
+	switch {
+	case status.Pushed && status.PRURL != "" && status.PRDraft:
+		return fmt.Sprintf("Branche poussée : %s, pull request en brouillon : %s", status.Branch, status.PRURL)
+	case status.Pushed && status.PRURL != "":
+		return fmt.Sprintf("Branche poussée : %s, pull request : %s", status.Branch, status.PRURL)
+	case status.Pushed && !status.PRKnown:
+		return fmt.Sprintf("Branche poussée : %s (pull request non vérifiée : gh ou réseau indisponible)", status.Branch)
+	case status.Pushed:
+		return fmt.Sprintf("Branche poussée : %s", status.Branch)
+	case status.Branch != "":
+		return fmt.Sprintf("Branche créée dans la machine isolée mais non poussée : %s", status.Branch)
+	default:
+		return ""
+	}
+}
+
 // exitRecoveryBlock reports the agent's pushed branch and unrecovered work,
 // and offers to run the recovery command (issue #174). It prints nothing
-// when there is nothing to report.
+// when there is nothing to report. A branch read failure is reported on
+// stderr, never silently read as "nothing pushed" (#306).
 func exitRecoveryBlock(ctx context.Context, m *justcode.MicrosandboxRuntime, instance, sourceDir string) {
-	branch, prURL, pushed, err := m.GuestPushedBranch(ctx)
-	if err == nil && pushed {
-		if prURL != "" {
-			fmt.Printf("Branche poussée : %s, pull request en brouillon : %s\n", branch, prURL)
-		} else {
-			fmt.Printf("Branche poussée : %s\n", branch)
-		}
+	status, err := m.GuestBranchStatus(ctx)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "Impossible de lire les branches de la machine isolée ; l'état du push et de la pull request n'a pas pu être vérifié.")
+	} else if line := guestBranchLine(status); line != "" {
+		fmt.Println(line)
+	}
+	// A legacy guest has no recovery base: a clean tree there does NOT mean
+	// all work is recovered, because committed guest work is invisible to
+	// the legacy diff (#313). Say so instead of implying a full recovery.
+	if warning, werr := m.GuestRecoveryWarning(ctx); werr == nil && warning != "" {
+		fmt.Fprintln(os.Stderr, warning)
 	}
 	unrecovered, err := justcode.UnrecoveredGuestChanges(ctx, m)
 	if err != nil {

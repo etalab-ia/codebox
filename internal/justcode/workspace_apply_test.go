@@ -3,6 +3,7 @@ package justcode
 import (
 	"context"
 	"encoding/base64"
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -331,52 +332,275 @@ func TestApplyRecordStoreLoadsOldSchemasWithoutBaselines(t *testing.T) {
 	}
 }
 
-func TestGuestPushedBranch(t *testing.T) {
+func TestGuestBranchStatus(t *testing.T) {
 	t.Run("never created", func(t *testing.T) {
 		client := sealedFakeMSB()
-		client.execCaptureResults = []fakeMSBExecCaptureResult{{code: 1}}
+		client.execCaptureResults = []fakeMSBExecCaptureResult{
+			{code: 1},                  // git config --get: no marker
+			{stdout: "main\x001000\n"}, // local branches
+			{stdout: "origin/main\x001000\norigin/HEAD\x001000\n"}, // remote refs
+			{stdout: "refs/remotes/origin/main@{0}\x00fetch origin: storing head\n"},
+			{stdout: "origin/main\n"}, // remote HEAD
+		}
 		m, _ := applyTestRuntime(t, client)
-		branch, prURL, pushed, err := m.GuestPushedBranch(context.Background())
-		if err != nil || pushed || branch != "" || prURL != "" {
-			t.Fatalf("GuestPushedBranch = (%q, %q, %v, %v), want empty and not pushed", branch, prURL, pushed, err)
+		status, err := m.GuestBranchStatus(context.Background())
+		if err != nil || status.Branch != "" || status.Pushed {
+			t.Fatalf("GuestBranchStatus = (%+v, %v), want nothing to report", status, err)
+		}
+	})
+	t.Run("never created without marker or origin", func(t *testing.T) {
+		for _, baseline := range []string{"main", "master"} {
+			t.Run(baseline, func(t *testing.T) {
+				client := sealedFakeMSB()
+				client.execCaptureResults = []fakeMSBExecCaptureResult{
+					{code: 1},
+					{stdout: baseline + "\x001000\n"},
+					{stdout: ""},
+					{stdout: ""},
+					{code: 1},
+				}
+				m, _ := applyTestRuntime(t, client)
+				status, err := m.GuestBranchStatus(context.Background())
+				if err != nil || status.Branch != "" || status.Pushed {
+					t.Fatalf("GuestBranchStatus = (%+v, %v), want the bootstrap baseline ignored", status, err)
+				}
+			})
 		}
 	})
 	t.Run("created but never pushed", func(t *testing.T) {
 		client := sealedFakeMSB()
 		client.execCaptureResults = []fakeMSBExecCaptureResult{
-			{stdout: "letta/fix\n"}, // git config --get
-			{code: 1},               // rev-parse: no remote ref
+			{stdout: "letta/fix\n"},
+			{stdout: "letta/fix\x001000\n"},
+			{stdout: "origin/main\x001000\n"},
+			{stdout: "refs/remotes/origin/main@{0}\x00fetch origin: storing head\n"},
+			{stdout: "origin/main\n"},
 		}
 		m, _ := applyTestRuntime(t, client)
-		branch, prURL, pushed, err := m.GuestPushedBranch(context.Background())
-		if err != nil || pushed || branch != "letta/fix" || prURL != "" {
-			t.Fatalf("GuestPushedBranch = (%q, %q, %v, %v), want the branch, not pushed", branch, prURL, pushed, err)
+		status, err := m.GuestBranchStatus(context.Background())
+		if err != nil || status.Pushed || status.Branch != "letta/fix" || status.PRURL != "" {
+			t.Fatalf("GuestBranchStatus = (%+v, %v), want the branch, not pushed", status, err)
 		}
 	})
 	t.Run("pushed with a draft pull request", func(t *testing.T) {
 		client := sealedFakeMSB()
 		client.execCaptureResults = []fakeMSBExecCaptureResult{
 			{stdout: "letta/fix\n"},
-			{stdout: "refs/remotes/origin/letta/fix\n"},
-			{stdout: `[{"url":"https://github.com/owner/repo/pull/9"}]`},
+			{stdout: "letta/fix\x001000\n"},
+			{stdout: "origin/main\x001000\norigin/letta/fix\x001000\n"},
+			{stdout: "refs/remotes/origin/letta/fix@{0}\x00update by push\n"},
+			{stdout: "origin/main\n"},
+			{stdout: `[{"url":"https://github.com/owner/repo/pull/9","isDraft":true}]`},
 		}
 		m, _ := applyTestRuntime(t, client)
-		branch, prURL, pushed, err := m.GuestPushedBranch(context.Background())
-		if err != nil || !pushed || branch != "letta/fix" || prURL != "https://github.com/owner/repo/pull/9" {
-			t.Fatalf("GuestPushedBranch = (%q, %q, %v, %v), want pushed with the pull request", branch, prURL, pushed, err)
+		status, err := m.GuestBranchStatus(context.Background())
+		if err != nil || !status.Pushed || status.Branch != "letta/fix" ||
+			status.PRURL != "https://github.com/owner/repo/pull/9" || !status.PRDraft || !status.PRKnown {
+			t.Fatalf("GuestBranchStatus = (%+v, %v), want pushed with the draft pull request", status, err)
 		}
 	})
-	t.Run("pushed without a usable gh", func(t *testing.T) {
+	t.Run("pushed without a usable gh means PR unknown", func(t *testing.T) {
 		client := sealedFakeMSB()
 		client.execCaptureResults = []fakeMSBExecCaptureResult{
 			{stdout: "letta/fix\n"},
-			{stdout: "refs/remotes/origin/letta/fix\n"},
+			{stdout: "letta/fix\x001000\n"},
+			{stdout: "origin/main\x001000\norigin/letta/fix\x001000\n"},
+			{stdout: "refs/remotes/origin/letta/fix@{0}\x00update by push\n"},
+			{stdout: "origin/main\n"},
 			{code: 1}, // gh pr list fails; the branch still counts as pushed
 		}
 		m, _ := applyTestRuntime(t, client)
-		branch, prURL, pushed, err := m.GuestPushedBranch(context.Background())
-		if err != nil || !pushed || branch != "letta/fix" || prURL != "" {
-			t.Fatalf("GuestPushedBranch = (%q, %q, %v, %v), want pushed without a pull request", branch, prURL, pushed, err)
+		status, err := m.GuestBranchStatus(context.Background())
+		if err != nil || !status.Pushed || status.Branch != "letta/fix" || status.PRURL != "" || status.PRKnown {
+			t.Fatalf("GuestBranchStatus = (%+v, %v), want pushed with an unknown PR state", status, err)
+		}
+	})
+	t.Run("pushed without a pull request", func(t *testing.T) {
+		client := sealedFakeMSB()
+		client.execCaptureResults = []fakeMSBExecCaptureResult{
+			{stdout: "letta/fix\n"},
+			{stdout: "letta/fix\x001000\n"},
+			{stdout: "origin/main\x001000\norigin/letta/fix\x001000\n"},
+			{stdout: "refs/remotes/origin/letta/fix@{0}\x00fetch origin: storing head\n"},
+			{stdout: "origin/main\n"},
+			{stdout: `[]`},
+		}
+		m, _ := applyTestRuntime(t, client)
+		status, err := m.GuestBranchStatus(context.Background())
+		if err != nil || !status.Pushed || status.PRURL != "" || !status.PRKnown {
+			t.Fatalf("GuestBranchStatus = (%+v, %v), want pushed with no PR, known state", status, err)
+		}
+	})
+	// The QA case of #306: the agent created and pushed its own branch
+	// instead of the generated marker branch. The exit screen must find the
+	// branch that was ACTUALLY pushed, with its non-draft PR.
+	t.Run("pushed branch differs from the marker", func(t *testing.T) {
+		client := sealedFakeMSB()
+		client.execCaptureResults = []fakeMSBExecCaptureResult{
+			{stdout: "just-code/generated-123\n"},
+			{stdout: "just-code/generated-123\x001000\nmy-fix\x002000\n"},
+			{stdout: "origin/main\x001000\norigin/my-fix\x002000\n"},
+			{stdout: "refs/remotes/origin/my-fix@{0}\x00update by push\n"},
+			{stdout: "origin/main\n"},
+			{stdout: `[{"url":"https://github.com/owner/repo/pull/12","isDraft":false}]`},
+		}
+		m, _ := applyTestRuntime(t, client)
+		status, err := m.GuestBranchStatus(context.Background())
+		if err != nil || !status.Pushed || status.Branch != "my-fix" ||
+			status.PRURL != "https://github.com/owner/repo/pull/12" || status.PRDraft || !status.PRKnown {
+			t.Fatalf("GuestBranchStatus = (%+v, %v), want the actually-pushed branch and its PR", status, err)
+		}
+	})
+	t.Run("newer pushed branch wins over a pushed marker", func(t *testing.T) {
+		client := sealedFakeMSB()
+		client.execCaptureResults = []fakeMSBExecCaptureResult{
+			{stdout: "just-code/generated-123\n"},
+			{stdout: "just-code/generated-123\x001000\nmy-fix\x002000\n"},
+			{stdout: "origin/main\x001000\norigin/just-code/generated-123\x001000\norigin/my-fix\x002000\n"},
+			{stdout: "refs/remotes/origin/just-code/generated-123@{0}\x00update by push\nrefs/remotes/origin/my-fix@{0}\x00update by push\n"},
+			{stdout: "origin/main\n"},
+			{stdout: `[{"url":"https://github.com/owner/repo/pull/13","isDraft":false}]`},
+		}
+		m, _ := applyTestRuntime(t, client)
+		status, err := m.GuestBranchStatus(context.Background())
+		if err != nil || !status.Pushed || status.Branch != "my-fix" ||
+			status.PRURL != "https://github.com/owner/repo/pull/13" || status.PRDraft || !status.PRKnown {
+			t.Fatalf("GuestBranchStatus = (%+v, %v), want the newer pushed branch and its PR", status, err)
+		}
+		if len(client.calls) < 3 || !strings.Contains(client.calls[2], "%(committerdate:unix)") {
+			t.Fatalf("remote discovery must request commit dates, calls: %v", client.calls)
+		}
+	})
+	t.Run("remote-only pushed branch is discovered", func(t *testing.T) {
+		client := sealedFakeMSB()
+		client.execCaptureResults = []fakeMSBExecCaptureResult{
+			{stdout: "just-code/generated-123\n"},
+			{stdout: "just-code/generated-123\x001000\n"},
+			{stdout: "origin/main\x001000\norigin/my-fix\x002000\n"},
+			{stdout: "refs/remotes/origin/my-fix@{0}\x00update by push\n"},
+			{stdout: "origin/main\n"},
+			{stdout: `[{"url":"https://github.com/owner/repo/pull/14","isDraft":false}]`},
+		}
+		m, _ := applyTestRuntime(t, client)
+		status, err := m.GuestBranchStatus(context.Background())
+		if err != nil || !status.Pushed || status.Branch != "my-fix" ||
+			status.PRURL != "https://github.com/owner/repo/pull/14" || status.PRDraft || !status.PRKnown {
+			t.Fatalf("GuestBranchStatus = (%+v, %v), want the remote-only pushed branch and its PR", status, err)
+		}
+	})
+	t.Run("latest pushed branch wins without a marker", func(t *testing.T) {
+		client := sealedFakeMSB()
+		client.execCaptureResults = []fakeMSBExecCaptureResult{
+			{code: 1}, // no marker
+			{stdout: "main\x001000\nfeature-a\x001000\nfeature-b\x002000\n"},
+			{stdout: "origin/main\x001000\norigin/feature-a\x001000\norigin/feature-b\x002000\n"},
+			{stdout: "refs/remotes/origin/feature-a@{0}\x00update by push\nrefs/remotes/origin/feature-b@{0}\x00update by push\n"},
+			{stdout: "origin/main\n"},
+			{stdout: `[]`},
+		}
+		m, _ := applyTestRuntime(t, client)
+		status, err := m.GuestBranchStatus(context.Background())
+		if err != nil || status.Branch != "feature-b" || !status.Pushed {
+			t.Fatalf("GuestBranchStatus = (%+v, %v), want the most recently committed branch", status, err)
+		}
+	})
+	t.Run("fetched unrelated branches are not session pushes", func(t *testing.T) {
+		client := sealedFakeMSB()
+		client.execCaptureResults = []fakeMSBExecCaptureResult{
+			{stdout: "my-fix\n"},
+			{stdout: "main\x001000\nmy-fix\x002000\n"},
+			{stdout: "origin/main\x001000\norigin/unrelated\x003000\n"},
+			{stdout: "refs/remotes/origin/unrelated@{0}\x00fetch origin: storing head\n"},
+			{stdout: "origin/main\n"},
+		}
+		m, _ := applyTestRuntime(t, client)
+		status, err := m.GuestBranchStatus(context.Background())
+		if err != nil || status.Pushed || status.Branch != "my-fix" || status.PRURL != "" {
+			t.Fatalf("GuestBranchStatus = (%+v, %v), want the local work branch, not a fetched branch", status, err)
+		}
+		if len(client.calls) < 4 || !strings.Contains(client.calls[3], "git reflog --all") {
+			t.Fatalf("push attribution must inspect reflogs, calls: %v", client.calls)
+		}
+	})
+	t.Run("the snapshot backup is never a candidate", func(t *testing.T) {
+		client := sealedFakeMSB()
+		client.execCaptureResults = []fakeMSBExecCaptureResult{
+			{stdout: "letta/fix\n"},
+			{stdout: "letta/fix\x001000\nletta/fix-snapshot-backup\x002000\n"},
+			{stdout: "origin/main\x001000\norigin/letta/fix-snapshot-backup\x002000\n"},
+			{stdout: "refs/remotes/origin/letta/fix-snapshot-backup@{0}\x00update by push\n"},
+			{stdout: "origin/main\n"},
+			{stdout: `[]`},
+		}
+		m, _ := applyTestRuntime(t, client)
+		status, err := m.GuestBranchStatus(context.Background())
+		// Only the backup was pushed; it is a workflow artifact, not agent
+		// work, so the marker branch is reported as not pushed.
+		if err != nil || status.Branch != "letta/fix" || status.Pushed {
+			t.Fatalf("GuestBranchStatus = (%+v, %v), want the marker, not pushed", status, err)
+		}
+	})
+	t.Run("a git read failure is an error, not an absence", func(t *testing.T) {
+		client := sealedFakeMSB()
+		client.execCaptureResults = []fakeMSBExecCaptureResult{
+			{stdout: "letta/fix\n"},
+			{code: 1, stderr: "fatal: not a git repository"},
+		}
+		m, _ := applyTestRuntime(t, client)
+		status, err := m.GuestBranchStatus(context.Background())
+		if err == nil {
+			t.Fatalf("a failed git read must surface an error, got %+v", status)
+		}
+	})
+	t.Run("a transport failure is an error, not an absence", func(t *testing.T) {
+		client := sealedFakeMSB()
+		client.execCaptureResults = []fakeMSBExecCaptureResult{
+			{err: errors.New("sandbox unreachable")},
+		}
+		m, _ := applyTestRuntime(t, client)
+		if _, err := m.GuestBranchStatus(context.Background()); err == nil {
+			t.Fatal("a transport failure must surface an error")
+		}
+	})
+}
+
+// TestCollectGuestChangesUsesRecordedRecoveryBase: with a recorded base, the
+// numstat and diff reads run against it, not HEAD, so committed guest work is
+// collected (#313); without one, the legacy HEAD command is kept.
+func TestCollectGuestChangesUsesRecordedRecoveryBase(t *testing.T) {
+	newClient := func() *fakeMSBClient {
+		client := sealedFakeMSB()
+		client.execCaptureResults = []fakeMSBExecCaptureResult{
+			{stdout: "yes"},           // provisioned probe
+			{stdout: applyNumstatTwo}, // numstat
+			{stdout: applyDiffTwoSections},
+		}
+		return client
+	}
+	t.Run("recorded base", func(t *testing.T) {
+		client := newClient()
+		m, stateDir := applyTestRuntime(t, client)
+		writeRecoveryBase(t, stateDir, m.InstanceName(), testRecoveryBaseSHA)
+		changes, err := m.CollectGuestChanges(context.Background())
+		if err != nil || len(changes) != 2 {
+			t.Fatalf("CollectGuestChanges = (%d changes, %v), want 2", len(changes), err)
+		}
+		joined := strings.Join(client.calls, "\n")
+		if !strings.Contains(joined, "git diff "+testRecoveryBaseSHA+" --binary --no-renames") {
+			t.Fatalf("the diff must run against the recovery base: %v", client.calls)
+		}
+		if strings.Contains(joined, "git diff HEAD") {
+			t.Fatalf("a recorded base must not fall back to HEAD: %v", client.calls)
+		}
+	})
+	t.Run("legacy HEAD fallback", func(t *testing.T) {
+		client := newClient()
+		m, _ := applyTestRuntime(t, client)
+		if _, err := m.CollectGuestChanges(context.Background()); err != nil {
+			t.Fatal(err)
+		}
+		if !strings.Contains(strings.Join(client.calls, "\n"), "git diff HEAD --binary --no-renames") {
+			t.Fatalf("a guest without a base must keep the legacy HEAD diff: %v", client.calls)
 		}
 	})
 }

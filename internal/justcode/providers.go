@@ -3,11 +3,13 @@ package justcode
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net"
 	"net/http"
 	"net/url"
+	"os"
 	"sort"
 	"strings"
 )
@@ -320,13 +322,22 @@ func ValidateProviderKey(ctx context.Context, client *http.Client, p InferencePr
 	if p.Kind == ProviderAlbert {
 		return validateAlbertKeyAt(ctx, client, key, p.CatalogueURL)
 	}
-	return validateModelsEndpointKey(ctx, client, key, p.CatalogueURL)
+	probe := validateModelsEndpointKey(ctx, client, key, p.CatalogueURL)
+	if p.Kind != ProviderOpenAICompatible && probe.Incompatible {
+		// A fixed-endpoint provider cannot correct its URL in the wizard. Keep
+		// these responses on the retry/continue-unverified path instead (#309).
+		probe.Incompatible = false
+		probe.Unreachable = true
+	}
+	return probe
 }
 
 // validateModelsEndpointKey is the generic OpenAI-compatible probe. It
-// distinguishes three outcomes the wizard must report separately: a rejected
-// key, an unreachable endpoint, and a reachable endpoint whose answer is not
-// a models listing.
+// distinguishes the outcomes the wizard must report separately (#309): a
+// rejected key, an endpoint whose URL does not serve a models listing
+// (incompatible: a missing /models route, a redirect, or a non-catalogue
+// body), and a TEMPORARY unavailability (transport failure, 429, 5xx),
+// which must never read as an URL compatibility problem.
 func validateModelsEndpointKey(ctx context.Context, client *http.Client, key, endpoint string) CredentialProbe {
 	client = noRedirectClient(client)
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
@@ -336,6 +347,9 @@ func validateModelsEndpointKey(ctx context.Context, client *http.Client, key, en
 	req.Header.Set("Authorization", "Bearer "+key)
 	resp, err := client.Do(req)
 	if err != nil {
+		if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, os.ErrDeadlineExceeded) {
+			return CredentialProbe{Unreachable: true, Detail: "timeout: the endpoint did not answer in time"}
+		}
 		return CredentialProbe{Unreachable: true, Detail: err.Error()}
 	}
 	defer resp.Body.Close()
@@ -352,9 +366,18 @@ func validateModelsEndpointKey(ctx context.Context, client *http.Client, key, en
 		}
 		return CredentialProbe{}
 	case resp.StatusCode >= 300 && resp.StatusCode < 400:
-		return CredentialProbe{Unreachable: true, Detail: fmt.Sprintf("HTTP %d (redirect not followed; the Authorization header is never replayed to another host)", resp.StatusCode)}
+		// A redirect almost always means a wrong base URL (moved API root,
+		// missing path segment). It is never followed, so the Authorization
+		// header cannot be replayed to another host.
+		return CredentialProbe{Incompatible: true, Detail: fmt.Sprintf("HTTP %d (redirect not followed; the Authorization header is never replayed to another host)", resp.StatusCode)}
 	case resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden:
 		return CredentialProbe{Rejected: true, Detail: fmt.Sprintf("HTTP %d: the key was not accepted", resp.StatusCode)}
+	case resp.StatusCode == http.StatusNotFound:
+		return CredentialProbe{Incompatible: true, Detail: "HTTP 404: no models route at this base URL (check the API root, for example https://host/v1)"}
+	case resp.StatusCode == http.StatusTooManyRequests:
+		return CredentialProbe{Unreachable: true, Detail: "HTTP 429: rate limited (temporary; retry later)"}
+	case resp.StatusCode >= 500:
+		return CredentialProbe{Unreachable: true, Detail: fmt.Sprintf("HTTP %d: server error (temporary; retry later)", resp.StatusCode)}
 	default:
 		return CredentialProbe{Unreachable: true, Detail: fmt.Sprintf("HTTP %d", resp.StatusCode)}
 	}

@@ -1,5 +1,7 @@
 # Runtime Tart
 
+Le bootstrap installe **OpenCode v2.2.5** via `@opencode/cli` ou l'installateur v2 épinglé. Une ancienne installation est mise à jour en place avant de lancer le serveur ou le TUI, sans recréer la VM. Le répertoire privé `~/.opencode/bin` est prioritaire sur le binaire v1 éventuellement fourni par l'image. En mode full, le TUI utilise `--standalone` pour ne pas laisser un service autonome après sa fermeture.
+
 ## Réseau Tart et VPN
 
 `TART_MTU=1280` est la valeur par défaut pour le réseau invité Tart. Elle limite les blocages TLS observés avec certains VPN sur le Mac hôte, sans garantir la compatibilité avec tous les VPN. Le bootstrap applique cette valeur à l'interface de route IPv4 par défaut avant toute installation de logiciel ; seul le réseau de la VM est modifié. Une MTU réduite peut légèrement diminuer les performances réseau.

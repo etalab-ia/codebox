@@ -167,6 +167,12 @@ func (m *MicrosandboxRuntime) configureGitHubWorkspace(ctx context.Context, bind
 	if err := m.guestShell(ctx, script); err != nil {
 		return fmt.Errorf("préparation de la branche GitHub de %s interrompue sans publication : %w", m.cfg.GitHubRemote.Repo, err)
 	}
+	// GitHub initialization replaces the filtered snapshot with the remote
+	// default-branch tree. Recovery starts from that actual initial tree, so
+	// remote-only files are never reported as agent additions (#313).
+	if err := m.recordRecoveryBase(ctx); err != nil {
+		return err
+	}
 	fmt.Printf("GitHub guest workflow ready for %s on branch %s. Original guest history is retained on %s-snapshot-backup. Push reviewed guest commits with 'git push -u origin HEAD', then open a draft PR with 'gh pr create --draft'.\n", m.cfg.GitHubRemote.Repo, branch, branch)
 	return nil
 }

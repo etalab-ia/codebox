@@ -55,7 +55,7 @@ func TestMultiSelectCursorSelectionScrollingAndResize(t *testing.T) {
 		options[i] = huh.NewOption(label, label)
 	}
 	selected := []string{}
-	form := huh.NewForm(huh.NewGroup(newProjectMCPsMultiSelect(options, &selected)))
+	form := huh.NewForm(huh.NewGroup(newProjectMCPsMultiSelect(options, &selected, justcode.MCPStepTitle)))
 	form.Init()
 	_, _ = form.Update(tea.WindowSizeMsg{Width: 48, Height: 8})
 	for range len(options) - 1 {
@@ -105,7 +105,7 @@ func TestMultiSelectShrinkPreservesNonFinalCursorAndSelection(t *testing.T) {
 		options[i] = huh.NewOption(label, label)
 	}
 	selected := []string{}
-	field := newProjectMCPsMultiSelect(options, &selected).(*resizeCursorMultiSelect)
+	field := newProjectMCPsMultiSelect(options, &selected, justcode.MCPStepTitle).(*resizeCursorMultiSelect)
 	form := huh.NewForm(huh.NewGroup(field))
 	form.Init()
 	_, _ = form.Update(tea.WindowSizeMsg{Width: 100, Height: 24})
@@ -135,7 +135,7 @@ func TestMultiSelectResizeIgnoresGreaterThanInOptionLabel(t *testing.T) {
 		options = append(options, huh.NewOption(label, label))
 	}
 	selected := []string{}
-	field := newProjectMCPsMultiSelect(options, &selected).(*resizeCursorMultiSelect)
+	field := newProjectMCPsMultiSelect(options, &selected, justcode.MCPStepTitle).(*resizeCursorMultiSelect)
 	form := huh.NewForm(huh.NewGroup(field))
 	form.Init()
 	_, _ = form.Update(tea.WindowSizeMsg{Width: 100, Height: 24})
@@ -161,7 +161,7 @@ func TestMultiSelectResizePreservesFirstVisibleRowAfterScrolling(t *testing.T) {
 		options[i] = huh.NewOption(label, label)
 	}
 	selected := []string{}
-	form := huh.NewForm(huh.NewGroup(newProjectMCPsMultiSelect(options, &selected)))
+	form := huh.NewForm(huh.NewGroup(newProjectMCPsMultiSelect(options, &selected, justcode.MCPStepTitle)))
 	form.Init()
 	_, _ = form.Update(tea.WindowSizeMsg{Width: 48, Height: 8})
 	for range 6 {
@@ -180,7 +180,7 @@ func TestMultiSelectResizePreservesFirstVisibleRowAfterScrolling(t *testing.T) {
 func TestMultiSelectResizePreservesActiveFilter(t *testing.T) {
 	options := []huh.Option[string]{huh.NewOption("data.gouv.fr", "data-gouv"), huh.NewOption("chrome-devtools", "chrome-devtools")}
 	selected := []string{}
-	form := huh.NewForm(huh.NewGroup(newProjectMCPsMultiSelect(options, &selected)))
+	form := huh.NewForm(huh.NewGroup(newProjectMCPsMultiSelect(options, &selected, justcode.MCPStepTitle)))
 	form.Init()
 	_, _ = form.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
 	for _, key := range "/data" {
@@ -199,7 +199,7 @@ func TestMultiSelectResizePreservesActiveFilter(t *testing.T) {
 func TestMultiSelectResizePreservesSecondDuplicateValue(t *testing.T) {
 	options := []huh.Option[string]{huh.NewOption("first", "same"), huh.NewOption("second", "same"), huh.NewOption("third", "other")}
 	selected := []string{}
-	form := huh.NewForm(huh.NewGroup(newProjectMCPsMultiSelect(options, &selected)))
+	form := huh.NewForm(huh.NewGroup(newProjectMCPsMultiSelect(options, &selected, justcode.MCPStepTitle)))
 	form.Init()
 	_, _ = form.Update(tea.WindowSizeMsg{Width: 80, Height: 6})
 	_, _ = form.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyDown}))
@@ -213,7 +213,7 @@ func TestMultiSelectResizePreservesSecondDuplicateValue(t *testing.T) {
 func TestMultiSelectResizeWithNoFilterMatchesDoesNotMoveCursor(t *testing.T) {
 	options := []huh.Option[string]{huh.NewOption("data.gouv.fr", "data-gouv"), huh.NewOption("chrome-devtools", "chrome-devtools")}
 	selected := []string{}
-	form := huh.NewForm(huh.NewGroup(newProjectMCPsMultiSelect(options, &selected)))
+	form := huh.NewForm(huh.NewGroup(newProjectMCPsMultiSelect(options, &selected, justcode.MCPStepTitle)))
 	form.Init()
 	_, _ = form.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
 	for _, key := range "/zzz" {
@@ -285,6 +285,7 @@ func captureInitMCPsForm(_ *testing.T) *huh.Form {
 	return huh.NewForm(huh.NewGroup(newProjectMCPsMultiSelect(
 		[]huh.Option[string]{huh.NewOption("data.gouv.fr", "data-gouv"), huh.NewOption("chrome-devtools", "chrome-devtools")},
 		&selected,
+		justcode.MCPStepTitle,
 	)))
 }
 
