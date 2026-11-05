@@ -109,8 +109,8 @@ func TestSyncRefusesOverGuestChanges(t *testing.T) {
 }
 
 // TestSyncRefusesOverCommittedGuestChanges covers a clean working tree with
-// committed guest work: refresh refuses by default, and Force preserves the
-// previous recovery base instead of absorbing those commits (#313).
+// committed guest work: refresh refuses by default, and Force records a new
+// comparison base without absorbing those commits into the guest HEAD (#313).
 func TestSyncRefusesOverCommittedGuestChanges(t *testing.T) {
 	client := &fakeMSBClient{exists: true,
 		execCaptureResults: []fakeMSBExecCaptureResult{
@@ -132,12 +132,13 @@ func TestSyncRefusesOverCommittedGuestChanges(t *testing.T) {
 		t.Fatal("a refused refresh must not write anything")
 	}
 
+	refreshedSHA := "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
 	client.execCaptureResults = []fakeMSBExecCaptureResult{
 		{stdout: "yes"},
 		{stdout: ""},
 		{code: 1},
 	}
-	client.execCaptureDefault = &fakeMSBExecCaptureResult{stdout: testRecoveryBaseSHA}
+	client.execCaptureDefault = &fakeMSBExecCaptureResult{stdout: guestRecoveryBasePrefix + refreshedSHA}
 	client.calls = nil
 	if err := m.SyncGuestWorkspace(context.Background(), SyncOptions{Force: true, Print: func(string) {}}); err != nil {
 		t.Fatalf("forced refresh: %v", err)
@@ -145,11 +146,13 @@ func TestSyncRefusesOverCommittedGuestChanges(t *testing.T) {
 	if len(client.written) != 1 {
 		t.Fatalf("the forced refresh must write one payload, got %d", len(client.written))
 	}
-	if got := m.guestDiffBase(); got != testRecoveryBaseSHA {
-		t.Fatalf("forced refresh advanced the recovery base to %q", got)
+	if got := m.guestDiffBase(); got != refreshedSHA {
+		t.Fatalf("forced refresh comparison base = %q, want %q", got, refreshedSHA)
 	}
-	if joined := strings.Join(client.calls, "\n"); strings.Contains(joined, "git rev-parse HEAD") {
-		t.Fatalf("a base-preserving refresh must not record a new HEAD: %v", client.calls)
+	for _, call := range client.calls {
+		if strings.HasSuffix(call, " && git rev-parse HEAD") {
+			t.Fatalf("the comparison base must come from the refresh result, not HEAD: %v", client.calls)
+		}
 	}
 }
 
@@ -160,8 +163,7 @@ func TestSyncRecoveredGuestAdvancesRecoveryBase(t *testing.T) {
 			{stdout: "yes"},
 			{stdout: ""},
 			{code: 1},
-			{stdout: guestRecoveryAdvanceMarker},
-			{stdout: testRecoveryBaseSHA},
+			{stdout: guestRecoveryAdvanceMarker + "\n" + guestRecoveryBasePrefix + testRecoveryBaseSHA},
 		},
 		execCaptureDefault: &fakeMSBExecCaptureResult{stdout: ""},
 	}
@@ -674,14 +676,16 @@ func TestRecoveryRefreshPreservesCommittedWork(t *testing.T) {
 		t.Skip("recovery-refresh scenario uses POSIX shell commands")
 	}
 	for _, tc := range []struct {
-		name        string
-		hostContent string
-		wantMarker  bool
-		wantErr     bool
+		name          string
+		hostContent   string
+		hostOmitsFile bool
+		wantMarker    bool
+		wantErr       bool
 	}{
 		{name: "overwritten committed work is restored", hostContent: "one\n"},
 		{name: "already recovered work advances the baseline", hostContent: "two\n", wantMarker: true},
 		{name: "conflicting host work rolls back intact", hostContent: "three\n", wantErr: true},
+		{name: "modified file missing from host preserves the recovery base", hostOmitsFile: true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			root := t.TempDir()
@@ -706,7 +710,9 @@ git commit -q -am 'agent work'
 				t.Fatalf("prepare guest history: %v: %s", err, out)
 			}
 			base := strings.TrimSpace(gitTestOutput(t, guest, "rev-parse", "HEAD^"))
-			writeFile(t, host, "a.txt", tc.hostContent)
+			if !tc.hostOmitsFile {
+				writeFile(t, host, "a.txt", tc.hostContent)
+			}
 			archive := filepath.Join(root, "refresh.tar.gz")
 			if out, err := runShellTest("tar -czf "+shellQuote(archive)+" -C "+shellQuote(host)+" .", root); err != nil {
 				t.Fatalf("build host archive: %v: %s", err, out)
@@ -735,5 +741,574 @@ git commit -q -am 'agent work'
 				t.Fatalf("committed agent work is no longer recoverable: %s", diff)
 			}
 		})
+	}
+}
+
+func TestRecoveryRefreshVerifiesGuestOnlyAdditionAgainstHost(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("recovery-refresh scenario uses POSIX shell commands")
+	}
+	for _, tc := range []struct {
+		name            string
+		hostHasAddition bool
+		wantMarker      bool
+	}{
+		{name: "addition missing from host preserves the recovery base"},
+		{name: "addition present in host advances the recovery base", hostHasAddition: true, wantMarker: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			root := t.TempDir()
+			guest := filepath.Join(root, "guest")
+			host := filepath.Join(root, "host")
+			for _, dir := range []string{guest, host} {
+				if err := os.MkdirAll(dir, 0o755); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if out, err := runShellTest(`
+set -eu
+git init -q
+git config user.name T
+git config user.email t@example.test
+echo one > a.txt
+git add -A
+git commit -q -m base
+echo recovered > 'guest only.txt'
+git add -A
+git commit -q -m 'guest-only addition'
+`, guest); err != nil {
+				t.Fatalf("prepare guest history: %v: %s", err, out)
+			}
+			base := strings.TrimSpace(gitTestOutput(t, guest, "rev-parse", "HEAD^"))
+			writeFile(t, host, "a.txt", "one\n")
+			if tc.hostHasAddition {
+				writeFile(t, host, "guest only.txt", "recovered\n")
+			}
+			archive := filepath.Join(root, "refresh.tar.gz")
+			if out, err := runShellTest("tar -czf "+shellQuote(archive)+" -C "+shellQuote(host)+" .", root); err != nil {
+				t.Fatalf("build host archive: %v: %s", err, out)
+			}
+
+			out, err := runShellTest(guestRecoveryRefreshScript(guest, archive, base, "T", "t@example.test"), guest)
+			if err != nil {
+				t.Fatalf("recovery refresh: %v: %s", err, out)
+			}
+			if got := strings.Contains(string(out), guestRecoveryAdvanceMarker); got != tc.wantMarker {
+				t.Fatalf("advance marker = %v, want %v: %s", got, tc.wantMarker, out)
+			}
+			runGitTest(t, guest, "add", "-A")
+			runGitTest(t, guest, "commit", "-q", "-m", "host snapshot", "--allow-empty")
+			content, readErr := os.ReadFile(filepath.Join(guest, "guest only.txt"))
+			if readErr != nil || string(content) != "recovered\n" {
+				t.Fatalf("guest-only content = %q, %v; want recovered", content, readErr)
+			}
+			if !tc.wantMarker {
+				if diff := gitTestOutput(t, guest, "diff", base, "--", "guest only.txt"); !strings.Contains(diff, "recovered") {
+					t.Fatalf("guest-only addition is no longer recoverable: %s", diff)
+				}
+			}
+		})
+	}
+}
+
+func TestRecoveryRefreshPreservesExcludedDeletion(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("recovery-refresh scenario uses POSIX shell commands")
+	}
+	root := t.TempDir()
+	guest := filepath.Join(root, "guest")
+	host := filepath.Join(root, "host")
+	payload := filepath.Join(root, "payload")
+	for _, dir := range []string{guest, host, payload} {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if out, err := runShellTest(`
+set -eu
+git init -q
+git config user.name T
+git config user.email t@example.test
+echo one > a.txt
+git add -A
+git commit -q -m base
+git rm -q a.txt
+git commit -q -m 'guest deletion'
+`, guest); err != nil {
+		t.Fatalf("prepare guest history: %v: %s", err, out)
+	}
+	base := strings.TrimSpace(gitTestOutput(t, guest, "rev-parse", "HEAD^"))
+	// The host still has the file, but the transfer filter excludes it from
+	// the archive. Archive absence must not prove the deletion was recovered.
+	writeFile(t, host, "a.txt", "one\n")
+	archive := filepath.Join(root, "refresh.tar.gz")
+	if out, err := runShellTest("tar -czf "+shellQuote(archive)+" -C "+shellQuote(payload)+" .", root); err != nil {
+		t.Fatalf("build host archive: %v: %s", err, out)
+	}
+
+	out, err := runShellTest(guestRecoveryRefreshScript(guest, archive, base, "T", "t@example.test"), guest)
+	if err != nil {
+		t.Fatalf("recovery refresh: %v: %s", err, out)
+	}
+	if strings.Contains(string(out), guestRecoveryAdvanceMarker) {
+		t.Fatalf("an excluded deletion must not advance the recovery base: %s", out)
+	}
+	runGitTest(t, guest, "add", "-A")
+	runGitTest(t, guest, "commit", "-q", "-m", "host snapshot", "--allow-empty")
+	if _, err := os.Stat(filepath.Join(guest, "a.txt")); !os.IsNotExist(err) {
+		t.Fatalf("guest deletion was not preserved: %v", err)
+	}
+	if diff := gitTestOutput(t, guest, "diff", base, "--", "a.txt"); !strings.Contains(diff, "-one") {
+		t.Fatalf("excluded deletion is no longer recoverable: %s", diff)
+	}
+}
+
+func TestRecoveryRefreshBuildsUpdatedComparisonBase(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("recovery-refresh scenario uses POSIX shell commands")
+	}
+	root := t.TempDir()
+	guest := filepath.Join(root, "guest")
+	host := filepath.Join(root, "host")
+	for _, dir := range []string{guest, host} {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if out, err := runShellTest(`
+set -eu
+git init -q
+git config user.name T
+git config user.email t@example.test
+echo one > a.txt
+echo one > b.txt
+git add -A
+git commit -q -m base
+echo two > a.txt
+git commit -q -am 'agent work'
+`, guest); err != nil {
+		t.Fatalf("prepare guest history: %v: %s", err, out)
+	}
+	base := strings.TrimSpace(gitTestOutput(t, guest, "rev-parse", "HEAD^"))
+	writeFile(t, host, "a.txt", "one\n")
+	writeFile(t, host, "b.txt", "two\n")
+	archive := filepath.Join(root, "refresh.tar.gz")
+	if out, err := runShellTest("tar -czf "+shellQuote(archive)+" -C "+shellQuote(host)+" .", root); err != nil {
+		t.Fatalf("build host archive: %v: %s", err, out)
+	}
+
+	out, err := runShellTest(guestRecoveryRefreshScript(guest, archive, base, "T", "t@example.test"), guest)
+	if err != nil {
+		t.Fatalf("recovery refresh: %v: %s", err, out)
+	}
+	refreshedBase := ""
+	for _, line := range strings.Split(string(out), "\n") {
+		if strings.HasPrefix(line, guestRecoveryBasePrefix) {
+			refreshedBase = strings.TrimSpace(strings.TrimPrefix(line, guestRecoveryBasePrefix))
+		}
+	}
+	if !isCommitSHA(refreshedBase) {
+		t.Fatalf("refresh did not return a comparison base: %s", out)
+	}
+	if got := gitTestOutput(t, guest, "show", refreshedBase+":a.txt"); got != "one\n" {
+		t.Fatalf("comparison a.txt = %q, want the host version", got)
+	}
+	if got := gitTestOutput(t, guest, "show", refreshedBase+":b.txt"); got != "two\n" {
+		t.Fatalf("comparison b.txt = %q, want the refreshed host version", got)
+	}
+	runGitTest(t, guest, "add", "-A")
+	runGitTest(t, guest, "commit", "-q", "-m", "host snapshot", "--allow-empty")
+	runGitTest(t, guest, "gc", "--prune=now")
+	if got := strings.TrimSpace(gitTestOutput(t, guest, "rev-parse", guestRecoveryBaseRef)); got != refreshedBase {
+		t.Fatalf("retained comparison ref = %q, want %q", got, refreshedBase)
+	}
+	if got := strings.TrimSpace(gitTestOutput(t, guest, "diff", "--name-only", refreshedBase)); got != "a.txt" {
+		t.Fatalf("outstanding work = %q, want only a.txt", got)
+	}
+	writeFile(t, guest, "b.txt", "one\n")
+	runGitTest(t, guest, "commit", "-q", "-am", "later edit to refreshed file")
+	if got := strings.TrimSpace(gitTestOutput(t, guest, "diff", "--name-only", refreshedBase, "--", "b.txt")); got != "b.txt" {
+		t.Fatalf("later edit to refreshed b.txt is invisible: %q", got)
+	}
+}
+
+func TestRecoveryRefreshRollbackRestoresOriginalHead(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("recovery-refresh scenario uses POSIX shell commands")
+	}
+	root := t.TempDir()
+	guest := filepath.Join(root, "guest")
+	host := filepath.Join(root, "host")
+	for _, dir := range []string{guest, host} {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if out, err := runShellTest(`
+set -eu
+git init -q
+git config user.name T
+git config user.email t@example.test
+echo one > a.txt
+git add -A
+git commit -q -m base
+echo two > a.txt
+git commit -q -am 'agent work'
+`, guest); err != nil {
+		t.Fatalf("prepare guest history: %v: %s", err, out)
+	}
+	base := strings.TrimSpace(gitTestOutput(t, guest, "rev-parse", "HEAD^"))
+	originalHead := strings.TrimSpace(gitTestOutput(t, guest, "rev-parse", "HEAD"))
+	writeFile(t, guest, "a.txt", "two\nuncommitted\n")
+	runGitTest(t, guest, "config", "--local", "just-code.github-workflow-branch", "just-code/test")
+	writeFile(t, host, "a.txt", "three\n")
+	archive := filepath.Join(root, "refresh.tar.gz")
+	if out, err := runShellTest("tar -czf "+shellQuote(archive)+" -C "+shellQuote(host)+" .", root); err != nil {
+		t.Fatalf("build host archive: %v: %s", err, out)
+	}
+
+	out, err := runShellTest(guestRecoveryRefreshScript(guest, archive, base, "T", "t@example.test"), guest)
+	if err == nil || !strings.Contains(string(out), "pre-refresh state was restored") {
+		t.Fatalf("conflicting refresh must fail after restoring the backup: %v: %s", err, out)
+	}
+	if got := strings.TrimSpace(gitTestOutput(t, guest, "rev-parse", "HEAD")); got != originalHead {
+		t.Fatalf("rollback HEAD = %s, want original %s", got, originalHead)
+	}
+	content, readErr := os.ReadFile(filepath.Join(guest, "a.txt"))
+	if readErr != nil || string(content) != "two\nuncommitted\n" {
+		t.Fatalf("rollback content = %q, %v; want committed and uncommitted work", content, readErr)
+	}
+	runGitTest(t, guest, "diff", "--cached", "--quiet")
+	if diff := gitTestOutput(t, guest, "diff", "HEAD", "--", "a.txt"); !strings.Contains(diff, "+uncommitted") {
+		t.Fatalf("uncommitted work is no longer visible after rollback: %s", diff)
+	}
+}
+
+func TestRecoveryRefreshHandlesPartiallyRecoveredWork(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("recovery-refresh scenario uses POSIX shell commands")
+	}
+	root := t.TempDir()
+	guest := filepath.Join(root, "guest")
+	host := filepath.Join(root, "host")
+	for _, dir := range []string{guest, host} {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if out, err := runShellTest(`
+set -eu
+git init -q
+git config user.name T
+git config user.email t@example.test
+echo one > 'a*.txt'
+echo one > ab.txt
+git add -A
+git commit -q -m base
+echo two > 'a*.txt'
+echo two > ab.txt
+git commit -q -am 'agent work'
+`, guest); err != nil {
+		t.Fatalf("prepare guest history: %v: %s", err, out)
+	}
+	base := strings.TrimSpace(gitTestOutput(t, guest, "rev-parse", "HEAD^"))
+	writeFile(t, host, "a*.txt", "two\n")
+	writeFile(t, host, "ab.txt", "one\n")
+	archive := filepath.Join(root, "refresh.tar.gz")
+	if out, err := runShellTest("tar -czf "+shellQuote(archive)+" -C "+shellQuote(host)+" .", root); err != nil {
+		t.Fatalf("build host archive: %v: %s", err, out)
+	}
+
+	out, err := runShellTest(guestRecoveryRefreshScript(guest, archive, base, "T", "t@example.test"), guest)
+	if err != nil {
+		t.Fatalf("partially recovered refresh must succeed: %v: %s", err, out)
+	}
+	if strings.Contains(string(out), guestRecoveryAdvanceMarker) {
+		t.Fatalf("outstanding ab.txt work must not advance the comparison state: %s", out)
+	}
+	refreshedBase := ""
+	for _, line := range strings.Split(string(out), "\n") {
+		if strings.HasPrefix(line, guestRecoveryBasePrefix) {
+			refreshedBase = strings.TrimSpace(strings.TrimPrefix(line, guestRecoveryBasePrefix))
+		}
+	}
+	if !isCommitSHA(refreshedBase) {
+		t.Fatalf("refresh did not return a comparison base: %s", out)
+	}
+	if got := gitTestOutput(t, guest, "show", refreshedBase+":a*.txt"); got != "two\n" {
+		t.Fatalf("comparison a*.txt = %q, want the recovered host version", got)
+	}
+	if got := gitTestOutput(t, guest, "show", refreshedBase+":ab.txt"); got != "one\n" {
+		t.Fatalf("comparison ab.txt = %q, want the outstanding host version", got)
+	}
+	for _, file := range []string{"a*.txt", "ab.txt"} {
+		content, readErr := os.ReadFile(filepath.Join(guest, file))
+		if readErr != nil || string(content) != "two\n" {
+			t.Fatalf("%s = %q, %v; want guest work preserved", file, content, readErr)
+		}
+	}
+	if got := strings.TrimSpace(gitTestOutput(t, guest, "diff", "--name-only", refreshedBase)); got != "ab.txt" {
+		t.Fatalf("outstanding work = %q, want only ab.txt", got)
+	}
+}
+
+func TestRecoveryRefreshRollsBackExtractionFailure(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("recovery-refresh scenario uses POSIX shell commands")
+	}
+	root := t.TempDir()
+	guest := filepath.Join(root, "guest")
+	host := filepath.Join(root, "host")
+	if err := os.MkdirAll(filepath.Join(guest, "z"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(host, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if out, err := runShellTest(`
+set -eu
+git init -q
+git config user.name T
+git config user.email t@example.test
+echo one > z/work.txt
+git add -A
+git commit -q -m base
+echo two > z/work.txt
+git commit -q -am 'agent work'
+`, guest); err != nil {
+		t.Fatalf("prepare guest history: %v: %s", err, out)
+	}
+	base := strings.TrimSpace(gitTestOutput(t, guest, "rev-parse", "HEAD^"))
+	originalHead := strings.TrimSpace(gitTestOutput(t, guest, "rev-parse", "HEAD"))
+	writeFile(t, guest, "agent-untracked.txt", "keep\n")
+	writeFile(t, host, "z", "collision\n")
+	writeFile(t, host, "aaa", "new host file\n")
+	archive := filepath.Join(root, "refresh.tar.gz")
+	if out, err := runShellTest("tar -czf "+shellQuote(archive)+" -C "+shellQuote(host)+" .", root); err != nil {
+		t.Fatalf("build host archive: %v: %s", err, out)
+	}
+
+	out, err := runShellTest(guestRecoveryRefreshScript(guest, archive, base, "T", "t@example.test"), guest)
+	if err == nil || !strings.Contains(string(out), "could not be extracted") || !strings.Contains(string(out), "pre-refresh state was restored") {
+		t.Fatalf("extraction failure must roll back explicitly: %v: %s", err, out)
+	}
+	if strings.Contains(string(out), guestRecoveryBasePrefix) {
+		t.Fatalf("failed extraction must not return a comparison base: %s", out)
+	}
+	if got := strings.TrimSpace(gitTestOutput(t, guest, "rev-parse", "HEAD")); got != originalHead {
+		t.Fatalf("rollback HEAD = %s, want original %s", got, originalHead)
+	}
+	content, readErr := os.ReadFile(filepath.Join(guest, "z", "work.txt"))
+	if readErr != nil || string(content) != "two\n" {
+		t.Fatalf("rollback content = %q, %v; want guest work", content, readErr)
+	}
+	if _, err := os.Stat(filepath.Join(guest, "aaa")); !os.IsNotExist(err) {
+		t.Fatalf("newly extracted aaa must be removed on rollback: %v", err)
+	}
+	if got := strings.TrimSpace(gitTestOutput(t, guest, "status", "--porcelain")); got != "?? agent-untracked.txt" {
+		t.Fatalf("rollback must preserve only the pre-existing untracked guest file: %q", got)
+	}
+}
+
+func TestRecoveryRefreshRestoresPublishableIndex(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("recovery-refresh scenario uses POSIX shell commands")
+	}
+	root := t.TempDir()
+	guest := filepath.Join(root, "guest")
+	host := filepath.Join(root, "host")
+	for _, dir := range []string{guest, host} {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if out, err := runShellTest(`
+set -eu
+git init -q
+git config user.name T
+git config user.email t@example.test
+echo one > a.txt
+echo one > staged.txt
+git add -A
+git commit -q -m base
+echo two > a.txt
+git commit -q -am 'agent work'
+`, guest); err != nil {
+		t.Fatalf("prepare guest history: %v: %s", err, out)
+	}
+	base := strings.TrimSpace(gitTestOutput(t, guest, "rev-parse", "HEAD^"))
+	originalHead := strings.TrimSpace(gitTestOutput(t, guest, "rev-parse", "HEAD"))
+	writeFile(t, guest, "staged.txt", "staged\n")
+	runGitTest(t, guest, "add", "staged.txt")
+	runGitTest(t, guest, "config", "--local", "just-code.github-workflow-branch", "just-code/test")
+	writeFile(t, host, "a.txt", "one\n")
+	writeFile(t, host, "host-only.txt", "host\n")
+	archive := filepath.Join(root, "refresh.tar.gz")
+	if out, err := runShellTest("tar -czf "+shellQuote(archive)+" -C "+shellQuote(host)+" .", root); err != nil {
+		t.Fatalf("build host archive: %v: %s", err, out)
+	}
+
+	out, err := runShellTest(guestRecoveryRefreshScript(guest, archive, base, "T", "t@example.test"), guest)
+	if err != nil {
+		t.Fatalf("recovery refresh: %v: %s", err, out)
+	}
+	out, err = runShellTest(guestRepositoryBootstrapScript(guest, "T", "t@example.test"), guest)
+	if err == nil || !strings.Contains(string(out), "publication automatique refusée") {
+		t.Fatalf("the publication guard must refuse the snapshot commit: %v: %s", err, out)
+	}
+	if got := strings.TrimSpace(gitTestOutput(t, guest, "rev-parse", "HEAD")); got != originalHead {
+		t.Fatalf("publication guard HEAD = %s, want original %s", got, originalHead)
+	}
+	if got := strings.TrimSpace(gitTestOutput(t, guest, "diff", "--cached", "--name-only")); got != "staged.txt" {
+		t.Fatalf("publishable index = %q, want only the original staged guest file", got)
+	}
+	if got := gitTestOutput(t, guest, "show", ":staged.txt"); got != "staged\n" {
+		t.Fatalf("original staged content = %q, want staged guest content", got)
+	}
+}
+
+func TestRecoveryRefreshSkipsRecoveredRepeatedInsertion(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("recovery-refresh scenario uses POSIX shell commands")
+	}
+	root := t.TempDir()
+	guest := filepath.Join(root, "guest")
+	host := filepath.Join(root, "host")
+	for _, dir := range []string{guest, host} {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	writeFile(t, guest, "a.txt", strings.Repeat("same\n", 10))
+	gitInitForTransfer(t, guest)
+	writeFile(t, guest, "a.txt", strings.Repeat("same\n", 11))
+	runGitTest(t, guest, "add", "a.txt")
+	runGitTest(t, guest, "commit", "-q", "-m", "repeated insertion")
+	base := strings.TrimSpace(gitTestOutput(t, guest, "rev-parse", "HEAD^"))
+	writeFile(t, host, "a.txt", strings.Repeat("same\n", 11))
+	archive := filepath.Join(root, "refresh.tar.gz")
+	if out, err := runShellTest("tar -czf "+shellQuote(archive)+" -C "+shellQuote(host)+" .", root); err != nil {
+		t.Fatalf("build host archive: %v: %s", err, out)
+	}
+
+	out, err := runShellTest(guestRecoveryRefreshScript(guest, archive, base, "T", "t@example.test"), guest)
+	if err != nil {
+		t.Fatalf("already recovered insertion must not be reapplied: %v: %s", err, out)
+	}
+	if !strings.Contains(string(out), guestRecoveryAdvanceMarker) {
+		t.Fatalf("recovered insertion must leave no outstanding diff: %s", out)
+	}
+	content, readErr := os.ReadFile(filepath.Join(guest, "a.txt"))
+	if readErr != nil || strings.Count(string(content), "same\n") != 11 {
+		t.Fatalf("repeated insertion was duplicated: %q, %v", content, readErr)
+	}
+}
+
+func TestRecoveryRefreshMergesIndependentHostEdits(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("recovery-refresh scenario uses POSIX shell commands")
+	}
+	root := t.TempDir()
+	guest := filepath.Join(root, "guest")
+	host := filepath.Join(root, "host")
+	for _, dir := range []string{guest, host} {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	var builder strings.Builder
+	for i := 0; i < 30; i++ {
+		builder.WriteByte(byte('A' + i))
+		builder.WriteByte('\n')
+	}
+	writeFile(t, guest, "a.txt", builder.String())
+	gitInitForTransfer(t, guest)
+	lines := strings.Split(strings.TrimSuffix(builder.String(), "\n"), "\n")
+	lines[1] = "guest"
+	writeFile(t, guest, "a.txt", strings.Join(lines, "\n")+"\n")
+	runGitTest(t, guest, "add", "a.txt")
+	runGitTest(t, guest, "commit", "-q", "-m", "guest edit")
+	base := strings.TrimSpace(gitTestOutput(t, guest, "rev-parse", "HEAD^"))
+	lines = strings.Split(strings.TrimSuffix(builder.String(), "\n"), "\n")
+	lines[28] = "host"
+	writeFile(t, host, "a.txt", strings.Join(lines, "\n")+"\n")
+	archive := filepath.Join(root, "refresh.tar.gz")
+	if out, err := runShellTest("tar -czf "+shellQuote(archive)+" -C "+shellQuote(host)+" .", root); err != nil {
+		t.Fatalf("build host archive: %v: %s", err, out)
+	}
+
+	out, err := runShellTest(guestRecoveryRefreshScript(guest, archive, base, "T", "t@example.test"), guest)
+	if err != nil {
+		t.Fatalf("independent host and guest edits must merge: %v: %s", err, out)
+	}
+	content, readErr := os.ReadFile(filepath.Join(guest, "a.txt"))
+	if readErr != nil || !strings.Contains(string(content), "guest\n") || !strings.Contains(string(content), "host\n") {
+		t.Fatalf("independent edits were not preserved: %q, %v", content, readErr)
+	}
+	refreshedBase := ""
+	for _, line := range strings.Split(string(out), "\n") {
+		if strings.HasPrefix(line, guestRecoveryBasePrefix) {
+			refreshedBase = strings.TrimSpace(strings.TrimPrefix(line, guestRecoveryBasePrefix))
+		}
+	}
+	if !isCommitSHA(refreshedBase) {
+		t.Fatalf("refresh did not return a comparison base: %s", out)
+	}
+	baseContent := gitTestOutput(t, guest, "show", refreshedBase+":a.txt")
+	if !strings.Contains(baseContent, "host\n") || strings.Contains(baseContent, "guest\n") {
+		t.Fatalf("comparison base must contain only the incoming host edit: %q", baseContent)
+	}
+	if diff := gitTestOutput(t, guest, "diff", refreshedBase, "--", "a.txt"); !strings.Contains(diff, "+guest") {
+		t.Fatalf("guest edit is not visible in the recovery diff: %s", diff)
+	}
+}
+
+func TestRecoveryRefreshRestoresOutstandingRepeatedInsertion(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("recovery-refresh scenario uses POSIX shell commands")
+	}
+	root := t.TempDir()
+	guest := filepath.Join(root, "guest")
+	host := filepath.Join(root, "host")
+	for _, dir := range []string{guest, host} {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	writeFile(t, guest, "a.txt", strings.Repeat("same\n", 10))
+	gitInitForTransfer(t, guest)
+	writeFile(t, guest, "a.txt", strings.Repeat("same\n", 11))
+	runGitTest(t, guest, "add", "a.txt")
+	runGitTest(t, guest, "commit", "-q", "-m", "repeated insertion")
+	base := strings.TrimSpace(gitTestOutput(t, guest, "rev-parse", "HEAD^"))
+	writeFile(t, host, "a.txt", strings.Repeat("same\n", 10))
+	archive := filepath.Join(root, "refresh.tar.gz")
+	if out, err := runShellTest("tar -czf "+shellQuote(archive)+" -C "+shellQuote(host)+" .", root); err != nil {
+		t.Fatalf("build host archive: %v: %s", err, out)
+	}
+
+	out, err := runShellTest(guestRecoveryRefreshScript(guest, archive, base, "T", "t@example.test"), guest)
+	if err != nil {
+		t.Fatalf("outstanding repeated insertion must be restored: %v: %s", err, out)
+	}
+	if strings.Contains(string(out), guestRecoveryAdvanceMarker) {
+		t.Fatalf("outstanding insertion must not be marked as recovered: %s", out)
+	}
+	content, readErr := os.ReadFile(filepath.Join(guest, "a.txt"))
+	if readErr != nil || strings.Count(string(content), "same\n") != 11 {
+		t.Fatalf("outstanding repeated insertion was lost: %q, %v", content, readErr)
+	}
+	refreshedBase := ""
+	for _, line := range strings.Split(string(out), "\n") {
+		if strings.HasPrefix(line, guestRecoveryBasePrefix) {
+			refreshedBase = strings.TrimSpace(strings.TrimPrefix(line, guestRecoveryBasePrefix))
+		}
+	}
+	if !isCommitSHA(refreshedBase) {
+		t.Fatalf("refresh did not return a comparison base: %s", out)
+	}
+	baseContent := gitTestOutput(t, guest, "show", refreshedBase+":a.txt")
+	if strings.Count(baseContent, "same\n") != 10 {
+		t.Fatalf("comparison base must keep the ten-line host version: %q", baseContent)
 	}
 }

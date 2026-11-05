@@ -366,3 +366,41 @@ func TestAlbertEnvKeyEditReplaceAllowsManualReplacement(t *testing.T) {
 		t.Fatal("the environment secret leaked into the output")
 	}
 }
+
+func TestSetupCatalogueUsesManualKeyAfterEnvironmentRefusal(t *testing.T) {
+	stateDir, _ := setupTestEnv(t)
+	forceLineWizard(t)
+	stubEnvPasswordReader(t, "manual-key")
+	t.Setenv("ALBERT_API_KEY", envTestSecret)
+	t.Setenv("JUST_CODE_CREDENTIAL_REF", "")
+	settingsPath, err := justcode.UserSettingsPath()
+	if err != nil {
+		t.Fatal(err)
+	}
+	// A whitespace reference is empty to runtime resolution too, so the new
+	// journal credential must win before final settings are written.
+	if err := justcode.WriteUserSettings(justcode.DefaultFS, settingsPath, justcode.UserSettings{SchemaVersion: 1, CredentialRef: " \t"}); err != nil {
+		t.Fatal(err)
+	}
+	store := &fakeSetupStore{}
+	var validated []string
+	w := envTestWizard(stateDir, store, nil, &validated)
+	if _, _, err := providerKeyStage(context.Background(), w, bufio.NewReader(strings.NewReader("s\n")), envTestProvider(t), true, stateDir); err != nil {
+		t.Fatalf("decline the environment key and store a manual key: %v", err)
+	}
+	if store.puts[justcode.CredentialAlbert] != "manual-key" || len(validated) != 1 || validated[0] != "manual-key" {
+		t.Fatalf("only the manual key may be stored and validated: puts=%+v validated=%v", store.puts, validated)
+	}
+	if got := resolveSetupCatalogueCredentialRefAt(t.TempDir()); got != string(justcode.CredentialAlbert) {
+		t.Fatalf("catalogue credentialRef = %q, want the newly stored Albert key instead of the declined environment key", got)
+	}
+
+	// An explicit custom reference remains authoritative even with a new
+	// journal credential: setup must not silently replace the user's choice.
+	if err := justcode.WriteUserSettings(justcode.DefaultFS, settingsPath, justcode.UserSettings{SchemaVersion: 1, CredentialRef: "work"}); err != nil {
+		t.Fatal(err)
+	}
+	if got := resolveSetupCatalogueCredentialRefAt(t.TempDir()); got != "work" {
+		t.Fatalf("custom catalogue credentialRef = %q, want work", got)
+	}
+}

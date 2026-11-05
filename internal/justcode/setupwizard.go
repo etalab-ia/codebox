@@ -419,7 +419,7 @@ func (w SetupWizard) SaveSettings(model string, models []string, modelChosen boo
 			break
 		}
 	}
-	if us.CredentialRef == "" && albertConfigured && ContainsCredentialKind(j.CredentialKinds, string(CredentialAlbert)) {
+	if strings.TrimSpace(us.CredentialRef) == "" && albertConfigured && ContainsCredentialKind(j.CredentialKinds, string(CredentialAlbert)) {
 		// Setup and runtime must agree on priority: a key the user stored or
 		// entered manually wins over ALBERT_API_KEY. Preserve any explicit
 		// custom credentialRef already chosen by the user (#308).

@@ -1660,9 +1660,10 @@ func defaultSetupModel() string {
 }
 
 // reconcileSetupModelsForProviders drops selections whose platform was removed
-// and chooses a default from the remaining provider-valid models. An empty
-// result requires an explicit model answer; it must never be persisted as an
-// Albert-only configuration alongside non-Albert providers (#305).
+// and replaces defaults belonging to removed managed platforms. An unmanaged
+// default remains valid outside the managed selection. An empty result requires
+// an explicit model answer; it must never be persisted as an Albert-only
+// configuration alongside non-Albert providers (#305).
 func reconcileSetupModelsForProviders(providers []justcode.InferenceProvider, current []string, currentDefault string) ([]string, string) {
 	models := make([]string, 0, len(current))
 	for _, ref := range current {
@@ -1675,10 +1676,16 @@ func reconcileSetupModelsForProviders(providers []justcode.InferenceProvider, cu
 		return nil, ""
 	}
 	model := canonicalSetupModelRef(currentDefault)
-	if model == "" || !setupModelEnabled(model, models) {
+	if model == "" || (setupModelRefManaged(model) && !setupModelEnabled(model, models)) {
 		model = setupModelRefForSelected(models[0])
 	}
 	return models, model
+}
+
+func setupModelRefManaged(model string) bool {
+	return strings.HasPrefix(model, "albert/") ||
+		strings.HasPrefix(model, "mistral/") ||
+		strings.HasPrefix(model, "openai-compatible/")
 }
 
 func setupModelEnabled(model string, ids []string) bool {
@@ -1772,8 +1779,28 @@ func providersContain(providers []justcode.InferenceProvider, kind justcode.Prov
 	return false
 }
 
+// resolveSetupCatalogueCredentialRef keeps an explicit custom reference
+// authoritative, but uses a newly stored Albert credential before final apply.
+// Without this setup-scoped fallback, a declined ALBERT_API_KEY would still be
+// used for catalogue discovery until SaveSettings ran (#308).
+func resolveSetupCatalogueCredentialRef() string {
+	return resolveSetupCatalogueCredentialRefAt(resolveProjectRootForAux())
+}
+
+func resolveSetupCatalogueCredentialRefAt(projectRoot string) string {
+	ref := resolveCredentialRef(projectRoot)
+	if strings.TrimSpace(ref) != "" {
+		return ref
+	}
+	j, err := justcode.ReadSetupJournal(justcode.DefaultFS, justcode.DefaultStateDir())
+	if err == nil && justcode.ContainsCredentialKind(j.CredentialKinds, string(justcode.CredentialAlbert)) {
+		return string(justcode.CredentialAlbert)
+	}
+	return ref
+}
+
 var setupModelCatalogueFn = func() (justcode.Catalogue, bool, error) {
-	apiKey, err := resolveAlbertKeyForCatalogue()
+	apiKey, err := resolveAlbertKeyForCredentialRef(resolveSetupCatalogueCredentialRef())
 	if err != nil {
 		return justcode.Catalogue{}, false, err
 	}
@@ -2122,9 +2149,7 @@ func promptSetupModels(providers []justcode.InferenceProvider, current []string,
 	// A default belonging to a managed platform that is no longer connected
 	// must be replaced: keeping it would save an unusable model. Only a
 	// genuinely unmanaged reference (e.g. a custom provider) is preserved.
-	managedDefault := strings.HasPrefix(defaultModel, "albert/") ||
-		strings.HasPrefix(defaultModel, "mistral/") ||
-		strings.HasPrefix(defaultModel, "openai-compatible/")
+	managedDefault := setupModelRefManaged(defaultModel)
 	externalDefault := defaultModel != "" && !setupModelRefKnown(defaultModel, choices) && !managedDefault
 	if !selected[defaultModel] && !externalDefault {
 		defaultModel = firstSelectedChoiceRef(choices, selected)

@@ -190,6 +190,33 @@ func TestPromptSetupModelsReplacesADisconnectedPlatformDefault(t *testing.T) {
 	}
 }
 
+func TestReconcileSetupModelsForProvidersPreservesUnmanagedDefault(t *testing.T) {
+	providers, err := justcode.ResolveProviders([]justcode.ProviderSettings{{Kind: justcode.ProviderMistral}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	selected := []string{"mistral/mistral-large-latest"}
+	models, defaultModel := reconcileSetupModelsForProviders(providers, selected, "anthropic/claude")
+	if defaultModel != "anthropic/claude" {
+		t.Fatalf("an unmanaged default must survive an unchanged setup: default=%q", defaultModel)
+	}
+	if len(models) != 1 || models[0] != selected[0] {
+		t.Fatalf("the managed model selection must stay unchanged: models=%v", models)
+	}
+}
+
+func TestReconcileSetupModelsForProvidersReplacesRemovedManagedDefault(t *testing.T) {
+	providers, err := justcode.ResolveProviders([]justcode.ProviderSettings{{Kind: justcode.ProviderMistral}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	selected := []string{"mistral/mistral-large-latest"}
+	_, defaultModel := reconcileSetupModelsForProviders(providers, selected, "albert/qwen3-coder")
+	if defaultModel != selected[0] {
+		t.Fatalf("a removed managed platform's default must be replaced: default=%q", defaultModel)
+	}
+}
+
 func TestSetupPlatformStageSeedsFromSavedSettings(t *testing.T) {
 	stateDir, _ := setupTestEnv(t)
 	forceNonTTY(t)
