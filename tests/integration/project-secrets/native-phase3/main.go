@@ -14,7 +14,7 @@ package main
 //  3. the REAL vendored syncGuestSecretFiles publishes both files into the
 //     guest atomically (temp file + mv) over the same SDK calls just-code's
 //     sdkMSBClient makes;
-//  4. REAL guest applications (Node dotenv@16.6.1 + dotenv-expand@12.0.3,
+//  4. REAL guest applications (Node dotenv@16.6.1 + dotenv-expand@13.0.0,
 //     Python python-dotenv==1.2.4) read those files and carry the value in an
 //     HTTPS header to the lab; the proxy substitutes the real canary only for
 //     the approved destination;

@@ -25,7 +25,7 @@ tests clear the environment temporarily, and Go uses `Unmarshal` only.
 | Loader | Version | Opaque marker | Dollar marker |
 |---|---|---|---|
 | Node dotenv | 16.6.1 | Preserved, unquoted/single/double quoted | Preserved by parse alone |
-| Node dotenv-expand | 12.0.3 | Preserved in all tested quote modes | Undefined `$MSB_...` erased, including after quoted parsing |
+| Node dotenv-expand | 13.0.0 | Preserved in all tested quote modes | Undefined `$MSB_...` erased, including after quoted parsing |
 | Python python-dotenv | 1.2.4 | Preserved in all tested quote/interpolation modes | Bare `$MSB_...` preserved; `${MSB_...}` erased with interpolation |
 | Go godotenv | 1.5.1 | Preserved in all tested quote modes | Unquoted undefined `$MSB_...` erased |
 
@@ -61,13 +61,17 @@ guest-authored project `.env`, read by an application that has adopted an
 expanding loader, where an unquoted `$(...)` becomes code execution. That is a
 property of the dependency version, so the fixtures qualify it.
 
-`dotenv` 17.4.2 / `dotenv-expand` 13.0.0, and `dotenv` 18.0.8 as offered by
-Dependabot #254 / #262, pass all 46 Node tests and carry no OSV advisory, so
-nothing refuses them on behaviour. The Python suite is not evidence about them:
-it loads `python-dotenv`, so its 16 tests qualify the applied `python-dotenv`
-1.2.4 pin only. These Node majors are deferred because the current pins are the
-versions the native guest qualification was measured against: a major waits for
-that macOS arm64 re-run rather than for a new failure to force it.
+`dotenv-expand` 13.0.0, applied by Dependabot #324, passes all 46 Node tests
+and carries no OSV advisory. The Python suite is not evidence about it: it
+loads `python-dotenv`, so its 16 tests qualify the applied `python-dotenv`
+1.2.4 pin only. The native macOS arm64 run predates this upgrade and remains
+tied to its recorded loader versions.
+
+`dotenv` 17.4.2 and `dotenv` 18.0.8, as offered by Dependabot #254 / #262,
+also pass all 46 Node tests and carry no OSV advisory. They remain deferred
+until a native guest qualification re-run covers them; the `dotenv` direct pin
+stays at 16.6.1 while `dotenv-expand` 13.0.0 resolves its own 17.4.2
+dependency in the lockfile.
 
 ## Design Consequence and Remaining Gate
 

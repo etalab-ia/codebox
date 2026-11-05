@@ -1,7 +1,7 @@
 // Phase 3 qualification guest application (TEST FIXTURE ONLY).
 //
 // Reads a just-code-managed dotenv file with the REAL loaders
-// (dotenv@16.6.1 + dotenv-expand@12.0.3) and issues one HTTPS request to the
+// (dotenv@16.6.1 + dotenv-expand@13.0.0) and issues one HTTPS request to the
 // test lab carrying the parsed value in a header. The file holds an opaque
 // marker; the sandbox proxy — not this app — substitutes the real value at
 // the network boundary, and only toward the approved destination.
