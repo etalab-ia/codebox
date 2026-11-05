@@ -53,7 +53,7 @@ func TestInitMultiSelectsAnnounceSelectionKeys(t *testing.T) {
 	assertHint := func(name string, field huh.Field) {
 		t.Helper()
 		content := huh.NewGroup(field).Content()
-		for _, want := range []string{"Space or x toggles an item", "Enter confirms the list"} {
+		for _, want := range []string{"Espace ou x pour cocher/décocher", "Entrée pour valider la liste"} {
 			if !strings.Contains(content, want) {
 				t.Fatalf("%s must announce %q in its description, got:\n%s", name, want, content)
 			}
@@ -64,7 +64,7 @@ func TestInitMultiSelectsAnnounceSelectionKeys(t *testing.T) {
 		[]huh.Option[string]{huh.NewOption("pdf", "pdf")}, &skillsValue, "[1/3] "))
 	mcpValue := []string{}
 	assertHint("MCPs", newProjectMCPsMultiSelect(
-		[]huh.Option[string]{huh.NewOption("data-gouv", "data-gouv")}, &mcpValue))
+		[]huh.Option[string]{huh.NewOption("data-gouv", "data-gouv")}, &mcpValue, justcode.MCPStepTitle))
 	dotenvValue := []string{}
 	assertHint("Dotenv files", newDotenvFilesMultiSelect(
 		[]huh.Option[string]{huh.NewOption(".env", ".env")}, &dotenvValue))
@@ -78,7 +78,7 @@ func TestInitMultiSelectsAnnounceSelectionKeys(t *testing.T) {
 func TestProjectMCPsScreenUsesWizardTexts(t *testing.T) {
 	mcpValue := []string{}
 	field := newProjectMCPsMultiSelect(
-		[]huh.Option[string]{huh.NewOption("data-gouv — données publiques", "data-gouv")}, &mcpValue)
+		[]huh.Option[string]{huh.NewOption("data-gouv — données publiques", "data-gouv")}, &mcpValue, justcode.MCPStepTitle)
 	content := newProjectMCPsGroup([]huh.Field{field}).Content()
 	for _, want := range []string{justcode.MCPStepTitle, justcode.MCPStepIntro, "data-gouv"} {
 		if !strings.Contains(content, want) {
@@ -114,7 +114,7 @@ func TestInitSkillsAreTheSixDescribedOfficialEntries(t *testing.T) {
 	selected := []string{"official/securite-developpement"}
 	localOnly := false
 	content := newInitSkillsGroup(options, &selected, &localOnly, true, true, "[1/3] ").Content()
-	for _, want := range []string{"Space or x toggles", "Enter confirms", "règles, références, exemples"} {
+	for _, want := range []string{"Espace ou x pour cocher/décocher", "Entrée pour valider", "règles, références, exemples"} {
 		if !strings.Contains(content, want) {
 			t.Errorf("skills screen missing %q: %s", want, content)
 		}
@@ -282,7 +282,7 @@ func TestInitHuhEmptySkillsAcceptedOnceAcrossMCPRetry(t *testing.T) {
 			}
 			events = append(events, "mcp-accept")
 			_, _ = form.Update(tea.KeyPressMsg(tea.Key{Code: 'y', Text: "y"}))
-		case strings.Contains(view, justcode.MCPStepTitle):
+		case strings.Contains(view, "MCP (facultatif)"):
 			events = append(events, "mcp-clear")
 			_, _ = form.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeySpace, Text: " "}))
 		case strings.Contains(view, "Une skill apporte"):
@@ -1056,7 +1056,10 @@ func TestInitSkillsStepPrefixIsOmittedForPartialWizard(t *testing.T) {
 	if got := initSkillsStepPrefix(initOptions{}); got != "[1/3] " {
 		t.Fatalf("full wizard prefix = %q", got)
 	}
-	for _, field := range []string{"root", "runtime", "isolation", "model", "cpus", "memory-mb", "credential-ref", "github"} {
+	if got := initSkillsStepPrefix(initOptions{Set: map[string]bool{"root": true}}); got != "[1/3] " {
+		t.Fatalf("a displayed or explicit root must keep the beginner prefix = %q", got)
+	}
+	for _, field := range []string{"runtime", "isolation", "model", "cpus", "memory-mb", "credential-ref", "github", "skills", "mcps"} {
 		if got := initSkillsStepPrefix(initOptions{Set: map[string]bool{field: true}}); got != "" {
 			t.Errorf("prefix with %q supplied = %q", field, got)
 		}
