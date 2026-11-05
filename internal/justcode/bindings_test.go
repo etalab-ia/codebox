@@ -306,6 +306,22 @@ func TestResolveAlbertPrecedence(t *testing.T) {
 	}
 }
 
+func TestResolveAlbertTrimsEnvironment(t *testing.T) {
+	value, source, _, _, err := resolveAlbertWith(func(context.Context, CredentialKind, string) (string, string, error) {
+		t.Fatal("a non-empty trimmed environment value must win without a store read")
+		return "", "", nil
+	}, context.Background(), Config{APIKey: "  environment-secret \n"}, "")
+	if err != nil || value != "environment-secret" || source != bindingSourceEnv {
+		t.Fatalf("trimmed environment = %q from %q, err %v", value, source, err)
+	}
+	value, source, _, _, err = resolveAlbertWith(func(context.Context, CredentialKind, string) (string, string, error) {
+		return "stored-secret", "file", nil
+	}, context.Background(), Config{APIKey: " \n\t "}, "")
+	if err != nil || value != "stored-secret" || source != bindingSourceStore {
+		t.Fatalf("whitespace-only environment must fall back to the store: %q from %q, err %v", value, source, err)
+	}
+}
+
 func TestResolveBindingsSkipsUnapprovedOptionals(t *testing.T) {
 	m := newTestMicrosandbox(t, &fakeMSBClient{})
 	bindings, err := m.resolveBindings(context.Background())

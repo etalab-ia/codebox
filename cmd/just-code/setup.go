@@ -1223,10 +1223,163 @@ func providerUnreachableMessage(provider justcode.InferenceProvider) string {
 	}
 }
 
+// albertEnvKeyStage proposes the Albert key found in ALBERT_API_KEY (#308).
+// Priority: a key already recorded in the setup journal wins without any
+// proposal (providerKeyStage is not called then); the environment is only
+// consulted when a key must be entered. The variable's value is NEVER
+// printed. The key is validated through the same probe as a typed key, and
+// nothing is stored before an explicit storage agreement. handled=false
+// means the manual key loop must run (no variable, or the user prefers
+// another key). A piped run skips the proposal entirely: its next input line
+// belongs to the key prompt and no agreement may be assumed.
+func albertEnvKeyStage(ctx context.Context, w justcode.SetupWizard, in *bufio.Reader, provider justcode.InferenceProvider, fallback bool, stateDir string) (handled, verified bool, err error) {
+	if !stdinIsTTYFn() {
+		return false, false, nil
+	}
+	key := strings.TrimSpace(os.Getenv("ALBERT_API_KEY"))
+	if key == "" {
+		return false, false, nil
+	}
+	use, err := albertEnvKeyChoice(in)
+	if err != nil {
+		return true, false, err
+	}
+	if !use {
+		return false, false, nil
+	}
+	for {
+		probe, err := w.ValidateProviderCredential(ctx, provider, key)
+		if err != nil {
+			return true, false, err
+		}
+		if probe.Rejected {
+			fmt.Println(providerRejectedMessage(provider, probe.Detail))
+			fmt.Println()
+			return false, false, nil
+		}
+		if probe.Incompatible {
+			fmt.Printf("La réponse d'Albert API n'est pas un catalogue de modèles compatible OpenAI. (%s)\n\n", probe.Detail)
+			return false, false, nil
+		}
+		if !probe.Unreachable {
+			verified = true
+		}
+		if probe.Unreachable {
+			fmt.Printf("%s (%s)\n", providerUnreachableMessage(provider), probe.Detail)
+			retry, abort := credentialRetryChoice(in, providerUnreachableMessage(provider))
+			if abort {
+				recordSetupAbandon(stateDir, "credentials")
+				return true, false, cancelledSetupError(stateDir)
+			}
+			if retry {
+				fmt.Println()
+				continue
+			}
+		}
+		break
+	}
+	if _, err := w.ResolveStore(ctx); err != nil {
+		return true, false, err
+	}
+	store, err := confirmAlbertEnvKeyStorage(in, fallback)
+	if err != nil {
+		return true, false, err
+	}
+	if !store {
+		return false, false, nil
+	}
+	if err := w.PutCredential(ctx, provider.CredentialKind, key); err != nil {
+		return true, false, err
+	}
+	if verified {
+		fmt.Println("✅ Clé valide.")
+	} else {
+		fmt.Println("Clé enregistrée sans vérification.")
+	}
+	return true, verified, nil
+}
+
+// albertEnvKeyChoice asks whether to use the ALBERT_API_KEY value or type
+// another key. Only the variable's NAME is shown, never its value.
+func albertEnvKeyChoice(in *bufio.Reader) (bool, error) {
+	if wizardHuhFn() {
+		use := true
+		err := huhRun(huh.NewForm(huh.NewGroup(
+			huh.NewSelect[bool]().
+				Title("Clé Albert API trouvée").
+				Description("Une clé est disponible dans la variable d'environnement ALBERT_API_KEY. Elle ne sera jamais affichée.").
+				Options(
+					huh.NewOption("Utiliser cette clé", true),
+					huh.NewOption("Saisir une autre clé", false),
+				).
+				Value(&use),
+		)))
+		if errors.Is(err, huh.ErrUserAborted) {
+			return false, nil
+		}
+		return use, err
+	}
+	fmt.Println("Une clé Albert API est disponible dans la variable d'environnement ALBERT_API_KEY (sa valeur n'est pas affichée).")
+	for {
+		answer, ok := promptLine(in, "[U]tiliser cette clé  [S]aisir une autre clé : ")
+		if !ok {
+			return false, nil
+		}
+		switch strings.ToLower(strings.TrimSpace(answer)) {
+		case "", "u", "utiliser", "o", "y":
+			return true, nil
+		case "s", "saisir", "n":
+			return false, nil
+		default:
+			fmt.Println("Réponse non reconnue.")
+		}
+	}
+}
+
+// confirmAlbertEnvKeyStorage asks the explicit agreement required before an
+// environment-provided key is persisted (#308). Enter means yes; EOF or a
+// refusal falls back to typing another key, never to a silent storage.
+func confirmAlbertEnvKeyStorage(in *bufio.Reader, fallback bool) (bool, error) {
+	question := "Enregistrer cette clé dans le trousseau de ce poste ?"
+	if fallback {
+		question = "Enregistrer cette clé dans un fichier de ce poste, lisible par votre seul compte ?"
+	}
+	if wizardHuhFn() {
+		store := true
+		err := huhRun(huh.NewForm(huh.NewGroup(
+			huh.NewConfirm().Title(question).Affirmative("Oui").Negative("Non").Value(&store),
+		)))
+		if errors.Is(err, huh.ErrUserAborted) {
+			return false, nil
+		}
+		return store, err
+	}
+	for {
+		answer, ok := promptLine(in, question+" [O/n] ")
+		if !ok {
+			return false, nil
+		}
+		switch strings.ToLower(strings.TrimSpace(answer)) {
+		case "", "o", "oui", "y", "yes":
+			return true, nil
+		case "n", "non":
+			return false, nil
+		default:
+			fmt.Println("Réponse non reconnue.")
+		}
+	}
+}
+
 // providerKeyStage runs the masked-key loop for one platform: validate,
 // explain, re-ask on a refusal, offer retry or continue on an unreachable
 // endpoint. It returns whether the stored key passed validation.
 func providerKeyStage(ctx context.Context, w justcode.SetupWizard, in *bufio.Reader, provider justcode.InferenceProvider, fallback bool, stateDir string) (justcode.InferenceProvider, bool, error) {
+	if provider.Kind == justcode.ProviderAlbert {
+		handled, verified, err := albertEnvKeyStage(ctx, w, in, provider, fallback, stateDir)
+		if handled {
+			return provider, verified, err
+		}
+	}
 	fmt.Println(providerKeyScreenHeader(provider, fallback))
 	if _, err := w.ResolveStore(ctx); err != nil {
 		return provider, false, err
@@ -1626,8 +1779,28 @@ func providersContain(providers []justcode.InferenceProvider, kind justcode.Prov
 	return false
 }
 
+// resolveSetupCatalogueCredentialRef keeps an explicit custom reference
+// authoritative, but uses a newly stored Albert credential before final apply.
+// Without this setup-scoped fallback, a declined ALBERT_API_KEY would still be
+// used for catalogue discovery until SaveSettings ran (#308).
+func resolveSetupCatalogueCredentialRef() string {
+	return resolveSetupCatalogueCredentialRefAt(resolveProjectRootForAux())
+}
+
+func resolveSetupCatalogueCredentialRefAt(projectRoot string) string {
+	ref := resolveCredentialRef(projectRoot)
+	if strings.TrimSpace(ref) != "" {
+		return ref
+	}
+	j, err := justcode.ReadSetupJournal(justcode.DefaultFS, justcode.DefaultStateDir())
+	if err == nil && justcode.ContainsCredentialKind(j.CredentialKinds, string(justcode.CredentialAlbert)) {
+		return string(justcode.CredentialAlbert)
+	}
+	return ref
+}
+
 var setupModelCatalogueFn = func() (justcode.Catalogue, bool, error) {
-	apiKey, err := resolveAlbertKeyForCatalogue()
+	apiKey, err := resolveAlbertKeyForCredentialRef(resolveSetupCatalogueCredentialRef())
 	if err != nil {
 		return justcode.Catalogue{}, false, err
 	}
@@ -2428,6 +2601,8 @@ func promptLine(in *bufio.Reader, prompt string) (string, bool) {
 var stdinIsTTYFn = isTTY
 
 // promptSecret reads a secret with echo disabled where supported.
+var passwordReaderFn = readPassword
+
 func promptSecret(in *bufio.Reader, prompt string) (string, bool) {
 	fmt.Print(prompt)
 	if stdinIsTTYFn() {
@@ -2439,7 +2614,7 @@ func promptSecret(in *bufio.Reader, prompt string) (string, bool) {
 			line, _ := promptLine(in, "")
 			_ = line
 		}
-		value, err := readPassword()
+		value, err := passwordReaderFn()
 		fmt.Println()
 		if err != nil {
 			return "", false
