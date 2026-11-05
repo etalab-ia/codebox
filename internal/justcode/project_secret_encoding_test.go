@@ -10,7 +10,7 @@ import (
 
 func TestDotenvLiteralRoundTripsThroughTheQualifiedLoaders(t *testing.T) {
 	// Verified against Node dotenv 16.6.1 (with and without dotenv-expand
-	// 12.0.3), python-dotenv 1.2.4 and godotenv 1.5.1: single quotes preserve
+	// 13.0.0), python-dotenv 1.2.4 and godotenv 1.5.1: single quotes preserve
 	// all of these exactly. The Node and Python halves of that measurement run
 	// in tests/integration/project-secrets; this test covers godotenv, whose
 	// pin is unchanged.

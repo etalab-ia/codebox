@@ -7,7 +7,7 @@ Tracking: #145; phase 4 #151
 > Pin note: the dependency list below records the versions in force when the
 > contract was measured (Node `dotenv` 16.4.7, `dotenv-expand` 12.0.2,
 > `python-dotenv` 1.2.2). The fixtures now pin `dotenv` 16.6.1,
-> `dotenv-expand` 12.0.3 and `python-dotenv` 1.2.4. The behaviour assertions
+> `dotenv-expand` 13.0.0 and `python-dotenv` 1.2.4. The behaviour assertions
 > that established this contract — quoted apostrophes, raw multiline values,
 > carriage returns, `$` and `#` — run on the current pins in the
 > `fixture-contracts` CI job and pass unchanged. What the current pins do *not*
