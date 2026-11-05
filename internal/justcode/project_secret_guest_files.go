@@ -72,7 +72,7 @@ func assertGuestSecretHeaderDigest() {
 //
 // dotenv has no single escaping that every loader agrees on, and this was
 // measured against the loaders just-code pins (Node dotenv 16.6.1 with and
-// without dotenv-expand 12.0.3, python-dotenv 1.2.4, godotenv 1.5.1). The
+// without dotenv-expand 13.0.0, python-dotenv 1.2.4, godotenv 1.5.1). The
 // round-trip properties were re-measured on that set in cloud, and hold
 // unchanged from the 16.4.7/12.0.2/1.2.2 pair the original decision was
 // written against; the dated ADRs keep the versions as first measured.
