@@ -1322,7 +1322,11 @@ func TestInitRepairsInvalidInheritedAdvancedSettings(t *testing.T) {
 			// anything else reopens the expert settings (isolation, CPUs, memory,
 			// main model, small model). The run then applies without a review.
 			input := "\n\n\n2\n4G\ndéfaut\n\n" // harness, VM, isolation, CPUs, memory, main model, small model
-			if kind == "runtime" {
+			// The repair screen follows the same rule as the code: an unusable
+			// runtime reopens the VM step (tart and agent-vm are refused on
+			// Windows too, not only the removed runtime), anything else reopens
+			// the expert settings.
+			if _, runtimeErr := justcode.ResolveRuntime("", manifest.Runtime); runtimeErr != nil {
 				input = "\nmicrosandbox\n" // harness, VM
 			}
 			code, err := initRun(opts, bufio.NewReader(strings.NewReader(input)), true)
