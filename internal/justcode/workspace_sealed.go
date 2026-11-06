@@ -283,7 +283,12 @@ func guestRecoveryRefreshScript(workspace, archivePath, base, gitName, gitEmail 
 		"; REAL_INDEX=$(git rev-parse --git-path index)" +
 		"; SAVED_INDEX=$(mktemp /tmp/just-code-original-index.XXXXXX)" +
 		"; cp \"$REAL_INDEX\" \"$SAVED_INDEX\"" +
-		"; restore_index() { if [ -n \"$SAVED_INDEX\" ]; then cp \"$SAVED_INDEX\" \"$REAL_INDEX\"; git update-index -q --really-refresh || true; rm -f \"$SAVED_INDEX\"; SAVED_INDEX=; fi; }" +
+		// The restored index still describes the pre-refresh worktree, but the
+		// tar extraction has already replaced files in place with whole-second
+		// mtimes. With a current index mtime, git trusts that stale stat data
+		// and skips re-reading changed files; backdating the index marks every
+		// restored entry racily clean, forcing content re-reads.
+		"; restore_index() { if [ -n \"$SAVED_INDEX\" ]; then cp \"$SAVED_INDEX\" \"$REAL_INDEX\"; git update-index -q --really-refresh || true; touch -t 200001010000 \"$REAL_INDEX\"; rm -f \"$SAVED_INDEX\"; SAVED_INDEX=; fi; }" +
 		"; trap restore_index EXIT HUP INT TERM" +
 		"; ORIGINAL_HEAD=$(git rev-parse HEAD)" +
 		"; git add -A" +
