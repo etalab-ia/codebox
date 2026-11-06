@@ -648,10 +648,10 @@ func (w InitWizard) Plan(answers InitAnswers) (InitPlan, error) {
 		})
 	}
 	if plan.InstructionsChanged {
-		description := "section just-code ajoutée (voir le détail : d)"
+		description := "section just-code ajoutée"
 		before, _ := managedSkillZone(plan.InstructionsBefore)
 		if before != "" {
-			description = "section just-code modifiée (voir le détail : d)"
+			description = "section just-code modifiée"
 		}
 		plan.FileChanges = append(plan.FileChanges, InitFileChange{
 			Path: plan.InstructionsPath, Description: description, Existed: plan.InstructionsExisted,

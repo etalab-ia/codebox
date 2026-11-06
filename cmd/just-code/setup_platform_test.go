@@ -34,7 +34,7 @@ func TestSetupPlatformStageUnreachableRetryThenContinue(t *testing.T) {
 			return justcode.CredentialProbe{}
 		},
 	}
-	if _, err := setupPlatformStage(context.Background(), w, bufio.NewReader(strings.NewReader("k1\nr\nk2\n")), true, &j, false, fs, stateDir); err != nil {
+	if _, err := setupPlatformStage(context.Background(), w, bufio.NewReader(strings.NewReader("k1\nr\nk2\n")), true, &j, fs, stateDir); err != nil {
 		t.Fatalf("stage: %v", err)
 	}
 	if store.puts[justcode.CredentialMistral] != "k2" || calls != 2 {
@@ -55,7 +55,7 @@ func TestSetupPlatformStageAbortsOnUnansweredRetry(t *testing.T) {
 			return justcode.CredentialProbe{Unreachable: true, Detail: "down"}
 		},
 	}
-	_, err := setupPlatformStage(context.Background(), w, bufio.NewReader(strings.NewReader("k\n")), true, &j, false, fs, stateDir)
+	_, err := setupPlatformStage(context.Background(), w, bufio.NewReader(strings.NewReader("k\n")), true, &j, fs, stateDir)
 	if err == nil {
 		t.Fatal("EOF at the retry prompt must cancel, not store an unvalidated key")
 	}
@@ -267,7 +267,7 @@ func TestSetupPlatformStageResumePipedAsksMissingKeys(t *testing.T) {
 	store := &fakeSetupStore{}
 	w := resumeTestWizard(stateDir, store)
 	out := captureStdout(t, func() {
-		providers, err := setupPlatformStage(context.Background(), w, bufio.NewReader(strings.NewReader("albert-key\n")), true, &j, false, justcode.DefaultFS, stateDir)
+		providers, err := setupPlatformStage(context.Background(), w, bufio.NewReader(strings.NewReader("albert-key\n")), true, &j, justcode.DefaultFS, stateDir)
 		if err != nil {
 			t.Fatalf("stage: %v", err)
 		}
@@ -291,7 +291,7 @@ func TestSetupPlatformStageResumePipedMistral(t *testing.T) {
 	j := resumeTestJournal([]justcode.SetupPlatform{{Kind: "mistral"}})
 	store := &fakeSetupStore{}
 	w := resumeTestWizard(stateDir, store)
-	if _, err := setupPlatformStage(context.Background(), w, bufio.NewReader(strings.NewReader("mistral-key\n")), true, &j, false, justcode.DefaultFS, stateDir); err != nil {
+	if _, err := setupPlatformStage(context.Background(), w, bufio.NewReader(strings.NewReader("mistral-key\n")), true, &j, justcode.DefaultFS, stateDir); err != nil {
 		t.Fatalf("stage: %v", err)
 	}
 	if store.puts[justcode.CredentialMistral] != "mistral-key" {
@@ -312,7 +312,7 @@ func TestSetupPlatformStageResumeModifyDeselectsMistral(t *testing.T) {
 	store := &fakeSetupStore{}
 	w := resumeTestWizard(stateDir, store)
 	out := captureStdout(t, func() {
-		providers, err := setupPlatformStage(context.Background(), w, bufio.NewReader(strings.NewReader("m\n1\n")), true, &j, false, justcode.DefaultFS, stateDir)
+		providers, err := setupPlatformStage(context.Background(), w, bufio.NewReader(strings.NewReader("m\n1\n")), true, &j, justcode.DefaultFS, stateDir)
 		if err != nil {
 			t.Fatalf("stage: %v", err)
 		}
@@ -343,7 +343,7 @@ func TestSetupPlatformStageResumeModifyDropsAlbert(t *testing.T) {
 	)
 	store := &fakeSetupStore{}
 	w := resumeTestWizard(stateDir, store)
-	providers, err := setupPlatformStage(context.Background(), w, bufio.NewReader(strings.NewReader("m\n2\n")), true, &j, false, justcode.DefaultFS, stateDir)
+	providers, err := setupPlatformStage(context.Background(), w, bufio.NewReader(strings.NewReader("m\n2\n")), true, &j, justcode.DefaultFS, stateDir)
 	if err != nil {
 		t.Fatalf("stage: %v", err)
 	}
@@ -370,7 +370,7 @@ func TestSetupPlatformStageResumeOpenAICompatible(t *testing.T) {
 		j := resumeTestJournal([]justcode.SetupPlatform{openAI})
 		store := &fakeSetupStore{}
 		w := resumeTestWizard(stateDir, store)
-		if _, err := setupPlatformStage(context.Background(), w, bufio.NewReader(strings.NewReader("scaleway-key\n")), true, &j, false, justcode.DefaultFS, stateDir); err != nil {
+		if _, err := setupPlatformStage(context.Background(), w, bufio.NewReader(strings.NewReader("scaleway-key\n")), true, &j, justcode.DefaultFS, stateDir); err != nil {
 			t.Fatalf("stage: %v", err)
 		}
 		if store.puts[justcode.CredentialOpenAICompatible] != "scaleway-key" {
@@ -386,7 +386,7 @@ func TestSetupPlatformStageResumeOpenAICompatible(t *testing.T) {
 		)
 		store := &fakeSetupStore{}
 		w := resumeTestWizard(stateDir, store)
-		providers, err := setupPlatformStage(context.Background(), w, bufio.NewReader(strings.NewReader("m\n1\n")), true, &j, false, justcode.DefaultFS, stateDir)
+		providers, err := setupPlatformStage(context.Background(), w, bufio.NewReader(strings.NewReader("m\n1\n")), true, &j, justcode.DefaultFS, stateDir)
 		if err != nil {
 			t.Fatalf("stage: %v", err)
 		}
@@ -438,7 +438,7 @@ func TestSetupPlatformStageResumeHuhModifyDeselectsProvider(t *testing.T) {
 			j := resumeTestJournal(tc.platforms, string(tc.stored))
 			store := &fakeSetupStore{}
 			w := resumeTestWizard(stateDir, store)
-			providers, err := setupPlatformStage(context.Background(), w, bufio.NewReader(strings.NewReader("")), true, &j, false, justcode.DefaultFS, stateDir)
+			providers, err := setupPlatformStage(context.Background(), w, bufio.NewReader(strings.NewReader("")), true, &j, justcode.DefaultFS, stateDir)
 			if err != nil {
 				t.Fatalf("stage: %v", err)
 			}

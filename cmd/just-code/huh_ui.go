@@ -798,15 +798,6 @@ func huhDiagnosticsDescription(report justcode.DiagnosticsReport) string {
 	return strings.TrimRight(b.String(), "\n")
 }
 
-// Note descriptions support inline markdown; escape those markers in table
-// data without changing the plain accessible output used by TERM=dumb.
-func escapeHuhNoteMarkup(value string) string {
-	if os.Getenv("TERM") == "dumb" {
-		return value
-	}
-	return strings.NewReplacer("\\", "\\\\", "_", "\\_", "*", "\\*", "`", "\\`", "<", "\\<", ">", "\\>").Replace(value)
-}
-
 // askInitQuestionsHuh renders the init wizard as one huh form. Groups the
 // command line did not supply are omitted structurally (never added to the
 // form), so a partial `just-code init --runtime tart` form shows only the
@@ -1020,7 +1011,7 @@ func askInitQuestionsHuh(opts initOptions, answers justcode.InitAnswers) (justco
 		}
 		// The GitHub step is a distinct screen, not a field of the main
 		// form: it renders one of the four situations and verifies on that
-		// screen (#169). It runs after the main form so the [1/3]..[3/3]
+		// screen (#169). It runs after the main form so the [1/5]..[5/5]
 		// order on screen matches the flow, and its own screens never throw
 		// away the answers already collected (#155).
 		if !opts.Set["github"] {

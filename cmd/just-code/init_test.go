@@ -401,7 +401,8 @@ func TestInitAutoSelectsSingleCPUWithoutPrompting(t *testing.T) {
 		code int
 		err  error
 	)
-	input := strings.Join([]string{"", "", "", "", "n", "y"}, "\n") + "\n"
+	// harness, VM, skills, no-skill confirmation, storage, MCPs, GitHub
+	input := strings.Join([]string{"", "", "", "y", "", "", "n"}, "\n") + "\n"
 	out := captureStdout(t, func() {
 		code, err = initRun(initOptions{Root: root, Replace: true, Set: map[string]bool{"root": true}}, bufio.NewReader(strings.NewReader(input)), true)
 	})
@@ -521,7 +522,7 @@ func TestInitNoOriginShowsCase2Screen(t *testing.T) {
 	approveGitHubForProjectFn = func(string) error { approved = true; return nil }
 	t.Cleanup(func() { githubInitProbeFn, approveGitHubForProjectFn = originalProbe, originalApprove })
 	// Skills, no-skill confirmation, storage, MCPs, GitHub (continue), apply.
-	input := strings.Join([]string{"", "", "", "", "", ""}, "\n") + "\n"
+	input := strings.Join([]string{"", "", "", "", "", "", ""}, "\n") + "\n"
 	var (
 		code int
 		err  error
@@ -567,7 +568,7 @@ func TestInitNoTokenShowsCase3Screen(t *testing.T) {
 	approveGitHubForProjectFn = func(string) error { approved = true; return nil }
 	t.Cleanup(func() { githubInitProbeFn, approveGitHubForProjectFn = originalProbe, originalApprove })
 	// Skills, no-skill confirmation, storage, MCPs, GitHub (later), apply.
-	input := strings.Join([]string{"", "", "", "", "", ""}, "\n") + "\n"
+	input := strings.Join([]string{"", "", "", "", "", "", ""}, "\n") + "\n"
 	var code int
 	var err error
 	out := captureStdout(t, func() {
@@ -611,8 +612,8 @@ func TestInitApprovedGitHubShowsCase1Screen(t *testing.T) {
 	approved := false
 	approveGitHubForProjectFn = func(string) error { approved = true; return nil }
 	t.Cleanup(func() { githubInitProbeFn, approveGitHubForProjectFn = originalProbe, originalApprove })
-	// Skills, no-skill confirmation, storage, MCPs, GitHub (O), apply.
-	input := strings.Join([]string{"", "", "", "", "o", ""}, "\n") + "\n"
+	// Harness, VM, skills, no-skill confirmation, storage, MCPs, GitHub (O).
+	input := strings.Join([]string{"", "", "", "y", "", "", "o"}, "\n") + "\n"
 	var code int
 	var err error
 	out := captureStdout(t, func() {
@@ -665,8 +666,8 @@ func TestInitCase4InsufficientRightsAllowsReverify(t *testing.T) {
 	approved := false
 	approveGitHubForProjectFn = func(string) error { approved = true; return nil }
 	t.Cleanup(func() { githubInitProbeFn, approveGitHubForProjectFn = originalProbe, originalApprove })
-	// Skills, no-skill confirmation, storage, MCPs, GitHub (R then O), apply.
-	input := strings.Join([]string{"", "", "", "", "r", "o", ""}, "\n") + "\n"
+	// Harness, VM, skills, no-skill confirmation, storage, MCPs, GitHub (R then O).
+	input := strings.Join([]string{"", "", "", "y", "", "", "r", "o"}, "\n") + "\n"
 	var code int
 	var err error
 	out := captureStdout(t, func() {
@@ -709,8 +710,8 @@ func TestInitCase4ContinueWithoutGitHub(t *testing.T) {
 	approved := false
 	approveGitHubForProjectFn = func(string) error { approved = true; return nil }
 	t.Cleanup(func() { githubInitProbeFn, approveGitHubForProjectFn = originalProbe, originalApprove })
-	// Skills, no-skill confirmation, storage, MCPs, GitHub (continue), apply.
-	input := strings.Join([]string{"", "", "", "", "c", ""}, "\n") + "\n"
+	// Harness, VM, skills, no-skill confirmation, storage, MCPs, GitHub (continue).
+	input := strings.Join([]string{"", "", "", "y", "", "", "c"}, "\n") + "\n"
 	var code int
 	var err error
 	out := captureStdout(t, func() {
@@ -881,7 +882,7 @@ func TestAskInitQuestionsHuhMCPSeedingAndWithdrawnRetention(t *testing.T) {
 	if _, err = askInitQuestionsHuh(opts, justcode.InitAnswers{Root: root}); !errors.Is(err, huh.ErrUserAborted) {
 		t.Fatalf("a zero-MCP manifest must trigger the confirmation and an abort must surface, got %v", err)
 	}
-	if !zeroMCPConfirmation || formCalls != 4 {
+	if !zeroMCPConfirmation || formCalls != 6 {
 		t.Fatalf("the abort must come from the zero-MCP confirmation after all preceding forms (reached=%v, calls=%d)", zeroMCPConfirmation, formCalls)
 	}
 }
@@ -1180,127 +1181,11 @@ func TestClearingContext7WhenControlPlaneUnreachableProceedsWithWarning(t *testi
 	}
 }
 
-// TestInitReviewDiffThenApply pins #171's on-demand AGENTS.md inspection on
-// the line path. Viewing the diff returns to the same recap prompt; it neither
-// rebuilds the plan nor consumes the eventual Apply answer.
-func TestInitReviewDiffThenApply(t *testing.T) {
-	root := initTestProject(t)
-	stubInitSkillResolver(t)
-	originalProbe := justcode.ProbeRemoteMCPFunc
-	probes := 0
-	justcode.ProbeRemoteMCPFunc = func(context.Context, justcode.MCPConnector) error { probes++; return nil }
-	t.Cleanup(func() { justcode.ProbeRemoteMCPFunc = originalProbe })
-	opts := initOptions{
-		Root: root, Skills: []string{"official/example"}, MCPConnectors: []string{"data-gouv"},
-		Set: map[string]bool{"root": true, "skills": true, "skills-storage": true, "mcps": true, "github": true},
-	}
-	out := captureStdout(t, func() {
-		code, err := initRun(opts, bufio.NewReader(strings.NewReader("d\ny\n")), true)
-		if code != 0 || err != nil {
-			t.Fatalf("diff then Apply: code=%d err=%v", code, err)
-		}
-	})
-	if strings.Count(out, "Récapitulatif du projet :") != 1 || strings.Count(out, "Diff de la section just-code dans AGENTS.md") != 1 {
-		t.Fatalf("expected one recap and one requested diff:\n%s", out)
-	}
-	firstDiff := strings.Index(out, "Diff de la section just-code")
-	firstRecapEnd := strings.Index(out, "Appliquer ?")
-	if firstDiff < firstRecapEnd {
-		t.Fatal("the AGENTS.md diff must not appear before it is requested")
-	}
-	if probes != 1 || !strings.Contains(out, "✅ joignable") || !strings.Contains(out, "Projet configuré.\nLancez l'agent : just-code") {
-		t.Fatalf("diff must preserve the plan and Apply must succeed: probes=%d\n%s", probes, out)
-	}
-	if _, err := os.Stat(filepath.Join(root, "AGENTS.md")); err != nil {
-		t.Fatalf("AGENTS.md was not written on Apply: %v", err)
-	}
-}
-
-// TestInitAccessibleEOFDoesNotApply pins Ctrl+D at the recap: no input is
-// not consent, including after an invalid numeric or non-numeric answer.
-// The real production prompt must cancel before any file or approval is written.
-func TestInitAccessibleEOFDoesNotApply(t *testing.T) {
-	for _, tc := range []struct {
-		name  string
-		input string
-	}{
-		{name: "immediate", input: ""},
-		{name: "invalid-number", input: "99\n"},
-		{name: "non-numeric", input: "not-a-number\n"},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Setenv("TERM", "dumb")
-			root := initTestProject(t)
-			stubInitSkillResolver(t)
-			wizardHuhFn = func() bool { return true }
-			originalHuh, originalApprove := huhAccessibleModeFn, approveGitHubForProjectFn
-			huhAccessibleModeFn = func() bool { return true }
-			approveGitHubForProjectFn = func(string) error {
-				t.Fatal("EOF must not record a GitHub approval")
-				return nil
-			}
-			t.Cleanup(func() { huhAccessibleModeFn, approveGitHubForProjectFn = originalHuh, originalApprove })
-			readEnd, writeEnd, err := os.Pipe()
-			if err != nil {
-				t.Fatal(err)
-			}
-			if _, err := writeEnd.WriteString(tc.input); err != nil {
-				t.Fatal(err)
-			}
-			if err := writeEnd.Close(); err != nil {
-				t.Fatal(err)
-			}
-			originalStdin := os.Stdin
-			os.Stdin = readEnd
-			t.Cleanup(func() { os.Stdin = originalStdin; _ = readEnd.Close() })
-			opts := initOptions{
-				Root: root, Skills: []string{"official/example"}, MCPConnectors: []string{},
-				Set: map[string]bool{"root": true, "skills": true, "skills-storage": true, "mcps": true, "github": true},
-			}
-			var code int
-			out := captureStdout(t, func() {
-				code, err = initRun(opts, bufio.NewReader(readEnd), true)
-			})
-			if code != 1 || err == nil {
-				t.Fatalf("EOF must cancel instead of applying: code=%d err=%v\n%s", code, err, out)
-			}
-			entries, err := os.ReadDir(root)
-			if err != nil {
-				t.Fatal(err)
-			}
-			if len(entries) != 1 || entries[0].Name() != "main.go" {
-				t.Fatalf("EOF wrote project files: %v\n%s", entries, out)
-			}
-		})
-	}
-}
-
-func TestInitReviewQuitWritesNothing(t *testing.T) {
-	root := initTestProject(t)
-	stubInitSkillResolver(t)
-	opts := initOptions{
-		Root: root, Skills: []string{"official/example"}, MCPConnectors: []string{},
-		Set: map[string]bool{"root": true, "skills": true, "skills-storage": true, "mcps": true, "github": true},
-	}
-	out := captureStdout(t, func() {
-		code, err := initRun(opts, bufio.NewReader(strings.NewReader("q\n")), true)
-		if code != 1 || err == nil || !strings.Contains(err.Error(), "rien n'a été enregistré") {
-			t.Fatalf("Quit: code=%d err=%v", code, err)
-		}
-	})
-	entries, err := os.ReadDir(root)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(entries) != 1 || entries[0].Name() != "main.go" {
-		t.Fatalf("Quit wrote project files: %v\n%s", entries, out)
-	}
-}
-
-// TestInitReviewEditPreservesAnswers exercises the first-step edit choice with
-// a partial wizard: only the skills question reopens, while root, storage,
-// MCP, and GitHub answers remain supplied and unchanged.
-func TestInitReviewEditPreservesAnswers(t *testing.T) {
+// TestInitPartialWizardKeepsSuppliedAnswers pins the partial-wizard rule
+// without a review screen (#333): with root, storage, MCP and GitHub supplied,
+// only the harness, VM and skills steps ask, and the run applies directly while
+// the supplied choices stay in the manifest.
+func TestInitPartialWizardKeepsSuppliedAnswers(t *testing.T) {
 	root := initTestProject(t)
 	originalCatalogue := projectSkillCatalogueFn
 	projectSkillCatalogueFn = func(context.Context) ([]justcode.ProjectSkill, error) {
@@ -1312,28 +1197,28 @@ func TestInitReviewEditPreservesAnswers(t *testing.T) {
 		Root: root, MCPConnectors: []string{},
 		Set: map[string]bool{"root": true, "skills-storage": true, "mcps": true, "github": true},
 	}
-	// Changing the answer to a non-empty selection returns to the recap, where
-	// Apply writes it while the supplied storage, MCP and GitHub choices stay.
-	input := "none\ny\nmodifier\nsecurite-developpement\ny\n"
+	// Harness and VM keep their defaults; the skills answer is the only
+	// decision this run takes.
+	input := "\n\nsecurite-developpement\n"
 	code, err := initRun(opts, bufio.NewReader(strings.NewReader(input)), true)
 	if code != 0 || err != nil {
-		t.Fatalf("Edit then Apply: code=%d err=%v", code, err)
+		t.Fatalf("partial wizard: code=%d err=%v", code, err)
 	}
 	manifest, err := justcode.ReadProjectManifest(justcode.DefaultFS, justcode.ProjectManifestPath(root))
 	if err != nil || len(manifest.Skills) != 1 || manifest.Skills[0] != "official/securite-developpement" || len(manifest.MCPConnectors) != 0 || manifest.SkillsLocalOnly {
-		t.Fatalf("Edit did not retain the supplied choices: %+v, %v", manifest, err)
+		t.Fatalf("supplied choices were not retained: %+v, %v", manifest, err)
 	}
 }
 
 // TestInitInteractiveUsesDefaultsOnEmptyAnswers pins that pressing enter
 // through the questions is a valid path: every question has a default, and the
-// engine's defaults are what get written. Since #170 the expert settings
-// (runtime, isolation, resources) are not part of this path at all: they live
-// behind the review's "Réglages avancés" entry.
+// engine's defaults are what get written. The expert settings (runtime,
+// isolation, resources) are not part of this path at all: they open with
+// --advanced (#333), and the answers apply without a review screen.
 func TestInitInteractiveUsesDefaultsOnEmptyAnswers(t *testing.T) {
 	root := initTestProject(t)
 	stubProjectSkills(t)
-	input := root + "\n\n\n\n\n\n\n" // root, GitHub, skills, no-skill confirmation, storage, MCPs, apply
+	input := root + "\n\n\n\n\n\n\n\n" // root, harness, VM, skills, no-skill confirmation, storage, MCPs, GitHub continue
 	out := captureStdout(t, func() {
 		code, err := initRun(initOptions{Set: map[string]bool{}}, bufio.NewReader(strings.NewReader(input)), true)
 		if code != 0 || err != nil {
@@ -1343,8 +1228,8 @@ func TestInitInteractiveUsesDefaultsOnEmptyAnswers(t *testing.T) {
 	if strings.Contains(out, "Sharing mode") || strings.Contains(out, "Guest resources") || strings.Contains(out, "Credential") {
 		t.Fatalf("the expert settings must not be asked in the default path (#170): %q", out)
 	}
-	if !strings.Contains(out, "Appliquer ? [O/n/modifier/réglages avancés/détail] : ") {
-		t.Fatalf("the review must offer the advanced settings entry: %q", out)
+	if strings.Contains(out, "Appliquer ?") {
+		t.Fatalf("no review gate may be shown (#333): %q", out)
 	}
 	pm, err := justcode.ReadProjectManifest(justcode.DefaultFS, justcode.ProjectManifestPath(root))
 	if err != nil {
@@ -1361,10 +1246,10 @@ func TestInitInteractiveUsesDefaultsOnEmptyAnswers(t *testing.T) {
 	}
 }
 
-// TestInitReviewAdvancedSettingsApply pins the line path of #170: the review's
-// "advanced" entry opens the expert settings (runtime, isolation, resources),
-// the edited values land in the manifest, and the flow returns to the review.
-func TestInitReviewAdvancedSettingsApply(t *testing.T) {
+// TestInitAdvancedFlagOpensExpertSettings pins the #333 entry point: --advanced
+// opens the expert settings (isolation, resources, models) after the questions,
+// and the edited values apply directly, without a review screen.
+func TestInitAdvancedFlagOpensExpertSettings(t *testing.T) {
 	root := initTestProject(t)
 	stubProjectSkills(t)
 	stubInitSkillResolver(t)
@@ -1382,14 +1267,12 @@ func TestInitReviewAdvancedSettingsApply(t *testing.T) {
 	runtimeInstallHintFn = func(justcode.Runtime) (bool, string) { return true, "" }
 	t.Cleanup(func() { detectHostResourcesFn = originalHostResources; runtimeInstallHintFn = originalInstallHint })
 	input := strings.Join([]string{
-		"", "projet", "chrome-devtools", "n", // skills, storage, MCPs, GitHub
-		"advanced",
-		"microsandbox", "backend", "3", "2048", // runtime, isolation, cpus, memory
+		"", "microsandbox", "", "projet", "chrome-devtools", "n", // harness, VM, skills, storage, MCPs, GitHub
+		"backend", "3", "2048", // isolation, cpus, memory
 		"qwen3-coder",                  // main-model override
 		"ministral-3-8b-instruct-2512", // distinct small model
-		"",                             // apply
 	}, "\n") + "\n"
-	code, err := initRun(initOptions{Root: root, Set: map[string]bool{"root": true}}, bufio.NewReader(strings.NewReader(input)), true)
+	code, err := initRun(initOptions{Root: root, Advanced: true, Set: map[string]bool{"root": true}}, bufio.NewReader(strings.NewReader(input)), true)
 	if code != 0 || err != nil {
 		t.Fatalf("initRun: code=%d err=%v", code, err)
 	}
@@ -1435,8 +1318,13 @@ func TestInitRepairsInvalidInheritedAdvancedSettings(t *testing.T) {
 				return "", nil
 			})
 			opts := initOptions{Root: root, Replace: true, Set: map[string]bool{"root": true, "github": true, "skills": true, "skills-storage": true, "mcps": true}}
-			// Repair runtime, isolation, CPUs, memory, main model and small model, then apply.
-			input := "microsandbox\n\n2\n4G\ndéfaut\n\ny\n"
+			// The harness step always asks; an invalid runtime reopens the VM step,
+			// anything else reopens the expert settings (isolation, CPUs, memory,
+			// main model, small model). The run then applies without a review.
+			input := "\n\n\n2\n4G\ndéfaut\n\n" // harness, VM, isolation, CPUs, memory, main model, small model
+			if kind == "runtime" {
+				input = "\nmicrosandbox\n" // harness, VM
+			}
 			code, err := initRun(opts, bufio.NewReader(strings.NewReader(input)), true)
 			if err != nil || code != 0 {
 				t.Fatalf("inherited %s cannot be repaired: code=%d, %v", kind, code, err)
@@ -1492,7 +1380,7 @@ func TestInvalidInheritedSmallModelOpensRepairAfterValidMainModel(t *testing.T) 
 	answers := justcode.InitAnswers{
 		Root: "project", Model: "albert/qwen3-coder", SmallModel: "albert/removed-small",
 	}
-	got := invalidInheritedInitSetting(initOptions{Set: map[string]bool{}}, answers)
+	_, got := invalidInheritedInitSetting(initOptions{Set: map[string]bool{}}, answers)
 	if got == nil || !strings.Contains(got.Error(), "removed from catalogue") {
 		t.Fatalf("valid main model must not short-circuit small-model repair: %v", got)
 	}
@@ -1501,8 +1389,10 @@ func TestInvalidInheritedSmallModelOpensRepairAfterValidMainModel(t *testing.T) 
 		Runtime: "microsandbox", Isolation: "full", Model: "albert/qwen3-coder", SmallModel: "albert/removed-small",
 	})
 	opts := initOptions{Root: root, Replace: true, Set: map[string]bool{"root": true, "github": true, "skills": true, "skills-storage": true, "mcps": true}}
-	// Keep runtime and isolation, retain main model, reset small model, then apply.
-	input := "\n\n\n\n\ndéfaut\n\ny\n"
+	// Harness and VM keep their defaults, then the repair opens the expert
+	// settings: isolation, CPUs, memory and main model keep their values and
+	// the small model is reset to inherit.
+	input := "\n\n\n\n\n\ndéfaut\n"
 	code, err := initRun(opts, bufio.NewReader(strings.NewReader(input)), true)
 	if code != 0 || err != nil {
 		t.Fatalf("interactive small-model repair failed: code=%d err=%v", code, err)
@@ -1604,9 +1494,9 @@ func TestInitAdvancedLineSmallModelRetriesProviderError(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	// Runtime, isolation, CPUs, memory, main model, rejected Ministral, then
-	// reset the small model to inherit from the main model.
-	input := "\n\n\n\nmistral-large-latest\nministral-3-8b-instruct-2512\ndefault\n"
+	// Isolation, CPUs, memory, main model, rejected Ministral, then reset the
+	// small model to inherit from the main model.
+	input := "\n\n\nmistral-large-latest\nministral-3-8b-instruct-2512\ndefault\n"
 	answers := justcode.InitAnswers{Root: "project", Model: "mistral/mistral-large-latest"}
 	var updated justcode.InitAnswers
 	out := captureStdout(t, func() {
@@ -1640,11 +1530,12 @@ func TestInitAdvancedLineWarnsOnSharedFolderRuntime(t *testing.T) {
 		return true, ""
 	}
 	t.Cleanup(func() { runtimeInstallHintFn = originalInstallHint })
-	// root, GitHub, skills, MCPs, storage, review=advanced, runtime=tart,
-	// isolation, cpus, memory, model, small model, review=apply.
-	input := strings.Join([]string{root, "", "", "", "", "n", "advanced", "tart", "", "", "", "", "", ""}, "\n") + "\n"
+	// root, harness, VM=tart, skills, storage, MCPs, GitHub, then --advanced
+	// opens once: isolation, cpus, memory, model, small model. The run applies
+	// without a review.
+	input := strings.Join([]string{root, "", "tart", "", "", "", "n", "", "", "", "", ""}, "\n") + "\n"
 	out := captureStdout(t, func() {
-		code, err := initRun(initOptions{Set: map[string]bool{}}, bufio.NewReader(strings.NewReader(input)), true)
+		code, err := initRun(initOptions{Advanced: true, Set: map[string]bool{}}, bufio.NewReader(strings.NewReader(input)), true)
 		if code != 0 || err != nil {
 			t.Fatalf("initRun: code=%d err=%v", code, err)
 		}
@@ -1760,7 +1651,7 @@ func TestInitSkillPromptShowsSixChoicesAndConfirmsEmptySelection(t *testing.T) {
 		"cpus": true, "memory-mb": true, "credential-ref": true, "github": true,
 		"mcps": true,
 	}
-	input := "none\nn\nrgaa\nversioned\n"
+	input := "\nnone\nn\nrgaa\nversioned\n" // harness, then skills, confirmation, storage
 	var got justcode.InitAnswers
 	out := captureStdout(t, func() {
 		var err error
@@ -1804,7 +1695,7 @@ func TestInitLineWizardDefaultsSecuritySkillForNewProject(t *testing.T) {
 	var got justcode.InitAnswers
 	out := captureStdout(t, func() {
 		var err error
-		got, err = askInitQuestions(bufio.NewReader(strings.NewReader("\n")), initOptions{Set: set}, justcode.InitAnswers{Root: root})
+		got, err = askInitQuestions(bufio.NewReader(strings.NewReader("\n\n")), initOptions{Set: set}, justcode.InitAnswers{Root: root})
 		if err != nil {
 			t.Fatalf("askInitQuestions: %v", err)
 		}
@@ -1836,7 +1727,7 @@ func TestInitLineSkillPromptRetriesTyposAndRetainsOlderPins(t *testing.T) {
 	var got justcode.InitAnswers
 	out := captureStdout(t, func() {
 		var err error
-		got, err = askInitQuestions(bufio.NewReader(strings.NewReader("not-a-skill\nrgaa\n")), initOptions{Set: set}, justcode.InitAnswers{Root: root})
+		got, err = askInitQuestions(bufio.NewReader(strings.NewReader("\nnot-a-skill\nrgaa\n")), initOptions{Set: set}, justcode.InitAnswers{Root: root})
 		if err != nil {
 			t.Fatalf("askInitQuestions: %v", err)
 		}
@@ -1873,7 +1764,7 @@ func TestInitLineSkillPromptSkipsUnavailableCatalogue(t *testing.T) {
 	var got justcode.InitAnswers
 	out := captureStdout(t, func() {
 		var err error
-		got, err = askInitQuestions(bufio.NewReader(strings.NewReader("versioned\n")), initOptions{Set: set}, justcode.InitAnswers{Root: root})
+		got, err = askInitQuestions(bufio.NewReader(strings.NewReader("\nversioned\n")), initOptions{Set: set}, justcode.InitAnswers{Root: root})
 		if err != nil {
 			t.Fatalf("askInitQuestions: %v", err)
 		}
@@ -2019,7 +1910,7 @@ func TestIsTTYTreatsDevNullAsNonInteractive(t *testing.T) {
 func TestInitSkipsQuestionsAnsweredByFlags(t *testing.T) {
 	stubCatalogueCheck(t, func(string, string) (string, error) { return "", nil })
 	root := initTestProject(t)
-	input := "\n\n\n" // GitHub defaults to off, then MCPs and apply confirmation
+	input := "\n\n\n" // harness default, then MCPs, then GitHub defaults to off
 	out := captureStdout(t, func() {
 		code, err := initRun(initOptions{
 			Root: root, Runtime: "microsandbox", Isolation: "backend", Model: "albert/x",
@@ -2030,13 +1921,13 @@ func TestInitSkipsQuestionsAnsweredByFlags(t *testing.T) {
 			t.Fatalf("initRun: code=%d err=%v", code, err)
 		}
 	})
-	for _, asked := range []string{"root:", "runtime [", "isolation [", "model:", "cpus:", "memory MiB or G:", "reference:"} {
+	for _, asked := range []string{"root:", "machine [", "isolation [", "modèle principal [", "processeurs [", "mémoire [", "Skills sélectionnées"} {
 		if strings.Contains(out, asked) {
 			t.Fatalf("a question already answered by a flag must not be asked (%q): %q", asked, out)
 		}
 	}
-	if !strings.Contains(out, "Appliquer ?") {
-		t.Fatalf("the confirmation must still be asked: %q", out)
+	if strings.Contains(out, "Appliquer ?") {
+		t.Fatalf("no review screen may be shown (#333): %q", out)
 	}
 	pm, err := justcode.ReadProjectManifest(justcode.DefaultFS, justcode.ProjectManifestPath(root))
 	if err != nil {
@@ -2131,17 +2022,22 @@ func TestInitRejectsATypedZero(t *testing.T) {
 	originalInstallHint := runtimeInstallHintFn
 	runtimeInstallHintFn = func(justcode.Runtime) (bool, string) { return true, "" }
 	t.Cleanup(func() { runtimeInstallHintFn = originalInstallHint })
-	// root, GitHub, skills, MCPs, storage, review=advanced, runtime,
-	// isolation, cpus(0) then a kept default, memory, review=cancel.
-	input := root + "\n\n\n\n\n\nadvanced\n\n\n0\n\n\n\nn\n"
+	// root, harness, VM, skills, no-skill confirmation, storage, MCPs, GitHub,
+	// then --advanced opens once: isolation, cpus "0" rejected then a kept
+	// default, memory, main model, small model.
+	input := root + "\n\n\n\ny\n\n\nn" + "\n\n0\n\n\n\n"
 	out := captureStdout(t, func() {
-		_, _ = initRun(initOptions{Set: map[string]bool{}}, bufio.NewReader(strings.NewReader(input)), true)
+		_, _ = initRun(initOptions{Advanced: true, Set: map[string]bool{"root": true}, Root: root}, bufio.NewReader(strings.NewReader(input)), true)
 	})
 	if !strings.Contains(out, "Au moins 1 processeur.") {
 		t.Fatalf("a typed 0 must be rejected in the advanced screen without leaving it: %q", out)
 	}
-	if _, err := os.Stat(justcode.ProjectManifestPath(root)); !os.IsNotExist(err) {
-		t.Fatalf("the cancelled run must leave nothing on disk (stat err = %v)", err)
+	pm, err := justcode.ReadProjectManifest(justcode.DefaultFS, justcode.ProjectManifestPath(root))
+	if err != nil {
+		t.Fatalf("the run must apply once the advanced screen keeps its default: %v", err)
+	}
+	if pm.CPUs != 0 {
+		t.Fatalf("a rejected 0 must leave the implicit default, got %d CPUs", pm.CPUs)
 	}
 }
 
@@ -2224,10 +2120,10 @@ func TestOfferProjectInitAppliesWhatItWrote(t *testing.T) {
 	stubCatalogueCheck(t, func(string, string) (string, error) { return "", nil })
 	stubProjectSkills(t)
 	root := initTestProject(t)
-	// confirm, GitHub, skills, no-skill confirmation, storage, MCPs, review=advanced, runtime,
-	// isolation(backend), cpus, memory, main model, small model, review=apply.
-	// The expert settings live behind the review's "advanced" entry since #170.
-	input := "\n\n\n\n\n\nadvanced\n\nbackend\n\n\n\n\n\n"
+	// confirm, harness, VM, skills, no-skill confirmation, storage, MCPs, GitHub.
+	// The offer collects the beginner answers only: the expert settings open
+	// with `just-code init --advanced` (#333), never from the launch path.
+	input := "\n\n\n\ny\n\nchrome-devtools\n\n"
 	devNullLike := bufio.NewReader(strings.NewReader(input))
 
 	// Drive the offer with the same answers a user would give.
@@ -2243,11 +2139,11 @@ func TestOfferProjectInitAppliesWhatItWrote(t *testing.T) {
 	if err != nil {
 		t.Fatalf("the offer must write the manifest: %v", err)
 	}
-	if pm.Isolation != "backend" {
-		t.Fatalf("isolation = %q, want the answer given to the offer", pm.Isolation)
+	if strings.Join(pm.MCPConnectors, ",") != "chrome-devtools" {
+		t.Fatalf("MCP connectors = %v, want the answer given to the offer", pm.MCPConnectors)
 	}
 	runtimeChoice, isolationChoice := projectRuntimeIsolation(root)
-	if runtimeChoice != justcode.RuntimeMicrosandbox || isolationChoice != justcode.IsolationBackend {
+	if runtimeChoice != justcode.RuntimeMicrosandbox || isolationChoice != justcode.IsolationFull {
 		t.Fatalf("the launch must resolve what the offer wrote: %q / %q", runtimeChoice, isolationChoice)
 	}
 }
@@ -2380,12 +2276,12 @@ func TestGitHubRightsMessagesAreDistinct(t *testing.T) {
 func TestGitHubScreensAvoidInternalTerms(t *testing.T) {
 	remote := justcode.GitHubRemote{URL: "https://github.com/etalab-ia/mon-projet.git", Repo: "etalab-ia/mon-projet"}
 	screens := []string{
-		gitHubApprovedScreen(justcode.GitHubProjectStatus{Remote: remote, HasOrigin: true, HasToken: true, Login: "kaaloo", Rights: justcode.GitHubRepoRightsOK}, "[3/3] GitHub (facultatif)"),
-		gitHubNoOriginScreen("[3/3] GitHub (facultatif)"),
-		gitHubNoTokenScreen(justcode.GitHubProjectStatus{Remote: remote, HasOrigin: true}, "[3/3] GitHub (facultatif)"),
-		gitHubInsufficientScreen(justcode.GitHubProjectStatus{Remote: remote, HasOrigin: true, HasToken: true, Rights: justcode.GitHubRepoRightsOrgPending}, "[3/3] GitHub (facultatif)"),
-		gitHubStoreErrorScreen(errors.New("secret-service locked"), "[3/3] GitHub (facultatif)"),
-		gitHubRuntimeScreen(justcode.RuntimeTart, "[3/3] GitHub (facultatif)"),
+		gitHubApprovedScreen(justcode.GitHubProjectStatus{Remote: remote, HasOrigin: true, HasToken: true, Login: "kaaloo", Rights: justcode.GitHubRepoRightsOK}, "[5/5] GitHub (facultatif)"),
+		gitHubNoOriginScreen("[5/5] GitHub (facultatif)"),
+		gitHubNoTokenScreen(justcode.GitHubProjectStatus{Remote: remote, HasOrigin: true}, "[5/5] GitHub (facultatif)"),
+		gitHubInsufficientScreen(justcode.GitHubProjectStatus{Remote: remote, HasOrigin: true, HasToken: true, Rights: justcode.GitHubRepoRightsOrgPending}, "[5/5] GitHub (facultatif)"),
+		gitHubStoreErrorScreen(errors.New("secret-service locked"), "[5/5] GitHub (facultatif)"),
+		gitHubRuntimeScreen(justcode.RuntimeTart, "[5/5] GitHub (facultatif)"),
 	}
 	// The failure surfaces reach the user too, so they are held to the same
 	// register as the screens themselves.
@@ -2431,7 +2327,7 @@ func TestInitRendersGitHubStepAfterSkillsAndMCP(t *testing.T) {
 	}
 	skillsAt := strings.Index(out, "Skills (facultatif)")
 	mcpAt := strings.Index(out, justcode.MCPStepTitle)
-	githubAt := strings.Index(out, "[3/3] GitHub (facultatif)")
+	githubAt := strings.Index(out, "[5/5] GitHub (facultatif)")
 	if skillsAt < 0 || mcpAt < 0 || githubAt < 0 {
 		t.Fatalf("all three step screens must be rendered (skills %d, MCP %d, GitHub %d):\n%s", skillsAt, mcpAt, githubAt, out)
 	}
@@ -2445,7 +2341,7 @@ func TestInitRendersGitHubStepAfterSkillsAndMCP(t *testing.T) {
 // never as "compte ," with an empty name.
 func TestGitHubApprovedScreenWithoutLogin(t *testing.T) {
 	remote := justcode.GitHubRemote{URL: "https://github.com/etalab-ia/mon-projet.git", Repo: "etalab-ia/mon-projet"}
-	screen := gitHubApprovedScreen(justcode.GitHubProjectStatus{Remote: remote, HasOrigin: true, HasToken: true, Login: "", Rights: justcode.GitHubRepoRightsOK}, "[3/3] GitHub (facultatif)")
+	screen := gitHubApprovedScreen(justcode.GitHubProjectStatus{Remote: remote, HasOrigin: true, HasToken: true, Login: "", Rights: justcode.GitHubRepoRightsOK}, "[5/5] GitHub (facultatif)")
 	if strings.Contains(screen, "compte ,") || strings.Contains(screen, "compte  ,") {
 		t.Fatalf("an unknown login must not render an empty account name:\n%s", screen)
 	}
@@ -2494,12 +2390,13 @@ func TestInitReopensQuestionsWhenGitHubChangesBeforeWriting(t *testing.T) {
 	approveGitHubForProjectFn = func(string) error { approved = true; return nil }
 	t.Cleanup(func() { githubInitProbeFn, approveGitHubForProjectFn = originalProbe, originalApprove })
 
-	// First pass: skills, confirmation, storage, MCPs, then Yes to GitHub.
-	// The pre-write re-check then finds it unusable, so the questions reopen
-	// and the second pass continues without GitHub.
+	// First pass: harness, VM, skills, no-skill confirmation, storage, MCPs,
+	// then Yes to GitHub. The pre-write re-check then finds it unusable, so the
+	// questions reopen (harness and VM included) and the second pass continues
+	// without GitHub.
 	input := strings.Join([]string{
-		"", "", "", "", "o",
-		"", "", "", "", "c", "",
+		"", "", "", "y", "", "", "o",
+		"", "", "", "y", "", "", "c",
 	}, "\n") + "\n"
 	var (
 		code int
@@ -2536,10 +2433,11 @@ func TestInitReopensGitHubAfterAdvancedEdit(t *testing.T) {
 		return justcode.GitHubProjectStatus{Remote: justcode.GitHubRemote{URL: "https://github.com/owner/repo.git", Repo: "owner/repo"}, HasOrigin: true, HasToken: true, Login: "owner", Rights: rights}
 	}
 	approveGitHubForProjectFn = func(string) error { t.Fatal("revoked credential must not be approved"); return nil }
-	// GitHub yes, advanced, runtime, isolation, CPU=3, memory, model, small model,
-	// reopened GitHub without approval, then apply.
-	input := "o\nadvanced\n\n\n3\n\n\n\nc\ny\n"
-	opts := initOptions{Root: root, Set: map[string]bool{"root": true, "skills": true, "skills-storage": true, "mcps": true}}
+	// Harness and VM defaults, GitHub yes, then --advanced opens once
+	// (isolation, CPU=3, memory, model, small model). The re-check then reopens
+	// the questions (harness and VM again, no approval) and the run applies.
+	input := "\n\no\n\n3\n\n\n\n\n\nc\n"
+	opts := initOptions{Root: root, Advanced: true, Set: map[string]bool{"root": true, "skills": true, "skills-storage": true, "mcps": true}}
 	code, err := initRun(opts, bufio.NewReader(strings.NewReader(input)), true)
 	if err != nil || code != 0 {
 		t.Fatalf("GitHub retry after advanced failed: code=%d err=%v", code, err)
@@ -2569,7 +2467,7 @@ func TestInitGitHubStepExplainsUnsupportedRuntime(t *testing.T) {
 			t.Cleanup(func() { approveGitHubForProjectFn = originalApprove })
 
 			// Skills, no-skill confirmation, storage, MCPs, GitHub, apply.
-			input := strings.Join([]string{"", "", "", "", "", ""}, "\n") + "\n"
+			input := strings.Join([]string{"", "", "", "", "", "", ""}, "\n") + "\n"
 			opts := initOptions{
 				Root: root, Runtime: runtimeName, Replace: true,
 				Set: map[string]bool{"root": true, "runtime": true},
@@ -2749,19 +2647,25 @@ func TestInitIntroOmitsLegacyRuntimes(t *testing.T) {
 	}
 }
 
-// TestInitStepPrefixCounters pins the counter rule (#312): the beginner path
-// numbers the three steps, and any flag-provided expert setting hides the
-// numbers instead of showing a misleading one.
+// TestInitStepPrefixCounters pins the counter rule (#312, renumbered to five
+// steps by #333): the beginner path numbers the steps, and any flag-provided
+// expert setting hides the numbers instead of showing a misleading one.
 func TestInitStepPrefixCounters(t *testing.T) {
 	assertBeginner := func(name string, opts initOptions) {
 		t.Helper()
-		if got := initSkillsStepPrefix(opts); got != "[1/3] " {
+		if got := initHarnessStepTitle(opts); got != "[1/5] Agent (harnais)" {
+			t.Errorf("%s: harness title = %q", name, got)
+		}
+		if got := initVMStepTitle(opts); got != "[2/5] Machine isolée" {
+			t.Errorf("%s: VM title = %q", name, got)
+		}
+		if got := initSkillsStepTitle(opts); got != "[3/5] " {
 			t.Errorf("%s: skills prefix = %q", name, got)
 		}
-		if got := initMCPStepTitle(opts); got != "[2/3] MCP (facultatif)" {
+		if got := initMCPStepTitle(opts); got != "[4/5] MCP (facultatif)" {
 			t.Errorf("%s: MCP title = %q", name, got)
 		}
-		if got := initGitHubStepTitle(opts); got != "[3/3] GitHub (facultatif)" {
+		if got := initGitHubStepTitle(opts); got != "[5/5] GitHub (facultatif)" {
 			t.Errorf("%s: GitHub title = %q", name, got)
 		}
 	}
@@ -2772,9 +2676,9 @@ func TestInitStepPrefixCounters(t *testing.T) {
 	}
 	assertBeginner("displayed root", displayed)
 	assertBeginner("explicit root", initOptions{Set: map[string]bool{"root": true}})
-	for _, field := range []string{"runtime", "github", "model", "skills", "mcps"} {
+	for _, field := range []string{"runtime", "github", "model", "small-model", "skills", "mcps"} {
 		expert := initOptions{Set: map[string]bool{field: true}}
-		if got := initSkillsStepPrefix(expert); got != "" {
+		if got := initSkillsStepTitle(expert); got != "" {
 			t.Errorf("with --%s, skills prefix = %q, want no counter", field, got)
 		}
 		if got := initMCPStepTitle(expert); got != "MCP (facultatif)" {
