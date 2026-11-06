@@ -145,9 +145,9 @@ func validateAlbertKeyAt(ctx context.Context, client *http.Client, key, url stri
 		}
 		return CredentialProbe{}
 	case resp.StatusCode >= 300 && resp.StatusCode < 400:
-		return CredentialProbe{Unreachable: true, Detail: fmt.Sprintf("HTTP %d (redirect not followed; the Authorization header is never replayed to another host)", resp.StatusCode)}
+		return CredentialProbe{Unreachable: true, Detail: fmt.Sprintf("HTTP %d (redirection non suivie : l'en-tête Authorization n'est jamais renvoyé vers un autre hôte)", resp.StatusCode)}
 	case resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden:
-		return CredentialProbe{Rejected: true, Detail: fmt.Sprintf("HTTP %d: the key was not accepted", resp.StatusCode)}
+		return CredentialProbe{Rejected: true, Detail: fmt.Sprintf("HTTP %d : la clé n'a pas été acceptée", resp.StatusCode)}
 	default:
 		return CredentialProbe{Unreachable: true, Detail: fmt.Sprintf("HTTP %d", resp.StatusCode)}
 	}
@@ -207,9 +207,9 @@ func validateGitHubTokenAt(ctx context.Context, client *http.Client, token, url 
 		}
 		return probe
 	case resp.StatusCode >= 300 && resp.StatusCode < 400:
-		return CredentialProbe{Unreachable: true, Detail: fmt.Sprintf("HTTP %d (redirect not followed; the Authorization header is never replayed to another host)", resp.StatusCode)}
+		return CredentialProbe{Unreachable: true, Detail: fmt.Sprintf("HTTP %d (redirection non suivie : l'en-tête Authorization n'est jamais renvoyé vers un autre hôte)", resp.StatusCode)}
 	case resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden:
-		return CredentialProbe{Rejected: true, Detail: fmt.Sprintf("HTTP %d: the token was not accepted", resp.StatusCode)}
+		return CredentialProbe{Rejected: true, Detail: fmt.Sprintf("HTTP %d : le jeton n'a pas été accepté", resp.StatusCode)}
 	default:
 		return CredentialProbe{Unreachable: true, Detail: fmt.Sprintf("HTTP %d", resp.StatusCode)}
 	}
@@ -350,7 +350,7 @@ func (w SetupWizard) StoreCredential(ctx context.Context, kind CredentialKind, v
 type RejectedCredentialError struct{ Detail string }
 
 func (e RejectedCredentialError) Error() string {
-	return "the Albert key was rejected: " + e.Detail
+	return "la clé Albert a été refusée : " + e.Detail
 }
 
 // SaveIdentity journals the git identity (no store involvement).
@@ -461,7 +461,7 @@ func (w SetupWizard) store(ctx context.Context) (SetupStore, error) {
 	}
 	s := DefaultCredentialStore()
 	if s == nil {
-		return nil, fmt.Errorf("no native credential store on this platform; run 'just-code auth add --fallback' to consent to the owner-only file store, or retry setup with --fallback")
+		return nil, fmt.Errorf("aucun magasin d'identifiants natif sur ce poste ; lancez 'just-code auth add --fallback' pour accepter le fichier réservé à votre utilisateur, ou relancez la configuration avec --fallback")
 	}
 	return s, nil
 }

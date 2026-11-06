@@ -61,7 +61,7 @@ func TestInteractiveInitReviewMatchesAcceptanceText(t *testing.T) {
 		"+ .just-code/lock.json",
 		"~ AGENTS.md",
 		"section just-code ajoutée",
-		"environ 3 à 5 minutes",
+		"La durée dépend de votre connexion.",
 		"simulated offline endpoint",
 	} {
 		if !strings.Contains(review, want) {
@@ -114,17 +114,36 @@ func TestInteractiveInitReviewPreservesExistingConfigAndLocalSkillRevisions(t *t
 	oldCacheDir := userCacheDirFn
 	userCacheDirFn = func() (string, error) { return cache, nil }
 	t.Cleanup(func() { userCacheDirFn = oldCacheDir })
-	plan, err = (InitWizard{StateDir: t.TempDir(), ResolveSkills: fixtureSkillResolver(t)}).Plan(InitAnswers{
+	stateDir := t.TempDir()
+	answers := InitAnswers{
 		Root: root, Skills: []string{"official/rgaa"}, SkillsSet: true,
 		SkillsLocalOnly: true, SkillsLocalOnlySet: true,
-	})
+	}
+	plan, err = (InitWizard{StateDir: stateDir, ResolveSkills: fixtureSkillResolver(t)}).Plan(answers)
 	if err != nil {
 		t.Fatal(err)
 	}
 	review = FormatInteractiveInitReview(plan)
 	revision := plan.SkillLocks["official/rgaa"].Revision
-	if !strings.Contains(review, "official/rgaa : révision "+revision) || strings.Contains(review, "sha256") {
-		t.Fatalf("local-only skill revision missing or digest leaked:\n%s", review)
+	if revision == "" {
+		t.Fatal("fixture did not pin a skill revision")
+	}
+	// The beginner recap names the skill and where it lives, but hides the
+	// pinned revision: that identifier is expert-only (#312).
+	if !strings.Contains(review, "rgaa") || !strings.Contains(review, "(sur ce poste)") {
+		t.Fatalf("beginner recap must name the local-only skill:\n%s", review)
+	}
+	if strings.Contains(review, revision) || strings.Contains(review, "sha256") {
+		t.Fatalf("beginner recap leaked a technical identifier:\n%s", review)
+	}
+
+	expertPlan, err := (InitWizard{StateDir: stateDir, ResolveSkills: fixtureSkillResolver(t), Expert: true}).Plan(answers)
+	if err != nil {
+		t.Fatal(err)
+	}
+	expertReview := FormatInteractiveInitReview(expertPlan)
+	if !strings.Contains(expertReview, "official/rgaa : révision "+revision) || strings.Contains(expertReview, "sha256") {
+		t.Fatalf("expert recap must keep the pinned revision and never the digest:\n%s", expertReview)
 	}
 }
 

@@ -7,6 +7,7 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+	"time"
 )
 
 // testRecoveryBaseSHA is the canned `git rev-parse HEAD` answer for the
@@ -897,9 +898,26 @@ git commit -q -am 'agent work'
 		t.Fatalf("build host archive: %v: %s", err, out)
 	}
 
+	refreshStart := time.Now()
 	out, err := runShellTest(guestRecoveryRefreshScript(guest, archive, base, "T", "t@example.test"), guest)
 	if err != nil {
 		t.Fatalf("recovery refresh: %v: %s", err, out)
+	}
+	// The restore trap must leave the index backdated: the restored entries
+	// carry stat data for the pre-refresh worktree while the tar extraction
+	// replaced files in place, so a current index mtime lets git trust stale
+	// stat data and stage pre-refresh content. A backdated index is racily
+	// clean, forcing content re-reads on the next comparison.
+	indexPath := strings.TrimSpace(gitTestOutput(t, guest, "rev-parse", "--git-path", "index"))
+	if !filepath.IsAbs(indexPath) {
+		indexPath = filepath.Join(guest, indexPath)
+	}
+	indexInfo, err := os.Stat(indexPath)
+	if err != nil {
+		t.Fatalf("stat restored index: %v", err)
+	}
+	if !indexInfo.ModTime().Before(refreshStart) {
+		t.Fatalf("restored index mtime = %v, want it backdated before the refresh started", indexInfo.ModTime())
 	}
 	refreshedBase := ""
 	for _, line := range strings.Split(string(out), "\n") {

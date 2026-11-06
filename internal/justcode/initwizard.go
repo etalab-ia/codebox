@@ -115,6 +115,14 @@ type InitWizard struct {
 	// screen. Nil selects the production MCP initialize handshake; a probe
 	// failure becomes a review warning, not an error.
 	ProbeRemoteMCP func(context.Context, MCPConnector) error
+	// ResolveDefaultModel returns the model reference that applies when the
+	// user keeps the setup default (empty model answer). Nil uses the embedded
+	// default, keeping the pure planner free of host state (#312).
+	ResolveDefaultModel func() string
+	// Expert marks an invocation that provided an init flag: the interactive
+	// review keeps its technical detail (skill revisions, credential
+	// reference) for those runs (#312).
+	Expert bool
 }
 
 // Note on the FS seam: it carries the manifest and lockfile. Path validation
@@ -174,6 +182,12 @@ type InitPlan struct {
 	// has no host endpoint to probe; it is described separately by the review.
 	MCPChecks   []InitMCPCheck
 	FileChanges []InitFileChange
+	// DefaultModelName is the display name of the model that applies when no
+	// model was chosen: the setup default, or the embedded default (#312).
+	DefaultModelName string
+	// Expert keeps technical detail in the interactive review for invocations
+	// that provided an init flag (#312).
+	Expert bool
 	// These snapshots protect the file summary from changes made while the
 	// review is open. AGENTS.md remains a deliberate merge, not a whole-file
 	// precondition, so unrelated user text is preserved.
@@ -308,6 +322,8 @@ func subtractSkillIDs(ids, remove []string) []string {
 // walk away.
 func (w InitWizard) Plan(answers InitAnswers) (InitPlan, error) {
 	plan := InitPlan{Answers: answers}
+	plan.Expert = w.Expert
+	plan.DefaultModelName = initReviewModelName(w.resolveDefaultModel())
 	fs := w.fs()
 
 	given := strings.TrimSpace(answers.Root)
@@ -663,6 +679,18 @@ func (w InitWizard) Plan(answers InitAnswers) (InitPlan, error) {
 	return plan, nil
 }
 
+// resolveDefaultModel is the model a project with no model answer launches
+// with: the caller-provided setup default, or the embedded default when the
+// seam is unset or empty.
+func (w InitWizard) resolveDefaultModel() string {
+	if w.ResolveDefaultModel != nil {
+		if model := strings.TrimSpace(w.ResolveDefaultModel()); model != "" {
+			return model
+		}
+	}
+	return defaultOpencodeModel
+}
+
 // FormatInteractiveInitReview is the concise, shared interactive recap (#171).
 // The non-interactive FormatInitReview intentionally remains the detailed
 // --yes output, including its pinned skill revisions and content digests.
@@ -685,9 +713,11 @@ func FormatInteractiveInitReview(plan InitPlan) string {
 			storage = "(sur ce poste)"
 		}
 		row("Skills", strings.Join(names, ", ")+"                "+storage)
-		for _, id := range a.Skills {
-			if lock := plan.SkillLocks[id]; lock.Revision != "" {
-				continuation(fmt.Sprintf("%s : révision %s", id, lock.Revision))
+		if plan.Expert {
+			for _, id := range a.Skills {
+				if lock := plan.SkillLocks[id]; lock.Revision != "" {
+					continuation(fmt.Sprintf("%s : révision %s", id, lock.Revision))
+				}
 			}
 		}
 	}
@@ -754,13 +784,18 @@ func FormatInteractiveInitReview(plan InitPlan) string {
 	}
 	row("Machine", fmt.Sprintf("%s, isolation %s, %d %s, %s", runtimeName, isolation, plan.GuestCPUs, cpuLabel, formatInitReviewMemory(plan.GuestMemoryMB)))
 	model := initReviewModelName(a.Model)
+	if a.Model == "" && plan.DefaultModelName != "" {
+		model = plan.DefaultModelName
+	}
 	row("Agent", "OpenCode, modèle "+model)
 	if a.SmallModel != "" {
 		row("Petit modèle", initReviewModelName(a.SmallModel))
 	}
-	credential := "clé Albert API globale (référence, jamais sa valeur)"
-	if a.CredentialRef != "" {
+	credential := "clé Albert API globale (jamais sa valeur)"
+	if plan.Expert && a.CredentialRef != "" {
 		credential = fmt.Sprintf("référence %q (jamais sa valeur)", a.CredentialRef)
+	} else if plan.Expert {
+		credential = "clé Albert API globale (référence, jamais sa valeur)"
 	}
 	row("Identifiant", credential)
 	if a.BrowserResourceGuidance != "" {
@@ -797,7 +832,7 @@ func FormatInteractiveInitReview(plan InitPlan) string {
 	}
 
 	b.WriteString("\nL'initialisation ne démarre ni ne redémarre de machine isolée.\n")
-	b.WriteString("Au premier lancement : préparation de la machine isolée, environ 3 à 5 minutes.\n")
+	b.WriteString("Au premier lancement : téléchargement de la machine isolée, puis installation et démarrage. La durée dépend de votre connexion.\n")
 	if len(a.Skills) > 0 {
 		b.WriteString("Les skills sont installés dans la machine isolée au premier lancement.\n")
 	}
@@ -1240,12 +1275,12 @@ func (w InitWizard) applyLocked(plan InitPlan, replace bool) error {
 	if err := applyManagedFileMutations(fs, mutations); err != nil {
 		return err
 	}
-	w.print(fmt.Sprintf("Wrote %s\nWrote %s\n", plan.ManifestPath, plan.LockPath))
+	w.print(fmt.Sprintf("Écrit %s\nÉcrit %s\n", plan.ManifestPath, plan.LockPath))
 	if instructionsChanged {
-		w.print(fmt.Sprintf("Updated %s\n", instructionsPath))
+		w.print(fmt.Sprintf("Mis à jour %s\n", instructionsPath))
 	}
 	if plan.Answers.SkillsLocalOnly && len(plan.Answers.Skills) > 0 {
-		w.print("Saved host-local project skills outside the checkout.\n")
+		w.print("Skills conservés sur ce poste, hors du projet.\n")
 	}
 	return nil
 }

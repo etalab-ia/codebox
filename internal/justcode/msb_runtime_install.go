@@ -356,7 +356,7 @@ func (p *runtimeDownloadProgress) finish() {
 }
 
 func runtimeBytes(n int64) string {
-	return fmt.Sprintf("%.1f MiB", float64(n)/(1<<20))
+	return fmt.Sprintf("%.1f Mo", float64(n)/(1<<20))
 }
 
 func verifySHA256(r io.Reader, expected string) error {

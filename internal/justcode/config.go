@@ -182,7 +182,7 @@ func LoadConfigEnv() Config {
 		info, err := os.Stat(path)
 		if err != nil {
 			if !os.IsNotExist(err) {
-				fmt.Fprintf(os.Stderr, "Note: %s could not be inspected (%v); it is not read either way, since just-code no longer loads a .env implicitly.\n", path, err)
+				fmt.Fprintf(os.Stderr, "Attention : %s n'a pas pu être inspecté (%v) ; il n'est de toute façon pas lu, car just-code ne charge plus .env automatiquement.\n", path, err)
 			}
 			continue
 		}
@@ -197,15 +197,15 @@ func LoadConfigEnv() Config {
 		if abs, err := filepath.Abs(path); err == nil {
 			shown = abs
 		}
-		fmt.Fprintf(os.Stderr, "Note: %s was NOT read: just-code no longer loads a .env implicitly.\n"+
-			"      Exported variables are still honoured. To see what the file holds and where each\n"+
-			"      value belongs, run 'just-code config import-env %s' (preview only; the Albert key\n"+
-			"      belongs in the credential store: 'just-code auth add albert').\n", shown, shown)
+		fmt.Fprintf(os.Stderr, "Attention : %s n'a pas été lu : just-code ne charge plus .env automatiquement.\n"+
+			"      Les variables exportées restent prises en compte. Pour voir son contenu et où va\n"+
+			"      chaque valeur : 'just-code config import-env %s' (aperçu seulement ; la clé Albert\n"+
+			"      se range dans le magasin d'identifiants : 'just-code auth add albert').\n", shown, shown)
 		break
 	}
 	if _, ok := os.LookupEnv("WORKSPACE_DIR"); !ok {
 		if _, legacy := os.LookupEnv("PROJECT_DIR"); legacy {
-			fmt.Fprintln(os.Stderr, "Warning: PROJECT_DIR is deprecated; use WORKSPACE_DIR instead.")
+			fmt.Fprintln(os.Stderr, "Attention : PROJECT_DIR est déprécié ; utilisez WORKSPACE_DIR à la place.")
 		}
 	}
 	return LoadConfig(os.LookupEnv)
