@@ -687,7 +687,7 @@ func TestSetupDoctorJSONOutputIsMachineReadable(t *testing.T) {
 	if err := json.Unmarshal([]byte(out), &report); err != nil {
 		t.Fatalf("doctor JSON output is invalid: %v: %q", err, out)
 	}
-	if report.Platform != "test/arch" || len(report.Sections) != 1 || report.Sections[0].Title != "Host capability" {
+	if report.Platform != "test/arch" || len(report.Sections) != 1 || report.Sections[0].Title != "Capacité de l'hôte" {
 		t.Fatalf("doctor JSON report = %+v", report)
 	}
 }
@@ -697,8 +697,8 @@ func TestSetupDoctorNoColorUsesPlainOutput(t *testing.T) {
 	origCollect, origRender, origNoColor := setupDoctorCollectFn, doctorRendererFn, wizardNoColor
 	setupDoctorCollectFn = func() justcode.DiagnosticsReport {
 		return justcode.DiagnosticsReport{Platform: "test/arch", Sections: []justcode.DiagnosticSection{{
-			Title: "Host capability",
-			Items: []justcode.DiagnosticItem{{Name: "Virtualization", Value: "ok", Status: justcode.DiagnosticOK}},
+			Title: "Capacité de l'hôte",
+			Items: []justcode.DiagnosticItem{{Name: "Virtualisation", Value: "ok", Status: justcode.DiagnosticOK}},
 		}}}
 	}
 	doctorRendererFn = func() bool { return !wizardNoColor }

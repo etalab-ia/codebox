@@ -925,7 +925,7 @@ func TestInitNonTTYNamesWhatIsMissing(t *testing.T) {
 	if code != 1 || err == nil {
 		t.Fatalf("a non-TTY run without --root must fail: code=%d err=%v", code, err)
 	}
-	for _, want := range []string{"no terminal available", "--root", "--yes", "--isolation"} {
+	for _, want := range []string{"aucun terminal disponible", "--root", "--yes", "--isolation"} {
 		if !strings.Contains(err.Error(), want) {
 			t.Fatalf("the failure must mention %q: %v", want, err)
 		}
