@@ -150,7 +150,7 @@ func (d *Dispatcher) SingleRunning(ctx context.Context) (Runtime, error) {
 	}
 	switch len(running) {
 	case 0:
-		return "", fmt.Errorf("no just-code runtime is running")
+		return "", fmt.Errorf("aucune machine isolée just-code n'est en cours d'exécution")
 	case 1:
 		return running[0], nil
 	default:
@@ -212,7 +212,7 @@ func (d *Dispatcher) StopAll(ctx context.Context) error {
 		}
 	}
 	if !stoppedAny && firstErr == nil {
-		fmt.Println("No just-code runtime is running.")
+		fmt.Println("Aucune machine isolée just-code n'est en cours d'exécution.")
 	}
 	return firstErr
 }
@@ -244,7 +244,7 @@ func (d *Dispatcher) Stop(ctx context.Context) error {
 		stopped = true
 	}
 	if !stopped {
-		fmt.Println("No just-code runtime is running for this project.")
+		fmt.Println("Aucune machine isolée just-code n'est en cours d'exécution pour ce projet.")
 	}
 	return nil
 }
@@ -274,12 +274,12 @@ func (d *Dispatcher) Prepare(ctx context.Context, requested Runtime) error {
 	sort.Strings(conflicts)
 	names := strings.Join(conflicts, " ")
 	if !isTerminal(os.Stdin) {
-		return fmt.Errorf("%s is already running. Run `just-code stop` before starting %s.", names, requested)
+		return fmt.Errorf("%s est déjà en cours d'exécution. Lancez `just-code stop` avant de démarrer %s.", names, requested)
 	}
-	fmt.Printf("%s is already running. Stop it and start %s? [y/N] ", names, requested)
+	fmt.Printf("%s est déjà en cours d'exécution. L'arrêter pour démarrer %s ? [o/N] ", names, requested)
 	reply, _ := bufio.NewReader(os.Stdin).ReadString('\n')
 	switch strings.ToLower(strings.TrimSpace(reply)) {
-	case "y", "yes":
+	case "o", "oui", "y", "yes":
 		for _, name := range conflicts {
 			ib, ok := d.instanceBackendFor(name)
 			if !ok {
@@ -291,7 +291,7 @@ func (d *Dispatcher) Prepare(ctx context.Context, requested Runtime) error {
 		}
 		return nil
 	default:
-		return fmt.Errorf("keeping %s running", names)
+		return fmt.Errorf("%s reste en cours d'exécution", names)
 	}
 }
 

@@ -172,14 +172,14 @@ func ParseMemorySize(value string) (int, error) {
 }
 
 // FormatMemorySize renders memory compactly while keeping uncommon sizes
-// exact in MiB. The short G suffix is binary (GiB).
+// exact in MiB (shown as Mo). The short G suffix is binary (GiB).
 func FormatMemorySize(memoryMB int) string {
 	if memoryMB > 0 && memoryMB%256 == 0 {
 		quarterGiB := memoryMB / 256
 		fraction := []string{"", ".25", ".5", ".75"}[quarterGiB%4]
 		return strconv.Itoa(quarterGiB/4) + fraction + "G"
 	}
-	return strconv.Itoa(memoryMB) + " MiB"
+	return strconv.Itoa(memoryMB) + " Mo"
 }
 
 // BrowserResourceGuidance reports the requested guest sizing in host context
@@ -191,12 +191,12 @@ func BrowserResourceGuidance(host HostResources, guestCPUs, guestMemoryMB int, d
 	if guestMemoryMB <= 0 {
 		guestMemoryMB = DefaultSandboxMemoryMB
 	}
-	message := fmt.Sprintf("Navigateur dans la machine isolée : %d vCPU, %d MiB RAM, 8192 MiB de disque. Mesure P03 : environ 2,6 Gio utilisés. Le pic de mémoire du navigateur n'a pas été mesuré : aucune augmentation de mémoire n'est justifiée.", guestCPUs, guestMemoryMB)
+	message := fmt.Sprintf("Navigateur dans la machine isolée : %d vCPU, %d Mo de RAM, 8 Go de disque. Mesure P03 : environ 2,6 Go utilisés. Le pic de mémoire du navigateur n'a pas été mesuré : aucune augmentation de mémoire n'est justifiée.", guestCPUs, guestMemoryMB)
 	if host.CPUs > 0 {
 		message += fmt.Sprintf(" Poste : %d processeurs logiques", host.CPUs)
 	}
 	if host.MemoryMB > 0 {
-		message += fmt.Sprintf(" / %d MiB de mémoire au maximum", host.MemoryMB)
+		message += fmt.Sprintf(" / %d Mo de mémoire au maximum", host.MemoryMB)
 	}
 	if detectionErr != nil {
 		message += ". Mémoire du poste non détectée : sa capacité est inconnue"

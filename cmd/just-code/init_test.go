@@ -925,7 +925,7 @@ func TestInitNonTTYNamesWhatIsMissing(t *testing.T) {
 	if code != 1 || err == nil {
 		t.Fatalf("a non-TTY run without --root must fail: code=%d err=%v", code, err)
 	}
-	for _, want := range []string{"no terminal available", "--root", "--yes", "--isolation"} {
+	for _, want := range []string{"aucun terminal disponible", "--root", "--yes", "--isolation"} {
 		if !strings.Contains(err.Error(), want) {
 			t.Fatalf("the failure must mention %q: %v", want, err)
 		}
@@ -1725,14 +1725,14 @@ func TestBrowserResourceGuidanceRefreshesAfterResourceChanges(t *testing.T) {
 	if strings.Contains(updated.BrowserResourceGuidance, "stale guidance") {
 		t.Fatalf("stale guidance retained: %q", updated.BrowserResourceGuidance)
 	}
-	if !strings.Contains(updated.BrowserResourceGuidance, "2 vCPU") || !strings.Contains(updated.BrowserResourceGuidance, "4096 MiB RAM") {
+	if !strings.Contains(updated.BrowserResourceGuidance, "2 vCPU") || !strings.Contains(updated.BrowserResourceGuidance, "4096 Mo de RAM") {
 		t.Fatalf("guidance does not match current resources: %q", updated.BrowserResourceGuidance)
 	}
 
 	answers.CPUs = 4
 	answers.MemoryMB = 8192
 	updated = withBrowserResourceGuidance(answers)
-	if !strings.Contains(updated.BrowserResourceGuidance, "4 vCPU") || !strings.Contains(updated.BrowserResourceGuidance, "8192 MiB RAM") {
+	if !strings.Contains(updated.BrowserResourceGuidance, "4 vCPU") || !strings.Contains(updated.BrowserResourceGuidance, "8192 Mo de RAM") {
 		t.Fatalf("guidance was not refreshed for edited resources: %q", updated.BrowserResourceGuidance)
 	}
 }
@@ -2316,7 +2316,7 @@ func TestOfferProjectInitWarnsOnABrokenManifest(t *testing.T) {
 	if err != nil || !configured {
 		t.Fatalf("a broken manifest must not block the launch: configured=%v err=%v", configured, err)
 	}
-	if !strings.Contains(stderr, "cannot be read") || !strings.Contains(stderr, "--replace") {
+	if !strings.Contains(stderr, "est illisible") || !strings.Contains(stderr, "--replace") {
 		t.Fatalf("the user must be told the manifest is ignored and how to fix it: %q", stderr)
 	}
 	// And the broken file is left alone: the offer must not replace it.

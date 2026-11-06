@@ -45,7 +45,7 @@ func initCmd(args []string) (int, error) {
 	}
 	tty := initTTYFn()
 	if tty && !opts.Yes && !initStdoutTTYFn() {
-		return 1, fmt.Errorf("interactive init requires stdout to be a terminal; stdout is redirected or points at %s", os.DevNull)
+		return 1, fmt.Errorf("la configuration interactive exige que la sortie standard soit un terminal ; elle est redirigée ou pointe vers %s", os.DevNull)
 	}
 	if tty && !opts.Yes {
 		opts = initOptionsWithDisplayedRoot(opts)
@@ -345,8 +345,8 @@ func initRun(opts initOptions, in *bufio.Reader, tty bool) (code int, err error)
 	// The root is the one answer that cannot be defaulted by the engine from
 	// nothing, and in a script it is the most likely thing to be wrong.
 	if !tty && !opts.Set["root"] {
-		return 1, fmt.Errorf("no terminal available: name the project explicitly, e.g. 'just-code init --root <dir> --yes'.\n" +
-			"Every question can be answered by a flag: --runtime, --isolation, --model, --small-model, --cpus, --memory-mb, --credential-ref, --github, --skill, --clear-skills, --mcp, --clear-mcps, --local-only-skills, --versioned-skills, --replace, --yes")
+		return 1, fmt.Errorf("aucun terminal disponible : indiquez le projet explicitement, par exemple 'just-code init --root <dir> --yes'.\n" +
+			"Chaque question peut être répondue par une option : --runtime, --isolation, --model, --small-model, --cpus, --memory-mb, --credential-ref, --github, --skill, --clear-skills, --mcp, --clear-mcps, --local-only-skills, --versioned-skills, --replace, --yes")
 	}
 	answers = seedInitAnswersFromManifest(opts, answers)
 
@@ -359,6 +359,15 @@ func initRun(opts initOptions, in *bufio.Reader, tty bool) (code int, err error)
 		HostResources: &wizardHostResources,
 		ResolveSkills: resolveInitProjectSkillsFn,
 		VerifySkills:  verifyInitProjectSkillsFn,
+		Expert:        initExpertFlags(opts),
+		ResolveDefaultModel: func() string {
+			if path, err := justcode.UserSettingsPath(); err == nil {
+				if us, err := justcode.ReadUserSettings(justcode.DefaultFS, path); err == nil && us.DefaultModel != "" {
+					return canonicalAlbertModelRef(us.DefaultModel)
+				}
+			}
+			return ""
+		},
 		ValidateModel: func(model string) (string, error) {
 			root := answers.Root
 			if pc, err := justcode.DiscoverProject(root); err == nil {
@@ -514,7 +523,7 @@ func initRun(opts initOptions, in *bufio.Reader, tty bool) (code int, err error)
 		interactiveReview := tty && !opts.Yes
 		if plan.ExistingManifest != nil && !opts.Replace {
 			fmt.Print(justcode.FormatInitReview(plan))
-			return 1, fmt.Errorf("%s already exists; re-run with --replace to overwrite it, or edit it directly", plan.ManifestPath)
+			return 1, fmt.Errorf("%s existe déjà ; relancez avec --replace pour le remplacer, ou modifiez-le directement", plan.ManifestPath)
 		}
 		if interactiveReview && !useHuhReview {
 			fmt.Print(justcode.FormatInteractiveInitReview(plan))
@@ -623,7 +632,7 @@ func initRun(opts initOptions, in *bufio.Reader, tty bool) (code int, err error)
 		context7Revoked, context7Live, err = revokeMCPBindingFn(context.Background(), instance, justcode.CredentialContext7)
 		if err != nil {
 			if errors.Is(err, justcode.ErrLookupFailed) {
-				fmt.Fprintf(os.Stderr, "Warning: could not verify the Microsandbox instance %s to remove the Context7 registration (%v); the host approval is revoked and the stale registration will be removed at the next start.\n", instance, err)
+				fmt.Fprintf(os.Stderr, "Attention : impossible de vérifier l'instance Microsandbox %s pour retirer l'enregistrement Context7 (%v) ; l'autorisation de ce poste est révoquée et l'enregistrement obsolète sera retiré au prochain démarrage.\n", instance, err)
 				context7Revoked, context7Live = false, false
 				err = nil
 			} else {
@@ -950,7 +959,7 @@ func askInitQuestions(in *bufio.Reader, opts initOptions, answers justcode.InitA
 	if !opts.Set["skills"] {
 		catalogue, catalogueErr := projectSkillCatalogueFn(context.Background())
 		if catalogueErr != nil {
-			fmt.Fprintf(os.Stderr, "Warning: the pinned project skills catalogue is unavailable: %v\n", catalogueErr)
+			fmt.Fprintf(os.Stderr, "Attention : le catalogue de skills épinglé du projet est indisponible : %v\n", catalogueErr)
 		} else {
 			for _, skill := range catalogue {
 				answers.KnownSkills = append(answers.KnownSkills, skill.ID)
@@ -1346,7 +1355,7 @@ func askInitAdvancedLine(in *bufio.Reader, opts initOptions, answers justcode.In
 				continue
 			}
 			if n < 1 {
-				fmt.Println("  Au moins 1 MiB.")
+				fmt.Println("  Au moins 1 Mo.")
 				continue
 			}
 			if n > opts.maxMemoryMB {
@@ -1946,8 +1955,8 @@ func offerProjectInitWithReader(projectRoot string, parsed parsedArgs, given *bu
 		// tolerate a broken manifest (so a read-only command keeps working),
 		// which means nothing downstream will say so: this is the one place
 		// holding the error, so it has to say it.
-		fmt.Fprintf(os.Stderr, "Warning: %s cannot be read (%v); the launch will ignore the settings it records.\n"+
-			"         Fix or remove it, or run 'just-code init --replace' to write it again.\n",
+		fmt.Fprintf(os.Stderr, "Attention : %s est illisible (%v) ; le lancement ignore les réglages qu'il contient.\n"+
+			"            Corrigez-le ou supprimez-le, ou lancez 'just-code init --replace' pour le réécrire.\n",
 			justcode.ProjectManifestPath(projectRoot), err)
 		return true, 0, nil
 	}
@@ -1963,15 +1972,15 @@ func offerProjectInitWithReader(projectRoot string, parsed parsedArgs, given *bu
 		return true, 0, nil
 	}
 	if !tty {
-		return false, 1, fmt.Errorf("this project has no configuration (%s) and no terminal is available to ask for one.\n"+
-			"Run 'just-code init --root %q --yes' to accept the defaults, or 'just-code init' in a terminal to choose",
+		return false, 1, fmt.Errorf("ce projet n'a pas de configuration (%s) et aucun terminal n'est disponible pour la demander.\n"+
+			"Lancez 'just-code init --root %q --yes' pour accepter les valeurs par défaut, ou 'just-code init' dans un terminal pour choisir",
 			justcode.ProjectManifestPath(projectRoot), projectRoot)
 	}
 	if given == nil && !stdoutIsTTY() {
-		return false, 1, fmt.Errorf("interactive project setup requires stdout to be a terminal; stdout is redirected or points at %s", os.DevNull)
+		return false, 1, fmt.Errorf("la configuration interactive du projet exige que la sortie standard soit un terminal ; elle est redirigée ou pointe vers %s", os.DevNull)
 	}
 
-	fmt.Printf("This project has no just-code configuration yet (%s).\n", justcode.ProjectManifestPath(projectRoot))
+	fmt.Printf("Ce projet n'a pas encore de configuration just-code (%s).\n", justcode.ProjectManifestPath(projectRoot))
 	// One reader for both steps: a line the user typed ahead (or a piped
 	// answer list) must not be split between two buffers.
 	in := given
@@ -1979,12 +1988,12 @@ func offerProjectInitWithReader(projectRoot string, parsed parsedArgs, given *bu
 		in = bufio.NewReader(os.Stdin)
 	}
 	if tty && wizardHuhFn() {
-		proceed, err := huhConfirm("Configure this project now?", "This project has no just-code configuration yet. The wizard writes the project manifest.", true)
+		proceed, err := huhConfirm("Configurer ce projet maintenant ?", "Ce projet n'a pas encore de configuration just-code. L'assistant écrit le manifeste du projet.", true)
 		if err != nil {
-			return false, 1, fmt.Errorf("no project configuration: nothing was written. Run 'just-code init' when you want to configure it")
+			return false, 1, fmt.Errorf("projet non configuré : rien n'a été écrit. Lancez 'just-code init' quand vous voudrez le configurer")
 		}
 		if !proceed {
-			return false, 1, fmt.Errorf("no project configuration: nothing was written. Run 'just-code init' when you want to configure it")
+			return false, 1, fmt.Errorf("projet non configuré : rien n'a été écrit. Lancez 'just-code init' quand vous voudrez le configurer")
 		}
 		code, err = initRun(initOptions{Root: projectRoot, FromLaunch: true, Set: map[string]bool{"root": true}}, nil, true)
 		if err != nil || code != 0 {
@@ -1992,9 +2001,10 @@ func offerProjectInitWithReader(projectRoot string, parsed parsedArgs, given *bu
 		}
 		return true, 0, nil
 	}
-	answer, ok := promptLine(in, "Configure it now? [Y/n]: ")
-	if ok && strings.EqualFold(strings.TrimSpace(answer), "n") {
-		return false, 1, fmt.Errorf("no project configuration: nothing was written. Run 'just-code init' when you want to configure it")
+	answer, _ := promptLine(in, "Configurer maintenant ? [O/n] : ")
+	switch strings.ToLower(strings.TrimSpace(answer)) {
+	case "n", "non", "no":
+		return false, 1, fmt.Errorf("projet non configuré : rien n'a été écrit. Lancez 'just-code init' quand vous voudrez le configurer")
 	}
 	code, err = initRun(initOptions{Root: projectRoot, FromLaunch: true, Set: map[string]bool{"root": true}}, in, true)
 	if err != nil || code != 0 {

@@ -264,15 +264,25 @@ func retainedSkillOptions(options []huh.Option[string], selected []string) []huh
 	return retained
 }
 
+// initExpertFlags reports whether the invocation provided an expert setting
+// through a flag (#312). The step counters are omitted and the recap keeps
+// its technical detail for those runs. The displayed root never skips a step,
+// so it is not part of the signal.
+func initExpertFlags(opts initOptions) bool {
+	for _, field := range []string{"runtime", "isolation", "model", "small-model", "cpus", "memory-mb", "credential-ref", "github", "skills", "mcps"} {
+		if opts.Set[field] {
+			return true
+		}
+	}
+	return false
+}
+
 // initStepPrefix numbers the three-step init flow ([1/3], [2/3], [3/3]) for
 // the beginner path. When an expert setting or an entire step comes from a
 // flag, the counter is omitted rather than risk a misleading number (#312).
-// The displayed root never skips a step, so it does not suppress the counter.
 func initStepPrefix(opts initOptions, step int) string {
-	for _, field := range []string{"runtime", "isolation", "model", "small-model", "cpus", "memory-mb", "credential-ref", "github", "skills", "mcps"} {
-		if opts.Set[field] {
-			return ""
-		}
+	if initExpertFlags(opts) {
+		return ""
 	}
 	return fmt.Sprintf("[%d/3] ", step)
 }
@@ -822,7 +832,7 @@ func parseGuestMemoryInput(value string, maximum int) (memoryMB int, useDefault 
 		return 0, false, fmt.Errorf("format attendu : 4096, 4G ou 2.5G")
 	}
 	if memoryMB < 1 || memoryMB > maximum {
-		return 0, false, fmt.Errorf("au moins 1 MiB. Maximum sur ce poste : %s", justcode.FormatMemorySize(maximum))
+		return 0, false, fmt.Errorf("au moins 1 Mo. Maximum sur ce poste : %s", justcode.FormatMemorySize(maximum))
 	}
 	return memoryMB, false, nil
 }
@@ -852,7 +862,7 @@ func huhDiagnosticsDescription(report justcode.DiagnosticsReport) string {
 	var b strings.Builder
 	for _, section := range report.Sections {
 		t := lipglosstable.New().
-			Headers("Check", "Status", "Value").
+			Headers("Contrôle", "État", "Valeur").
 			Width(huhReviewTableWidth()).
 			StyleFunc(func(row, column int) lipgloss.Style {
 				if row == lipglosstable.HeaderRow || column == 0 {
@@ -907,7 +917,7 @@ func askInitQuestionsHuh(opts initOptions, answers justcode.InitAnswers) (justco
 	if !opts.Set["skills"] {
 		catalogue, catalogueErr = projectSkillCatalogueFn(context.Background())
 		if catalogueErr != nil {
-			fmt.Fprintf(os.Stderr, "Warning: the pinned project skills catalogue is unavailable: %v\n", catalogueErr)
+			fmt.Fprintf(os.Stderr, "Attention : le catalogue de skills épinglé du projet est indisponible : %v\n", catalogueErr)
 		} else {
 			for _, skill := range catalogue {
 				answers.KnownSkills = append(answers.KnownSkills, skill.ID)

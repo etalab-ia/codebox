@@ -308,7 +308,7 @@ func TestLoadConfigEnvDoesNotApplyDotenvImplicitly(t *testing.T) {
 	stderr := captureStderr(t, func() {
 		_ = LoadConfigEnv()
 	})
-	if !strings.Contains(stderr, "was NOT read") || !strings.Contains(stderr, "config import-env") {
+	if !strings.Contains(stderr, "n'a pas été lu") || !strings.Contains(stderr, "config import-env") {
 		t.Fatalf("the skipped .env must be reported with the adoption command: %q", stderr)
 	}
 	// The note names the file by absolute path. Accept either view of it: the

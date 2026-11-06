@@ -613,14 +613,14 @@ func TestSetupDoctorPlainOutputSeparatesSections(t *testing.T) {
 		return justcode.DiagnosticsReport{
 			Platform: "test/arch",
 			Sections: []justcode.DiagnosticSection{
-				{Title: "Host capability", Items: []justcode.DiagnosticItem{
-					{Name: "Virtualization", Value: "ok", Status: justcode.DiagnosticOK},
+				{Title: "Capacité de l'hôte", Items: []justcode.DiagnosticItem{
+					{Name: "Virtualisation", Value: "ok", Status: justcode.DiagnosticOK},
 				}},
-				{Title: "Runtime and VM state", Items: []justcode.DiagnosticItem{
-					{Name: "Managed Microsandbox runtime", Value: "ok", Status: justcode.DiagnosticOK},
+				{Title: "Runtime et état de l'instance du projet", Items: []justcode.DiagnosticItem{
+					{Name: "Runtime Microsandbox géré", Value: "ok", Status: justcode.DiagnosticOK},
 				}},
-				{Title: "Provider verification", Items: []justcode.DiagnosticItem{
-					{Name: "Albert endpoint", Value: "verified", Status: justcode.DiagnosticOK},
+				{Title: "Vérification Albert", Items: []justcode.DiagnosticItem{
+					{Name: "Point d'accès Albert", Value: "validé", Status: justcode.DiagnosticOK},
 				}},
 			},
 		}
@@ -635,7 +635,7 @@ func TestSetupDoctorPlainOutputSeparatesSections(t *testing.T) {
 			t.Fatalf("setup doctor: code=%d err=%v", code, err)
 		}
 	})
-	for _, want := range []string{"Host capability:", "Runtime and VM state:", "Provider verification:", "no blocking issue"} {
+	for _, want := range []string{"Capacité de l'hôte:", "Runtime et état de l'instance du projet:", "Vérification Albert:", "Résultat : aucun problème bloquant détecté"} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("doctor output missing %q: %q", want, out)
 		}
@@ -647,8 +647,8 @@ func TestSetupDoctorFailedItemReturnsNonZero(t *testing.T) {
 	origCollect := setupDoctorCollectFn
 	setupDoctorCollectFn = func() justcode.DiagnosticsReport {
 		return justcode.DiagnosticsReport{Platform: "test/arch", Sections: []justcode.DiagnosticSection{{
-			Title: "Provider verification",
-			Items: []justcode.DiagnosticItem{{Name: "Albert endpoint", Value: "rejected", Status: justcode.DiagnosticFailed}},
+			Title: "Vérification Albert",
+			Items: []justcode.DiagnosticItem{{Name: "Point d'accès Albert", Value: "refusé", Status: justcode.DiagnosticFailed}},
 		}}}
 	}
 	origRender := doctorRendererFn
@@ -661,7 +661,7 @@ func TestSetupDoctorFailedItemReturnsNonZero(t *testing.T) {
 			t.Fatalf("failed diagnostics must return code 1: code=%d err=%v", code, err)
 		}
 	})
-	if !strings.Contains(out, "one or more checks failed") {
+	if !strings.Contains(out, "au moins un contrôle a échoué") {
 		t.Fatalf("doctor output must state the failure: %q", out)
 	}
 }
@@ -671,8 +671,8 @@ func TestSetupDoctorJSONOutputIsMachineReadable(t *testing.T) {
 	origCollect := setupDoctorCollectFn
 	setupDoctorCollectFn = func() justcode.DiagnosticsReport {
 		return justcode.DiagnosticsReport{Platform: "test/arch", Sections: []justcode.DiagnosticSection{{
-			Title: "Host capability",
-			Items: []justcode.DiagnosticItem{{Name: "Virtualization", Value: "ok", Status: justcode.DiagnosticOK}},
+			Title: "Capacité de l'hôte",
+			Items: []justcode.DiagnosticItem{{Name: "Virtualisation", Value: "ok", Status: justcode.DiagnosticOK}},
 		}}}
 	}
 	t.Cleanup(func() { setupDoctorCollectFn = origCollect })
@@ -687,7 +687,7 @@ func TestSetupDoctorJSONOutputIsMachineReadable(t *testing.T) {
 	if err := json.Unmarshal([]byte(out), &report); err != nil {
 		t.Fatalf("doctor JSON output is invalid: %v: %q", err, out)
 	}
-	if report.Platform != "test/arch" || len(report.Sections) != 1 || report.Sections[0].Title != "Host capability" {
+	if report.Platform != "test/arch" || len(report.Sections) != 1 || report.Sections[0].Title != "Capacité de l'hôte" {
 		t.Fatalf("doctor JSON report = %+v", report)
 	}
 }
@@ -697,8 +697,8 @@ func TestSetupDoctorNoColorUsesPlainOutput(t *testing.T) {
 	origCollect, origRender, origNoColor := setupDoctorCollectFn, doctorRendererFn, wizardNoColor
 	setupDoctorCollectFn = func() justcode.DiagnosticsReport {
 		return justcode.DiagnosticsReport{Platform: "test/arch", Sections: []justcode.DiagnosticSection{{
-			Title: "Host capability",
-			Items: []justcode.DiagnosticItem{{Name: "Virtualization", Value: "ok", Status: justcode.DiagnosticOK}},
+			Title: "Capacité de l'hôte",
+			Items: []justcode.DiagnosticItem{{Name: "Virtualisation", Value: "ok", Status: justcode.DiagnosticOK}},
 		}}}
 	}
 	doctorRendererFn = func() bool { return !wizardNoColor }
@@ -713,7 +713,7 @@ func TestSetupDoctorNoColorUsesPlainOutput(t *testing.T) {
 			t.Fatalf("setup doctor --no-color: code=%d err=%v", code, err)
 		}
 	})
-	if !strings.Contains(out, "Host capability:") || strings.Contains(out, "│") {
+	if !strings.Contains(out, "Capacité de l'hôte:") || strings.Contains(out, "│") {
 		t.Fatalf("--no-color did not use the plain doctor renderer: %q", out)
 	}
 }
@@ -746,7 +746,7 @@ func TestSetupIntroScreenContent(t *testing.T) {
 		"(_)_  _______/ /_",
 		"just code : coder avec l'IA souveraine",
 		"Cette configuration se fait une seule fois sur ce poste.",
-		"Durée : environ 3 minutes. Espace disque : environ 2 Go.",
+		"Durée : quelques minutes pour répondre aux questions. Espace disque : au moins 1 Go libre pour la machine isolée.",
 		"3 étapes :",
 		"1. Plateformes d'inférence (au moins une)",
 		"2. Sélection des modèles à utiliser.",
@@ -984,8 +984,10 @@ func TestSetupRuntimeSummaryDescribesReuseWithoutDownload(t *testing.T) {
 		t.Fatalf("reused runtime summary must not promise a download or disk use: %q", message)
 	}
 	conditional := setupRuntimeSummary(justcode.SetupPreflight{})
-	if !strings.Contains(conditional, "si aucune installation valide n'est disponible") || !strings.Contains(conditional, "2 Go") || !strings.Contains(conditional, "1 Gio libre") {
-		t.Fatalf("missing-runtime summary should qualify the download estimate: %q", conditional)
+	if !strings.Contains(conditional, "si aucune installation valide n'est disponible") ||
+		!strings.Contains(conditional, "téléchargement, installation, puis démarrage") ||
+		!strings.Contains(conditional, "dépend de votre connexion") || !strings.Contains(conditional, "1 Go libre") {
+		t.Fatalf("missing-runtime summary should separate download, install and first launch without promising a duration: %q", conditional)
 	}
 }
 
@@ -1860,7 +1862,7 @@ func TestSetupWizardGitHubValidFineGrainedToken(t *testing.T) {
 	if strings.Contains(out, "github_pat_secretvalue") {
 		t.Errorf("the token must never be displayed; output:\n%s", out)
 	}
-	for _, want := range []string{"Clé Albert API      enregistrée dans un fichier protégé (vérifiée)", "GitHub              jeton vérifié, compte @moncompte", "Espace recommandé : environ 2 Go ; le contrôle bloque sous 1 Gio libre", "[A] Appliquer  [M] Modifier  [Q] Quitter"} {
+	for _, want := range []string{"Clé Albert API      enregistrée dans un fichier protégé (vérifiée)", "GitHub              jeton vérifié, compte @moncompte", "téléchargement, installation, puis démarrage", "[A] Appliquer  [M] Modifier  [Q] Quitter"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("recap is missing %q; output:\n%s", want, out)
 		}

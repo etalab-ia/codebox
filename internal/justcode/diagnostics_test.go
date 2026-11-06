@@ -57,11 +57,11 @@ func TestDiagnosticsCollectDoesNotPrintCredentialValue(t *testing.T) {
 	if strings.Contains(diagnosticText(report), secret) {
 		t.Fatalf("diagnostics exposed the credential value: %q", diagnosticText(report))
 	}
-	if !strings.Contains(diagnosticText(report), "Albert endpoint") {
+	if !strings.Contains(diagnosticText(report), "Point d'accès Albert") {
 		t.Fatalf("provider section missing: %q", diagnosticText(report))
 	}
 	for _, section := range report.Sections {
-		if section.Title != "Toolchain" {
+		if section.Title != "Toolchain hôte" {
 			continue
 		}
 		for _, item := range section.Items {
@@ -112,7 +112,7 @@ func TestDiagnosticsProjectSectionsReportSelectionsWithoutFetching(t *testing.T)
 		ReadCredential: noStoredCredentials(),
 	}.Collect(context.Background())
 	text := diagnosticText(report)
-	for _, want := range []string{"Project skills and MCPs", "official/rgaa", "data-gouv", "Managed Microsandbox runtime"} {
+	for _, want := range []string{"Skills et MCP du projet", "official/rgaa", "data-gouv", "Runtime Microsandbox géré"} {
 		if !strings.Contains(text, want) {
 			t.Fatalf("diagnostics missing %q: %q", want, text)
 		}
@@ -156,7 +156,7 @@ func TestDiagnosticsStoredCredentialAndJournalUseResolvedStateDir(t *testing.T) 
 	if strings.Contains(text, secret) || !strings.Contains(text, "native") || !strings.Contains(text, "albert") {
 		t.Fatalf("credential/storage diagnostics missing kinds or exposing secret: %q", text)
 	}
-	if got := diagnosticItemFrom(t, report, "Credentials and storage", "Stored credentials"); got.Value != "albert" {
+	if got := diagnosticItemFrom(t, report, "Stockage des identifiants", "Clés enregistrées"); got.Value != "albert" {
 		t.Fatalf("the stored credential must come from the store, not only the journal: %+v", got)
 	}
 }
@@ -192,10 +192,10 @@ func TestDiagnosticsReportsStoredCredentialAfterSetupJournalRemoved(t *testing.T
 	if strings.Contains(text, "none recorded in setup journal") {
 		t.Fatalf("doctor still concludes from the journal: %q", text)
 	}
-	if got := diagnosticItemFrom(t, report, "Credentials and storage", "Stored credentials"); got.Value != "albert" || got.Status != DiagnosticOK {
+	if got := diagnosticItemFrom(t, report, "Stockage des identifiants", "Clés enregistrées"); got.Value != "albert" || got.Status != DiagnosticOK {
 		t.Fatalf("doctor did not confirm the credential from the store: %+v", got)
 	}
-	if got := diagnosticItemFrom(t, report, "Credentials and storage", "Setup journal"); got.Value != "absent" {
+	if got := diagnosticItemFrom(t, report, "Stockage des identifiants", "Journal de setup"); got.Value != "absent" {
 		t.Fatalf("an absent journal must be reported as absent, not as an empty inventory: %+v", got)
 	}
 }
@@ -220,10 +220,10 @@ func TestDiagnosticsDoesNotTrustJournalAsCredentialInventory(t *testing.T) {
 			return "", "native", ErrCredentialNotFound
 		},
 	}.Collect(context.Background())
-	if got := diagnosticItemFrom(t, report, "Credentials and storage", "Stored credentials"); got.Value != "none" {
+	if got := diagnosticItemFrom(t, report, "Stockage des identifiants", "Clés enregistrées"); got.Value != "aucune" {
 		t.Fatalf("an empty store must report none even when the journal lists a kind: %+v", got)
 	}
-	if got := diagnosticItemFrom(t, report, "Credentials and storage", "Setup journal"); got.Value != string(StageCredential) {
+	if got := diagnosticItemFrom(t, report, "Stockage des identifiants", "Journal de setup"); got.Value != string(StageCredential) {
 		t.Fatalf("a present journal must still report the interrupted stage: %+v", got)
 	}
 }
@@ -246,11 +246,11 @@ func TestDiagnosticsReportsUnreadableCredentialKindSeparately(t *testing.T) {
 		},
 	}.Collect(context.Background())
 	text := diagnosticText(report)
-	if !strings.Contains(text, "unreadable: github") {
+	if !strings.Contains(text, "illisibles : github") {
 		t.Fatalf("a refused read must be named as unreadable: %q", text)
 	}
-	got := diagnosticItemFrom(t, report, "Credentials and storage", "Stored credentials")
-	if got.Status != DiagnosticWarn || got.Value != "unknown" || strings.Contains(got.Detail, "none of the known kinds") {
+	got := diagnosticItemFrom(t, report, "Stockage des identifiants", "Clés enregistrées")
+	if got.Status != DiagnosticWarn || got.Value != "inconnues" || strings.Contains(got.Detail, "aucun des types connus") {
 		t.Fatalf("an unreadable kind must leave the inventory unknown, not empty: %+v", got)
 	}
 }
@@ -265,7 +265,7 @@ func TestDiagnosticsPartialCredentialInventoryPreservesKnownKinds(t *testing.T) 
 				return "secret-value-canary", "native", nil
 			}}
 			got := d.storedCredentialsItem(context.Background())
-			if got.Status != DiagnosticWarn || !strings.HasSuffix(got.Value, " (partial)") {
+			if got.Status != DiagnosticWarn || !strings.HasSuffix(got.Value, " (partiel)") {
 				t.Fatalf("an incomplete inventory must be marked partial: %+v", got)
 			}
 			for _, kind := range KnownCredentialKinds() {
@@ -273,7 +273,7 @@ func TestDiagnosticsPartialCredentialInventoryPreservesKnownKinds(t *testing.T) 
 					t.Fatalf("confirmed kind %s missing: %+v", kind, got)
 				}
 			}
-			if strings.Contains(got.Value, string(unreadableKind)) || !strings.Contains(got.Detail, "unreadable: "+string(unreadableKind)) {
+			if strings.Contains(got.Value, string(unreadableKind)) || !strings.Contains(got.Detail, "illisibles : "+string(unreadableKind)) {
 				t.Fatalf("unreadable kind must not be counted as stored: %+v", got)
 			}
 			if strings.Contains(got.Value+got.Detail, "canary") {
@@ -290,7 +290,7 @@ func TestDiagnosticsAbsentJournalDoesNotInventSetupHistory(t *testing.T) {
 		t.Fatal(err)
 	}
 	got := setupJournalItem(DefaultFS, state, journal, nil)
-	if got.Value != "absent" || got.Status != DiagnosticInfo || got.Detail != "no setup resume record is present; the journal is not a record of stored credentials" {
+	if got.Value != "absent" || got.Status != DiagnosticInfo || got.Detail != "aucun point de reprise de setup n'est présent ; le journal n'est pas un inventaire des clés enregistrées" {
 		t.Fatalf("missing journal on a fresh host must not imply setup ran: %+v", got)
 	}
 }
@@ -312,11 +312,11 @@ func TestDiagnosticsReportsNotReadWhenEveryCredentialReadIsRefused(t *testing.T)
 			return "", "", &StoreError{Op: "get", Kind: "native", State: "unavailable", Err: errors.New("daemon not running")}
 		},
 	}.Collect(context.Background())
-	got := diagnosticItemFrom(t, report, "Credentials and storage", "Stored credentials")
-	if got.Value != "not read" || got.Status != DiagnosticWarn {
+	got := diagnosticItemFrom(t, report, "Stockage des identifiants", "Clés enregistrées")
+	if got.Value != "non lues" || got.Status != DiagnosticWarn {
 		t.Fatalf("a store that refused every read must not claim an inventory: %+v", got)
 	}
-	if strings.Contains(got.Detail, "none of the known kinds") {
+	if strings.Contains(got.Detail, "aucun des types connus") {
 		t.Fatalf("refused reads must not be reported as absence: %+v", got)
 	}
 }
@@ -347,7 +347,7 @@ func TestDiagnosticsReportsFileFallbackInventoryWithoutNativeStore(t *testing.T)
 	if strings.Contains(text, secret) {
 		t.Fatalf("diagnostics exposed the credential value: %q", text)
 	}
-	got := diagnosticItemFrom(t, report, "Credentials and storage", "Stored credentials")
+	got := diagnosticItemFrom(t, report, "Stockage des identifiants", "Clés enregistrées")
 	if got.Value != "albert" || got.Status != DiagnosticOK {
 		t.Fatalf("the file fallback inventory must still be reported: %+v", got)
 	}
@@ -387,7 +387,7 @@ func TestDiagnosticsCredentialInventoryReadsUnderABoundedContext(t *testing.T) {
 	if deadlines != len(KnownCredentialKinds()) {
 		t.Fatalf("every known kind must be read under a deadline, got %d", deadlines)
 	}
-	if got := diagnosticItemFrom(t, report, "Credentials and storage", "Stored credentials"); got.Value != "not read" {
+	if got := diagnosticItemFrom(t, report, "Stockage des identifiants", "Clés enregistrées"); got.Value != "non lues" {
 		t.Fatalf("a store that never answered must not claim an inventory: %+v", got)
 	}
 }
@@ -433,7 +433,7 @@ func TestDiagnosticsDoesNotMutateInterruptedProjectUpdate(t *testing.T) {
 	if _, err := os.Stat(lockPath); !os.IsNotExist(err) {
 		t.Fatalf("doctor created the project update lock %s: %v", lockPath, err)
 	}
-	if !strings.Contains(diagnosticText(report), "Pending project update") {
+	if !strings.Contains(diagnosticText(report), "Mise à jour du projet en attente") {
 		t.Fatalf("doctor did not report the pending update without recovering it: %q", diagnosticText(report))
 	}
 }
@@ -463,11 +463,11 @@ func TestDiagnosticsValidatesExplicitRuntimeWithoutManagedInstall(t *testing.T) 
 		ReadCredential: noStoredCredentials(),
 	}.Collect(context.Background())
 	for _, section := range report.Sections {
-		if section.Title != "Runtime and VM state" {
+		if section.Title != "Runtime et état de l'instance du projet" {
 			continue
 		}
 		for _, item := range section.Items {
-			if item.Name == "Explicit Microsandbox runtime" && item.Status == DiagnosticOK {
+			if item.Name == "Runtime Microsandbox explicite" && item.Status == DiagnosticOK {
 				return
 			}
 		}
@@ -501,8 +501,8 @@ func TestDiagnosticsNamesAnUnreachedFallbackCredential(t *testing.T) {
 		},
 	}.Collect(context.Background())
 
-	got := diagnosticItemFrom(t, report, "Provider verification", "File fallback credential")
-	if got.Value != "present, not read" || got.Status != DiagnosticWarn {
+	got := diagnosticItemFrom(t, report, "Vérification Albert", "Clé du magasin fichier")
+	if got.Value != "présente, non lue" || got.Status != DiagnosticWarn {
 		t.Fatalf("the unreached fallback must be reported: %+v", got)
 	}
 	for _, want := range []string{"auth use-fallback albert", "ALBERT_API_KEY"} {
@@ -532,7 +532,7 @@ func TestDiagnosticsDoesNotClaimAnUnreachedFallbackWhenEmpty(t *testing.T) {
 			return "", "native", ErrCredentialNotFound
 		},
 	}.Collect(context.Background())
-	if strings.Contains(diagnosticText(report), "File fallback credential") {
+	if strings.Contains(diagnosticText(report), "Clé du magasin fichier") {
 		t.Fatalf("an empty file store must not be advertised:\n%s", diagnosticText(report))
 	}
 }

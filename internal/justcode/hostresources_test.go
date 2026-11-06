@@ -10,7 +10,7 @@ var errTestHostMemory = errors.New("memory unavailable")
 
 func TestBrowserResourceGuidanceUsesHostCapacityWithoutInventingPeak(t *testing.T) {
 	got := BrowserResourceGuidance(HostResources{CPUs: 8, MemoryMB: 16384}, 2, 4096, nil)
-	for _, want := range []string{"2 vCPU", "4096 MiB RAM", "8192 MiB de disque", "8 processeurs logiques", "16384 MiB de mémoire au maximum", "2,6 Gio", "pic de mémoire du navigateur n'a pas été mesuré", "ne tient pas compte des autres applications"} {
+	for _, want := range []string{"2 vCPU", "4096 Mo de RAM", "8 Go de disque", "8 processeurs logiques", "16384 Mo de mémoire au maximum", "2,6 Go", "pic de mémoire du navigateur n'a pas été mesuré", "ne tient pas compte des autres applications"} {
 		if !strings.Contains(got, want) {
 			t.Errorf("resource guidance %q lacks %q", got, want)
 		}
@@ -19,7 +19,7 @@ func TestBrowserResourceGuidanceUsesHostCapacityWithoutInventingPeak(t *testing.
 
 func TestBrowserResourceGuidanceKeepsCapacityAsContext(t *testing.T) {
 	got := BrowserResourceGuidance(HostResources{CPUs: 1, MemoryMB: 2048}, 1, 2048, nil)
-	for _, want := range []string{"1 vCPU", "1 processeurs logiques", "2048 MiB de mémoire au maximum", "maximum", "autres applications"} {
+	for _, want := range []string{"1 vCPU", "1 processeurs logiques", "2048 Mo de mémoire au maximum", "maximum", "autres applications"} {
 		if !strings.Contains(got, want) {
 			t.Errorf("resource guidance %q lacks %q", got, want)
 		}
@@ -119,7 +119,7 @@ func TestParseAndFormatMemorySize(t *testing.T) {
 	for _, tc := range []struct {
 		memory int
 		want   string
-	}{{4096, "4G"}, {2560, "2.5G"}, {2304, "2.25G"}, {9830, "9830 MiB"}} {
+	}{{4096, "4G"}, {2560, "2.5G"}, {2304, "2.25G"}, {9830, "9830 Mo"}} {
 		if got := FormatMemorySize(tc.memory); got != tc.want {
 			t.Errorf("FormatMemorySize(%d) = %q, want %q", tc.memory, got, tc.want)
 		}
