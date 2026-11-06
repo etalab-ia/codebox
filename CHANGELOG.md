@@ -1,5 +1,23 @@
 # Changelog
 
+## [0.16.0](https://github.com/etalab-ia/just-code/compare/just-code-v0.15.0...just-code-v0.16.0) (2026-11-06)
+
+
+### Features
+
+* **init:** apply wizard answers directly without a review screen ([#333](https://github.com/etalab-ia/just-code/issues/333)) ([b391416](https://github.com/etalab-ia/just-code/commit/b391416e57a357c673de4938e2cb88f0d1cc850b))
+* **init:** five-step wizard, no review screen ([#333](https://github.com/etalab-ia/just-code/issues/333)) ([2a806b3](https://github.com/etalab-ia/just-code/commit/2a806b337f65eae27a5d967746fa0c2f96fa9be7))
+* **setup:** apply configuration directly without a review screen ([#333](https://github.com/etalab-ia/just-code/issues/333)) ([983a92f](https://github.com/etalab-ia/just-code/commit/983a92ffe036ee0dff1b589abd3f243dc6a6221c))
+
+
+### Bug Fixes
+
+* **init:** cancel the line wizard when input closes ([#333](https://github.com/etalab-ia/just-code/issues/333)) ([927cfb5](https://github.com/etalab-ia/just-code/commit/927cfb5e307da1901e6ab80c1e5c963468c6a03a))
+* **init:** finish French texts and simplify beginner recaps ([eb61497](https://github.com/etalab-ia/just-code/commit/eb61497553193ea143927cfa3ad6bf1905f0cf63))
+* **init:** finish French texts and simplify beginner recaps ([1c0adff](https://github.com/etalab-ia/just-code/commit/1c0adff3db79a131e1e7db83c23b54598e2c18f2))
+* **workspace:** backdate restored index after recovery refresh ([75a0951](https://github.com/etalab-ia/just-code/commit/75a0951c0e10e7fde7d6fb6cc93b44ed58b98ee6))
+* **workspace:** backdate restored index after recovery refresh ([d9b8970](https://github.com/etalab-ia/just-code/commit/d9b89709643be6aa50fed089586c4465962ff1d6))
+
 ## [0.15.0](https://github.com/etalab-ia/just-code/compare/just-code-v0.14.1...just-code-v0.15.0) (2026-11-05)
 
 
