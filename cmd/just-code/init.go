@@ -171,6 +171,10 @@ type initOptions struct {
 	SkillsLocalOnly bool
 	Replace         bool
 	Yes             bool
+	// Advanced opens the expert settings screen once, after the wizard's
+	// questions and before the configuration is applied (#333). It has no
+	// effect on non-interactive runs.
+	Advanced bool
 	// FromLaunch records that the launch flow is driving the setup, which only
 	// changes the closing message.
 	FromLaunch   bool
@@ -206,6 +210,8 @@ func parseInitArgs(args []string) (initOptions, error) {
 			opts.Replace = true
 		case a == "--yes" || a == "-y":
 			opts.Yes = true
+		case a == "--advanced":
+			opts.Advanced = true
 		case a == "--github":
 			opts.GitHub, opts.Set["github"] = true, true
 		case a == "--skill":
@@ -327,16 +333,6 @@ func initRun(opts initOptions, in *bufio.Reader, tty bool) (code int, err error)
 		SkillsLocalOnly:    opts.SkillsLocalOnly,
 		SkillsLocalOnlySet: opts.Set["skills-storage"],
 	}
-	stage := "questions"
-	defer func() {
-		// An explicit quit is the only abandonment worth recording: every
-		// other failure is an environment or validation error.
-		if code != 0 && err != nil && strings.Contains(err.Error(), "quitté l'assistant") && stage == "review" {
-			justcode.RecordStatsEvent(justcode.DefaultFS, justcode.DefaultStateDir(), justcode.StatsEventInput{
-				Kind: "abandon", Stage: stage, Version: version, ProjectRoot: answers.Root,
-			})
-		}
-	}()
 	if answers.Root == "" {
 		if cwd, err := os.Getwd(); err == nil {
 			answers.Root = cwd
@@ -412,15 +408,17 @@ func initRun(opts initOptions, in *bufio.Reader, tty bool) (code int, err error)
 		}
 	}
 	var plan justcode.InitPlan
-	// askQuestions gates the default-path questions. The review's "edit"
-	// choice reopens them; the "Réglages avancés" choice (#170) edits only
-	// the expert settings and returns straight to the review.
+	// The wizard applies the configuration as soon as its questions pass
+	// (#333): there is no confirmation screen. askQuestions gates the
+	// default-path questions; only the GitHub re-probe below reopens them.
 	askQuestions := true
-	apply := false
+	interactiveReview := tty && !opts.Yes
+	// --advanced opens the expert settings once, after the questions (#333).
+	advancedDone := !opts.Advanced
 	for {
-		useHuhReview := tty && !opts.Yes && wizardHuhFn()
+		useHuh := tty && !opts.Yes && wizardHuhFn()
 		if tty && !opts.Yes && askQuestions {
-			if useHuhReview {
+			if useHuh {
 				answers, err = askInitQuestionsHuh(opts, answers)
 				if err != nil {
 					return 1, err
@@ -441,17 +439,30 @@ func initRun(opts initOptions, in *bufio.Reader, tty bool) (code int, err error)
 		// catalogue. Let interactive replacement repair them before Plan can
 		// reject them, without weakening flag or non-interactive validation.
 		if tty && !opts.Yes && opts.Replace {
-			if repairErr := invalidInheritedInitSetting(opts, answers); repairErr != nil {
-				fmt.Printf("\nUn réglage du projet doit être corrigé avant le récapitulatif : %v\n", repairErr)
+			if field, repairErr := invalidInheritedInitSetting(opts, answers); repairErr != nil {
+				fmt.Printf("\nUn réglage du projet doit être corrigé avant l'application : %v\n", repairErr)
 				askQuestions = false
-				answers.Advanced = true
-				if useHuhReview {
-					answers, err = askInitAdvancedHuh(opts, answers)
-				} else {
-					if _, readErr := in.Peek(1); readErr != nil {
-						return 1, fmt.Errorf("aucune réponse ; rien n'a été enregistré : %w", readErr)
+				if field == "runtime" {
+					// An invalid runtime goes back to the VM step (#333),
+					// not to the expert settings screen.
+					if useHuh {
+						answers, err = askVMStepHuh(opts, answers)
+					} else {
+						if _, readErr := in.Peek(1); readErr != nil {
+							return 1, fmt.Errorf("aucune réponse ; rien n'a été enregistré : %w", readErr)
+						}
+						answers, err = askVMStepLine(in, opts, answers)
 					}
-					answers, err = askInitAdvancedLine(in, opts, answers)
+				} else {
+					answers.Advanced = true
+					if useHuh {
+						answers, err = askInitAdvancedHuh(opts, answers)
+					} else {
+						if _, readErr := in.Peek(1); readErr != nil {
+							return 1, fmt.Errorf("aucune réponse ; rien n'a été enregistré : %w", readErr)
+						}
+						answers, err = askInitAdvancedLine(in, opts, answers)
+					}
 				}
 				if err != nil {
 					return 1, err
@@ -459,7 +470,6 @@ func initRun(opts initOptions, in *bufio.Reader, tty bool) (code int, err error)
 				continue
 			}
 		}
-		stage = "review"
 		answers = withBrowserResourceGuidance(answers)
 		guestCPUs := answers.CPUs
 		if guestCPUs <= 0 {
@@ -511,14 +521,14 @@ func initRun(opts initOptions, in *bufio.Reader, tty bool) (code int, err error)
 		if err != nil {
 			return 1, err
 		}
-		interactiveReview := tty && !opts.Yes
 		if plan.ExistingManifest != nil && !opts.Replace {
 			fmt.Print(justcode.FormatInitReview(plan))
 			return 1, fmt.Errorf("%s already exists; re-run with --replace to overwrite it, or edit it directly", plan.ManifestPath)
 		}
-		if interactiveReview && !useHuhReview {
-			fmt.Print(justcode.FormatInteractiveInitReview(plan))
-		} else if !interactiveReview {
+		// Interactive runs apply directly and get the recap afterwards
+		// (#333); non-interactive runs keep the full review before the
+		// write, since nobody is there to see a post-mortem.
+		if !interactiveReview {
 			fmt.Print(justcode.FormatInitReview(plan))
 		}
 		if !tty && !opts.Yes {
@@ -530,76 +540,26 @@ func initRun(opts initOptions, in *bufio.Reader, tty bool) (code int, err error)
 		if !tty || opts.Yes {
 			break
 		}
-		if useHuhReview {
-			choice, err := huhApplyChoice(plan)
-			if err != nil {
-				return 1, fmt.Errorf("no answer; nothing was written")
-			}
-			switch choice {
-			case "apply":
-			case "cancel":
-				return 1, fmt.Errorf("vous avez quitté l'assistant ; rien n'a été enregistré")
-			case "edit":
-				fmt.Println("Réouverture des questions ; vos réponses sont conservées.")
-				askQuestions = true
-				stage = "questions"
-				continue
-			case "advanced":
-				askQuestions = false
-				answers.Advanced = true
-				updated, advErr := askInitAdvancedHuh(opts, answers)
-				if advErr != nil {
-					return 1, advErr
+		if !advancedDone {
+			// --advanced opens the expert settings once, after the
+			// questions and before the configuration is applied (#333).
+			advancedDone = true
+			askQuestions = false
+			answers.Advanced = true
+			if useHuh {
+				answers, err = askInitAdvancedHuh(opts, answers)
+			} else {
+				if _, readErr := in.Peek(1); readErr != nil {
+					return 1, fmt.Errorf("aucune réponse ; rien n'a été enregistré : %w", readErr)
 				}
-				answers = updated
-				continue
-			}
-			break
-		}
-		for {
-			diffHint := ""
-			if plan.InstructionsChanged {
-				diffHint = "/détail"
-			}
-			answer, ok := promptLine(in, "\nAppliquer ? [O/n/modifier/réglages avancés"+diffHint+"] : ")
-			if !ok {
-				return 1, fmt.Errorf("aucune réponse ; rien n'a été enregistré")
-			}
-			switch strings.ToLower(strings.TrimSpace(answer)) {
-			case "", "o", "oui", "y", "yes":
-				apply = true
-			case "n", "non", "q", "quitter", "no":
-				return 1, fmt.Errorf("vous avez quitté l'assistant ; rien n'a été enregistré")
-			case "d", "diff", "détail", "detail":
-				if !plan.InstructionsChanged {
-					fmt.Println("Aucun changement dans AGENTS.md à afficher.")
-					continue
-				}
-				fmt.Print(justcode.FormatInitInstructionsDiff(plan))
-				continue
-			case "m", "modifier", "e", "edit", "back":
-				fmt.Println("Réouverture des questions ; une réponse vide conserve les valeurs actuelles.")
-				askQuestions = true
-				stage = "questions"
-			case "a", "advanced", "avancé", "réglages avancés":
-				askQuestions = false
-				answers.Advanced = true
 				answers, err = askInitAdvancedLine(in, opts, answers)
-				if err != nil {
-					return 1, err
-				}
-			default:
-				fmt.Println("Réponse non reconnue. Répondez oui, non, modifier, réglages avancés ou détail.")
-				continue
 			}
-			if apply {
-				break
+			if err != nil {
+				return 1, err
 			}
-			break
+			continue
 		}
-		if apply {
-			break
-		}
+		break
 	}
 	revokeContext7 := plan.ExistingManifest != nil && containsConnector(plan.ExistingManifest.MCPConnectors, "context7") && !containsConnector(plan.Answers.MCPConnectors, "context7")
 	context7Revoked, context7Live := false, false
@@ -651,6 +611,11 @@ func initRun(opts initOptions, in *bufio.Reader, tty bool) (code int, err error)
 			return 1, fmt.Errorf("project configuration was written, but GitHub approval was not recorded; run 'just-code bindings approve github': %w", err)
 		}
 		fmt.Println("Accord GitHub enregistré pour ce projet sur ce poste ; il n'est pas écrit dans le projet.")
+	}
+	if interactiveReview {
+		// The interactive recap lands after the write (#333): the wizard
+		// applies directly, so this is the summary of what was done.
+		fmt.Print(justcode.FormatInteractiveInitReview(plan))
 	}
 	recordInitStats(plan.Answers)
 	// The trailer is advice for the standalone command. When the launch flow
@@ -710,7 +675,7 @@ func recordInitStats(answers justcode.InitAnswers) {
 			MCPs:          mcps,
 			GitHubCase:    answers.GitHubCase,
 			Advanced:      answers.Advanced,
-			Harness:       "opencode",
+			Harness:       initHarnessStatsValue(answers.Harness),
 			Runtime:       string(answers.Runtime),
 			Isolation:     string(answers.Isolation),
 			SkillsStorage: storage,
@@ -718,29 +683,40 @@ func recordInitStats(answers justcode.InitAnswers) {
 	})
 }
 
-func invalidInheritedInitSetting(opts initOptions, answers justcode.InitAnswers) error {
+func initHarnessStatsValue(harness string) string {
+	if strings.TrimSpace(harness) == "" {
+		return "opencode"
+	}
+	return harness
+}
+
+// invalidInheritedInitSetting reports the first inherited setting that this
+// host or today's catalogue rejects. The returned field name routes the
+// repair: "runtime" reopens the VM step, anything else opens the expert
+// settings screen (#333).
+func invalidInheritedInitSetting(opts initOptions, answers justcode.InitAnswers) (string, error) {
 	if !opts.Set["runtime"] {
 		if _, err := justcode.ResolveRuntime("", string(answers.Runtime)); err != nil {
-			return err
+			return "runtime", err
 		}
 	}
 	if !opts.Set["cpus"] && answers.CPUs != 0 && (answers.CPUs < 1 || answers.CPUs > opts.maxCPUs) {
-		return fmt.Errorf("processeurs demandés : %d. Maximum sur ce poste : %d processeurs", answers.CPUs, opts.maxCPUs)
+		return "cpus", fmt.Errorf("processeurs demandés : %d. Maximum sur ce poste : %d processeurs", answers.CPUs, opts.maxCPUs)
 	}
 	if !opts.Set["memory-mb"] && answers.MemoryMB != 0 && (answers.MemoryMB < 1 || answers.MemoryMB > opts.maxMemoryMB) {
-		return fmt.Errorf("mémoire demandée : %s. Maximum sur ce poste : %s", justcode.FormatMemorySize(answers.MemoryMB), justcode.FormatMemorySize(opts.maxMemoryMB))
+		return "memory-mb", fmt.Errorf("mémoire demandée : %s. Maximum sur ce poste : %s", justcode.FormatMemorySize(answers.MemoryMB), justcode.FormatMemorySize(opts.maxMemoryMB))
 	}
 	if !opts.Set["model"] && strings.TrimSpace(answers.Model) != "" {
 		if _, err := validateInitModelInput(answers.Root, answers.Model); err != nil {
-			return err
+			return "model", err
 		}
 	}
 	if !opts.Set["small-model"] && strings.TrimSpace(answers.SmallModel) != "" {
 		if _, err := validateInitSmallModelInput(answers.Root, answers.SmallModel); err != nil {
-			return err
+			return "small-model", err
 		}
 	}
-	return nil
+	return "", nil
 }
 
 func withBrowserResourceGuidance(answers justcode.InitAnswers) justcode.InitAnswers {
@@ -928,11 +904,69 @@ func validateInitOptions(opts initOptions) error {
 	return nil
 }
 
+// askHarnessStepLine is the line-mode twin of askHarnessStepHuh (#333):
+// OpenCode is recommended and works directly with the Albert API; Pi is
+// visible but not yet supported (#176). A blank answer keeps the current
+// choice.
+func askHarnessStepLine(in *bufio.Reader, opts initOptions, answers justcode.InitAnswers) (justcode.InitAnswers, error) {
+	fmt.Printf("\n%s\n", initHarnessStepTitle(opts))
+	fmt.Println("OpenCode fonctionne directement avec l'API Albert. Pi n'est pas encore pris en charge.")
+	current := effectiveInitHarness(answers)
+	for {
+		answer, ok := promptLine(in, "  harnais ["+current+"] (opencode/pi) : ")
+		if !ok || strings.TrimSpace(answer) == "" {
+			answers.Harness = current
+			return answers, nil
+		}
+		value := strings.ToLower(strings.TrimSpace(answer))
+		if value == "pi" {
+			fmt.Println("  Pi n'est pas encore pris en charge ; choisissez OpenCode.")
+			continue
+		}
+		if value != "opencode" {
+			fmt.Println("  Répondez opencode ou pi.")
+			continue
+		}
+		answers.Harness = value
+		return answers, nil
+	}
+}
+
+// askVMStepLine is the line-mode twin of askVMStepHuh (#333): Microsandbox is
+// recommended, Tart and agent-vm share the project folder with the VM. It is
+// skipped when --runtime came from the command line, and a blank answer keeps
+// the current choice.
+func askVMStepLine(in *bufio.Reader, opts initOptions, answers justcode.InitAnswers) (justcode.InitAnswers, error) {
+	if opts.Set["runtime"] {
+		return answers, nil
+	}
+	fmt.Printf("\n%s\n", initVMStepTitle(opts))
+	fmt.Println("Microsandbox : copie filtrée du projet (.env et secrets exclus), démarrage rapide. Tart et agent-vm : votre dossier est partagé avec la VM.")
+	current := effectiveInitRuntime(answers)
+	if notice := initRuntimeNotice(current); notice != "" {
+		fmt.Println(notice)
+	}
+	for {
+		answer, ok := promptLine(in, "  machine ["+string(current)+"] (microsandbox/tart/agent-vm) : ")
+		if !ok || strings.TrimSpace(answer) == "" {
+			answers.Runtime = current
+			return answers, nil
+		}
+		resolved, err := justcode.ResolveRuntime(strings.TrimSpace(answer), "")
+		if err != nil {
+			fmt.Printf("  %v.\n", err)
+			continue
+		}
+		answers.Runtime = resolved
+		return answers, nil
+	}
+}
+
 // askInitQuestions prompts only for the decisions the command line did not
 // supply, showing the value that will be used if the answer is empty — which
 // is the flag's value when one was given, not the engine default. The expert
-// settings (runtime, isolation, resources, credential reference) are not
-// asked here: they live behind the review's "Réglages avancés" entry (#170).
+// settings (isolation, resources, credential reference) are not asked here:
+// they open with --advanced (#333).
 func askInitQuestions(in *bufio.Reader, opts initOptions, answers justcode.InitAnswers) (justcode.InitAnswers, error) {
 	fmt.Println("just-code init — project configuration")
 	fmt.Println()
@@ -945,6 +979,17 @@ func askInitQuestions(in *bufio.Reader, opts initOptions, answers justcode.InitA
 				answers = seedInitAnswersFromManifest(opts, answers)
 			}
 		}
+	}
+	// The harness and VM steps come after the root prompt: a root change
+	// reseeds the answers from the target project's manifest, and asking
+	// before it would wipe the user's fresh choices (#333).
+	answers, err := askHarnessStepLine(in, opts, answers)
+	if err != nil {
+		return answers, err
+	}
+	answers, err = askVMStepLine(in, opts, answers)
+	if err != nil {
+		return answers, err
 	}
 
 	if !opts.Set["skills"] {
@@ -969,7 +1014,7 @@ func askInitQuestions(in *bufio.Reader, opts initOptions, answers justcode.InitA
 		}
 		if catalogueErr == nil {
 			for {
-				printInitProjectSkills(answers.Skills, catalogue, initSkillsStepPrefix(opts))
+				printInitProjectSkills(answers.Skills, catalogue, initSkillsStepTitle(opts))
 				current := strings.Join(initSkillNames(answers.Skills), ",")
 				if current == "" {
 					current = "aucune"
@@ -1223,51 +1268,16 @@ func askInitQuestions(in *bufio.Reader, opts initOptions, answers justcode.InitA
 	return answers, nil
 }
 
-// askInitAdvancedLine is the line-wizard half of the "Réglages avancés"
-// screen (#170): runtime, isolation and guest resources, reached from the
-// review. A bad value re-asks the question instead of aborting, so a typo
-// never loses the answers already given. Blank keeps the current value;
-// `default` resets to the built-in default.
+// askInitAdvancedLine is the line-wizard half of the expert settings screen
+// (#333): isolation and guest resources, opened with --advanced. A bad value
+// re-asks the question instead of aborting, so a typo never loses the answers
+// already given. Blank keeps the current value; `default` resets to the
+// built-in default.
 func askInitAdvancedLine(in *bufio.Reader, opts initOptions, answers justcode.InitAnswers) (justcode.InitAnswers, error) {
 	fmt.Println()
 	fmt.Println("Réglages avancés")
 	fmt.Println("Ces valeurs conviennent à la plupart des projets. Modifiez-les seulement si besoin.")
-	fmt.Println("Agent (harnais) : OpenCode (recommandé) — Pi n'est pas encore pris en charge.")
 	fmt.Println("Petit modèle : " + initSmallModelDisplayName(answers) + " — sert à générer les titres de session.")
-
-	if !opts.Set["runtime"] {
-		fmt.Println()
-		fmt.Println("Type de machine isolée :")
-		fmt.Println("  microsandbox : l'agent travaille sur une copie filtrée du projet (.env et secrets exclus) ; démarrage rapide")
-		fmt.Println("  tart : VM macOS complète ; votre dossier est partagé avec la VM")
-		fmt.Println("  agent-vm : VM Lima ; votre dossier est partagé avec la VM")
-		current := answers.Runtime
-		if current == "" {
-			current = justcode.RuntimeMicrosandbox
-		}
-		for {
-			answer, ok := promptLine(in, "  machine isolée ["+string(current)+"] (`default` revient à microsandbox) : ")
-			trimmed := strings.TrimSpace(answer)
-			if !ok || trimmed == "" {
-				break
-			}
-			if strings.EqualFold(trimmed, "default") {
-				answers.Runtime = justcode.RuntimeMicrosandbox
-				break
-			}
-			rt, rtErr := justcode.ResolveRuntime(trimmed, "")
-			if rtErr != nil {
-				fmt.Printf("  %s\n", rtErr)
-				continue
-			}
-			if answers.GitHubWorkflow && rt != justcode.RuntimeMicrosandbox {
-				fmt.Println("  Le workflow GitHub du projet nécessite Microsandbox.")
-				continue
-			}
-			answers.Runtime = rt
-			break
-		}
-	}
 
 	if !opts.Set["isolation"] {
 		fmt.Println()

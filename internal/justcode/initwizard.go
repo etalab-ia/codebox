@@ -77,6 +77,9 @@ type InitAnswers struct {
 	// GitHubCase records which of the four #169 situations applied (1..4).
 	// Zero means "unknown" (non-interactive flags, unsupported runtime).
 	GitHubCase int
+	// Harness records the agent harness chosen in the wizard. Only
+	// "opencode" is supported today; Pi is tracked by #176.
+	Harness string
 	// Advanced records that the user opened the advanced settings.
 	Advanced bool
 }
