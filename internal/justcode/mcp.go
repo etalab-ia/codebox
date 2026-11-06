@@ -65,10 +65,10 @@ const BrowserDownloadNote = "Le navigateur est téléchargé dans la machine iso
 // (no manifest, no flag): data-gouv is offered by default (#168).
 var DefaultFreshMCPIDs = []string{"data-gouv"}
 
-// MCPStepTitle is the wizard screen title from #168. The step number belongs
-// to the three-step init flow (#160); issues #167/#169 renumber the other
-// screens, so the value lives here in one place.
-const MCPStepTitle = "[2/3] MCP (facultatif)"
+// MCPStepTitle is the wizard screen title from #168. The live screens compute
+// the counter with initStepPrefix (#312, renumbered to five steps by #333);
+// this value is the beginner-path spelling other packages and tests reuse.
+const MCPStepTitle = "[4/5] MCP (facultatif)"
 
 // MCPStepIntro is the one-line explanation printed under the MCP screen
 // title. The line wizard and the huh form both render it (#168 texts, QA

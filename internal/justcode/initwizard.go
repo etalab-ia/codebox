@@ -77,6 +77,9 @@ type InitAnswers struct {
 	// GitHubCase records which of the four #169 situations applied (1..4).
 	// Zero means "unknown" (non-interactive flags, unsupported runtime).
 	GitHubCase int
+	// Harness records the agent harness chosen in the wizard. Only
+	// "opencode" is supported today; Pi is tracked by #176.
+	Harness string
 	// Advanced records that the user opened the advanced settings.
 	Advanced bool
 }
@@ -661,10 +664,10 @@ func (w InitWizard) Plan(answers InitAnswers) (InitPlan, error) {
 		})
 	}
 	if plan.InstructionsChanged {
-		description := "section just-code ajoutée (voir le détail : d)"
+		description := "section just-code ajoutée"
 		before, _ := managedSkillZone(plan.InstructionsBefore)
 		if before != "" {
-			description = "section just-code modifiée (voir le détail : d)"
+			description = "section just-code modifiée"
 		}
 		plan.FileChanges = append(plan.FileChanges, InitFileChange{
 			Path: plan.InstructionsPath, Description: description, Existed: plan.InstructionsExisted,

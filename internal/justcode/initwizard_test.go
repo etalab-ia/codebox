@@ -60,7 +60,7 @@ func TestInteractiveInitReviewMatchesAcceptanceText(t *testing.T) {
 		"+ .just-code/project.json",
 		"+ .just-code/lock.json",
 		"~ AGENTS.md",
-		"section just-code ajoutée (voir le détail : d)",
+		"section just-code ajoutée",
 		"La durée dépend de votre connexion.",
 		"simulated offline endpoint",
 	} {

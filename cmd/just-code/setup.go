@@ -184,7 +184,6 @@ Durée : quelques minutes pour répondre aux questions. Espace disque : au moins
 
 Vos identifiants et votre identité git sont enregistrés au fil des questions,
 pour que la configuration puisse reprendre si elle est interrompue.
-Le modèle est confirmé au récapitulatif final.
 Appuyez sur Entrée pour commencer, ou sur Ctrl+C pour quitter.
 `
 
@@ -336,17 +335,15 @@ func setupWizardRun(fallback bool, in *bufio.Reader, validate func(context.Conte
 		EnsureRuntime:  ensure,
 	}
 
-	editing := false
-setupStages:
 	// Stage: inference platforms and their keys.
-	providers, err := setupPlatformStage(ctx, w, in, fallback, &j, editing, fs, stateDir)
+	providers, err := setupPlatformStage(ctx, w, in, fallback, &j, fs, stateDir)
 	if err != nil {
 		return 1, err
 	}
 
 	// Stage: model selection (catalogue-validated when reachable). It runs
 	// right after the Albert key because the catalogue check needs that key,
-	// and because the announced flow is key -> models -> GitHub -> recap.
+	// and because the announced flow is key -> models -> GitHub.
 	// A journal has the run's own working value; without one (a completed
 	// install being reconfigured) the saved user setting is the current value,
 	// so an unanswered prompt must not look like "clear the model".
@@ -458,26 +455,7 @@ setupStages:
 	// the stage is treated as "Plus tard", never as a cancellation — the
 	// stage exists to help, not to gate the rest of setup.
 	hasGitHub := justcode.ContainsCredentialKind(j.CredentialKinds, "github")
-	keepGitHub := false
-	if editing && hasGitHub {
-		label := "Garder le jeton enregistré"
-		if j.GitHubLogin != "" {
-			label = "Garder le jeton enregistré (@" + j.GitHubLogin + ")"
-		}
-		choice, err := setupExistingCredentialChoice(in, label, "Remplacer le jeton")
-		if err != nil {
-			return 1, err
-		}
-		keepGitHub = choice == "keep"
-		j.GitHubReplacePending = !keepGitHub
-		if err := justcode.WriteSetupJournal(fs, stateDir, j); err != nil {
-			return 1, err
-		}
-	}
-	if !keepGitHub && (editing || !hasGitHub || j.GitHubReplacePending) {
-		if editing {
-			j.SkipGitHub = false
-		}
+	if !hasGitHub || j.GitHubReplacePending {
 		if j.SkipGitHub && !j.GitHubReplacePending {
 			// A resumed run keeps the earlier "no" without re-asking.
 		} else {
@@ -539,7 +517,7 @@ setupStages:
 	}
 
 	// Stage: git identity (editable, defaulting to the host git config).
-	if editing || j.GitName == "" || j.GitEmail == "" {
+	if j.GitName == "" || j.GitEmail == "" {
 		fmt.Println()
 		name, email := j.GitName, j.GitEmail
 		if strings.TrimSpace(name) == "" || strings.TrimSpace(email) == "" {
@@ -556,10 +534,10 @@ setupStages:
 		}
 		if wizardHuhFn() {
 			var fields []huh.Field
-			if editing || strings.TrimSpace(name) == "" {
+			if strings.TrimSpace(name) == "" {
 				fields = append(fields, huh.NewInput().Title("Prénom et nom").Value(&name))
 			}
-			if editing || strings.TrimSpace(email) == "" {
+			if strings.TrimSpace(email) == "" {
 				fields = append(fields, huh.NewInput().Title("Adresse e-mail").Value(&email))
 			}
 			err := runSetupIdentityForm(fields)
@@ -574,13 +552,13 @@ setupStages:
 				return 1, err
 			}
 		} else {
-			if editing || strings.TrimSpace(name) == "" {
+			if strings.TrimSpace(name) == "" {
 				prompted, _ := promptLine(in, identityPrompt("Prénom et nom", name))
 				if strings.TrimSpace(prompted) != "" {
 					name = prompted
 				}
 			}
-			if editing || strings.TrimSpace(email) == "" {
+			if strings.TrimSpace(email) == "" {
 				prompted, _ := promptLine(in, identityPrompt("Adresse e-mail", email))
 				if strings.TrimSpace(prompted) != "" {
 					email = prompted
@@ -596,12 +574,9 @@ setupStages:
 		}
 	}
 
-	// Review.
-	fmt.Println()
-	fmt.Println("Récapitulatif")
 	// Consent is asked once, at the end, and covers the later `init` runs.
-	// It is asked before the recap so the recap can state the answer, and its
-	// default is No.
+	// It is asked before the apply so the recap can state the answer, and
+	// its default is No.
 	statsEnabled, statsAsked := justcode.ReadStatsConsent(fs, userSettingsPathOrEmpty())
 	if j.StatsConsentAsked {
 		// A run interrupted after answering but before applying keeps its
@@ -609,11 +584,11 @@ setupStages:
 		// that journal, so its decision is always the freshest one: restore it.
 		statsEnabled, statsAsked = j.StatsEnabled, true
 	}
-	// Snapshot the durable decision at the review: only a CHANGE after this
-	// point is an external `stats on`/`stats off`, never an answer the user
-	// just gave inside this wizard.
-	reviewDurableEnabled, reviewDurableAsked := statsEnabled, statsAsked
-	if !statsAsked || editing {
+	// Snapshot the durable decision here: only a CHANGE after this point
+	// is an external `stats on`/`stats off`, never an answer the user just
+	// gave inside this wizard.
+	consentDurableEnabled, consentDurableAsked := statsEnabled, statsAsked
+	if !statsAsked {
 		answer, answered, err := setupStatsConsent(in)
 		if err != nil {
 			return 1, err
@@ -631,6 +606,38 @@ setupStages:
 		}
 	}
 	j.StatsEnabled = statsEnabled
+	if j.GitHubReplacePending {
+		fmt.Println("Remplacement GitHub annulé ; le jeton existant sera conservé.")
+		j.GitHubReplacePending = false
+		if err := justcode.WriteSetupJournal(fs, stateDir, j); err != nil {
+			return 1, err
+		}
+	}
+
+	// Apply: write the settings (only now — an interrupted run must leave
+	// the settings untouched), then install the runtime.
+	if err := w.SaveIdentity(j.GitName, j.GitEmail); err != nil {
+		return 1, err
+	}
+	// Re-resolve consent at apply time: the runtime install below can take
+	// minutes, during which the user may run `stats on` or `stats off` in
+	// another terminal. Only a durable decision that CHANGED since the
+	// consent answer counts as external; an unchanged durable value is the
+	// user's own answer in this wizard, not something to override it.
+	if latest, latestAsked := justcode.ReadStatsConsent(fs, userSettingsPathOrEmpty()); latestAsked && (latest != consentDurableEnabled || latestAsked != consentDurableAsked) {
+		statsEnabled, statsAsked = latest, true
+		j.StatsEnabled = latest
+		j.StatsConsentAsked = true
+	} else if latest, jerr := justcode.ReadSetupJournal(fs, stateDir); jerr == nil && latest.StatsConsentAsked {
+		statsEnabled, statsAsked = latest.StatsEnabled, true
+	}
+	if err := w.SaveSettings(model, models, modelAnswered, providers, statsEnabled, statsAsked); err != nil {
+		return 1, err
+	}
+	// The configuration is applied (#333): the recap is the summary of what
+	// was written, not a gate before the write.
+	fmt.Println()
+	fmt.Println("Récapitulatif")
 	albertStore := "le trousseau"
 	if fallback {
 		albertStore = "un fichier protégé"
@@ -663,13 +670,7 @@ setupStages:
 		fmt.Printf("  Espace disque       %s disponibles\n", humanBytes(j.Preflight.DiskFreeBytes))
 	}
 	if justcode.ContainsCredentialKind(j.CredentialKinds, "github") {
-		if j.GitHubReplacePending {
-			if j.GitHubLogin != "" {
-				fmt.Printf("  GitHub              jeton actuel @%s conservé ; remplacement en attente\n", j.GitHubLogin)
-			} else {
-				fmt.Println("  GitHub              jeton actuel conservé ; remplacement en attente")
-			}
-		} else if j.GitHubVerified == nil {
+		if j.GitHubVerified == nil {
 			fmt.Println("  GitHub              jeton enregistré, état de vérification inconnu (journal historique)")
 		} else if !*j.GitHubVerified {
 			fmt.Println("  GitHub              jeton enregistré, non vérifié")
@@ -702,46 +703,6 @@ setupStages:
 	}
 	fmt.Println()
 	fmt.Println(setupRuntimeSummary(j.Preflight))
-	choice, err := setupReviewChoice(in)
-	if err != nil {
-		return 1, err
-	}
-	switch choice {
-	case "edit":
-		editing = true
-		goto setupStages
-	case "quit":
-		recordSetupAbandon(stateDir, "review")
-		return 1, fmt.Errorf("configuration non appliquée; aucun paramètre ni runtime n'a été appliqué")
-	}
-	if j.GitHubReplacePending {
-		fmt.Println("Remplacement GitHub annulé ; le jeton existant sera conservé.")
-		j.GitHubReplacePending = false
-		if err := justcode.WriteSetupJournal(fs, stateDir, j); err != nil {
-			return 1, err
-		}
-	}
-
-	// Apply: write the settings (only now — a cancelled apply must leave
-	// the settings untouched), then install the runtime.
-	if err := w.SaveIdentity(j.GitName, j.GitEmail); err != nil {
-		return 1, err
-	}
-	// Re-resolve consent at apply time: the wizard may have been sitting at
-	// the recap while the user ran `stats on` or `stats off` in another
-	// terminal. Only a durable decision that CHANGED since the review counts
-	// as external; an unchanged durable value is the user's own answer in
-	// this wizard, not something to override it.
-	if latest, latestAsked := justcode.ReadStatsConsent(fs, userSettingsPathOrEmpty()); latestAsked && (latest != reviewDurableEnabled || latestAsked != reviewDurableAsked) {
-		statsEnabled, statsAsked = latest, true
-		j.StatsEnabled = latest
-		j.StatsConsentAsked = true
-	} else if latest, jerr := justcode.ReadSetupJournal(fs, stateDir); jerr == nil && latest.StatsConsentAsked {
-		statsEnabled, statsAsked = latest.StatsEnabled, true
-	}
-	if err := w.SaveSettings(model, models, modelAnswered, providers, statsEnabled, statsAsked); err != nil {
-		return 1, err
-	}
 	fmt.Println()
 	fmt.Println("Installation de la machine isolée…")
 	if err := w.InstallRuntime(ctx); err != nil {
@@ -787,7 +748,7 @@ func providerSettingsOf(providers []justcode.InferenceProvider) []justcode.Provi
 	return out
 }
 
-func setupPlatformStage(ctx context.Context, w justcode.SetupWizard, in *bufio.Reader, fallback bool, j *justcode.SetupJournal, editing bool, fs justcode.FS, stateDir string) ([]justcode.InferenceProvider, error) {
+func setupPlatformStage(ctx context.Context, w justcode.SetupWizard, in *bufio.Reader, fallback bool, j *justcode.SetupJournal, fs justcode.FS, stateDir string) ([]justcode.InferenceProvider, error) {
 	platforms := j.Platforms
 	selectPlatforms := len(platforms) == 0 && len(j.CredentialKinds) == 0
 	if len(platforms) == 0 && len(j.CredentialKinds) == 0 {
@@ -822,7 +783,7 @@ func setupPlatformStage(ctx context.Context, w justcode.SetupWizard, in *bufio.R
 			}
 		}
 	}
-	if selectPlatforms || editing {
+	if selectPlatforms {
 		chosen, err := setupChoosePlatformsFn(platforms, in)
 		if err != nil {
 			return nil, err
@@ -876,19 +837,9 @@ func setupPlatformStage(ctx context.Context, w justcode.SetupWizard, in *bufio.R
 	for index := range providers {
 		provider := providers[index]
 		stored := justcode.ContainsCredentialKind(j.CredentialKinds, string(provider.CredentialKind))
-		if stored && !editing {
+		if stored {
 			fmt.Printf("Clé %s déjà enregistrée.\n", provider.Name)
 			continue
-		}
-		if stored && editing {
-			fmt.Printf("Clé %s déjà enregistrée.\n", provider.Name)
-			choice, err := setupExistingCredentialChoice(in, "Garder la clé enregistrée", "Remplacer la clé")
-			if err != nil {
-				return nil, err
-			}
-			if choice == "keep" {
-				continue
-			}
 		}
 		updatedProvider, verified, err := providerKeyStage(ctx, w, in, provider, fallback, stateDir)
 		if err != nil {
@@ -1510,72 +1461,6 @@ func setupRuntimeSummary(preflight justcode.SetupPreflight) string {
 		return "La machine isolée est déjà installée. just-code la vérifiera et la réutilisera, sans téléchargement."
 	}
 	return "just-code téléchargera et vérifiera la machine isolée si aucune installation valide n'est disponible.\nLa préparation au premier lancement se fait en trois temps : téléchargement, installation, puis démarrage. La durée dépend de votre connexion ; le contrôle bloque sous 1 Go libre."
-}
-
-func setupReviewChoice(in *bufio.Reader) (string, error) {
-	if wizardHuhFn() {
-		choice := "apply"
-		err := huhRun(huh.NewForm(huh.NewGroup(
-			huh.NewSelect[string]().
-				Title("Que souhaitez-vous faire ?").
-				Options(
-					huh.NewOption("Appliquer", "apply"),
-					huh.NewOption("Modifier (retour à l'étape 1)", "edit"),
-					huh.NewOption("Quitter sans appliquer (identifiants conservés)", "quit"),
-				).
-				Value(&choice),
-		)))
-		if errors.Is(err, huh.ErrUserAborted) {
-			return "quit", nil
-		}
-		return choice, err
-	}
-	for {
-		answer, ok := promptLine(in, "[A] Appliquer  [M] Modifier  [Q] Quitter sans appliquer (identifiants conservés) : ")
-		if !ok {
-			return "quit", nil
-		}
-		switch strings.ToLower(strings.TrimSpace(answer)) {
-		case "", "a", "appliquer", "o", "y", "yes":
-			return "apply", nil
-		case "m", "modifier":
-			return "edit", nil
-		case "q", "quitter", "n":
-			return "quit", nil
-		default:
-			fmt.Println("Réponse non reconnue.")
-		}
-	}
-}
-
-func setupExistingCredentialChoice(in *bufio.Reader, keepLabel, replaceLabel string) (string, error) {
-	if wizardHuhFn() {
-		choice := "keep"
-		err := huhRun(huh.NewForm(huh.NewGroup(
-			huh.NewSelect[string]().
-				Title("Identifiant déjà enregistré").
-				Options(huh.NewOption(keepLabel, "keep"), huh.NewOption(replaceLabel, "replace")).
-				Value(&choice),
-		)))
-		if errors.Is(err, huh.ErrUserAborted) {
-			return "keep", nil
-		}
-		return choice, err
-	}
-	for {
-		answer, ok := promptLine(in, "[G]arder  [R]emplacer : ")
-		if !ok {
-			return "keep", nil
-		}
-		switch strings.ToLower(strings.TrimSpace(answer)) {
-		case "", "g", "garder":
-			return "keep", nil
-		case "r", "remplacer":
-			return "replace", nil
-		default:
-			fmt.Println("Réponse non reconnue.")
-		}
-	}
 }
 
 func identityPrompt(title, current string) string {

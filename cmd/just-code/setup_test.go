@@ -62,7 +62,7 @@ func TestSetupPlatformStageStoresAMistralKeyWithoutAlbert(t *testing.T) {
 			return justcode.CredentialProbe{}
 		},
 	}
-	providers, err := setupPlatformStage(context.Background(), w, bufio.NewReader(strings.NewReader("m-key\n")), true, &j, false, fs, stateDir)
+	providers, err := setupPlatformStage(context.Background(), w, bufio.NewReader(strings.NewReader("m-key\n")), true, &j, fs, stateDir)
 	if err != nil {
 		t.Fatalf("platform stage: %v", err)
 	}
@@ -107,7 +107,7 @@ func TestSetupPlatformStageReasksARejectedProviderKey(t *testing.T) {
 			return justcode.CredentialProbe{}
 		},
 	}
-	if _, err := setupPlatformStage(context.Background(), w, bufio.NewReader(strings.NewReader("bad\ngood\n")), true, &j, false, fs, stateDir); err != nil {
+	if _, err := setupPlatformStage(context.Background(), w, bufio.NewReader(strings.NewReader("bad\ngood\n")), true, &j, fs, stateDir); err != nil {
 		t.Fatalf("platform stage: %v", err)
 	}
 	if _, stored := store.puts[justcode.CredentialMistral]; !stored || store.puts[justcode.CredentialMistral] != "good" {
@@ -140,7 +140,7 @@ func TestSetupPlatformStagePersistsACorrectedEndpoint(t *testing.T) {
 		},
 	}
 	input := "k1\nBetter\nhttps://new.example.com/v1\nk2\n"
-	providers, err := setupPlatformStage(context.Background(), w, bufio.NewReader(strings.NewReader(input)), true, &j, false, fs, stateDir)
+	providers, err := setupPlatformStage(context.Background(), w, bufio.NewReader(strings.NewReader(input)), true, &j, fs, stateDir)
 	if err != nil {
 		t.Fatalf("platform stage: %v", err)
 	}
@@ -248,7 +248,7 @@ func TestSetupPlatformStageSeedsFromSavedSettings(t *testing.T) {
 			return justcode.CredentialProbe{}
 		},
 	}
-	providers, err := setupPlatformStage(context.Background(), w, bufio.NewReader(strings.NewReader("")), true, &j, false, fs, stateDir)
+	providers, err := setupPlatformStage(context.Background(), w, bufio.NewReader(strings.NewReader("")), true, &j, fs, stateDir)
 	if err != nil {
 		t.Fatalf("platform stage: %v", err)
 	}
@@ -291,7 +291,7 @@ func TestSetupPlatformStageReasksAMissingCredential(t *testing.T) {
 			return justcode.CredentialProbe{}
 		},
 	}
-	if _, err := setupPlatformStage(context.Background(), w, bufio.NewReader(strings.NewReader("new-mistral-key\n")), true, &j, false, fs, stateDir); err != nil {
+	if _, err := setupPlatformStage(context.Background(), w, bufio.NewReader(strings.NewReader("new-mistral-key\n")), true, &j, fs, stateDir); err != nil {
 		t.Fatalf("platform stage: %v", err)
 	}
 	if store.puts[justcode.CredentialMistral] != "new-mistral-key" {
@@ -753,7 +753,6 @@ func TestSetupIntroScreenContent(t *testing.T) {
 		"3. GitHub (facultatif)",
 		"Vos identifiants et votre identité git sont enregistrés au fil des questions,",
 		"pour que la configuration puisse reprendre si elle est interrompue.",
-		"Le modèle est confirmé au récapitulatif final.",
 		"Appuyez sur Entrée pour commencer, ou sur Ctrl+C pour quitter.",
 	} {
 		if !strings.Contains(setupIntroScreen, want) {
@@ -1062,108 +1061,6 @@ func TestSetupIdentityFormSkipsEmptyFieldList(t *testing.T) {
 	}
 }
 
-func TestSetupWizardCancelAtApplyLeavesSettingsUntouched(t *testing.T) {
-	stateDir, _ := setupTestEnv(t)
-	forceNonTTY(t)
-	journalPastPreflight(t, stateDir)
-	if readUserSettingsFile(t) != nil {
-		t.Fatal("precondition: no user settings file may exist")
-	}
-	// Wizard order: key, model, no GitHub, name, email, then cancel at apply.
-	input := "test-key\nsome-model\nn\nTest User\ntest@example.test\nn\n"
-	code, err := setupWizardRun(true, bufio.NewReader(strings.NewReader(input)),
-		func(context.Context, string) error { return nil },
-		func(context.Context) error { return nil },
-		func(string) string { return "" })
-	if code == 0 || err == nil {
-		t.Fatalf("cancel at apply must exit non-zero: code=%d err=%v", code, err)
-	}
-	m := readUserSettingsFile(t)
-	if m != nil {
-		t.Fatalf("a cancelled setup must not write user settings, got %v", m)
-	}
-	journal, err := justcode.ReadSetupJournal(justcode.DefaultFS, stateDir)
-	if err != nil || !justcode.ContainsCredentialKind(journal.CredentialKinds, "albert") {
-		t.Fatalf("quitting should preserve credentials and the resume journal: journal=%+v err=%v", journal, err)
-	}
-}
-
-func TestSetupWizardReviewEOFQuitsWithoutApplying(t *testing.T) {
-	stateDir, _ := setupTestEnv(t)
-	forceNonTTY(t)
-	journalPastPreflight(t, stateDir)
-	installed := false
-	input := "test-key\n\nn\nTest User\ntest@example.test\n"
-	code, err := setupWizardRun(true, bufio.NewReader(strings.NewReader(input)),
-		func(context.Context, string) error { return nil },
-		func(context.Context) error { installed = true; return nil },
-		func(string) string { return "" })
-	if code == 0 || err == nil {
-		t.Fatalf("EOF at the review must quit: code=%d err=%v", code, err)
-	}
-	if installed || readUserSettingsFile(t) != nil {
-		t.Fatal("EOF at the review must not apply settings or install the runtime")
-	}
-	journal, err := justcode.ReadSetupJournal(justcode.DefaultFS, stateDir)
-	if err != nil || !justcode.ContainsCredentialKind(journal.CredentialKinds, "albert") {
-		t.Fatalf("EOF quit should preserve the resume journal and credentials: journal=%+v err=%v", journal, err)
-	}
-}
-
-func TestSetupWizardAbandonedGitHubReplacementResumes(t *testing.T) {
-	stateDir, _ := setupTestEnv(t)
-	forceNonTTY(t)
-	journalPastPreflight(t, stateDir)
-	j, err := justcode.ReadSetupJournal(justcode.DefaultFS, stateDir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	verified := true
-	j.CredentialKinds = []string{"albert", "github"}
-	j.AlbertVerified = &verified
-	j.GitHubLogin = "old-account"
-	j.GitHubVerified = &verified
-	j.GitName, j.GitEmail = "Test User", "test@example.test"
-	j.DefaultModel = defaultSetupModel()
-	j.Models = defaultSetupModelIDs()
-	j.ModelChosen = true
-	if err := justcode.WriteSetupJournal(justcode.DefaultFS, stateDir, j); err != nil {
-		t.Fatal(err)
-	}
-
-	firstInput := "\nm\ng\n\nr\na\n\n\n\nq\n"
-	_ = captureStdout(t, func() {
-		code, err := setupWizardRun(true, bufio.NewReader(strings.NewReader(firstInput)), nil,
-			func(context.Context) error { return nil }, func(string) string { return "" })
-		if code == 0 || err == nil {
-			t.Fatalf("first run should quit after abandoning replacement: code=%d err=%v", code, err)
-		}
-	})
-	j, err = justcode.ReadSetupJournal(justcode.DefaultFS, stateDir)
-	if err != nil || !j.GitHubReplacePending || j.GitHubLogin != "old-account" {
-		t.Fatalf("abandoned replacement state was not preserved: journal=%+v err=%v", j, err)
-	}
-
-	forceGitHubProbe(t, func(string) justcode.CredentialProbe {
-		return justcode.CredentialProbe{Login: "replacement-account"}
-	})
-	secondInput := "\na\ngithub_pat_replacement\nq\n"
-	out := captureStdout(t, func() {
-		code, err := setupWizardRun(true, bufio.NewReader(strings.NewReader(secondInput)), nil,
-			func(context.Context) error { return nil }, func(string) string { return "" })
-		if code == 0 || err == nil {
-			t.Fatalf("second run should allow replacement then quit: code=%d err=%v", code, err)
-		}
-	})
-	if !strings.Contains(out, "✅ Jeton valide : compte replacement-account.") {
-		t.Fatalf("resumed setup did not offer the pending GitHub replacement:\n%s", out)
-	}
-	j, err = justcode.ReadSetupJournal(justcode.DefaultFS, stateDir)
-	if err != nil || j.GitHubReplacePending || j.GitHubLogin != "replacement-account" {
-		t.Fatalf("successful replacement did not clear pending state: journal=%+v err=%v", j, err)
-	}
-}
-
 func TestSetupWizardApplyCancelsPendingGitHubReplacement(t *testing.T) {
 	stateDir, _ := setupTestEnv(t)
 	forceNonTTY(t)
@@ -1187,16 +1084,22 @@ func TestSetupWizardApplyCancelsPendingGitHubReplacement(t *testing.T) {
 	}
 
 	out := captureStdout(t, func() {
-		code, err := setupWizardRun(true, bufio.NewReader(strings.NewReader("\n\na\n")), nil,
+		code, err := setupWizardRun(true, bufio.NewReader(strings.NewReader("\n")), nil,
 			func(context.Context) error { return nil }, func(string) string { return "" })
 		if code != 0 || err != nil {
 			t.Fatalf("apply with the existing token: code=%d err=%v", code, err)
 		}
 	})
-	for _, want := range []string{"jeton actuel @old-account conservé ; remplacement en attente", "Remplacement GitHub annulé ; le jeton existant sera conservé."} {
-		if !strings.Contains(out, want) {
-			t.Errorf("apply recap is missing %q; output:\n%s", want, out)
-		}
+	// The cleanup runs before the apply (#333), so the recap must state the kept
+	// token without promising a replacement the run is not making.
+	if !strings.Contains(out, "Remplacement GitHub annulé ; le jeton existant sera conservé.") {
+		t.Errorf("apply must clear the pending replacement; output:\n%s", out)
+	}
+	if strings.Contains(out, "remplacement en attente") {
+		t.Errorf("the recap must not announce a pending replacement; output:\n%s", out)
+	}
+	if !strings.Contains(out, "Récapitulatif") {
+		t.Errorf("the recap must be printed after the apply; output:\n%s", out)
 	}
 	if _, err := os.Stat(justcode.SetupJournalPath(stateDir)); !os.IsNotExist(err) {
 		t.Fatalf("completed setup must remove its journal, err=%v", err)
@@ -1217,38 +1120,16 @@ func TestLegacySetupJournalRecapReportsUnknownCredentialVerification(t *testing.
 		t.Fatal(err)
 	}
 	out := captureStdout(t, func() {
-		code, err := setupWizardRun(true, bufio.NewReader(strings.NewReader("\nq\n")), nil,
+		code, err := setupWizardRun(true, bufio.NewReader(strings.NewReader("\n")), nil,
 			func(context.Context) error { return nil }, func(string) string { return "" })
-		if code == 0 || err == nil {
-			t.Fatalf("quit result: code=%d err=%v", code, err)
+		if code != 0 || err != nil {
+			t.Fatalf("completed setup: code=%d err=%v", code, err)
 		}
 	})
 	for _, want := range []string{"état inconnu (journal historique)", "état de vérification inconnu (journal historique)"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("legacy recap should report unknown status %q; output:\n%s", want, out)
 		}
-	}
-}
-
-func TestSetupWizardModifyReturnsToFirstStepWithExistingValues(t *testing.T) {
-	stateDir, _ := setupTestEnv(t)
-	forceNonTTY(t)
-	journalPastPreflight(t, stateDir)
-	input := "test-key\n\nn\nTest User\ntest@example.test\nm\n\n\n\n\n\na\n"
-	out := captureStdout(t, func() {
-		code, err := setupWizardRun(true, bufio.NewReader(strings.NewReader(input)),
-			func(context.Context, string) error { return nil },
-			func(context.Context) error { return nil },
-			func(string) string { return "" })
-		if code != 0 || err != nil {
-			t.Fatalf("wizard run: code=%d err=%v", code, err)
-		}
-	})
-	if strings.Count(out, "Récapitulatif") != 2 || !strings.Contains(out, "[G]arder  [R]emplacer") {
-		t.Fatalf("Modify should return to the first step with saved answers available:\n%s", out)
-	}
-	if settings := readUserSettingsFile(t); settings == nil {
-		t.Fatal("settings should be written after applying the edited setup")
 	}
 }
 
@@ -1862,7 +1743,7 @@ func TestSetupWizardGitHubValidFineGrainedToken(t *testing.T) {
 	if strings.Contains(out, "github_pat_secretvalue") {
 		t.Errorf("the token must never be displayed; output:\n%s", out)
 	}
-	for _, want := range []string{"Clé Albert API      enregistrée dans un fichier protégé (vérifiée)", "GitHub              jeton vérifié, compte @moncompte", "téléchargement, installation, puis démarrage", "[A] Appliquer  [M] Modifier  [Q] Quitter"} {
+	for _, want := range []string{"Clé Albert API      enregistrée dans un fichier protégé (vérifiée)", "GitHub              jeton vérifié, compte @moncompte", "téléchargement, installation, puis démarrage"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("recap is missing %q; output:\n%s", want, out)
 		}
@@ -2047,7 +1928,7 @@ func TestSetupPlatformStageRejectsACorrectedEndpointSharingAHost(t *testing.T) {
 		},
 	}
 	input := "mistral-key\nk1\nOther\nhttps://api.mistral.ai/v1\nk2\n"
-	_, err := setupPlatformStage(context.Background(), w, bufio.NewReader(strings.NewReader(input)), true, &j, false, fs, stateDir)
+	_, err := setupPlatformStage(context.Background(), w, bufio.NewReader(strings.NewReader(input)), true, &j, fs, stateDir)
 	if err == nil || !strings.Contains(err.Error(), "share the host") {
 		t.Fatalf("a corrected endpoint sharing a host must be refused: %v", err)
 	}

@@ -3,9 +3,7 @@ package main
 import (
 	"bufio"
 	"context"
-	"errors"
 	"fmt"
-	"io"
 	"os"
 	"reflect"
 	"slices"
@@ -55,86 +53,6 @@ var wizardNoColor bool
 // needs no terminal.
 var huhRun = func(form *huh.Form) error {
 	return form.WithProgramOptions(tea.WithOutput(os.Stdout)).Run()
-}
-
-// huhApplyKeyFilter adds the recap's local `d` binding without discarding
-// stdout routing or any other program options installed by the runner.
-func huhApplyKeyFilter(instructionsChanged bool, showDiff *bool) tea.ProgramOption {
-	return tea.WithFilter(func(_ tea.Model, msg tea.Msg) tea.Msg {
-		key, ok := msg.(tea.KeyPressMsg)
-		if ok && key.String() == "d" && instructionsChanged {
-			*showDiff = !*showDiff
-			return tea.KeyPressMsg{Code: 'c', Mod: tea.ModCtrl}
-		}
-		return msg
-	})
-}
-
-var huhAccessibleModeFn = func() bool { return os.Getenv("TERM") == "dumb" }
-
-var printInitReviewFn = func(plan justcode.InitPlan) { fmt.Print(justcode.FormatInteractiveInitReview(plan)) }
-var printInitInstructionsDiffFn = func(plan justcode.InitPlan) { fmt.Print(justcode.FormatInitInstructionsDiff(plan)) }
-
-// huhApplyRun keeps the program options installed by the recap, including its
-// `d` filter. Replacing the options here would silently discard that binding.
-var huhApplyRun = func(form *huh.Form) error { return form.Run() }
-
-// huhApplyAccessiblePrompt reads a numeric choice without Huh's accessible
-// default-on-EOF behavior. EOF without an answer is never consent, including
-// after an invalid answer; an explicit choice without a final newline is valid.
-func huhApplyAccessiblePrompt(options []huh.Option[string], in *bufio.Reader) (string, error) {
-	for i, option := range options {
-		fmt.Printf("%d. %s\n", i+1, option.Key)
-	}
-	for {
-		fmt.Printf("Entrez un nombre entre 1 et %d : ", len(options))
-		answer, err := in.ReadString('\n')
-		if err != nil && !errors.Is(err, io.EOF) {
-			return "", err
-		}
-		answer = strings.TrimSpace(answer)
-		if answer == "" {
-			if errors.Is(err, io.EOF) {
-				return "", huh.ErrUserAborted
-			}
-			return "apply", nil
-		}
-		if index, parseErr := strconv.Atoi(answer); parseErr == nil && index >= 1 && index <= len(options) {
-			return options[index-1].Value, nil
-		}
-		if errors.Is(err, io.EOF) {
-			return "", huh.ErrUserAborted
-		}
-		fmt.Printf("Réponse non reconnue : entrez un nombre entre 1 et %d.\n", len(options))
-	}
-}
-
-// huhApplyAccessible uses a numbered diff option because Huh's accessible
-// runner does not execute Bubble Tea key filters.
-func huhApplyAccessible(plan justcode.InitPlan, showDiff *bool) (string, error) {
-	in := bufio.NewReaderSize(os.Stdin, 1)
-	for {
-		if plan.InstructionsChanged && *showDiff {
-			printInitInstructionsDiffFn(plan)
-		}
-		options := []huh.Option[string]{
-			huh.NewOption("Appliquer", "apply"),
-			huh.NewOption("Modifier (retour à l'étape 1)", "edit"),
-			huh.NewOption("Réglages avancés", "advanced"),
-			huh.NewOption("Quitter sans rien enregistrer", "cancel"),
-		}
-		if plan.InstructionsChanged {
-			options = append(options, huh.NewOption("Afficher ou masquer le détail d'AGENTS.md", "diff"))
-		}
-		choice, err := huhApplyAccessiblePrompt(options, in)
-		if err != nil {
-			return "", err
-		}
-		if choice != "diff" {
-			return choice, nil
-		}
-		*showDiff = !*showDiff
-	}
 }
 
 // The init wizard's MultiSelects carry their selection keys in the
@@ -277,30 +195,42 @@ func initExpertFlags(opts initOptions) bool {
 	return false
 }
 
-// initStepPrefix numbers the three-step init flow ([1/3], [2/3], [3/3]) for
+// initStepPrefix numbers the five-step init flow ([1/5]..[5/5]) for
 // the beginner path. When an expert setting or an entire step comes from a
 // flag, the counter is omitted rather than risk a misleading number (#312).
 func initStepPrefix(opts initOptions, step int) string {
 	if initExpertFlags(opts) {
 		return ""
 	}
-	return fmt.Sprintf("[%d/3] ", step)
+	return fmt.Sprintf("[%d/5] ", step)
 }
 
-func initSkillsStepPrefix(opts initOptions) string {
-	return initStepPrefix(opts, 1)
+// initHarnessStepTitle is the harness screen title with the same counter rule
+// as the other steps (#312).
+func initHarnessStepTitle(opts initOptions) string {
+	return initStepPrefix(opts, 1) + "Agent (harnais)"
+}
+
+// initVMStepTitle is the VM screen title with the same counter rule as the
+// other steps (#312).
+func initVMStepTitle(opts initOptions) string {
+	return initStepPrefix(opts, 2) + "Machine isolée"
+}
+
+func initSkillsStepTitle(opts initOptions) string {
+	return initStepPrefix(opts, 3)
 }
 
 // initMCPStepTitle is the MCP screen title with the same counter rule as the
 // other steps (#312); the base wording is justcode.MCPStepTitle's.
 func initMCPStepTitle(opts initOptions) string {
-	return initStepPrefix(opts, 2) + "MCP (facultatif)"
+	return initStepPrefix(opts, 4) + "MCP (facultatif)"
 }
 
 // initGitHubStepTitle is the GitHub screen title with the same counter rule
 // (#312).
 func initGitHubStepTitle(opts initOptions) string {
-	return initStepPrefix(opts, 3) + "GitHub (facultatif)"
+	return initStepPrefix(opts, 5) + "GitHub (facultatif)"
 }
 
 func newProjectSkillsMultiSelect(skillOptions []huh.Option[string], value *[]string, stepPrefix string) *huh.MultiSelect[string] {
@@ -489,55 +419,6 @@ func huhConfirm(title, description string, defaultYes bool) (bool, error) {
 	return value, nil
 }
 
-// huhApplyChoice prints the full recap to normal terminal scrollback and
-// keeps only the action list in Huh. A short terminal never hides choices
-// behind a long note. The d binding prints the diff without rebuilding the
-// plan or probing MCPs again; it never applies the configuration.
-func huhApplyChoice(plan justcode.InitPlan) (string, error) {
-	choice := "apply"
-	printInitReviewFn(plan)
-	showDiff := false
-	if huhAccessibleModeFn() {
-		return huhApplyAccessible(plan, &showDiff)
-	}
-	for {
-		previousShowDiff := showDiff
-		diffHint := ""
-		if plan.InstructionsChanged {
-			diffHint = "d : afficher le détail des changements dans AGENTS.md"
-			if showDiff {
-				printInitInstructionsDiffFn(plan)
-				diffHint = "d : masquer le détail des changements dans AGENTS.md"
-			}
-		}
-		form := huh.NewForm(
-			huh.NewGroup(
-				huh.NewSelect[string]().
-					Title("Appliquer cette configuration ?").
-					Description(diffHint).
-					Options(
-						huh.NewOption("Appliquer", "apply"),
-						huh.NewOption("Modifier (retour à l'étape 1)", "edit"),
-						huh.NewOption("Réglages avancés", "advanced"),
-						huh.NewOption("Quitter sans rien enregistrer", "cancel"),
-					).
-					Value(&choice),
-			),
-		).WithWidth(huhReviewTableWidth()).WithProgramOptions(
-			huhApplyKeyFilter(plan.InstructionsChanged, &showDiff),
-			tea.WithOutput(os.Stdout),
-		)
-		err := huhApplyRun(form)
-		if showDiff != previousShowDiff {
-			continue
-		}
-		if err != nil {
-			return "", err
-		}
-		return choice, nil
-	}
-}
-
 func initModelDisplayName(model string) string {
 	if model == "" {
 		return "modèle par défaut de setup"
@@ -612,19 +493,12 @@ func validateInitSmallModelInput(root, value string) (string, error) {
 var runtimeInstallHintFn = justcode.RuntimeInstallCheck
 
 // Each submitted editor commits one valid answer. Escape closes the editor
-// or returns to the recap without discarding previously accepted edits.
+// without discarding previously accepted edits.
 func askInitAdvancedHuh(opts initOptions, answers justcode.InitAnswers) (justcode.InitAnswers, error) {
-	choice := "runtime"
-	notices := make(map[justcode.Runtime]string)
+	choice := "isolation"
 	modelWarning := ""
 	smallModelWarning := ""
 	for {
-		rt := effectiveInitRuntime(answers)
-		notice, checked := notices[rt]
-		if !checked {
-			notice = initRuntimeNotice(rt)
-			notices[rt] = notice
-		}
 		iso := answers.Isolation
 		if iso == "" {
 			iso = justcode.IsolationFull
@@ -632,9 +506,6 @@ func askInitAdvancedHuh(opts initOptions, answers justcode.InitAnswers) (justcod
 		cpus := resolvedOrDefault(answers.CPUs, justcode.RecommendedDefaultGuestCPUs(opts.hostCPUs))
 		memory := resolvedOrDefault(answers.MemoryMB, justcode.RecommendedDefaultGuestMemoryMB(opts.hostMemoryMB))
 		var options []huh.Option[string]
-		if !opts.Set["runtime"] {
-			options = append(options, huh.NewOption("Type de machine isolée : "+string(rt), "runtime"))
-		}
 		if !opts.Set["isolation"] {
 			options = append(options, huh.NewOption("Mode d'isolation : "+isolationDisplayName(iso), "isolation"))
 		}
@@ -650,18 +521,16 @@ func askInitAdvancedHuh(opts initOptions, answers justcode.InitAnswers) (justcod
 		if !opts.Set["small-model"] {
 			options = append(options, huh.NewOption("Petit modèle : "+initSmallModelDisplayName(answers), "small-model"))
 		}
-		options = append(options, huh.NewOption("Revenir au récapitulatif", "back"))
+		options = append(options, huh.NewOption("Terminer", "back"))
 		if len(options) == 1 {
 			choice = "back"
 		}
 		description := "Ces valeurs conviennent à la plupart des projets. Modifiez-les seulement si besoin.\n\n" +
-			"Agent (harnais) : OpenCode (recommandé). Pi n'est pas encore pris en charge.\n" +
 			"Petit modèle : sert aux titres de session.\n" +
-			"Défauts : Microsandbox, isolation complète, 2 processeurs, 4 Go.\n" +
-			"6 Go conseillés avec chrome-devtools.\n\n" + notice +
-			"\n" + modelWarning +
+			"6 Go conseillés avec chrome-devtools.\n\n" +
+			modelWarning +
 			"\n" + smallModelWarning +
-			"\n\n↑ ↓ : choisir un réglage. Entrée : modifier. Échap : revenir au récapitulatif."
+			"\n\n↑ ↓ : choisir un réglage. Entrée : modifier. Échap : terminer."
 		back, err := runInitAdvancedForm(huh.NewForm(huh.NewGroup(
 			huh.NewSelect[string]().Title("Réglages avancés").Description(description).
 				Options(options...).Value(&choice),
@@ -675,20 +544,6 @@ func askInitAdvancedHuh(opts initOptions, answers justcode.InitAnswers) (justcod
 		var field huh.Field
 		var input string
 		switch choice {
-		case "runtime":
-			input = string(rt)
-			field = huh.NewSelect[string]().Title("Type de machine isolée").
-				Description("Microsandbox : copie filtrée du projet (.env et secrets exclus), démarrage rapide. Tart et agent-vm : votre dossier est partagé avec la VM.").
-				Options(
-					huh.NewOption("Microsandbox (recommandé)", string(justcode.RuntimeMicrosandbox)),
-					huh.NewOption("Tart : VM macOS complète ; dossier partagé", string(justcode.RuntimeTart)),
-					huh.NewOption("agent-vm : VM Lima ; dossier partagé", string(justcode.RuntimeAgentVM)),
-				).Validate(func(rt string) error {
-				if answers.GitHubWorkflow && rt != string(justcode.RuntimeMicrosandbox) {
-					return fmt.Errorf("le workflow GitHub du projet nécessite Microsandbox")
-				}
-				return nil
-			}).Value(&input)
 		case "isolation":
 			input = string(iso)
 			field = huh.NewSelect[string]().Title("Mode d'isolation").
@@ -723,8 +578,6 @@ func askInitAdvancedHuh(opts initOptions, answers justcode.InitAnswers) (justcod
 			continue
 		}
 		switch choice {
-		case "runtime":
-			answers.Runtime = justcode.Runtime(input)
 		case "isolation":
 			answers.Isolation = justcode.Isolation(input)
 		case "cpus":
@@ -810,6 +663,71 @@ func initRuntimeNotice(rt justcode.Runtime) string {
 	return strings.TrimSpace(notice)
 }
 
+func effectiveInitHarness(answers justcode.InitAnswers) string {
+	if answers.Harness == "" {
+		return "opencode"
+	}
+	return answers.Harness
+}
+
+// askHarnessStepHuh asks which agent harness to configure (#333). OpenCode is
+// the recommended choice; Pi is listed for visibility but not yet supported
+// (#176), so selecting it is a validation error rather than a hidden option.
+// The step has no flag: it is the wizard's first decision and always runs
+// interactively.
+func askHarnessStepHuh(opts initOptions, answers justcode.InitAnswers) (justcode.InitAnswers, error) {
+	harness := effectiveInitHarness(answers)
+	field := huh.NewSelect[string]().
+		Title(initHarnessStepTitle(opts)).
+		Description("OpenCode fonctionne directement avec l'API Albert. Pi n'est pas encore pris en charge.").
+		Options(
+			huh.NewOption("OpenCode (recommandé)", "opencode"),
+			huh.NewOption("Pi (pas encore pris en charge)", "pi"),
+		).
+		Validate(func(value string) error {
+			if value != "opencode" {
+				return fmt.Errorf("Pi n'est pas encore pris en charge ; choisissez OpenCode")
+			}
+			return nil
+		}).
+		Value(&harness)
+	if err := huhRun(huh.NewForm(huh.NewGroup(field))); err != nil {
+		return answers, err
+	}
+	answers.Harness = harness
+	return answers, nil
+}
+
+// askVMStepHuh asks which isolated machine runs the agent (#333). It is
+// skipped when --runtime came from the command line. Microsandbox is
+// recommended: it copies the project with .env and secrets excluded; Tart and
+// agent-vm share the whole project folder with the VM. The GitHub step adapts
+// to the choice at runtime, so no cross-step validation runs here.
+func askVMStepHuh(opts initOptions, answers justcode.InitAnswers) (justcode.InitAnswers, error) {
+	if opts.Set["runtime"] {
+		return answers, nil
+	}
+	runtime := string(effectiveInitRuntime(answers))
+	description := "Microsandbox : copie filtrée du projet (.env et secrets exclus), démarrage rapide. Tart et agent-vm : votre dossier est partagé avec la VM."
+	if notice := initRuntimeNotice(justcode.Runtime(runtime)); notice != "" {
+		description += "\n" + notice
+	}
+	field := huh.NewSelect[string]().
+		Title(initVMStepTitle(opts)).
+		Description(description).
+		Options(
+			huh.NewOption("Microsandbox (recommandé)", string(justcode.RuntimeMicrosandbox)),
+			huh.NewOption("Tart : VM macOS complète ; dossier partagé", string(justcode.RuntimeTart)),
+			huh.NewOption("agent-vm : VM Lima ; dossier partagé", string(justcode.RuntimeAgentVM)),
+		).
+		Value(&runtime)
+	if err := huhRun(huh.NewForm(huh.NewGroup(field))); err != nil {
+		return answers, err
+	}
+	answers.Runtime = justcode.Runtime(runtime)
+	return answers, nil
+}
+
 func parseGuestCPUsInput(value string, maximum int) (guestCPUs int, useDefault bool, err error) {
 	value = strings.TrimSpace(value)
 	if value == "" || strings.EqualFold(value, "default") || strings.EqualFold(value, "défaut") {
@@ -835,10 +753,6 @@ func parseGuestMemoryInput(value string, maximum int) (memoryMB int, useDefault 
 		return 0, false, fmt.Errorf("au moins 1 Mo. Maximum sur ce poste : %s", justcode.FormatMemorySize(maximum))
 	}
 	return memoryMB, false, nil
-}
-
-func huhReviewDescription(plan justcode.InitPlan) string {
-	return escapeHuhNoteMarkup(justcode.FormatInteractiveInitReview(plan))
 }
 
 func huhReviewTableWidth() int {
@@ -894,15 +808,6 @@ func huhDiagnosticsDescription(report justcode.DiagnosticsReport) string {
 	return strings.TrimRight(b.String(), "\n")
 }
 
-// Note descriptions support inline markdown; escape those markers in table
-// data without changing the plain accessible output used by TERM=dumb.
-func escapeHuhNoteMarkup(value string) string {
-	if os.Getenv("TERM") == "dumb" {
-		return value
-	}
-	return strings.NewReplacer("\\", "\\\\", "_", "\\_", "*", "\\*", "`", "\\`", "<", "\\<", ">", "\\>").Replace(value)
-}
-
 // askInitQuestionsHuh renders the init wizard as one huh form. Groups the
 // command line did not supply are omitted structurally (never added to the
 // form), so a partial `just-code init --runtime tart` form shows only the
@@ -944,6 +849,21 @@ func askInitQuestionsHuh(opts initOptions, answers justcode.InitAnswers) (justco
 	// only when the project changes or the user selects a skill again.
 	emptySkillsConfirmed := false
 	for {
+		// The harness and VM steps open the wizard (#333): they run before
+		// the project form so the on-screen order matches [1/5]..[5/5]. A
+		// root change reseeds the answers and reopens these steps with the
+		// new project's manifest defaults.
+		var stepErr error
+		answers, stepErr = askHarnessStepHuh(opts, answers)
+		if stepErr != nil {
+			recordInitAbandon(answers.Root, "harness")
+			return answers, stepErr
+		}
+		answers, stepErr = askVMStepHuh(opts, answers)
+		if stepErr != nil {
+			recordInitAbandon(answers.Root, "vm")
+			return answers, stepErr
+		}
 		// Local copies the form binds to; written back to answers on success.
 		// The root field starts empty each pass: an empty submission keeps the
 		// current root, matching the line wizard's default-in-prompt behavior.
@@ -1003,7 +923,7 @@ func askInitQuestionsHuh(opts initOptions, answers justcode.InitAnswers) (justco
 		// live behind the review's "Réglages avancés" entry (#170).
 
 		skillsGroup := newInitSkillsGroup(skillOptionsPass, &skills, &skillsLocalOnly,
-			!opts.Set["skills"] && !skipSkills, !opts.Set["skills-storage"], initSkillsStepPrefix(opts))
+			!opts.Set["skills"] && !skipSkills, !opts.Set["skills-storage"], initSkillsStepTitle(opts))
 
 		mcpFields := make([]huh.Field, 0, 2)
 		if !opts.Set["mcps"] {
@@ -1101,7 +1021,7 @@ func askInitQuestionsHuh(opts initOptions, answers justcode.InitAnswers) (justco
 		}
 		// The GitHub step is a distinct screen, not a field of the main
 		// form: it renders one of the four situations and verifies on that
-		// screen (#169). It runs after the main form so the [1/3]..[3/3]
+		// screen (#169). It runs after the main form so the [1/5]..[5/5]
 		// order on screen matches the flow, and its own screens never throw
 		// away the answers already collected (#155).
 		if !opts.Set["github"] {
