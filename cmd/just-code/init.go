@@ -315,6 +315,10 @@ func parseInitArgs(args []string) (initOptions, error) {
 
 // initRun is the testable core: the reader and the TTY verdict are passed in,
 // so the non-TTY contract can be exercised without a terminal.
+// errInitNoAnswer is the cancellation signal for the interactive line wizard:
+// a closed input is a refusal to answer, never consent to apply defaults.
+var errInitNoAnswer = errors.New("aucune réponse ; rien n'a été enregistré")
+
 func initRun(opts initOptions, in *bufio.Reader, tty bool) (code int, err error) {
 	answers := justcode.InitAnswers{
 		Root:               opts.Root,
@@ -914,7 +918,10 @@ func askHarnessStepLine(in *bufio.Reader, opts initOptions, answers justcode.Ini
 	current := effectiveInitHarness(answers)
 	for {
 		answer, ok := promptLine(in, "  harnais ["+current+"] (opencode/pi) : ")
-		if !ok || strings.TrimSpace(answer) == "" {
+		if !ok {
+			return answers, errInitNoAnswer
+		}
+		if strings.TrimSpace(answer) == "" {
 			answers.Harness = current
 			return answers, nil
 		}
@@ -948,7 +955,10 @@ func askVMStepLine(in *bufio.Reader, opts initOptions, answers justcode.InitAnsw
 	}
 	for {
 		answer, ok := promptLine(in, "  machine ["+string(current)+"] (microsandbox/tart/agent-vm) : ")
-		if !ok || strings.TrimSpace(answer) == "" {
+		if !ok {
+			return answers, errInitNoAnswer
+		}
+		if strings.TrimSpace(answer) == "" {
 			answers.Runtime = current
 			return answers, nil
 		}
@@ -973,7 +983,11 @@ func askInitQuestions(in *bufio.Reader, opts initOptions, answers justcode.InitA
 	if !opts.Set["root"] {
 		currentRoot := answers.Root
 		fmt.Printf("Project root [%s]:\n", answers.Root)
-		if answer, ok := promptLine(in, "  root: "); ok && strings.TrimSpace(answer) != "" {
+		answer, ok := promptLine(in, "  root: ")
+		if !ok {
+			return answers, errInitNoAnswer
+		}
+		if strings.TrimSpace(answer) != "" {
 			answers.Root = strings.TrimSpace(answer)
 			if answers.Root != currentRoot {
 				answers = seedInitAnswersFromManifest(opts, answers)
@@ -1020,7 +1034,10 @@ func askInitQuestions(in *bufio.Reader, opts initOptions, answers justcode.InitA
 					current = "aucune"
 				}
 				answer, ok := promptLine(in, fmt.Sprintf("  Skills sélectionnées (%d) [%s] (noms séparés par des virgules; Entrée garde, `none` efface): ", len(answers.Skills), current))
-				if ok && strings.TrimSpace(answer) != "" {
+				if !ok {
+					return answers, errInitNoAnswer
+				}
+				if strings.TrimSpace(answer) != "" {
 					value := strings.TrimSpace(answer)
 					if strings.EqualFold(value, "none") {
 						answers.Skills = nil
@@ -1072,8 +1089,11 @@ func askInitQuestions(in *bufio.Reader, opts initOptions, answers justcode.InitA
 		fmt.Println("  Avec le projet : elles sont versionnées, un coéquipier qui clone le projet les retrouve.")
 		fmt.Println("  Sur ce poste uniquement : rien n'est ajouté au dépôt.")
 		answer, ok := promptLine(in, "  stockage ["+defaultStorage+"]: ")
+		if !ok {
+			return answers, errInitNoAnswer
+		}
 		answers.SkillsLocalOnly = localOnly
-		if ok && strings.TrimSpace(answer) != "" {
+		if strings.TrimSpace(answer) != "" {
 			switch strings.ToLower(strings.TrimSpace(answer)) {
 			case "projet", "avec le projet", "versioned":
 				answers.SkillsLocalOnly = false
@@ -1117,7 +1137,7 @@ func askInitQuestions(in *bufio.Reader, opts initOptions, answers justcode.InitA
 			}
 			answer, ok := promptLine(in, "  MCP IDs ["+currentLabel+"] (IDs séparés par des virgules ; Entrée garde la sélection, `none` efface tout) : ")
 			if !ok {
-				break
+				return answers, errInitNoAnswer
 			}
 			trimmed := strings.TrimSpace(answer)
 			if trimmed == "" {
@@ -1290,7 +1310,10 @@ func askInitAdvancedLine(in *bufio.Reader, opts initOptions, answers justcode.In
 		}
 		for {
 			answer, ok := promptLine(in, "  isolation ["+isolationDisplayName(current)+"] (`default` revient à complet) : ")
-			if !ok || strings.TrimSpace(answer) == "" {
+			if !ok {
+				return answers, errInitNoAnswer
+			}
+			if strings.TrimSpace(answer) == "" {
 				break
 			}
 			switch strings.ToLower(strings.TrimSpace(answer)) {
@@ -1313,7 +1336,10 @@ func askInitAdvancedLine(in *bufio.Reader, opts initOptions, answers justcode.In
 			answer, ok := promptLine(in, fmt.Sprintf("  processeurs [%d] (maximum sur ce poste : %d ; `default` revient à la valeur par défaut) : ",
 				resolvedOrDefault(answers.CPUs, justcode.RecommendedDefaultGuestCPUs(opts.hostCPUs)), opts.maxCPUs))
 			trimmed := strings.TrimSpace(answer)
-			if !ok || trimmed == "" {
+			if !ok {
+				return answers, errInitNoAnswer
+			}
+			if trimmed == "" {
 				break
 			}
 			if strings.EqualFold(trimmed, "default") {
@@ -1343,7 +1369,10 @@ func askInitAdvancedLine(in *bufio.Reader, opts initOptions, answers justcode.In
 			answer, ok := promptLine(in, fmt.Sprintf("  mémoire [%s] (6 Go conseillés avec chrome-devtools ; `default` revient à la valeur par défaut) : ",
 				justcode.FormatMemorySize(resolvedOrDefault(answers.MemoryMB, justcode.RecommendedDefaultGuestMemoryMB(opts.hostMemoryMB)))))
 			trimmed := strings.TrimSpace(answer)
-			if !ok || trimmed == "" {
+			if !ok {
+				return answers, errInitNoAnswer
+			}
+			if trimmed == "" {
 				break
 			}
 			if strings.EqualFold(trimmed, "default") {
@@ -1374,7 +1403,10 @@ func askInitAdvancedLine(in *bufio.Reader, opts initOptions, answers justcode.In
 	if !opts.Set["model"] {
 		for {
 			answer, ok := promptLine(in, "  modèle principal ["+initModelDisplayName(answers.Model)+"] ('défaut' reprend le modèle de setup ; Entrée conserve le choix) : ")
-			if !ok || strings.TrimSpace(answer) == "" {
+			if !ok {
+				return answers, errInitNoAnswer
+			}
+			if strings.TrimSpace(answer) == "" {
 				break
 			}
 			warning, err := validateInitModelInput(answers.Root, answer)
@@ -1392,7 +1424,10 @@ func askInitAdvancedLine(in *bufio.Reader, opts initOptions, answers justcode.In
 	if !opts.Set["small-model"] {
 		for {
 			answer, ok := promptLine(in, "  petit modèle ["+initSmallModelDisplayName(answers)+"] ('défaut' suit le modèle principal ; Entrée conserve le choix) : ")
-			if !ok || strings.TrimSpace(answer) == "" {
+			if !ok {
+				return answers, errInitNoAnswer
+			}
+			if strings.TrimSpace(answer) == "" {
 				break
 			}
 			warning, err := validateInitSmallModelInput(answers.Root, answer)

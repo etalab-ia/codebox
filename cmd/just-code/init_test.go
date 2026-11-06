@@ -1533,7 +1533,7 @@ func TestInitAdvancedLineWarnsOnSharedFolderRuntime(t *testing.T) {
 	// root, harness, VM=tart, skills, storage, MCPs, GitHub, then --advanced
 	// opens once: isolation, cpus, memory, model, small model. The run applies
 	// without a review.
-	input := strings.Join([]string{root, "", "tart", "", "", "", "n", "", "", "", "", ""}, "\n") + "\n"
+	input := strings.Join([]string{root, "", "tart", "", "y", "", "", "", "", "", "", "", ""}, "\n") + "\n"
 	out := captureStdout(t, func() {
 		code, err := initRun(initOptions{Advanced: true, Set: map[string]bool{}}, bufio.NewReader(strings.NewReader(input)), true)
 		if code != 0 || err != nil {
@@ -1940,6 +1940,38 @@ func TestInitSkipsQuestionsAnsweredByFlags(t *testing.T) {
 	}
 }
 
+// TestInitLineEOFDoesNotApply pins that a closed input cancels the line
+// wizard instead of applying defaults. Every other question is answered, so
+// the harness prompt is the only one left: EOF there used to keep the default
+// and reach the write, replacing an existing configuration under --replace
+// without anyone re-confirming it (#333).
+func TestInitLineEOFDoesNotApply(t *testing.T) {
+	root := initTestProject(t)
+	writeManifest(t, root, justcode.ProjectManifest{Runtime: "microsandbox", Isolation: "full", CPUs: 3, MemoryMB: 4096})
+	before, err := os.ReadFile(justcode.ProjectManifestPath(root))
+	if err != nil {
+		t.Fatal(err)
+	}
+	opts := initOptions{
+		Root: root, Replace: true, Runtime: "microsandbox",
+		Set: map[string]bool{"root": true, "runtime": true, "github": true, "skills": true, "skills-storage": true, "mcps": true},
+	}
+	code, err := initRun(opts, bufio.NewReader(strings.NewReader("")), true)
+	if code == 0 || err == nil {
+		t.Fatalf("EOF must cancel instead of applying: code=%d err=%v", code, err)
+	}
+	if !strings.Contains(err.Error(), "aucune réponse") {
+		t.Fatalf("the cancellation must say nothing was written: %v", err)
+	}
+	after, readErr := os.ReadFile(justcode.ProjectManifestPath(root))
+	if readErr != nil {
+		t.Fatal(readErr)
+	}
+	if string(before) != string(after) {
+		t.Fatal("EOF must leave the existing configuration untouched")
+	}
+}
+
 // TestInitValidatesFlagsBeforeAsking pins that a bad flag value is reported
 // immediately: making someone answer six prompts to learn about a typo is a
 // needless cost.
@@ -2025,7 +2057,10 @@ func TestInitRejectsATypedZero(t *testing.T) {
 	// root, harness, VM, skills, no-skill confirmation, storage, MCPs, GitHub,
 	// then --advanced opens once: isolation, cpus "0" rejected then a kept
 	// default, memory, main model, small model.
-	input := root + "\n\n\n\ny\n\n\nn" + "\n\n0\n\n\n\n"
+	input := strings.Join([]string{
+		"", "", "", "y", "", "", "", // harness, VM, skills, no-skill confirmation, storage, MCPs, GitHub
+		"", "0", "", "", "", "", // isolation, cpus "0" rejected then kept default, memory, main model, small model
+	}, "\n") + "\n"
 	out := captureStdout(t, func() {
 		_, _ = initRun(initOptions{Advanced: true, Set: map[string]bool{"root": true}, Root: root}, bufio.NewReader(strings.NewReader(input)), true)
 	})
