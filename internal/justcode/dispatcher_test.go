@@ -170,7 +170,7 @@ func TestDispatcherPrepareRefusesConflict(t *testing.T) {
 		RuntimeAgentVM:      &fakeBackend{id: RuntimeAgentVM},
 	})
 	err := d.Prepare(context.Background(), RuntimeTart)
-	if err == nil || !strings.Contains(err.Error(), "already running") {
+	if err == nil || !strings.Contains(err.Error(), "déjà en cours d'exécution") {
 		t.Fatalf("expected conflict error, got %v", err)
 	}
 }

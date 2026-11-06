@@ -152,19 +152,19 @@ func redactDiagnosticPaths(report *DiagnosticsReport, projectDir, stateDir strin
 func hostSection(res SetupPreflight) DiagnosticSection {
 	disk := humanFreeBytes(res.DiskFreeBytes)
 	if res.DiskDetail != "" {
-		disk = "probe failed"
+		disk = "échec du contrôle"
 	}
-	return DiagnosticSection{Title: "Host capability", Items: []DiagnosticItem{
-		{Name: "Platform", Value: res.Platform, Status: DiagnosticInfo},
-		{Name: "Virtualization", Value: yesNo(res.VirtualizationOK), Detail: res.VirtualizationDetail, Status: statusFor(res.VirtualizationOK)},
-		{Name: "Disk free", Value: disk, Detail: res.DiskDetail, Status: statusFor(res.DiskOK)},
+	return DiagnosticSection{Title: "Capacité de l'hôte", Items: []DiagnosticItem{
+		{Name: "Plateforme", Value: res.Platform, Status: DiagnosticInfo},
+		{Name: "Virtualisation", Value: yesNo(res.VirtualizationOK), Detail: res.VirtualizationDetail, Status: statusFor(res.VirtualizationOK)},
+		{Name: "Espace disque libre", Value: disk, Detail: res.DiskDetail, Status: statusFor(res.DiskOK)},
 	}}
 }
 
 func (d Diagnostics) runtimeSection(ctx context.Context, fs FS, stateDir, projectDir string, res SetupPreflight) DiagnosticSection {
-	section := DiagnosticSection{Title: "Runtime and VM state"}
+	section := DiagnosticSection{Title: "Runtime et état de l'instance du projet"}
 	section.Items = append(section.Items, DiagnosticItem{
-		Name:   "Managed Microsandbox runtime",
+		Name:   "Runtime Microsandbox géré",
 		Value:  yesNo(res.RuntimeInstalled),
 		Detail: runtimeInstallDetail(res.RuntimeInstalled),
 		Status: runtimeInstalledStatus(res.RuntimeInstalled),
@@ -173,45 +173,45 @@ func (d Diagnostics) runtimeSection(ctx context.Context, fs FS, stateDir, projec
 	if externalConfigured {
 		if err := validateInstalledMSBRuntime(ctx); err != nil {
 			section.Items = append(section.Items, DiagnosticItem{
-				Name: "Explicit Microsandbox runtime", Value: "failed", Detail: err.Error(), Status: DiagnosticFailed,
+				Name: "Runtime Microsandbox explicite", Value: "échec", Detail: err.Error(), Status: DiagnosticFailed,
 			})
 		} else {
 			section.Items = append(section.Items, DiagnosticItem{
-				Name: "Explicit Microsandbox runtime", Value: "validated", Detail: "path pair and version verified; no files changed", Status: DiagnosticOK,
+				Name: "Runtime Microsandbox explicite", Value: "validé", Detail: "chemins et version vérifiés ; aucun fichier modifié", Status: DiagnosticOK,
 			})
 		}
 	} else if res.RuntimeInstalled {
 		if err := validateInstalledMSBRuntime(ctx); err != nil {
 			section.Items = append(section.Items, DiagnosticItem{
-				Name: "Managed runtime integrity", Value: "failed", Detail: err.Error(), Status: DiagnosticFailed,
+				Name: "Intégrité du runtime géré", Value: "échec", Detail: err.Error(), Status: DiagnosticFailed,
 			})
 		} else {
 			section.Items = append(section.Items, DiagnosticItem{
-				Name: "Managed runtime integrity", Value: "validated", Detail: "provenance marker and required files verified", Status: DiagnosticOK,
+				Name: "Intégrité du runtime géré", Value: "validé", Detail: "marqueur de provenance et fichiers requis vérifiés", Status: DiagnosticOK,
 			})
 		}
 	} else {
 		section.Items = append(section.Items, DiagnosticItem{
-			Name: "Selected runtime", Value: "not installed", Detail: "doctor did not install or repair it", Status: DiagnosticInfo,
+			Name: "Runtime sélectionné", Value: "non installé", Detail: "doctor n'a rien installé ni réparé", Status: DiagnosticInfo,
 		})
 	}
 	project, err := DiscoverProject(projectDir)
 	if err != nil {
 		section.Items = append(section.Items, DiagnosticItem{
-			Name: "Project instance", Value: "unavailable", Detail: err.Error(), Status: DiagnosticWarn,
+			Name: "Instance du projet", Value: "indisponible", Detail: err.Error(), Status: DiagnosticWarn,
 		})
 		return section
 	}
 	state, err := ReadInstanceState(fs, instanceStatePath(stateDir, project.InstanceName()))
 	if err != nil {
-		section.Items = append(section.Items, DiagnosticItem{Name: "Project instance", Value: project.InstanceName(), Detail: err.Error(), Status: DiagnosticWarn})
+		section.Items = append(section.Items, DiagnosticItem{Name: "Instance du projet", Value: project.InstanceName(), Detail: err.Error(), Status: DiagnosticWarn})
 		return section
 	}
-	section.Items = append(section.Items, DiagnosticItem{Name: "Project instance", Value: project.InstanceName(), Status: DiagnosticInfo})
+	section.Items = append(section.Items, DiagnosticItem{Name: "Instance du projet", Value: project.InstanceName(), Status: DiagnosticInfo})
 	if state == nil {
-		section.Items = append(section.Items, DiagnosticItem{Name: "Recorded VM state", Value: "none", Detail: "no managed instance has been created for this project", Status: DiagnosticInfo})
+		section.Items = append(section.Items, DiagnosticItem{Name: "État enregistré de la machine", Value: "aucun", Detail: "aucune instance gérée n'a été créée pour ce projet", Status: DiagnosticInfo})
 	} else {
-		section.Items = append(section.Items, DiagnosticItem{Name: "Recorded VM state", Value: "configured", Detail: "creation-fixed settings are recorded for this instance", Status: DiagnosticOK})
+		section.Items = append(section.Items, DiagnosticItem{Name: "État enregistré de la machine", Value: "configuré", Detail: "les réglages fixés à la création sont enregistrés pour cette instance", Status: DiagnosticOK})
 	}
 	return section
 }
@@ -225,20 +225,20 @@ func runtimeInstalledStatus(installed bool) DiagnosticStatus {
 
 func runtimeInstallDetail(installed bool) string {
 	if installed {
-		return "provenance marker and required files present"
+		return "marqueur de provenance et fichiers requis présents"
 	}
-	return "not installed; run 'just-code start --microsandbox' or 'just-code setup'"
+	return "non installé ; lancez 'just-code start --microsandbox' ou 'just-code setup'"
 }
 
 func (d Diagnostics) toolchainSection(ctx context.Context) DiagnosticSection {
-	section := DiagnosticSection{Title: "Toolchain"}
+	section := DiagnosticSection{Title: "Toolchain hôte"}
 	for _, tool := range []string{"git", "go", "node", "opencode"} {
 		section.Items = append(section.Items, d.toolItem(ctx, tool))
 	}
 	section.Items = append(section.Items, DiagnosticItem{
-		Name:   "Microsandbox SDK",
+		Name:   "SDK Microsandbox",
 		Value:  MSBSDKVersion(),
-		Detail: "embedded SDK version; the managed runtime must match it",
+		Detail: "version du SDK embarqué ; le runtime géré doit correspondre",
 		Status: DiagnosticInfo,
 	})
 	return section
@@ -252,11 +252,11 @@ func (d Diagnostics) toolItem(ctx context.Context, tool string) DiagnosticItem {
 	path, err := lookPath(tool)
 	if err != nil {
 		status := DiagnosticFailed
-		detail := "install it or add it to PATH"
+		detail := "installez-le ou ajoutez-le au PATH"
 		if tool == "go" {
-			status, detail = DiagnosticInfo, "optional on a machine using a prebuilt just-code binary"
+			status, detail = DiagnosticInfo, "facultatif sur un poste utilisant un binaire just-code précompilé"
 		}
-		return DiagnosticItem{Name: tool, Value: "not found", Detail: detail, Status: status}
+		return DiagnosticItem{Name: tool, Value: "introuvable", Detail: detail, Status: status}
 	}
 	run := d.Run
 	if run == nil {
@@ -267,23 +267,23 @@ func (d Diagnostics) toolItem(ctx context.Context, tool string) DiagnosticItem {
 	probeCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
 	defer cancel()
 	res, runErr := run(probeCtx, path, versionProbeArgs(tool)...)
-	value := "found"
+	value := "trouvé"
 	status := DiagnosticOK
 	detail := ""
 	if runErr != nil || res.ExitCode != 0 {
-		value = "unusable"
+		value = "inutilisable"
 		status = DiagnosticFailed
 		if tool == "go" {
 			status = DiagnosticInfo
 		}
-		detail = fmt.Sprintf("version probe failed (exit %d)", res.ExitCode)
+		detail = fmt.Sprintf("échec de la sonde de version (code de sortie %d)", res.ExitCode)
 		if runErr != nil {
-			detail = "could not run version probe"
+			detail = "impossible de lancer la sonde de version"
 		}
 	} else if version := firstVersionToken(res.Stdout + res.Stderr); version != "" {
 		value = version
 	} else {
-		detail = "version output was not recognized"
+		detail = "la sortie de version n'a pas été reconnue"
 	}
 	return DiagnosticItem{Name: tool, Value: value, Detail: detail, Status: status}
 }
@@ -328,18 +328,18 @@ func (d Diagnostics) unreachedFallbackItem(kind CredentialKind) (DiagnosticItem,
 		return DiagnosticItem{}, false
 	}
 	return DiagnosticItem{
-		Name:  "File fallback credential",
-		Value: "present, not read",
-		Detail: fmt.Sprintf("the %s store could not be read, so the file store holding %q was not consulted; "+
-			"declare it with 'just-code auth use-fallback %s', or export ALBERT_API_KEY, or give this host a keyring session", kind, kind, kind),
+		Name:  "Clé du magasin fichier",
+		Value: "présente, non lue",
+		Detail: fmt.Sprintf("le magasin %s n'a pas pu être lu, donc le magasin fichier contenant %q n'a pas été consulté ; "+
+			"déclarez-le avec 'just-code auth use-fallback %s', exportez ALBERT_API_KEY ou ouvrez une session trousseau sur ce poste", kind, kind, kind),
 		Status: DiagnosticWarn,
 	}, true
 }
 
 func (d Diagnostics) providerSection(ctx context.Context, fs FS) DiagnosticSection {
-	section := DiagnosticSection{Title: "Provider verification"}
+	section := DiagnosticSection{Title: "Vérification Albert"}
 	key := strings.TrimSpace(os.Getenv("ALBERT_API_KEY"))
-	source := "environment"
+	source := "variable d'environnement"
 	if key == "" {
 		read := d.ReadAlbert
 		if read == nil {
@@ -350,13 +350,13 @@ func (d Diagnostics) providerSection(ctx context.Context, fs FS) DiagnosticSecti
 		cancel()
 		if err == nil {
 			key = strings.TrimSpace(stored)
-			source = "credential store"
+			source = "magasin d'identifiants"
 		} else if !errors.Is(err, ErrCredentialNotFound) && !errors.Is(err, ErrFileStoreAbsent) && !errors.Is(err, ErrFileStoreNotConsented) {
 			var storeErr *StoreError
 			if errors.As(err, &storeErr) {
-				section.Items = append(section.Items, DiagnosticItem{Name: "Albert credential store", Value: storeErr.State, Detail: storeErr.Kind + " store could not be read", Status: DiagnosticWarn})
+				section.Items = append(section.Items, DiagnosticItem{Name: "Magasin d'identifiants Albert", Value: storeErr.State, Detail: "le magasin " + storeErr.Kind + " n'a pas pu être lu", Status: DiagnosticWarn})
 			} else {
-				section.Items = append(section.Items, DiagnosticItem{Name: "Albert credential store", Value: "unverified", Detail: "credential could not be read", Status: DiagnosticWarn})
+				section.Items = append(section.Items, DiagnosticItem{Name: "Magasin d'identifiants Albert", Value: "non vérifié", Detail: "la clé n'a pas pu être lue", Status: DiagnosticWarn})
 			}
 			// The read failed before it could reach the consented file store.
 			// Saying whether that store actually holds the credential is the
@@ -369,12 +369,12 @@ func (d Diagnostics) providerSection(ctx context.Context, fs FS) DiagnosticSecti
 	}
 	if key == "" {
 		section.Items = append(section.Items, DiagnosticItem{
-			Name: "Albert credential", Value: "not configured", Detail: "set ALBERT_API_KEY, store a credential with 'just-code auth add albert', or run 'just-code setup'", Status: DiagnosticWarn,
+			Name: "Clé Albert", Value: "non configurée", Detail: "définissez ALBERT_API_KEY, enregistrez une clé avec 'just-code auth add albert' ou lancez 'just-code setup'", Status: DiagnosticWarn,
 		})
 		return section
 	}
 	section.Items = append(section.Items, DiagnosticItem{
-		Name: "Albert credential", Value: "present", Detail: source + " value is set; the value is never printed", Status: DiagnosticOK,
+		Name: "Clé Albert", Value: "présente", Detail: source + " ; la valeur de la clé n'est jamais affichée", Status: DiagnosticOK,
 	})
 	probe := d.ProbeAlbert
 	if probe == nil {
@@ -388,93 +388,93 @@ func (d Diagnostics) providerSection(ctx context.Context, fs FS) DiagnosticSecti
 	probeDetail := strings.ReplaceAll(result.Detail, key, "[redacted]")
 	switch {
 	case result.Rejected:
-		section.Items = append(section.Items, DiagnosticItem{Name: "Albert endpoint", Value: "rejected", Detail: probeDetail, Status: DiagnosticFailed})
+		section.Items = append(section.Items, DiagnosticItem{Name: "Point d'accès Albert", Value: "refusé", Detail: probeDetail, Status: DiagnosticFailed})
 	case result.Unreachable:
-		section.Items = append(section.Items, DiagnosticItem{Name: "Albert endpoint", Value: "unreachable", Detail: probeDetail, Status: DiagnosticWarn})
+		section.Items = append(section.Items, DiagnosticItem{Name: "Point d'accès Albert", Value: "inaccessible", Detail: probeDetail, Status: DiagnosticWarn})
 	default:
-		section.Items = append(section.Items, DiagnosticItem{Name: "Albert endpoint", Value: "verified", Detail: "models catalogue accepted the credential", Status: DiagnosticOK})
+		section.Items = append(section.Items, DiagnosticItem{Name: "Point d'accès Albert", Value: "vérifié", Detail: "le catalogue de modèles a accepté la clé", Status: DiagnosticOK})
 	}
 	return section
 }
 
 func (d Diagnostics) projectSection(fs FS, stateDir, projectDir string) DiagnosticSection {
-	section := DiagnosticSection{Title: "Project skills and MCPs"}
+	section := DiagnosticSection{Title: "Skills et MCP du projet"}
 	project, err := DiscoverProject(projectDir)
 	if err != nil {
-		return DiagnosticSection{Title: section.Title, Items: []DiagnosticItem{{Name: "Project", Value: "unavailable", Detail: err.Error(), Status: DiagnosticFailed}}}
+		return DiagnosticSection{Title: section.Title, Items: []DiagnosticItem{{Name: "Projet", Value: "indisponible", Detail: err.Error(), Status: DiagnosticFailed}}}
 	}
 	manifestPath := ProjectManifestPath(project.Root)
 	manifest, err := ReadProjectManifest(fs, manifestPath)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return DiagnosticSection{Title: section.Title, Items: []DiagnosticItem{{Name: "Project", Value: project.Name, Detail: "no .just-code manifest; run 'just-code init'", Status: DiagnosticInfo}}}
+			return DiagnosticSection{Title: section.Title, Items: []DiagnosticItem{{Name: "Projet", Value: project.Name, Detail: "aucun manifeste .just-code ; lancez 'just-code init'", Status: DiagnosticInfo}}}
 		}
-		return DiagnosticSection{Title: section.Title, Items: []DiagnosticItem{{Name: "Project", Value: project.Name, Detail: err.Error(), Status: DiagnosticFailed}}}
+		return DiagnosticSection{Title: section.Title, Items: []DiagnosticItem{{Name: "Projet", Value: project.Name, Detail: err.Error(), Status: DiagnosticFailed}}}
 	}
 	runtimeName := manifest.Runtime
 	if runtimeName == "" {
-		runtimeName = "default (microsandbox)"
+		runtimeName = "par défaut (microsandbox)"
 	}
 	isolation := manifest.Isolation
 	if isolation == "" {
-		isolation = "default (full)"
+		isolation = "par défaut (full)"
 	}
 	section.Items = append(section.Items,
-		DiagnosticItem{Name: "Project", Value: project.Name, Detail: "current project", Status: DiagnosticInfo},
-		DiagnosticItem{Name: "Runtime intent", Value: runtimeName, Status: DiagnosticInfo},
-		DiagnosticItem{Name: "Isolation intent", Value: isolation, Status: DiagnosticInfo},
+		DiagnosticItem{Name: "Projet", Value: project.Name, Detail: "projet actuel", Status: DiagnosticInfo},
+		DiagnosticItem{Name: "Runtime déclaré", Value: runtimeName, Status: DiagnosticInfo},
+		DiagnosticItem{Name: "Isolation déclarée", Value: isolation, Status: DiagnosticInfo},
 	)
 	if _, err := fs.ReadFile(ProjectUpdateJournalPath(project.Root)); err == nil {
 		section.Items = append(section.Items, DiagnosticItem{
-			Name: "Pending project update", Value: "recovery required", Detail: "doctor did not recover or modify the transaction; run 'just-code update --recover'", Status: DiagnosticWarn,
+			Name: "Mise à jour du projet en attente", Value: "récupération nécessaire", Detail: "doctor n'a ni récupéré ni modifié la transaction ; lancez 'just-code update --recover'", Status: DiagnosticWarn,
 		})
 	} else if !os.IsNotExist(err) {
-		section.Items = append(section.Items, DiagnosticItem{Name: "Pending project update", Value: "unreadable", Detail: err.Error(), Status: DiagnosticWarn})
+		section.Items = append(section.Items, DiagnosticItem{Name: "Mise à jour du projet en attente", Value: "illisible", Detail: err.Error(), Status: DiagnosticWarn})
 	}
 
 	packages, ids, localOnly, err := ReadProjectSkillDiagnosticState(fs, project.Root, stateDir, project.InstanceName())
 	if err != nil {
-		value := "error"
+		value := "erreur"
 		detail := err.Error()
 		if len(ids) > 0 {
-			value = fmt.Sprintf("%d selected; not ready", len(ids))
+			value = fmt.Sprintf("%d sélectionnés ; non prêts", len(ids))
 			detail = strings.Join(ids, ", ") + ": " + err.Error()
 		}
 		section.Items = append(section.Items, DiagnosticItem{Name: "Skills", Value: value, Detail: detail, Status: DiagnosticFailed})
 		if localOnly {
-			section.Items = append(section.Items, DiagnosticItem{Name: "Skill storage", Value: "host-local", Detail: "selection is not shared with repository clones", Status: DiagnosticInfo})
+			section.Items = append(section.Items, DiagnosticItem{Name: "Stockage des skills", Value: "sur ce poste", Detail: "la sélection n'est pas partagée avec les clones du dépôt", Status: DiagnosticInfo})
 		} else if len(ids) > 0 {
-			section.Items = append(section.Items, DiagnosticItem{Name: "Skill storage", Value: "versioned", Detail: "manifest and lockfile are in the project", Status: DiagnosticInfo})
+			section.Items = append(section.Items, DiagnosticItem{Name: "Stockage des skills", Value: "versionné", Detail: "le manifeste et le fichier de verrouillage sont dans le projet", Status: DiagnosticInfo})
 		}
 	} else if len(ids) == 0 {
-		section.Items = append(section.Items, DiagnosticItem{Name: "Skills", Value: "none selected", Status: DiagnosticInfo})
+		section.Items = append(section.Items, DiagnosticItem{Name: "Skills", Value: "aucun sélectionné", Status: DiagnosticInfo})
 	} else {
-		section.Items = append(section.Items, DiagnosticItem{Name: "Skills", Value: fmt.Sprintf("%d selected", len(ids)), Detail: strings.Join(ids, ", "), Status: DiagnosticOK})
+		section.Items = append(section.Items, DiagnosticItem{Name: "Skills", Value: fmt.Sprintf("%d sélectionnés", len(ids)), Detail: strings.Join(ids, ", "), Status: DiagnosticOK})
 		for _, pkg := range packages {
-			section.Items = append(section.Items, DiagnosticItem{Name: "Skill artifact", Value: pkg.ID, Detail: shortDigest(pkg.Lock.SHA256), Status: DiagnosticOK})
+			section.Items = append(section.Items, DiagnosticItem{Name: "Artefact de skill", Value: pkg.ID, Detail: shortDigest(pkg.Lock.SHA256), Status: DiagnosticOK})
 		}
 		if localOnly {
-			section.Items = append(section.Items, DiagnosticItem{Name: "Skill storage", Value: "host-local", Detail: "selection is not shared with repository clones", Status: DiagnosticInfo})
+			section.Items = append(section.Items, DiagnosticItem{Name: "Stockage des skills", Value: "sur ce poste", Detail: "la sélection n'est pas partagée avec les clones du dépôt", Status: DiagnosticInfo})
 		} else {
-			section.Items = append(section.Items, DiagnosticItem{Name: "Skill storage", Value: "versioned", Detail: "manifest and lockfile are in the project", Status: DiagnosticInfo})
+			section.Items = append(section.Items, DiagnosticItem{Name: "Stockage des skills", Value: "versionné", Detail: "le manifeste et le fichier de verrouillage sont dans le projet", Status: DiagnosticInfo})
 		}
 	}
 
 	selected, err := ValidateMCPConnectorIDs(manifest.MCPConnectors)
 	if err != nil {
-		section.Items = append(section.Items, DiagnosticItem{Name: "MCPs", Value: "error", Detail: err.Error(), Status: DiagnosticFailed})
+		section.Items = append(section.Items, DiagnosticItem{Name: "MCPs", Value: "erreur", Detail: err.Error(), Status: DiagnosticFailed})
 	} else if len(selected) == 0 {
-		section.Items = append(section.Items, DiagnosticItem{Name: "MCPs", Value: "none selected", Status: DiagnosticInfo})
+		section.Items = append(section.Items, DiagnosticItem{Name: "MCPs", Value: "aucun sélectionné", Status: DiagnosticInfo})
 	} else {
-		section.Items = append(section.Items, DiagnosticItem{Name: "MCPs", Value: fmt.Sprintf("%d selected", len(selected)), Detail: strings.Join(selected, ", "), Status: DiagnosticInfo})
+		section.Items = append(section.Items, DiagnosticItem{Name: "MCPs", Value: fmt.Sprintf("%d sélectionnés", len(selected)), Detail: strings.Join(selected, ", "), Status: DiagnosticInfo})
 		for _, choice := range MCPSelections() {
 			if !containsMCPConnector(selected, choice.ID) {
 				continue
 			}
 			if choice.Local {
-				section.Items = append(section.Items, DiagnosticItem{Name: "Guest MCP " + choice.ID, Value: "selected", Detail: "readiness requires an active guest integration test", Status: DiagnosticInfo})
+				section.Items = append(section.Items, DiagnosticItem{Name: "MCP invité " + choice.ID, Value: "sélectionné", Detail: "la disponibilité suppose un test d'intégration invité actif", Status: DiagnosticInfo})
 			} else {
-				section.Items = append(section.Items, DiagnosticItem{Name: "Remote MCP " + choice.ID, Value: "selected", Detail: "handshake is not probed by setup doctor", Status: DiagnosticInfo})
+				section.Items = append(section.Items, DiagnosticItem{Name: "MCP distant " + choice.ID, Value: "sélectionné", Detail: "l'établissement de la connexion n'est pas testé par setup doctor", Status: DiagnosticInfo})
 			}
 		}
 	}
@@ -482,7 +482,7 @@ func (d Diagnostics) projectSection(fs FS, stateDir, projectDir string) Diagnost
 }
 
 func (d Diagnostics) credentialSection(ctx context.Context, fs FS, stateDir string) DiagnosticSection {
-	section := DiagnosticSection{Title: "Credentials and storage"}
+	section := DiagnosticSection{Title: "Stockage des identifiants"}
 	journal, err := ReadSetupJournal(fs, stateDir)
 	verifyStore := d.VerifyStore
 	if verifyStore == nil {
@@ -495,17 +495,17 @@ func (d Diagnostics) credentialSection(ctx context.Context, fs FS, stateDir stri
 	cancel()
 	if storeErr == nil {
 		// The probe does not write, so it cannot promise a write will land.
-		section.Items = append(section.Items, DiagnosticItem{Name: "Credential store availability", Value: storeKind, Detail: "read-only probe succeeded; a locked collection can still refuse writes", Status: DiagnosticOK})
+		section.Items = append(section.Items, DiagnosticItem{Name: "Disponibilité du magasin d'identifiants", Value: storeKind, Detail: "sonde en lecture seule réussie ; une collection verrouillée peut encore refuser les écritures", Status: DiagnosticOK})
 	} else {
 		var typed *StoreError
 		if errors.As(storeErr, &typed) {
-			section.Items = append(section.Items, DiagnosticItem{Name: "Credential store availability", Value: typed.State, Detail: typed.Kind + " store could not be verified", Status: DiagnosticWarn})
+			section.Items = append(section.Items, DiagnosticItem{Name: "Disponibilité du magasin d'identifiants", Value: typed.State, Detail: "le magasin " + typed.Kind + " n'a pas pu être vérifié", Status: DiagnosticWarn})
 		} else {
-			section.Items = append(section.Items, DiagnosticItem{Name: "Credential store availability", Value: "unverified", Detail: "read-only probe failed", Status: DiagnosticWarn})
+			section.Items = append(section.Items, DiagnosticItem{Name: "Disponibilité du magasin d'identifiants", Value: "non vérifié", Detail: "échec de la sonde en lecture seule", Status: DiagnosticWarn})
 		}
 	}
 	if journal.StoreKind != "" {
-		section.Items = append(section.Items, DiagnosticItem{Name: "Credential store", Value: journal.StoreKind, Detail: "kind only; no secret values are displayed", Status: DiagnosticInfo})
+		section.Items = append(section.Items, DiagnosticItem{Name: "Magasin d'identifiants", Value: journal.StoreKind, Detail: "type seul ; aucune valeur secrète n'est affichée", Status: DiagnosticInfo})
 	}
 	// The inventory comes from the store, never from the journal: a setup
 	// that finishes removes its journal, so the journal cannot prove that a
@@ -518,9 +518,9 @@ func (d Diagnostics) credentialSection(ctx context.Context, fs FS, stateDir stri
 	// journal contents alone cannot distinguish.
 	section.Items = append(section.Items, setupJournalItem(fs, stateDir, journal, err))
 	if us, err := d.userSettings(fs); err != nil {
-		section.Items = append(section.Items, DiagnosticItem{Name: "User settings", Value: "error", Detail: err.Error(), Status: DiagnosticFailed})
+		section.Items = append(section.Items, DiagnosticItem{Name: "Paramètres utilisateur", Value: "erreur", Detail: err.Error(), Status: DiagnosticFailed})
 	} else if us.CredentialRef != "" {
-		section.Items = append(section.Items, DiagnosticItem{Name: "Default credential reference", Value: "configured", Detail: "reference name omitted from support output", Status: DiagnosticInfo})
+		section.Items = append(section.Items, DiagnosticItem{Name: "Référence de clé par défaut", Value: "configurée", Detail: "nom de la référence omis du rapport", Status: DiagnosticInfo})
 	}
 	return section
 }
@@ -538,7 +538,7 @@ func (d Diagnostics) credentialSection(ctx context.Context, fs FS, stateDir stri
 // all is not a failure: the run path resolves credentials from the consented
 // file fallback there, so doctor still reports that inventory.
 func (d Diagnostics) storedCredentialsItem(ctx context.Context) DiagnosticItem {
-	detail := "read from the credential store; kind names only, values are never displayed"
+	detail := "lu depuis le magasin d'identifiants ; seuls les types sont indiqués, les valeurs ne sont jamais affichées"
 	read := d.ReadCredential
 	if read == nil {
 		read = func(ctx context.Context, kind CredentialKind) (string, string, error) {
@@ -573,56 +573,56 @@ func (d Diagnostics) storedCredentialsItem(ctx context.Context) DiagnosticItem {
 	}
 	if len(stored) == 0 && len(absent) == 0 {
 		// Nothing was read at all, so nothing is known about the inventory.
-		return DiagnosticItem{Name: "Stored credentials", Value: "not read", Status: DiagnosticWarn,
-			Detail: "the credential store refused every read, which is not proof that no credential is stored"}
+		return DiagnosticItem{Name: "Clés enregistrées", Value: "non lues", Status: DiagnosticWarn,
+			Detail: "le magasin d'identifiants a refusé toutes les lectures, ce qui ne prouve pas qu'aucune clé n'est enregistrée"}
 	}
-	value := "none"
+	value := "aucune"
 	status := DiagnosticInfo
 	if len(stored) > 0 {
 		value = strings.Join(stored, ", ")
 		if len(stores) > 0 {
-			detail = fmt.Sprintf("read from the %s credential store; kind names only, values are never displayed", strings.Join(stores, " and "))
+			detail = fmt.Sprintf("lu depuis le magasin d'identifiants %s ; seuls les types sont indiqués, les valeurs ne sont jamais affichées", strings.Join(stores, " et "))
 		}
 		status = DiagnosticOK
 	}
 	if len(stored) == 0 && len(unreadable) == 0 {
-		detail = "the store holds none of the known kinds; store one with 'just-code auth add albert' or run 'just-code setup'"
+		detail = "le magasin ne contient aucun des types connus ; enregistrez une clé avec 'just-code auth add albert' ou lancez 'just-code setup'"
 	}
 	if len(unreadable) > 0 {
 		if len(stored) == 0 {
-			value = "unknown"
+			value = "inconnues"
 		} else {
-			value += " (partial)"
+			value += " (partiel)"
 		}
 		return DiagnosticItem{
-			Name: "Stored credentials", Value: value, Status: DiagnosticWarn,
-			Detail: fmt.Sprintf("%s; unreadable: %s (the store refused the read, which is not proof of absence)", detail, strings.Join(unreadable, ", ")),
+			Name: "Clés enregistrées", Value: value, Status: DiagnosticWarn,
+			Detail: fmt.Sprintf("%s ; illisibles : %s (le magasin a refusé la lecture, ce qui ne prouve pas l'absence)", detail, strings.Join(unreadable, ", ")),
 		}
 	}
-	return DiagnosticItem{Name: "Stored credentials", Value: value, Detail: detail, Status: status}
+	return DiagnosticItem{Name: "Clés enregistrées", Value: value, Detail: detail, Status: status}
 }
 
 // setupJournalItem reports the wizard's progress record as what it is: a
 // resume marker. Its absence proves neither setup history nor credential absence.
 func setupJournalItem(fs FS, stateDir string, journal SetupJournal, readErr error) DiagnosticItem {
 	if readErr != nil {
-		return DiagnosticItem{Name: "Setup journal", Value: "error", Detail: readErr.Error(), Status: DiagnosticFailed}
+		return DiagnosticItem{Name: "Journal de setup", Value: "erreur", Detail: readErr.Error(), Status: DiagnosticFailed}
 	}
 	if _, err := fs.ReadFile(SetupJournalPath(stateDir)); err != nil {
 		if os.IsNotExist(err) {
-			return DiagnosticItem{Name: "Setup journal", Value: "absent", Detail: "no setup resume record is present; the journal is not a record of stored credentials", Status: DiagnosticInfo}
+			return DiagnosticItem{Name: "Journal de setup", Value: "absent", Detail: "aucun point de reprise de setup n'est présent ; le journal n'est pas un inventaire des clés enregistrées", Status: DiagnosticInfo}
 		}
-		return DiagnosticItem{Name: "Setup journal", Value: "unreadable", Detail: "the journal file could not be read", Status: DiagnosticWarn}
+		return DiagnosticItem{Name: "Journal de setup", Value: "illisible", Detail: "le fichier journal n'a pas pu être lu", Status: DiagnosticWarn}
 	}
 	value := string(journal.Stage)
 	if value == "" {
-		value = "in progress"
+		value = "en cours"
 	}
-	detail := "setup interrupted: re-run 'just-code setup' to resume"
+	detail := "setup interrompu : relancez 'just-code setup' pour reprendre"
 	if len(journal.CredentialKinds) > 0 {
-		detail = fmt.Sprintf("setup interrupted: recorded %s so far; the credential store is the authority on what is stored", strings.Join(journal.CredentialKinds, ", "))
+		detail = fmt.Sprintf("setup interrompu : %s enregistrés à ce stade ; le magasin d'identifiants fait foi sur ce qui est réellement stocké", strings.Join(journal.CredentialKinds, ", "))
 	}
-	return DiagnosticItem{Name: "Setup journal", Value: value, Detail: detail, Status: DiagnosticWarn}
+	return DiagnosticItem{Name: "Journal de setup", Value: value, Detail: detail, Status: DiagnosticWarn}
 }
 
 func verifyCredentialStore(ctx context.Context, preferred string) (string, error) {
@@ -709,19 +709,19 @@ func yesNo(ok bool) string {
 	if ok {
 		return "ok"
 	}
-	return "failed"
+	return "échec"
 }
 
 func humanFreeBytes(n int64) string {
 	switch {
 	case n < 0:
-		return "unknown"
+		return "inconnu"
 	case n >= 1<<30:
-		return fmt.Sprintf("%.1f GiB", float64(n)/(1<<30))
+		return fmt.Sprintf("%.1f Go", float64(n)/(1<<30))
 	case n >= 1<<20:
-		return fmt.Sprintf("%.1f MiB", float64(n)/(1<<20))
+		return fmt.Sprintf("%.1f Mo", float64(n)/(1<<20))
 	default:
-		return fmt.Sprintf("%d B", n)
+		return fmt.Sprintf("%d o", n)
 	}
 }
 

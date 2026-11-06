@@ -33,7 +33,7 @@ func TestRuntimeDownloadProgressReportsBytes(t *testing.T) {
 		}
 		progress.finish()
 	})
-	for _, want := range []string{"[1/3] Téléchargement", "█████░░░░░", "1.0 MiB / 2.0 MiB"} {
+	for _, want := range []string{"[1/3] Téléchargement", "█████░░░░░", "1.0 Mo / 2.0 Mo"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("progress output %q does not contain %q", out, want)
 		}

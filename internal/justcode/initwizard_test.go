@@ -61,7 +61,7 @@ func TestInteractiveInitReviewMatchesAcceptanceText(t *testing.T) {
 		"+ .just-code/lock.json",
 		"~ AGENTS.md",
 		"section just-code ajoutée (voir le détail : d)",
-		"environ 3 à 5 minutes",
+		"La durée dépend de votre connexion.",
 		"simulated offline endpoint",
 	} {
 		if !strings.Contains(review, want) {

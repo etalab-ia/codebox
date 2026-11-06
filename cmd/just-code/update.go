@@ -28,7 +28,7 @@ func updateCmd(args []string, projectRoot string) (int, error) {
 	for i := 0; i < len(args); i++ {
 		switch args[i] {
 		case "--help", "-h":
-			fmt.Println("Usage: just-code update [--skill <catalogue/id>]... [--yes]\n       just-code update --recover [--rollback] [--yes]\n\nReview selected versioned project skills against the current catalogue.\nWithout --yes, apply requires an interactive confirmation. A non-TTY run\nwithout --yes is preview-only. --recover --rollback restores the journaled\nprevious manifest and lock after backing up current managed files.")
+			fmt.Println("Usage : just-code update [--skill <catalogue/id>]... [--yes]\n        just-code update --recover [--rollback] [--yes]\n\nCompare les skills de projet versionnées sélectionnées au catalogue actuel.\nSans --yes, l'application demande une confirmation interactive. Une exécution\nsans terminal et sans --yes se contente d'un aperçu. --recover --rollback\nrestaure le manifeste et le verrou précédents consignés dans le journal, après\nsauvegarde des fichiers gérés actuels.")
 			return 0, nil
 		case "--skill":
 			if i+1 >= len(args) || strings.HasPrefix(args[i+1], "-") {
@@ -55,20 +55,20 @@ func updateCmd(args []string, projectRoot string) (int, error) {
 		}
 		if !rollback {
 			if err := justcode.RecoverProjectUpdate(justcode.DefaultFS, projectRoot); err != nil {
-				return 1, fmt.Errorf("%w\nIf the current managed files contain intentional edits, inspect the journal and run 'just-code update --recover --rollback' to restore the previous pair with backups", err)
+				return 1, fmt.Errorf("%w\nSi les fichiers gérés actuels contiennent des modifications voulues, inspectez le journal et lancez 'just-code update --recover --rollback' pour restaurer la paire précédente avec sauvegarde", err)
 			}
-			fmt.Println("Pending project update recovered, or no recovery was needed.")
+			fmt.Println("Mise à jour de projet en attente récupérée, ou aucune récupération n'était nécessaire.")
 			return 0, nil
 		}
 		if !approve {
 			if !isTTY() {
-				fmt.Println("Preview only: rollback restores the journaled previous manifest and lock, merging only the managed just-code section in AGENTS.md. Current managed files will be backed up under .just-code/recovery-backups/. Re-run with --yes to approve.")
+				fmt.Println("Aperçu seulement : le retour arrière restaure le manifeste et le verrou précédents consignés, en ne fusionnant que la section just-code gérée dans AGENTS.md. Les fichiers gérés actuels seront sauvegardés sous .just-code/recovery-backups/. Relancez avec --yes pour approuver.")
 				return 0, nil
 			}
-			fmt.Print("Restore the journaled previous project configuration? Current managed files will be backed up first. [y/N] ")
+			fmt.Print("Restaurer la configuration de projet précédente consignée ? Les fichiers gérés actuels seront d'abord sauvegardés. [o/N] ")
 			reply, _ := bufio.NewReader(os.Stdin).ReadString('\n')
-			if !strings.EqualFold(strings.TrimSpace(reply), "y") && !strings.EqualFold(strings.TrimSpace(reply), "yes") {
-				fmt.Println("No changes applied.")
+			if !isAffirmativeAnswer(reply) {
+				fmt.Println("Aucun changement appliqué.")
 				return 0, nil
 			}
 		}
@@ -76,7 +76,7 @@ func updateCmd(args []string, projectRoot string) (int, error) {
 		if err != nil {
 			return 1, err
 		}
-		fmt.Printf("Previous project configuration restored. Current managed files backed up under .just-code/recovery-backups/%s.\n", filepath.Base(backupDir))
+		fmt.Printf("Configuration de projet précédente restaurée. Fichiers gérés actuels sauvegardés sous .just-code/recovery-backups/%s.\n", filepath.Base(backupDir))
 		return 0, nil
 	}
 	if err := justcode.RecoverProjectUpdate(justcode.DefaultFS, projectRoot); err != nil {
@@ -87,7 +87,7 @@ func updateCmd(args []string, projectRoot string) (int, error) {
 		return 1, err
 	}
 	if manifest.SkillsLocalOnly {
-		return 1, fmt.Errorf("project skill updates currently require versioned skills; local-only selections were not changed")
+		return 1, fmt.Errorf("la mise à jour des skills de projet exige des skills versionnées ; les sélections locales n'ont pas été modifiées")
 	}
 	if len(selected) == 0 && len(manifest.Skills) == 0 {
 		plan, err := justcode.PlanProjectUpdate(context.Background(), justcode.DefaultFS, projectRoot, nil, "", nil)
@@ -97,7 +97,7 @@ func updateCmd(args []string, projectRoot string) (int, error) {
 		if !plan.NoOp {
 			return 1, fmt.Errorf("unexpected update plan for a project without versioned skills")
 		}
-		fmt.Println("No versioned project skills are selected; nothing to update.")
+		fmt.Println("Aucune skill de projet versionnée n'est sélectionnée ; rien à mettre à jour.")
 		return 0, nil
 	}
 	selectedIDs := make(map[string]bool, len(manifest.Skills))
@@ -107,10 +107,10 @@ func updateCmd(args []string, projectRoot string) (int, error) {
 	seen := map[string]bool{}
 	for _, id := range selected {
 		if !selectedIDs[id] {
-			return 2, fmt.Errorf("skill %q is not selected in this project", id)
+			return 2, fmt.Errorf("la skill %q n'est pas sélectionnée dans ce projet", id)
 		}
 		if seen[id] {
-			return 2, fmt.Errorf("skill %q was selected for update more than once", id)
+			return 2, fmt.Errorf("la skill %q a été sélectionnée plusieurs fois pour la mise à jour", id)
 		}
 		seen[id] = true
 	}
@@ -123,10 +123,10 @@ func updateCmd(args []string, projectRoot string) (int, error) {
 		return 1, err
 	}
 	if plan.NoOp {
-		fmt.Println("Project skills are already current; nothing changed.")
+		fmt.Println("Les skills de projet sont déjà à jour ; rien n'a changé.")
 		return 0, nil
 	}
-	fmt.Printf("Project skill update available at catalogue commit %s:\n", revision)
+	fmt.Printf("Mise à jour de skills disponible au commit de catalogue %s :\n", revision)
 	for _, change := range plan.Changes {
 		from := change.FromRevision
 		if from == "" {
@@ -151,13 +151,13 @@ func updateCmd(args []string, projectRoot string) (int, error) {
 	}
 	if !approve {
 		if !isTTY() {
-			fmt.Println("Preview only; no project files changed. Re-run with --yes to approve this update.")
+			fmt.Println("Aperçu seulement ; aucun fichier de projet modifié. Relancez avec --yes pour approuver cette mise à jour.")
 			return 0, nil
 		}
-		fmt.Print("Apply these selected project updates? [y/N] ")
+		fmt.Print("Appliquer ces mises à jour de projet sélectionnées ? [o/N] ")
 		reply, _ := bufio.NewReader(os.Stdin).ReadString('\n')
-		if !strings.EqualFold(strings.TrimSpace(reply), "y") && !strings.EqualFold(strings.TrimSpace(reply), "yes") {
-			fmt.Println("No changes applied.")
+		if !isAffirmativeAnswer(reply) {
+			fmt.Println("Aucun changement appliqué.")
 			return 0, nil
 		}
 	}
@@ -165,6 +165,16 @@ func updateCmd(args []string, projectRoot string) (int, error) {
 		return 1, err
 	}
 	fmt.Printf("Mise à jour de %d skills de projet et de leurs instructions gérées.\n", len(plan.Changes))
-	fmt.Println("Guest packages and runtime images are not changed or recreated by this command.")
+	fmt.Println("Cette commande ne modifie ni ne recrée les paquets de la machine isolée ni ses images d'exécution.")
 	return 0, nil
+}
+
+// isAffirmativeAnswer reports whether a free-text confirmation answer means yes.
+// French prompts accept both the French and English forms, as the init prompts do.
+func isAffirmativeAnswer(answer string) bool {
+	switch strings.ToLower(strings.TrimSpace(answer)) {
+	case "o", "oui", "y", "yes":
+		return true
+	}
+	return false
 }

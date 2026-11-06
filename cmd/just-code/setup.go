@@ -67,7 +67,7 @@ func setupCmd(args []string) (int, error) {
 		return setupDoctorCmd(jsonOutput)
 	}
 	if isTTY() && !stdoutIsTTY() {
-		return 1, fmt.Errorf("interactive setup requires stdout to be a terminal; stdout is redirected or points at %s", os.DevNull)
+		return 1, fmt.Errorf("la configuration interactive exige que la sortie standard soit un terminal ; elle est redirigée ou pointe vers %s", os.DevNull)
 	}
 	return setupRunCmd(fallback)
 }
@@ -103,17 +103,17 @@ func setupDoctorCmd(jsonOutput bool) (int, error) {
 		printDiagnosticsPlain(report)
 	}
 	if report.Fatal || hasFailedDiagnostics(report) {
-		fmt.Println("Result: one or more checks failed. Fix the failures above and re-run.")
+		fmt.Println("Résultat : au moins un contrôle a échoué. Corrigez les échecs ci-dessus puis relancez.")
 		return 1, nil
 	}
-	fmt.Println("Result: no blocking issue found. Run 'just-code setup' to change configuration or install the runtime.")
+	fmt.Println("Résultat : aucun problème bloquant détecté. Lancez 'just-code setup' pour modifier la configuration ou installer le runtime.")
 	return 0, nil
 }
 
 // printDiagnosticsPlain is the stable non-TTY representation: no styling, no
 // terminal control, and the same section/item/status facts as the TUI view.
 func printDiagnosticsPlain(report justcode.DiagnosticsReport) {
-	fmt.Printf("Platform: %s\n", report.Platform)
+	fmt.Printf("Plateforme : %s\n", report.Platform)
 	for _, section := range report.Sections {
 		fmt.Println(section.Title + ":")
 		for _, item := range section.Items {
@@ -146,11 +146,11 @@ func yn(b bool) string {
 func humanBytes(n int64) string {
 	switch {
 	case n >= 1<<30:
-		return fmt.Sprintf("%.1f GiB", float64(n)/(1<<30))
+		return fmt.Sprintf("%.1f Go", float64(n)/(1<<30))
 	case n >= 1<<20:
-		return fmt.Sprintf("%.1f MiB", float64(n)/(1<<20))
+		return fmt.Sprintf("%.1f Mo", float64(n)/(1<<20))
 	default:
-		return strconv.FormatInt(n, 10) + " B"
+		return strconv.FormatInt(n, 10) + " o"
 	}
 }
 
@@ -175,7 +175,7 @@ const setupIntroScreen = `       _            __                    __
 just code : coder avec l'IA souveraine de l'État, dans une machine isolée.
 
 Cette configuration se fait une seule fois sur ce poste.
-Durée : environ 3 minutes. Espace disque : environ 2 Go.
+Durée : quelques minutes pour répondre aux questions. Espace disque : au moins 1 Go libre pour la machine isolée.
 
 3 étapes :
   1. Plateformes d'inférence (au moins une) : Albert API, Mistral AI ou une plateforme compatible OpenAI.
@@ -274,10 +274,10 @@ func setupWizardRun(fallback bool, in *bufio.Reader, validate func(context.Conte
 		res := setupPreflightFn(ctx)
 		j.Preflight = res
 		if res.Fatal {
-			fmt.Println("This host cannot run just-code's managed runtime:")
+			fmt.Println("Ce poste ne peut pas exécuter la machine isolée de just-code :")
 			printPreflight(res)
 			_ = justcode.WriteSetupJournal(fs, stateDir, j)
-			return 1, fmt.Errorf("setup stopped: fix the failures above, then re-run 'just-code setup'")
+			return 1, fmt.Errorf("installation interrompue : corrigez les points ci-dessus, puis relancez 'just-code setup'")
 		}
 		// Intro before any prompt: on a fresh run the user has just been
 		// dropped into the wizard with no explanation of what it will ask
@@ -305,7 +305,7 @@ func setupWizardRun(fallback bool, in *bufio.Reader, validate func(context.Conte
 		case probe.Rejected:
 			return justcode.RejectedCredentialError{Detail: probe.Detail}
 		case probe.Unreachable:
-			return fmt.Errorf("could not reach the Albert endpoint: %s", probe.Detail)
+			return fmt.Errorf("impossible de joindre le point d'accès Albert : %s", probe.Detail)
 		}
 		return nil
 	}
@@ -428,7 +428,7 @@ setupStages:
 			}
 			ref := "albert/" + id
 			if warn := validateModel(ref); warn != "" {
-				fmt.Fprintf(os.Stderr, "Warning: %s\n", warn)
+				fmt.Fprintf(os.Stderr, "Attention : %s\n", warn)
 			}
 		}
 	}
@@ -1509,7 +1509,7 @@ func setupRuntimeSummary(preflight justcode.SetupPreflight) string {
 	if preflight.RuntimeInstalled {
 		return "La machine isolée est déjà installée. just-code la vérifiera et la réutilisera, sans téléchargement."
 	}
-	return "just-code téléchargera et vérifiera la machine isolée si aucune installation valide n'est disponible.\nEspace recommandé : environ 2 Go ; le contrôle bloque sous 1 Gio libre. Durée estimée : quelques minutes selon votre connexion."
+	return "just-code téléchargera et vérifiera la machine isolée si aucune installation valide n'est disponible.\nLa préparation au premier lancement se fait en trois temps : téléchargement, installation, puis démarrage. La durée dépend de votre connexion ; le contrôle bloque sous 1 Go libre."
 }
 
 func setupReviewChoice(in *bufio.Reader) (string, error) {
@@ -2572,15 +2572,15 @@ func githubClassicChoice(in *bufio.Reader) (replace, abort bool) {
 const githubClassicWarning = "Ce jeton est un jeton classique, avec des droits larges. Un jeton fine-grained, limité à vos dépôts, est recommandé."
 
 func printPreflight(res justcode.SetupPreflight) {
-	fmt.Printf("  Platform: %s\n", res.Platform)
+	fmt.Printf("  Plateforme : %s\n", res.Platform)
 	if !res.VirtualizationOK {
-		fmt.Printf("  Virtualization: %s\n", res.VirtualizationDetail)
+		fmt.Printf("  Virtualisation : %s\n", res.VirtualizationDetail)
 	}
 	if res.DiskDetail != "" {
 		// A probe ran and failed: report the failure, never a fabricated 0.
-		fmt.Printf("  Disk free: probe failed (%s)\n", res.DiskDetail)
+		fmt.Printf("  Espace disque libre : échec du contrôle (%s)\n", res.DiskDetail)
 	} else if !res.DiskOK && res.DiskFreeBytes >= 0 {
-		fmt.Printf("  Disk free: %s (need at least 1 GiB)\n", humanBytes(res.DiskFreeBytes))
+		fmt.Printf("  Espace disque libre : %s (au moins 1 Go requis)\n", humanBytes(res.DiskFreeBytes))
 	}
 }
 
