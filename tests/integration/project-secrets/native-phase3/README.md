@@ -32,7 +32,7 @@ another owner).
    (`Shell` / `FS().Write`). The probe asserts byte-exact content, marker-only
    values, no canary on disk, and no leftover temp files.
 4. **Real guest apps, real loaders, real substitution.** Inside the guest,
-   a Node app using **dotenv@16.6.1 + dotenv-expand@13.0.0** and a Python app
+   a Node app using **dotenv@18.0.9 + dotenv-expand@13.0.0** and a Python app
    using **python-dotenv==1.2.4** each read their dotenv file and send the
    value as an HTTPS header to the lab. The probe asserts each app parsed the
    FILE's marker (not its environment), and that the lab received the

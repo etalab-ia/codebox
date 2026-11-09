@@ -24,16 +24,18 @@ tests clear the environment temporarily, and Go uses `Unmarshal` only.
 
 | Loader | Version | Opaque marker | Dollar marker |
 |---|---|---|---|
-| Node dotenv | 16.6.1 | Preserved, unquoted/single/double quoted | Preserved by parse alone |
+| Node dotenv | 18.0.9 | Preserved, unquoted/single/double quoted | Preserved by parse alone |
 | Node dotenv-expand | 13.0.0 | Preserved in all tested quote modes | Undefined `$MSB_...` erased, including after quoted parsing |
 | Python python-dotenv | 1.2.4 | Preserved in all tested quote/interpolation modes | Bare `$MSB_...` preserved; `${MSB_...}` erased with interpolation |
 | Go godotenv | 1.5.1 | Preserved in all tested quote modes | Unquoted undefined `$MSB_...` erased |
 
 First measured 2026-10-14 on Node 16.4.7 / expand 12.0.2 / Python 1.2.2, and
-re-measured 2026-10-25 on the pinned set above after the fixture bump: the
-behaviour of every row is unchanged. The suites grew since the first run; Node
-now reports 46 tests and Python 16, all passing. Two component fixtures use the
-same application key with distinct markers.
+re-measured 2026-10-25 after the fixture bump, on the set then pinned (Node
+16.6.1 / expand 12.0.3 / Python 1.2.4), then again 2026-11-09 on the `dotenv`
+18.0.9 direct pin (`dotenv-expand` 13.0.0 unchanged): the behaviour of every row
+is unchanged. The suites grew since the first run; Node now reports 46 tests and
+Python 16, all passing. Two component fixtures use the same application key with
+distinct markers.
 
 Two majors were evaluated rather than applied blindly.
 
@@ -67,11 +69,16 @@ loads `python-dotenv`, so its 16 tests qualify the applied `python-dotenv`
 1.2.4 pin only. The native macOS arm64 run predates this upgrade and remains
 tied to its recorded loader versions.
 
-`dotenv` 17.4.2 and `dotenv` 18.0.8, as offered by Dependabot #254 / #262,
-also pass all 46 Node tests and carry no OSV advisory. They remain deferred
-until a native guest qualification re-run covers them; the `dotenv` direct pin
-stays at 16.6.1 while `dotenv-expand` 13.0.0 resolves its own 17.4.2
-dependency in the lockfile.
+`dotenv` 18.0.9, applied by Dependabot #344, passes the same 46 Node tests
+against `dotenv-expand` 13.0.0 and carries no OSV advisory; nor does the
+`dotenv` 17.4.2 that `dotenv-expand` 13.0.0 keeps for itself in the lockfile.
+The major Dependabot had offered before it, `dotenv` 18.0.8 (#254 / #262), was
+deferred while the direct pin stayed at 16.6.1, because the recorded native
+guest qualification had been measured against that pin. (`dotenv` 17.4.2 is not
+a candidate of its own: it is the version `dotenv-expand` 13.0.0 keeps for
+itself in the lockfile.) #344 re-measures the host-side suite on 18.0.9 and
+moves the direct pin, under the same native gap `dotenv-expand` 13.0.0 already
+carries.
 
 ## Design Consequence and Remaining Gate
 
