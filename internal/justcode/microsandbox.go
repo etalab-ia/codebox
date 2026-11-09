@@ -57,22 +57,7 @@ const (
 	msbBrowserMCPBinariesEnv    = "JUST_CODE_BROWSER_MCP_BINARIES"
 	msbBrowserMCPFingerprintEnv = "JUST_CODE_BROWSER_MCP_FINGERPRINT"
 
-	// msbGuestPrepareProbe reports the guest's preparation state through its
-	// exit code (Exec surfaces stderr only): ready, preparing, or idle with
-	// nothing running. The process scan reads /proc rather than using pgrep,
-	// which guest-prep only installs partway through — during a first install
-	// pgrep is absent exactly when "is something preparing?" matters. The
-	// probe skips its own PID: its command line necessarily contains the
-	// entrypoint path it greps for.
-	msbGuestPrepareProbe = "fingerprint=\"${" + msbBrowserMCPFingerprintEnv + ":-}\"; " +
-		"if [ -f " + msbToolchainMarker + " ] && [ \"$(opencode --version 2>/dev/null)\" = \"opencode v" + OpenCodeVersion + "\" ]; then " +
-		"if [ -z \"$fingerprint\" ] || [ \"$(cat " + msbBrowserMCPMarker + " 2>/dev/null)\" = \"$fingerprint\" ]; then exit 0; fi; fi; " +
-		"self=$$; " +
-		"for p in /proc/[0-9]*/cmdline; do " +
-		"[ \"$p\" = \"/proc/$self/cmdline\" ] && continue; " +
-		"tr '\\0' ' ' < \"$p\" 2>/dev/null | grep -q '" + msbGuestEntrypoint + "' && exit 2; " +
-		"done; exit 3"
-
+	// The probe's exit codes: ready, preparing, or idle with nothing running.
 	msbPrepareReady    = 0
 	msbPrepareProgress = 2
 	msbPrepareIdle     = 3
@@ -203,7 +188,7 @@ func (m *MicrosandboxRuntime) announceExistingStart(ctx context.Context) {
 	if m.Launch == nil {
 		return
 	}
-	code, _, err := m.Client.Exec(ctx, m.InstanceName(), msbGuestPrepareProbe)
+	code, _, err := m.Client.Exec(ctx, m.InstanceName(), msbGuestPrepareProbeFor(m.cfg.EffectiveHarness()))
 	switch {
 	case err == nil && code == msbPrepareReady:
 		m.Launch.AnnounceWarmStart()
@@ -864,7 +849,7 @@ func (m *MicrosandboxRuntime) startInstanceWithBackendPreflight(ctx context.Cont
 		if err := beforeBackendLaunch(); err != nil {
 			return err
 		}
-		m.say("Launching OpenCode inside %s...", m.InstanceName())
+		m.say("Launching %s inside %s...", m.cfg.EffectiveHarness().DisplayName(), m.InstanceName())
 		return m.launchBackend(ctx)
 	}
 
@@ -924,7 +909,7 @@ func (m *MicrosandboxRuntime) waitForToolchain(ctx context.Context) error {
 	defer cancel()
 	relaunches := 0
 	for first := true; ; first = false {
-		code, _, err := m.Client.Exec(ctx, m.InstanceName(), msbGuestPrepareProbe)
+		code, _, err := m.Client.Exec(ctx, m.InstanceName(), msbGuestPrepareProbeFor(m.cfg.EffectiveHarness()))
 		if err == nil {
 			switch {
 			case code == msbPrepareReady:
@@ -960,6 +945,37 @@ func (m *MicrosandboxRuntime) waitForToolchain(ctx context.Context) error {
 	}
 }
 
+// msbGuestPrepareProbe is the preparation probe for the OpenCode harness, the
+// default. A Pi guest is probed for Pi instead: the two harnesses have
+// different prep scripts and different binaries to wait for.
+var msbGuestPrepareProbe = msbGuestPrepareProbeFor(HarnessOpenCode)
+
+// msbGuestPrepareProbeFor reports the guest's preparation state through its
+// exit code (Exec surfaces stderr only): ready, preparing, or idle with
+// nothing running. The process scan reads /proc rather than using pgrep,
+// which guest-prep only installs partway through — during a first install
+// pgrep is absent exactly when "is something preparing?" matters. The probe
+// skips its own PID: its command line necessarily contains the entrypoint path
+// it greps for.
+//
+// Readiness means the guest provides the harness's own CLI at the pinned
+// version: the prep script installs a different toolchain for Pi than for
+// OpenCode, so "the toolchain is ready" is not a harness-independent fact.
+func msbGuestPrepareProbeFor(harness Harness) string {
+	toolchain := "[ \"$(opencode --version 2>/dev/null)\" = \"opencode v" + OpenCodeVersion + "\" ]"
+	if harness == HarnessPi {
+		toolchain = "[ \"$(pi --version 2>/dev/null)\" = \"" + PiVersion + "\" ]"
+	}
+	return "fingerprint=\"${" + msbBrowserMCPFingerprintEnv + ":-}\"; " +
+		"if [ -f " + msbToolchainMarker + " ] && " + toolchain + "; then " +
+		"if [ -z \"$fingerprint\" ] || [ \"$(cat " + msbBrowserMCPMarker + " 2>/dev/null)\" = \"$fingerprint\" ]; then exit " + strconv.Itoa(msbPrepareReady) + "; fi; fi; " +
+		"self=$$; " +
+		"for p in /proc/[0-9]*/cmdline; do " +
+		"[ \"$p\" = \"/proc/$self/cmdline\" ] && continue; " +
+		"tr '\\0' ' ' < \"$p\" 2>/dev/null | grep -q '" + msbGuestEntrypoint + "' && exit " + strconv.Itoa(msbPrepareProgress) + "; " +
+		"done; exit " + strconv.Itoa(msbPrepareIdle)
+}
+
 // sandboxSpec builds the full sandbox configuration from the config, the
 // resolved bindings, and the embedded OpenCode config and start script. The
 // secret proxy is configured identically for both isolation modes: where the
@@ -968,6 +984,12 @@ func (m *MicrosandboxRuntime) waitForToolchain(ctx context.Context) error {
 // withHostSecrets.
 func (m *MicrosandboxRuntime) sandboxSpec(bindings []resolvedBinding) msbSandboxSpec {
 	mcpIDs := m.OpenCodeOverlay.MCPConnectors
+	harness := m.cfg.EffectiveHarness()
+	if harness == HarnessPi {
+		// Pi has no MCP support: the managed connectors are not applicable, so
+		// they must not select the heavier browser image either.
+		mcpIDs = nil
+	}
 	return msbSandboxSpec{
 		Name:            m.InstanceName(),
 		Image:           msbImageForMCPs(mcpIDs),
@@ -979,7 +1001,7 @@ func (m *MicrosandboxRuntime) sandboxSpec(bindings []resolvedBinding) msbSandbox
 		Ports:           append([]PortMapping(nil), m.cfg.Ports...),
 		PortsConfigured: m.cfg.PortsConfigured,
 		Bindings:        bindingsMetadata(bindings),
-		StartScript:     msbStartScriptFor(m.cfg.Isolation, mcpIDs),
+		StartScript:     msbStartScriptFor(m.cfg.Isolation, mcpIDs, harness),
 	}
 }
 
@@ -1006,6 +1028,9 @@ func (m *MicrosandboxRuntime) nextStartEnv() map[string]string {
 		msbGitNameEnv:                name,
 		msbGitEmailEnv:               email,
 	}
+	for key, value := range piSandboxEnv(m.cfg.EffectiveHarness(), m.OpenCodeOverlay) {
+		env[key] = value
+	}
 	for key, value := range browserGuestEnv(m.OpenCodeOverlay.MCPConnectors) {
 		env[key] = value
 	}
@@ -1024,6 +1049,9 @@ func (m *MicrosandboxRuntime) sandboxEnv() map[string]string {
 		// rather than losing the provider block entirely.
 		content = opencodeConfigContent
 	}
+	// The commit identity for guest work (P11 settings, documented defaults
+	// otherwise). It is configuration, not a secret.
+	name, email := guestGitIdentity(m.guestGitConfig())
 	env := map[string]string{
 		"JUST_CODE_OPENCODE_VERSION": OpenCodeVersion,
 		OpenCodeDisableUpdateEnv:     "1",
@@ -1031,15 +1059,46 @@ func (m *MicrosandboxRuntime) sandboxEnv() map[string]string {
 		"OPENCODE_SERVER_PASSWORD":   m.cfg.Password,
 		"OPENCODE_SERVER_USERNAME":   m.cfg.Username,
 		"OPENCODE_CONFIG_CONTENT":    content,
+		msbGitNameEnv:                name,
+		msbGitEmailEnv:               email,
 	}
-	// The commit identity for guest work (P11 settings, documented defaults
-	// otherwise). It is configuration, not a secret.
-	name, email := guestGitIdentity(m.guestGitConfig())
-	env[msbGitNameEnv] = name
-	env[msbGitEmailEnv] = email
+	for key, value := range piSandboxEnv(m.cfg.EffectiveHarness(), m.OpenCodeOverlay) {
+		env[key] = value
+	}
 	for key, value := range browserGuestEnv(m.OpenCodeOverlay.MCPConnectors) {
 		env[key] = value
 	}
+	return env
+}
+
+// piSandboxEnv returns the Pi-specific guest environment: the pinned release
+// and the managed configuration. It is empty for another harness, so the
+// OpenCode guest environment is unchanged.
+//
+// A composition failure omits the configuration variables on purpose. The prep
+// script runs under `set -u` and refuses to announce readiness without them, so
+// the launch fails with a visible preparation error instead of starting Pi
+// without any provider.
+func piSandboxEnv(harness Harness, overlay ManagedOverlay) map[string]string {
+	if harness != HarnessPi {
+		return nil
+	}
+	env := map[string]string{
+		PiVersionEnv:          PiVersion,
+		PiSkipVersionCheckEnv: "1",
+	}
+	models, err := ComposePiModelsConfig(overlay)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: cannot compose the Pi provider configuration: %v\n", err)
+		return env
+	}
+	settings, err := ComposePiSettingsConfig()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: cannot compose the Pi settings: %v\n", err)
+		return env
+	}
+	env[PiModelsEnv] = models
+	env[PiSettingsEnv] = settings
 	return env
 }
 
@@ -1478,6 +1537,9 @@ func (m *MicrosandboxRuntime) Shell() error {
 // with /workspace as its working directory (isolation full). The SDK attach
 // channel passes the host terminal through.
 func (m *MicrosandboxRuntime) RunAgent(ctx context.Context) error {
+	if m.cfg.EffectiveHarness() == HarnessPi {
+		return m.runPiAgent(ctx)
+	}
 	sessions, _, listCode, listErr := m.Client.ExecCapture(ctx, m.InstanceName(), "cd /workspace && opencode session list --standalone --format json")
 	if listErr == nil && listCode != 0 {
 		listErr = fmt.Errorf("OpenCode session list exited with code %d", listCode)
@@ -1516,6 +1578,39 @@ func (m *MicrosandboxRuntime) RunAgent(ctx context.Context) error {
 		return fmt.Errorf("opencode TUI exited %d inside %s", code, m.InstanceName())
 	}
 	return nil
+}
+
+// runPiAgent attaches Pi's TUI inside the guest. Pi has no server mode, so
+// this is the only shape it has in full isolation: the agent, its
+// configuration and its sessions stay in the guest, and the host is only a
+// terminal passthrough. There is no session listing CLI to probe, so the
+// resume decision reads the session store the same way Pi does.
+func (m *MicrosandboxRuntime) runPiAgent(ctx context.Context) error {
+	if m.Launch != nil && m.Launch.Terminal {
+		for _, line := range m.Launch.Checklist() {
+			fmt.Fprintln(os.Stderr, line)
+		}
+	}
+	code, err := m.Client.AttachInteractive(ctx, m.InstanceName(), "pi",
+		piResumeArgs(m.piGuestHasSessions(ctx)), "/workspace")
+	if err != nil {
+		return err
+	}
+	if code != 0 {
+		return fmt.Errorf("Pi TUI exited %d inside %s", code, m.InstanceName())
+	}
+	return nil
+}
+
+// piGuestHasSessions reports whether the guest holds a saved Pi session. A
+// probe that cannot run reports "no session": starting a fresh session is
+// always a valid launch, unlike attaching to a guest that is not there.
+func (m *MicrosandboxRuntime) piGuestHasSessions(ctx context.Context) bool {
+	out, _, _, err := m.Client.ExecCapture(ctx, m.InstanceName(), piGuestSessionProbe())
+	if err != nil {
+		return false
+	}
+	return strings.TrimSpace(out) != ""
 }
 
 // Status describes the sandbox's current state, for `check` in isolation

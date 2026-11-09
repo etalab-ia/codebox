@@ -389,6 +389,18 @@ func (w InitWizard) Plan(answers InitAnswers) (InitPlan, error) {
 	}
 	plan.Answers.Isolation = iso
 
+	// The harness (#176). An empty answer means the default, and the pair
+	// harness/isolation is validated here so the wizard refuses a combination
+	// the guest cannot run before it writes anything.
+	harness, err := ResolveHarness(string(answers.Harness))
+	if err != nil {
+		return plan, err
+	}
+	if err := ValidateHarnessIsolation(harness, iso); err != nil {
+		return plan, err
+	}
+	plan.Answers.Harness = string(harness)
+
 	if model := strings.TrimSpace(answers.Model); model != "" {
 		plan.Answers.Model = model
 		if w.ValidateModel != nil {
@@ -787,7 +799,11 @@ func FormatInteractiveInitReview(plan InitPlan) string {
 	if a.Model == "" && plan.DefaultModelName != "" {
 		model = plan.DefaultModelName
 	}
-	row("Agent", "OpenCode, modèle "+model)
+	harness := DefaultHarness
+	if resolved, err := ResolveHarness(a.Harness); err == nil {
+		harness = resolved
+	}
+	row("Agent", harness.DisplayName()+", modèle "+model)
 	if a.SmallModel != "" {
 		row("Petit modèle", initReviewModelName(a.SmallModel))
 	}
@@ -1229,6 +1245,7 @@ func (w InitWizard) applyLocked(plan InitPlan, replace bool) error {
 		Runtime:         string(plan.Answers.Runtime),
 		Isolation:       string(plan.Answers.Isolation),
 		Model:           plan.Answers.Model,
+		Harness:         string(plan.Answers.Harness),
 		SmallModel:      plan.Answers.SmallModel,
 		CPUs:            plan.Answers.CPUs,
 		MemoryMB:        plan.Answers.MemoryMB,

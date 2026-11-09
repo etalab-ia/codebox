@@ -209,15 +209,37 @@ func run(args []string) (int, error) {
 	// configuration contract (#29). Resolving them before any backend is
 	// constructed is what makes them effective rather than merely displayed.
 	manifestRuntime, manifestIsolation := projectRuntimeIsolation(projectRoot)
+	// The agent harness (#176). Like the runtime and isolation, it is resolved
+	// after discovery and before any backend is constructed: the backends read
+	// cfg.Harness when they are built.
+	harness, harnessErr := resolveHarnessSelection(projectRoot)
+	if harnessErr != nil {
+		if isLaunchAction(parsed.action) {
+			return 2, harnessErr
+		}
+		fmt.Fprintf(os.Stderr, "Warning: %v; using the default agent harness\n", harnessErr)
+	}
+	cfg.Harness = harness
 	var launch *justcode.LaunchUX
 	if isLaunchAction(parsed.action) && runtimeUsesMicrosandbox(parsed.runtime, manifestRuntime) {
-		launch = justcode.NewLaunchUX(projectRoot, "OpenCode")
+		launch = justcode.NewLaunchUX(projectRoot, harness.DisplayName())
 		launch.TimingStore = justcode.DefaultLaunchTimingStore()
 	}
 	// Resolve the isolation level before any backend is constructed: the
 	// backends read cfg.Isolation at construction time, so applying the flag
 	// afterwards would leave them in the wrong mode.
 	cfg, isoErr := applyIsolation(cfg, parsed.isolation, manifestIsolation)
+	// A harness without a server mode cannot run in backend isolation. The
+	// pair is checked as soon as both are known, so the refusal happens before
+	// a guest is created rather than when the launch finds nothing to attach to.
+	if isoErr == nil {
+		if err := justcode.ValidateHarnessIsolation(cfg.EffectiveHarness(), cfg.Isolation); err != nil {
+			if isLaunchAction(parsed.action) {
+				return 2, err
+			}
+			fmt.Fprintf(os.Stderr, "Warning: %v\n", err)
+		}
+	}
 	// Guest sizing from the project manifest (P12b). A malformed value is
 	// fatal only where the guest would actually be created; read-only
 	// commands keep working, which is when the user needs them.
@@ -793,6 +815,20 @@ func resolveModelSelection(projectRoot string) string {
 		}
 	}
 	return ""
+}
+
+// resolveHarnessSelection applies the harness precedence (#176):
+// JUST_CODE_HARNESS > project manifest > default (OpenCode). An unrecognised
+// value is an error rather than a silent fallback: running a different agent
+// than the project asked for is exactly what this setting exists to prevent.
+func resolveHarnessSelection(projectRoot string) (justcode.Harness, error) {
+	if v := strings.TrimSpace(os.Getenv("JUST_CODE_HARNESS")); v != "" {
+		return justcode.ResolveHarness(v)
+	}
+	if pm, err := justcode.ReadProjectManifest(justcode.DefaultFS, justcode.ProjectManifestPath(projectRoot)); err == nil && pm.Harness != "" {
+		return justcode.ResolveHarness(pm.Harness)
+	}
+	return justcode.ResolveHarness("")
 }
 
 // resolveSmallModelSelection reads the explicit project-only lightweight

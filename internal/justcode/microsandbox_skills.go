@@ -197,7 +197,7 @@ func skillPackagesBySelection(ids []string, packages []SkillPackage) (map[string
 }
 
 func (m *MicrosandboxRuntime) readGuestSkillInventory(ctx context.Context) (guestSkillInventory, error) {
-	stdout, stderr, code, err := m.execCaptureWithGuestAgentRetry(ctx, readGuestSkillInventoryScript())
+	stdout, stderr, code, err := m.execCaptureWithGuestAgentRetry(ctx, readGuestSkillInventoryScript(m.cfg.EffectiveHarness()))
 	if err != nil {
 		return guestSkillInventory{}, fmt.Errorf("read guest skill inventory: %w", err)
 	}
@@ -247,14 +247,21 @@ func (m *MicrosandboxRuntime) execCaptureWithGuestAgentRetry(ctx context.Context
 	return stdout, stderr, code, err
 }
 
-func readGuestSkillInventoryScript() string {
-	const script = "set -eu\n" +
+func readGuestSkillInventoryScript(harness Harness) string {
+	// The OpenCode path goes through config_home so the documented
+	// XDG_CONFIG_HOME fallback applies; Pi's configuration directory is not an
+	// XDG path and is anchored on the guest home.
+	skills := `"$config_home/opencode/skills"`
+	if harness == HarnessPi {
+		skills = `"$HOME/.pi/agent/skills"`
+	}
+	return "set -eu\n" +
 		"config_home=${XDG_CONFIG_HOME:-\"$HOME/.config\"}\n" +
 		"case \"$config_home\" in /*) ;; *) echo 'XDG_CONFIG_HOME must be absolute' >&2; exit 1 ;; esac\n" +
 		"state=\"$config_home/just-code\"\n" +
 		"index=\"$state/project-skills.json\"\n" +
-		"skills=\"$config_home/opencode/skills\"\n" +
-		"if [ -L \"$config_home\" ] || [ -L \"$config_home/opencode\" ] || [ -L \"$config_home/opencode/skills\" ] || [ -L \"$state\" ] || [ -L \"$index\" ]; then echo 'refusing a symlink in the managed skill state path' >&2; exit 1; fi\n" +
+		"skills=" + skills + "\n" +
+		"if [ -L \"$config_home\" ] || [ -L \"$state\" ] || [ -L \"$index\" ]; then echo 'refusing a symlink in the managed skill state path' >&2; exit 1; fi\n" +
 		"if [ -e \"$state\" ] && [ ! -d \"$state\" ]; then echo 'managed skill state path is not a directory' >&2; exit 1; fi\n" +
 		"if [ -e \"$index\" ] && [ ! -f \"$index\" ]; then echo 'managed skill inventory is not a regular file' >&2; exit 1; fi\n" +
 		"if [ -f \"$index\" ]; then cat -- \"$index\"; else\n" +
@@ -263,7 +270,6 @@ func readGuestSkillInventoryScript() string {
 		"  done\n" +
 		"  printf '%s\\n' '{\"schemaVersion\":1,\"skills\":[]}'\n" +
 		"fi\n"
-	return script
 }
 
 func skillNameFromID(id string) string {
@@ -286,7 +292,7 @@ func (m *MicrosandboxRuntime) preflightGuestSkills(ctx context.Context, old gues
 		allowed[pkg.Name][pkg.Lock.Revision+":"+pkg.Lock.SHA256] = true
 	}
 	var b strings.Builder
-	b.WriteString(guestSkillPathsPrelude())
+	b.WriteString(guestSkillPathsPrelude(m.cfg.EffectiveHarness()))
 	names := make([]string, 0, len(allowed))
 	for name := range allowed {
 		names = append(names, name)
@@ -346,10 +352,28 @@ func guestSkillInventoryOrphanCheckScript(allowedNames []string) string {
 	return b.String()
 }
 
-func guestSkillPathsPrelude() string {
-	return "set -eu\n" +
+// guestSkillPathsPrelude returns the shared shell prelude for the managed
+// skill scripts. It defines two variables every caller uses: `config_home`,
+// which holds just-code's own state, and `parent`, the harness-specific
+// directory the managed skills are installed into.
+//
+// The two harnesses read skills from different places — OpenCode from its
+// config directory, Pi from ~/.pi/agent/skills — and both are outside the
+// project, so the guest workspace never gains files the user did not write.
+// A symlink anywhere on the path is refused: the skills are written by
+// just-code and read by the agent, and a repointed path would let a project
+// redirect that write.
+func guestSkillPathsPrelude(harness Harness) string {
+	common := "set -eu\n" +
 		"config_home=${XDG_CONFIG_HOME:-\"$HOME/.config\"}\n" +
-		"case \"$config_home\" in /*) ;; *) echo 'XDG_CONFIG_HOME must be absolute' >&2; exit 1 ;; esac\n" +
+		"case \"$config_home\" in /*) ;; *) echo 'XDG_CONFIG_HOME must be absolute' >&2; exit 1 ;; esac\n"
+	if harness == HarnessPi {
+		return common +
+			"if [ -z \"${HOME:-}\" ]; then echo 'HOME is not set in the guest' >&2; exit 1; fi\n" +
+			"if [ -L \"$HOME/.pi\" ] || [ -L \"$HOME/.pi/agent\" ] || [ -L \"$HOME/.pi/agent/skills\" ]; then echo 'refusing a symlink in the guest skill path' >&2; exit 1; fi\n" +
+			"parent=\"$HOME/.pi/agent/skills\"\n"
+	}
+	return common +
 		"if [ -L \"$config_home/opencode\" ] || [ -L \"$config_home/opencode/skills\" ]; then echo 'refusing a symlink in the guest skill path' >&2; exit 1; fi\n" +
 		"parent=\"$config_home/opencode/skills\"\n"
 }
@@ -365,7 +389,7 @@ func guestSkillDirectoryIntegrityScript(dest string) string {
 func (m *MicrosandboxRuntime) installOneProjectSkill(ctx context.Context, skill SkillPackage, archivePath string) error {
 	marker := skill.Lock.Revision + ":" + skill.Lock.SHA256
 	var b strings.Builder
-	b.WriteString(guestSkillPathsPrelude())
+	b.WriteString(guestSkillPathsPrelude(m.cfg.EffectiveHarness()))
 	fmt.Fprintf(&b, "archive=%s\n", shellQuote(archivePath))
 	fmt.Fprintf(&b, "dest=\"$parent/%s\"\n", skill.Name)
 	fmt.Fprintf(&b, "marker=%s\n", shellQuote(marker))
@@ -393,7 +417,7 @@ func (m *MicrosandboxRuntime) installOneProjectSkill(ctx context.Context, skill 
 
 func (m *MicrosandboxRuntime) commitGuestSkillInventory(ctx context.Context, desired []guestSkillEntry, indexArchive string) error {
 	var b strings.Builder
-	b.WriteString(guestSkillPathsPrelude())
+	b.WriteString(guestSkillPathsPrelude(m.cfg.EffectiveHarness()))
 	b.WriteString("index=\"$config_home/just-code/project-skills.json\"\n")
 	b.WriteString("mkdir -p -- \"$config_home/just-code\"\n")
 	b.WriteString("if [ -L \"$index\" ]; then echo 'refusing a symlink at the guest skill inventory' >&2; exit 1; fi\n")
@@ -407,6 +431,13 @@ func (m *MicrosandboxRuntime) commitGuestSkillInventory(ctx context.Context, des
 func (m *MicrosandboxRuntime) verifyProjectSkills(ctx context.Context) error {
 	if len(m.cfg.ProjectSkills) == 0 {
 		return nil
+	}
+	// Pi exposes no skill-listing surface to query from the host, so its
+	// verification is at the filesystem level: the managed directories must be
+	// there, which is what just-code delivered. OpenCode is asked what it
+	// actually discovered, which is the stronger check and stays as it was.
+	if m.cfg.EffectiveHarness() == HarnessPi {
+		return m.verifyPiProjectSkills(ctx)
 	}
 	stdout, stderr, code, err := m.Client.ExecCapture(ctx, m.InstanceName(), "opencode api --standalone GET /api/skill")
 	if err != nil {
@@ -440,6 +471,25 @@ func (m *MicrosandboxRuntime) verifyProjectSkills(ctx context.Context) error {
 		if seen[skill.Name] > 1 {
 			return fmt.Errorf("verify guest skill discovery: OpenCode reports the pinned skill %q more than once", skill.Name)
 		}
+	}
+	return nil
+}
+
+// verifyPiProjectSkills checks that every pinned skill is present in the
+// directory Pi reads. Each managed skill directory carries its own
+// .just-code-source marker and a verified checksum list, so the check reads
+// just-code's own bookkeeping rather than trusting a listing.
+func (m *MicrosandboxRuntime) verifyPiProjectSkills(ctx context.Context) error {
+	var b strings.Builder
+	b.WriteString(guestSkillPathsPrelude(HarnessPi))
+	for _, skill := range m.cfg.ProjectSkills {
+		fmt.Fprintf(&b, "dest=\"$parent/%s\"\n", skill.Name)
+		b.WriteString("if [ ! -d \"$dest\" ]; then echo \"managed skill directory is missing\" >&2; exit 1; fi\n")
+		b.WriteString("if [ ! -f \"$dest/.just-code-source\" ]; then echo \"managed skill marker is missing\" >&2; exit 1; fi\n")
+		b.WriteString(guestSkillDirectoryIntegrityScript("$dest"))
+	}
+	if err := m.guestShell(ctx, b.String()); err != nil {
+		return fmt.Errorf("verify the pinned skills in the guest: %w", err)
 	}
 	return nil
 }

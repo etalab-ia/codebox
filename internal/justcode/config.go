@@ -106,6 +106,10 @@ type Config struct {
 	// with the same deferred-validation contract as StartTimeoutErr.
 	Isolation    Isolation
 	IsolationErr error
+	// Harness is the agent harness the project runs (#176), resolved from
+	// JUST_CODE_HARNESS, the project manifest, then the default. The backends
+	// read it when they are constructed, like Isolation.
+	Harness Harness
 }
 
 // EnvLookup is an injectable subset of os.LookupEnv, for tests.

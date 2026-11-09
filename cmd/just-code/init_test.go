@@ -290,7 +290,7 @@ func stubMCPBindingStateDir(t *testing.T) string {
 // TestParseInitArgs pins the flag surface, including the two numeric options.
 func TestParseInitArgs(t *testing.T) {
 	opts, err := parseInitArgs([]string{
-		"--root", "/tmp/p", "--runtime", "tart", "--isolation", "backend",
+		"--root", "/tmp/p", "--runtime", "tart", "--isolation", "backend", "--harness", "pi",
 		"--model", "albert/x", "--small-model", "ministral-3-8b-instruct-2512", "--cpus", "4", "--memory-mb", "2048",
 		"--credential-ref", "work", "--github", "--skill", "official/rgaa",
 		"--skill", "experimental/rag-parse", "--local-only-skills", "--replace", "--yes",
@@ -298,15 +298,20 @@ func TestParseInitArgs(t *testing.T) {
 	if err != nil {
 		t.Fatalf("parseInitArgs: %v", err)
 	}
-	if opts.Root != "/tmp/p" || opts.Runtime != "tart" || opts.Isolation != "backend" ||
+	if opts.Root != "/tmp/p" || opts.Runtime != "tart" || opts.Isolation != "backend" || opts.Harness != "pi" ||
 		opts.Model != "albert/x" || opts.SmallModel != "ministral-3-8b-instruct-2512" || opts.CPUs != 4 || opts.MemoryMB != 2048 ||
 		opts.CredentialRef != "work" || !opts.GitHub || !opts.Replace || !opts.Yes ||
 		len(opts.Skills) != 2 || !opts.SkillsLocalOnly {
 		t.Fatalf("options = %+v", opts)
 	}
 	if !opts.Set["root"] || !opts.Set["cpus"] || !opts.Set["memory-mb"] || !opts.Set["github"] ||
-		!opts.Set["skills"] || !opts.Set["skills-storage"] {
+		!opts.Set["skills"] || !opts.Set["skills-storage"] || !opts.Set["harness"] {
 		t.Fatalf("every supplied field must be recorded as set: %v", opts.Set)
+	}
+	for _, args := range [][]string{{"--harness", "claude"}, {"--harness", "Pi"}} {
+		if _, err := parseInitArgs(args); err == nil {
+			t.Fatalf("%v must be rejected: the stored value is exact", args)
+		}
 	}
 	readableMemory, err := parseInitArgs([]string{"--memory-mb", "2.5G"})
 	if err != nil || readableMemory.MemoryMB != 2560 {

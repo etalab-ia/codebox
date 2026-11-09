@@ -1680,3 +1680,40 @@ func TestInitWarnsForARelativeNestedRoot(t *testing.T) {
 		t.Fatalf("a relative nested root must still be reported: %v", plan.Warnings)
 	}
 }
+
+// The harness is a project decision, so it must reach the manifest; and the
+// pair harness/isolation is validated at plan time, before anything is written.
+func TestInitPlanRecordsTheHarnessAndRefusesPiWithPartialIsolation(t *testing.T) {
+	root := initTestRoot(t)
+	plan, err := (InitWizard{}).Plan(InitAnswers{Root: root, Harness: string(HarnessPi)})
+	if err != nil {
+		t.Fatalf("Pi with the default isolation must be accepted: %v", err)
+	}
+	if plan.Answers.Harness != string(HarnessPi) {
+		t.Fatalf("plan answers harness = %q", plan.Answers.Harness)
+	}
+	review := FormatInteractiveInitReview(plan)
+	if !strings.Contains(review, "Agent        Pi, modèle") {
+		t.Fatalf("the review does not name the harness:\n%s", review)
+	}
+
+	backendRoot := initTestRoot(t)
+	_, err = (InitWizard{}).Plan(InitAnswers{Root: backendRoot, Harness: string(HarnessPi), Isolation: IsolationBackend})
+	if err == nil || !strings.Contains(err.Error(), "--isolation full") {
+		t.Fatalf("Pi with backend isolation = %v, want a refusal naming the fix", err)
+	}
+	if _, statErr := os.Stat(ProjectManifestPath(backendRoot)); !os.IsNotExist(statErr) {
+		t.Fatalf("a refused plan must write nothing (stat err = %v)", statErr)
+	}
+
+	// An unset harness keeps the OpenCode default, so every project configured
+	// before the setting existed keeps working unchanged.
+	defaultRoot := initTestRoot(t)
+	defaultPlan, err := (InitWizard{}).Plan(InitAnswers{Root: defaultRoot})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if defaultPlan.Answers.Harness != string(HarnessOpenCode) {
+		t.Fatalf("default harness = %q, want %q", defaultPlan.Answers.Harness, HarnessOpenCode)
+	}
+}

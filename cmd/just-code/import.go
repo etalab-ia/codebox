@@ -454,6 +454,17 @@ func importMatchesManifest(expected justcode.InitAnswers, existing justcode.Proj
 	if existing.Model != expected.Model || existing.SmallModel != expected.SmallModel || existing.CPUs != expected.CPUs || existing.MemoryMB != expected.MemoryMB {
 		return false
 	}
+	// The harness is compared through its resolver: a manifest that says
+	// nothing and one that names the default describe the same project, and an
+	// import must not silently replace another harness with OpenCode.
+	existingHarness, err := justcode.ResolveHarness(existing.Harness)
+	if err != nil {
+		return false
+	}
+	expectedHarness, err := justcode.ResolveHarness(expected.Harness)
+	if err != nil || existingHarness != expectedHarness {
+		return false
+	}
 	if existing.SkillsLocalOnly || !sameStrings(existing.Skills, expected.Skills) {
 		return false
 	}
@@ -479,7 +490,7 @@ func manifestHasUnknownFields(raw []byte) (bool, error) {
 	}
 	known := map[string]bool{
 		"schemaVersion": true, "project": true, "runtime": true, "isolation": true,
-		"model": true, "smallModel": true, "cpus": true, "memoryMB": true, "credentialRef": true,
+		"model": true, "harness": true, "smallModel": true, "cpus": true, "memoryMB": true, "credentialRef": true,
 		"storage": true, "skills": true, "skillsLocalOnly": true,
 		"mcpConnectors": true, "dependencySetId": true,
 	}

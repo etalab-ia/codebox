@@ -160,6 +160,7 @@ type initOptions struct {
 	Root            string
 	Runtime         string
 	Isolation       string
+	Harness         string
 	Model           string
 	SmallModel      string
 	CPUs            int
@@ -268,6 +269,15 @@ func parseInitArgs(args []string) (initOptions, error) {
 				return opts, err
 			}
 			opts.Isolation, opts.Set["isolation"] = v, true
+		case a == "--harness":
+			v, err := value()
+			if err != nil {
+				return opts, err
+			}
+			if _, err := justcode.ResolveHarness(v); err != nil {
+				return opts, err
+			}
+			opts.Harness, opts.Set["harness"] = v, true
 		case a == "--model":
 			v, err := value()
 			if err != nil {
@@ -324,6 +334,7 @@ func initRun(opts initOptions, in *bufio.Reader, tty bool) (code int, err error)
 		Root:               opts.Root,
 		Runtime:            justcode.Runtime(opts.Runtime),
 		Isolation:          justcode.Isolation(opts.Isolation),
+		Harness:            opts.Harness,
 		Model:              opts.Model,
 		SmallModel:         normalizeInitModelInput(opts.SmallModel),
 		CPUs:               opts.CPUs,
@@ -918,12 +929,12 @@ func validateInitOptions(opts initOptions) error {
 }
 
 // askHarnessStepLine is the line-mode twin of askHarnessStepHuh (#333):
-// OpenCode is recommended and works directly with the Albert API; Pi is
-// visible but not yet supported (#176). A blank answer keeps the current
-// choice.
+// OpenCode is the historical harness and the recommended default; Pi is the
+// lighter terminal agent, installed in the same isolated machine (#176). A
+// blank answer keeps the current choice.
 func askHarnessStepLine(in *bufio.Reader, opts initOptions, answers justcode.InitAnswers) (justcode.InitAnswers, error) {
 	fmt.Printf("\n%s\n", initHarnessStepTitle(opts))
-	fmt.Println("OpenCode fonctionne directement avec l'API Albert. Pi n'est pas encore pris en charge.")
+	fmt.Println("OpenCode : agent historique, avec ses greffons et ses MCP. Pi : agent en terminal plus léger, dans la même machine isolée.")
 	current := effectiveInitHarness(answers)
 	for {
 		answer, ok := promptLine(in, "  harnais ["+current+"] (opencode/pi) : ")
@@ -935,15 +946,12 @@ func askHarnessStepLine(in *bufio.Reader, opts initOptions, answers justcode.Ini
 			return answers, nil
 		}
 		value := strings.ToLower(strings.TrimSpace(answer))
-		if value == "pi" {
-			fmt.Println("  Pi n'est pas encore pris en charge ; choisissez OpenCode.")
-			continue
-		}
-		if value != "opencode" {
+		resolved, err := justcode.ResolveHarness(value)
+		if err != nil {
 			fmt.Println("  Répondez opencode ou pi.")
 			continue
 		}
-		answers.Harness = value
+		answers.Harness = string(resolved)
 		return answers, nil
 	}
 }
@@ -1006,15 +1014,17 @@ func askInitQuestions(in *bufio.Reader, opts initOptions, answers justcode.InitA
 	// The harness and VM steps come after the root prompt: a root change
 	// reseeds the answers from the target project's manifest, and asking
 	// before it would wipe the user's fresh choices (#333).
-	answers, err := askHarnessStepLine(in, opts, answers)
-	if err != nil {
-		return answers, err
+	var stepErr error
+	if !opts.Set["harness"] {
+		answers, stepErr = askHarnessStepLine(in, opts, answers)
+		if stepErr != nil {
+			return answers, stepErr
+		}
 	}
-	answers, err = askVMStepLine(in, opts, answers)
-	if err != nil {
-		return answers, err
+	answers, stepErr = askVMStepLine(in, opts, answers)
+	if stepErr != nil {
+		return answers, stepErr
 	}
-
 	if !opts.Set["skills"] {
 		catalogue, catalogueErr := projectSkillCatalogueFn(context.Background())
 		if catalogueErr != nil {
@@ -1331,6 +1341,11 @@ func askInitAdvancedLine(in *bufio.Reader, opts initOptions, answers justcode.In
 			case "complet", "full":
 				answers.Isolation = justcode.IsolationFull
 			case "partiel", "backend":
+				if justcode.HarnessRequiresFullIsolation(initHarnessValue(answers)) {
+					fmt.Println("  Pi exige l'isolation complète : il n'a pas de mode serveur auquel s'attacher depuis votre poste.")
+					fmt.Println("  Choisissez « complet », ou revenez au harnais OpenCode.")
+					continue
+				}
 				answers.Isolation = justcode.IsolationBackend
 			default:
 				fmt.Println("  Choisissez complet ou partiel.")
@@ -1941,6 +1956,7 @@ Options:
                           inside one)
   --runtime <name>        microsandbox (default), tart or agent-vm
   --isolation <level>     full (default) or backend
+  --harness <name>        opencode (default) or pi; pi requires full isolation
   --model <id>            OpenCode model; empty keeps the built-in default
   --small-model <id>      Lightweight model for OpenCode titles (for example
                           ministral-3-8b-instruct-2512); empty or 'default'
