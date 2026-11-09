@@ -259,10 +259,11 @@ func parseProjectOpenCodeConfig(raw []byte) (map[string]any, error) {
 }
 
 // ProjectExecutionInputs is the set of project-declared, execution-relevant
-// OpenCode inputs just-code must gate behind host-local trust approval
-// before OpenCode loads them. Per D-001: declared AND auto-discovered
-// plugins execute arbitrary code at config load; MCP server commands launch
-// host processes from the project config.
+// inputs just-code must gate behind host-local trust approval before a harness
+// loads them. Per D-001: declared AND auto-discovered OpenCode plugins execute
+// arbitrary code at config load, and MCP server commands launch host processes
+// from the project config. Pi runs the project's own extensions and settings at
+// launch, the same way (#176 review).
 type ProjectExecutionInputs struct {
 	// ConfigPath is the project OpenCode config path, when one exists.
 	ConfigPath string
@@ -276,6 +277,17 @@ type ProjectExecutionInputs struct {
 	// AutoDiscoveredPlugins lists .js/.ts files under .opencode/plugin/
 	// and .opencode/plugins/ — they execute without any declaration.
 	AutoDiscoveredPlugins []string
+	// PiProjectConfig is the project-local .pi/settings.json, when one
+	// exists. Pi reads it in preference to the managed global settings, and
+	// its schema can declare further extensions and packages, so the file is
+	// an execution input in the same sense the OpenCode config is.
+	PiProjectConfig string
+	// PiAutoDiscoveredExtensions lists the files under .pi/extensions/ — Pi
+	// loads and runs them with the guest's permissions at launch, without any
+	// declaration. Gated on every start path, not only under the Pi harness:
+	// the harness is recorded in the repository-controlled project manifest,
+	// so a cloned repository can select Pi on its own.
+	PiAutoDiscoveredExtensions []string
 	// MCPCommands lists the "command" of every mcp server entry declared in
 	// the project config (local servers only; remote URLs are endpoints,
 	// gated by the endpoint check instead).
@@ -367,12 +379,79 @@ func DiscoverProjectExecutionInputs(root string) (ProjectExecutionInputs, error)
 			}
 		}
 	}
+	// Pi's project-local surface executes at launch: .pi/extensions/ is
+	// auto-discovered, and .pi/settings.json can declare extensions and
+	// packages on top of it. Nothing declares either one to just-code, so
+	// both are execution inputs (review finding on #345).
+	piSettings := filepath.Join(".pi", "settings.json")
+	if abs, err := confinedProjectPath(root, piSettings); err == nil {
+		info, err := os.Lstat(abs)
+		if err != nil {
+			return out, fmt.Errorf("inspect %s: %w", piSettings, err)
+		}
+		if info.Mode().IsRegular() {
+			out.PiProjectConfig = abs
+		} else {
+			return out, fmt.Errorf("%s is not a regular file", abs)
+		}
+	} else if !os.IsNotExist(err) {
+		return out, fmt.Errorf("inspect %s: %w", piSettings, err)
+	}
+	piExtensions := filepath.Join(".pi", "extensions")
+	if abs, err := confinedProjectPath(root, piExtensions); err == nil {
+		files, err := projectRegularFiles(root, abs)
+		if err != nil {
+			return out, fmt.Errorf("read %s: %w", piExtensions, err)
+		}
+		out.PiAutoDiscoveredExtensions = append(out.PiAutoDiscoveredExtensions, files...)
+	} else if !os.IsNotExist(err) {
+		return out, fmt.Errorf("read %s: %w", piExtensions, err)
+	}
 	sort.Strings(out.Plugins)
 	sort.Strings(out.DeclaredPluginFiles)
 	sort.Strings(out.AutoDiscoveredPlugins)
+	sort.Strings(out.PiAutoDiscoveredExtensions)
 	sort.Strings(out.MCPCommands)
 	sort.Strings(out.MCPEndpoints)
 	return out, nil
+}
+
+// projectRegularFiles lists every regular file under dir, as paths relative to
+// root. Symlinks and non-regular files are refused rather than skipped: an
+// executable surface must not hide content outside the approval boundary, and
+// WalkDir does not follow directory symlinks, so silently skipping one would
+// leave exactly that content unapproved.
+func projectRegularFiles(root, dir string) ([]string, error) {
+	var files []string
+	err := filepath.WalkDir(dir, func(path string, entry os.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		rel, err := filepath.Rel(root, path)
+		if err != nil {
+			return err
+		}
+		if _, err := confinedProjectPath(root, rel); err != nil {
+			return err
+		}
+		if entry.IsDir() {
+			return nil
+		}
+		info, err := entry.Info()
+		if err != nil {
+			return err
+		}
+		if !info.Mode().IsRegular() {
+			return fmt.Errorf("%s is not a regular file", path)
+		}
+		files = append(files, rel)
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	sort.Strings(files)
+	return files, nil
 }
 
 // declaredPluginFiles resolves explicit project-local plugin references without
@@ -409,40 +488,7 @@ func declaredPluginFiles(root, configPath, ref string) ([]string, error) {
 	if !info.IsDir() {
 		return nil, fmt.Errorf("%s is not a regular file or directory", abs)
 	}
-
-	var files []string
-	err = filepath.WalkDir(abs, func(path string, entry os.DirEntry, walkErr error) error {
-		if walkErr != nil {
-			return walkErr
-		}
-		rel, err := filepath.Rel(root, path)
-		if err != nil {
-			return err
-		}
-		// WalkDir does not follow directory symlinks, but silently skipping one
-		// would leave executable content outside the approval boundary. Refuse
-		// every symlink and non-regular file explicitly instead.
-		if _, err := confinedProjectPath(root, rel); err != nil {
-			return err
-		}
-		if entry.IsDir() {
-			return nil
-		}
-		info, err := entry.Info()
-		if err != nil {
-			return err
-		}
-		if !info.Mode().IsRegular() {
-			return fmt.Errorf("%s is not a regular file", path)
-		}
-		files = append(files, rel)
-		return nil
-	})
-	if err != nil {
-		return nil, err
-	}
-	sort.Strings(files)
-	return files, nil
+	return projectRegularFiles(root, abs)
 }
 
 func declaredPluginTarget(configPath, ref string) (target string, local bool, err error) {

@@ -325,7 +325,7 @@ func warnUnapprovedImportInputs(projectRoot string) {
 	for _, u := range unapproved {
 		lines = append(lines, fmt.Sprintf("  %s (%s)", u.Path, u.Reason))
 	}
-	fmt.Printf("This project declares OpenCode inputs that execute code or launch processes, and they are not approved at their current content:\n%s\n"+
+	fmt.Printf("This project declares inputs that execute code or launch processes (OpenCode plugins and MCP commands, Pi extensions and settings), and they are not approved at their current content:\n%s\n"+
 		"The first 'just-code' run will stop for this. Review them, then run 'just-code trust approve' from %s to record approval for the current content.\n",
 		strings.Join(lines, "\n"), projectRoot)
 }

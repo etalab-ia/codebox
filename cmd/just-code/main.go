@@ -325,7 +325,8 @@ func run(args []string) (int, error) {
 		}
 	}
 	// Trust gate (P10): project plugins and MCP commands execute code at
-	// OpenCode config load, so starting a runtime for this project requires
+	// OpenCode config load, and Pi runs the project's own extensions and
+	// settings at launch, so starting a runtime for this project requires
 	// every execution input to be approved at its current content hash. A
 	// changed file is a new decision, not an inherited one. Only start paths
 	// are gated: stop, check, logs and shell operate on an existing guest.
@@ -355,7 +356,7 @@ func run(args []string) (int, error) {
 	}
 
 	// trust manages the host-local approval of execution-relevant project
-	// OpenCode inputs (P10). It runs before any runtime is constructed.
+	// inputs (P10). It runs before any runtime is constructed.
 	if parsed.action == "trust" {
 		if projErr != nil {
 			return 2, fmt.Errorf("trust requires a project directory: %v", projErr)
@@ -1019,8 +1020,9 @@ func opencodeConfigReview(projectRoot string, overlay justcode.ManagedOverlay) (
 }
 
 // requireTrustedExecutionInputs blocks the launch when the project carries
-// execution-relevant OpenCode inputs that are unapproved or changed since
-// approval. Read-only commands (stop, check, status, logs, shell on an
+// execution-relevant inputs that are unapproved or changed since approval:
+// OpenCode project plugins and MCP commands, and Pi project extensions and
+// settings. Read-only commands (stop, check, status, logs, shell on an
 // already-running guest) are not gated here; only paths that start a
 // runtime.
 func requireTrustedExecutionInputs(projectRoot string) error {
@@ -1038,7 +1040,7 @@ func requireTrustedExecutionInputs(projectRoot string) error {
 	for _, u := range unapproved {
 		lines = append(lines, fmt.Sprintf("  %s (%s)", u.Path, u.Reason))
 	}
-	return fmt.Errorf("this project declares OpenCode inputs that execute code or launch processes, and they are not approved at their current content:\n%s\n"+
+	return fmt.Errorf("this project declares inputs that execute code or launch processes (OpenCode plugins and MCP commands, Pi extensions and settings), and they are not approved at their current content:\n%s\n"+
 		"Review them, then run 'just-code trust approve' to record approval for the current content",
 		strings.Join(lines, "\n"))
 }
@@ -1402,7 +1404,7 @@ Commands:
   secrets    Import and manage project-scoped dotenv values (import)
   bindings   Approve or revoke optional credential bindings for this
              project (list, approve, revoke)
-  trust      Approve execution-relevant project OpenCode inputs (status,
+  trust      Approve execution-relevant project inputs (status,
              approve)
   models     List the validated Albert models (live, or last-known-good)
   mcp        Check configured remote MCP endpoints (status)

@@ -137,9 +137,10 @@ func TestConfinedProjectPathRejectsTraversalAndAbsolute(t *testing.T) {
 func TestDiscoverProjectExecutionInputsEmptyRoot(t *testing.T) {
 	inputs, err := DiscoverProjectExecutionInputs(t.TempDir())
 	if err != nil {
-		t.Fatalf("a checkout without .opencode must discover cleanly: %v", err)
+		t.Fatalf("a checkout without .opencode or .pi must discover cleanly: %v", err)
 	}
-	if inputs.ConfigPath != "" || len(inputs.AutoDiscoveredPlugins) != 0 {
+	if inputs.ConfigPath != "" || len(inputs.AutoDiscoveredPlugins) != 0 ||
+		inputs.PiProjectConfig != "" || len(inputs.PiAutoDiscoveredExtensions) != 0 {
 		t.Fatalf("unexpected inputs: %+v", inputs)
 	}
 }
