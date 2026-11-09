@@ -10,10 +10,11 @@ Tracking: #145; phase 4 #151
 > `dotenv-expand` 13.0.0 and `python-dotenv` 1.2.4. The behaviour assertions
 > that established this contract — quoted apostrophes, raw multiline values,
 > carriage returns, `$` and `#` — run on the current pins in the
-> `fixture-contracts` CI job and pass unchanged. What the current pins do *not*
-> yet inherit is the recorded end-to-end guest transcript: that evidence was
-> captured against the versions named below, and re-qualifying it on macOS
-> arm64 is a separate step (see
+> `fixture-contracts` CI job and pass unchanged. The end-to-end guest transcript
+> has since been re-qualified on the current pins: the 2026-11-09 macOS arm64
+> run (`darwin-arm64-run-3` / `-4`, with a negative control) exercises
+> `dotenv` 18.0.9, `dotenv-expand` 13.0.0 and `python-dotenv` 1.2.4, while the
+> 2026-10-15 pair remains the record for the versions named below (see
 > `tests/integration/project-secrets/native-phase3/evidence/README.md`).
 
 ## Context

@@ -1,0 +1,24 @@
+META runtime_archive_sha256=a4f1722fee6460d4e2813e62b60dae4c092021d8120b7aaa9c2f4b5679d97d89 runtime_version=0.7.6
+META kit=p3v2 source=f483a8003d7745dfe3cdea7363d5f366af51eebc sdk=0.7.6 runtime=0.7.6 archive_sha256=a4f1722fee6460d4e2813e62b60dae4c092021d8120b7aaa9c2f4b5679d97d89 go=go1.27.3
+PASS create-inert-sentinels
+PASS rotate-to-envrefs
+PASS exact-guest-env-markers
+PASS published-managed-paths
+PASS root-file-exact-marker-only
+PASS api-file-exact-marker-only
+PASS no-temp-file-left
+PASS guest-fixtures-pushed
+PASS node-runtime-and-loaders-installed
+PASS python-loader-installed
+PASS node-parses-file-marker
+PASS python-parses-file-marker
+PASS node-header-substituted
+PASS python-header-substituted
+PASS components-do-not-bleed
+PASS evil-denied-failclosed
+PASS persisted-envrefs-no-raw-canary
+PASS no-host-mounts
+PASS cleanup-own-vm
+DIAGNOSTIC {"kind":"non-sdk","kind_code":-1,"message":"path=/workspace/.env code=0 stderr=","stage":"cat-guest-file"}
+DIAGNOSTIC {"kind":"non-sdk","kind_code":-1,"message":"path=/workspace/apps/api/.env code=0 stderr=","stage":"cat-guest-file"}
+DIAGNOSTIC {"kind":"non-sdk","kind_code":-1,"message":"cmd=python3 exit_code=1 stderr=REQUEST_FAILED=RemoteDisconnected\n","stage":"guest-exec"}
