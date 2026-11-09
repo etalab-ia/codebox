@@ -465,6 +465,11 @@ configuration (`models.json`, `settings.json`) est écrite dans `~/.pi/agent` de
 l'invité à partir des mêmes plateformes d'inférence que celles décrites
 ci-dessus, et ses skills de projet sont installés dans `~/.pi/agent/skills`.
 
+Le script de préparation d'un invité est figé à sa création, comme son image :
+changer de harnais recrée donc la machine isolée, ce qui détruit les sessions et
+les fichiers propres à l'invité. Un projet qui reste sur OpenCode garde sa
+révision et n'est pas recréé.
+
 Deux limites à connaître avant de choisir Pi. Il ne prend pas en charge MCP :
 les connecteurs sélectionnés pour le projet ne s'appliquent qu'avec OpenCode, et
 l'assistant les enregistre sans les transmettre à Pi. Et tous les modèles
