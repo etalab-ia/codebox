@@ -69,8 +69,8 @@ The transcripts themselves record no package versions, only
 set comes from the guest manifests at the recorded commit `973ba24` (the
 `source=` field points at `f483a80`, where these paths did not yet exist):
 **Node dotenv 16.4.7 + dotenv-expand 12.0.2** and **python-dotenv 1.2.2**. The
-manifests under `guest/` have since moved to **16.6.1 / 13.0.0 / 1.2.4**
-(issues #246 and #324), and the
+manifests under `guest/` have since moved to **18.0.9 / 13.0.0 / 1.2.4**
+(issues #246, #324 and #344), and the
 guest installs its packages from those manifests at run time. A fresh run
 therefore exercises a different loader set than the one recorded here, so this
 evidence should not be cited as covering the current pins. The host-side loader

@@ -71,7 +71,7 @@ func assertGuestSecretHeaderDigest() {
 // value can be represented unambiguously at all.
 //
 // dotenv has no single escaping that every loader agrees on, and this was
-// measured against the loaders just-code pins (Node dotenv 16.6.1 with and
+// measured against the loaders just-code pins (Node dotenv 18.0.9 with and
 // without dotenv-expand 13.0.0, python-dotenv 1.2.4, godotenv 1.5.1). The
 // round-trip properties were re-measured on that set in cloud, and hold
 // unchanged from the 16.4.7/12.0.2/1.2.2 pair the original decision was
