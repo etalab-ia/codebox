@@ -280,7 +280,7 @@ func commitInitHuhSkills(opts initOptions, answers *justcode.InitAnswers, skills
 // var so tests can place the question in the form sequence and script its
 // answer, the same pattern as huhRun.
 var initEmptySkillsConfirmFn = func() (bool, error) {
-	return huhConfirm("Aucune skill sélectionnée. Continuer sans skill ? (O/n)", "Appuyez sur Entrée pour continuer, ou choisissez non pour revenir à la sélection.", true)
+	return huhConfirm("Aucune skill sélectionnée. Continuer sans skill ?", "Appuyez sur Entrée pour continuer, ou choisissez non pour revenir à la sélection.", true)
 }
 
 // commitInitHuhMCPs copies the MCP submission into answers. The zero-MCP
