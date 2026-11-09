@@ -8,17 +8,17 @@ import (
 
 func albertOverlay() ManagedOverlay {
 	return ManagedOverlay{
-		Model:         "albert/qwen3-coder",
+		Model:         "albert/deepseek-v4-flash",
 		AlbertEnabled: true,
 		Models: []AlbertModelConfig{
-			{ID: "qwen3-coder", ModelID: "Qwen/Qwen3-Coder-30B-A3B-Instruct", Name: "Qwen3 Coder", Context: 262144},
+			{ID: "deepseek-v4-flash", ModelID: "deepseek-ai/DeepSeek-V4-Flash-0731", Name: "DeepSeek V4 Flash", Context: 131072},
 			{ID: "gemma-4", ModelID: "google/gemma-4-31B-it", Name: "Gemma 4", Context: 262144, Vision: true},
 		},
 	}
 }
 
-// Pi sends the model id it is given. The curated alias ("qwen3-coder") is an
-// OpenCode display id, so the API id has to reach Pi or every request fails.
+// Pi sends the model id it is given. The curated alias ("deepseek-v4-flash") is
+// an OpenCode display id, so the API id has to reach Pi or every request fails.
 func TestComposePiModelsConfigUsesAPIIDs(t *testing.T) {
 	got, err := ComposePiModelsConfig(albertOverlay())
 	if err != nil {
@@ -44,17 +44,63 @@ func TestComposePiModelsConfigUsesAPIIDs(t *testing.T) {
 	for _, m := range albert.Models {
 		ids[m.ID] = m
 	}
-	if _, ok := ids["Qwen/Qwen3-Coder-30B-A3B-Instruct"]; !ok {
+	if _, ok := ids["deepseek-ai/DeepSeek-V4-Flash-0731"]; !ok {
 		t.Fatalf("the API model id is missing from %v", ids)
 	}
-	if _, ok := ids["qwen3-coder"]; ok {
+	if _, ok := ids["deepseek-v4-flash"]; ok {
 		t.Fatal("the curated display alias was sent to the API")
 	}
 	if m := ids["google/gemma-4-31B-it"]; len(m.Input) != 2 || m.Input[0] != "text" || m.Input[1] != "image" {
 		t.Fatalf("vision model inputs = %v, want text and image", m.Input)
 	}
-	if m := ids["Qwen/Qwen3-Coder-30B-A3B-Instruct"]; m.ContextWindow != 262144 || m.Name != "Qwen3 Coder" {
-		t.Fatalf("qwen entry = %+v", m)
+	if m := ids["deepseek-ai/DeepSeek-V4-Flash-0731"]; m.ContextWindow != 131072 || m.Name != "DeepSeek V4 Flash" {
+		t.Fatalf("deepseek entry = %+v", m)
+	}
+}
+
+// The curated defaults fill in for a Pi project that selected nothing, and the
+// unsupported ones are dropped from that set (#347).
+func TestPiDefaultModelIsCuratedAndSupported(t *testing.T) {
+	if got := piDefaultModelRef(); got != "albert/deepseek-v4-flash" {
+		t.Fatalf("pi default model = %q, want albert/deepseek-v4-flash", got)
+	}
+	if reason := PiUnsupportedModelReason(piDefaultModelRef()); reason != "" {
+		t.Fatalf("the pi default model is refused by its own rule: %s", reason)
+	}
+	got, err := ComposePiModelsConfig(ManagedOverlay{AlbertEnabled: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(got, "Qwen/Qwen3-Coder-30B-A3B-Instruct") {
+		t.Fatalf("the dropped model still reaches the guest:\n%s", got)
+	}
+	if !strings.Contains(got, "deepseek-ai/DeepSeek-V4-Flash-0731") {
+		t.Fatalf("the curated defaults are missing from:\n%s", got)
+	}
+	// The alias form the overlay uses resolves to the same decision as the API
+	// id the catalogue answers with.
+	if PiUnsupportedModelReason("albert/qwen3-coder") == "" || PiUnsupportedModelReason("Qwen/Qwen3-Coder-30B-A3B-Instruct") == "" {
+		t.Fatal("qwen3-coder must be recognised by alias and by model id")
+	}
+}
+
+// An explicit selection Pi cannot run is refused, not silently replaced: the
+// project asked for that model, and a launch on another one would hide it
+// (#347).
+func TestComposePiModelsConfigRefusesUnsupportedSelection(t *testing.T) {
+	overlay := albertOverlay()
+	overlay.Model = "albert/qwen3-coder"
+	overlay.Models = append(overlay.Models, AlbertModelConfig{ID: "qwen3-coder", ModelID: "Qwen/Qwen3-Coder-30B-A3B-Instruct", Name: "Qwen3 Coder"})
+	_, err := ComposePiModelsConfig(overlay)
+	if err == nil {
+		t.Fatal("a model Pi cannot run was accepted")
+	}
+	if !strings.Contains(err.Error(), "écarté pour Pi") || !strings.Contains(err.Error(), "Qwen3 Coder 30B") {
+		t.Fatalf("refusal = %v, want it to name the model and the harness", err)
+	}
+	// The overlay itself is left alone: the refusal changes nothing on disk.
+	if overlay.Model != "albert/qwen3-coder" {
+		t.Fatalf("composing rewrote the selection to %q", overlay.Model)
 	}
 }
 

@@ -323,7 +323,6 @@ func subtractSkillIDs(ids, remove []string) []string {
 func (w InitWizard) Plan(answers InitAnswers) (InitPlan, error) {
 	plan := InitPlan{Answers: answers}
 	plan.Expert = w.Expert
-	plan.DefaultModelName = initReviewModelName(w.resolveDefaultModel())
 	fs := w.fs()
 
 	given := strings.TrimSpace(answers.Root)
@@ -400,9 +399,21 @@ func (w InitWizard) Plan(answers InitAnswers) (InitPlan, error) {
 		return plan, err
 	}
 	plan.Answers.Harness = string(harness)
+	// The recap names the model a project with no model answer will launch
+	// with, and that fallback depends on the harness: OpenCode takes the
+	// embedded asset's model, Pi takes the first curated default it can run.
+	plan.DefaultModelName = initReviewModelName(w.resolveDefaultModel(harness))
 
 	if model := strings.TrimSpace(answers.Model); model != "" {
 		plan.Answers.Model = model
+		// A model Pi cannot run is refused before anything is written: the
+		// project must not record a selection its own launch would reject
+		// (#347).
+		if harness == HarnessPi {
+			if reason := PiUnsupportedModelReason(model); reason != "" {
+				return plan, fmt.Errorf("%s. Ce modèle est écarté pour Pi : choisissez un autre modèle principal, ou OpenCode", reason)
+			}
+		}
 		if w.ValidateModel != nil {
 			warning, err := w.ValidateModel(model)
 			if err != nil {
@@ -693,12 +704,25 @@ func (w InitWizard) Plan(answers InitAnswers) (InitPlan, error) {
 
 // resolveDefaultModel is the model a project with no model answer launches
 // with: the caller-provided setup default, or the embedded default when the
-// seam is unset or empty.
-func (w InitWizard) resolveDefaultModel() string {
+// seam is unset or empty. The setup default is harness-independent and may name
+// a model Pi refuses, so a Pi project falls back to the first curated default
+// Pi can run instead of inheriting a model that would only fail at launch
+// (#347).
+func (w InitWizard) resolveDefaultModel(harness Harness) string {
+	model := ""
 	if w.ResolveDefaultModel != nil {
-		if model := strings.TrimSpace(w.ResolveDefaultModel()); model != "" {
-			return model
+		model = strings.TrimSpace(w.ResolveDefaultModel())
+	}
+	if model != "" && PiUnsupportedModelReason(model) == "" {
+		return model
+	}
+	if harness == HarnessPi {
+		if piDefault := piDefaultModelRef(); piDefault != "" {
+			return piDefault
 		}
+	}
+	if model != "" {
+		return model
 	}
 	return defaultOpencodeModel
 }

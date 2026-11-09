@@ -74,15 +74,33 @@ y compris pour l'exécution d'outils.
   chemin hors du projet, chemin relatif au domicile) fait échouer le lancement
   au lieu d'être ignorée.
 
+## Décisions du 9 novembre 2026
+
+- **MCP : écarté pour Pi** (#346). Pas de pont MCP maison. Un projet Pi ignore
+  les connecteurs sélectionnés ; l'assistant les enregistre sans les
+  transmettre, et ne les utilise pas non plus pour choisir l'image de l'invité.
+- **`qwen3-coder` : écarté pour Pi** (#347). Le modèle est retiré de la liste
+  que Pi reçoit, le repli d'un projet Pi est `deepseek-v4-flash`, et une
+  sélection explicite de `qwen3-coder` est refusée avec son motif — à la
+  question du modèle, puis au lancement — au lieu d'être remplacée en silence.
+  OpenCode garde `qwen3-coder` : ses projets existants ne changent pas, et le
+  défaut rompu est celui de Pi, dont personne ne dépend encore.
+- **`schemaVersion` 6 : rupture du sens du manifeste acceptée.** Un champ
+  `harness` inconnu d'un binaire antérieur vaut « OpenCode » pour lui, donc un
+  projet Pi exécuté par un binaire antérieur lancerait le mauvais agent sans le
+  dire. La version de schéma fait refuser le projet à la place. Cette rupture
+  est acceptée parce qu'aucun projet tiers n'existe (pas d'utilisateurs).
+
 ## Limites connues, à traiter séparément
 
-- **MCP** : Pi n'en a pas. La question d'une extension maison (pont MCP) est
-  ouverte ; en attendant, un projet Pi ignore les connecteurs sélectionnés.
+- **MCP** : Pi n'en a pas, et aucun pont n'est prévu (#346). Un projet Pi n'a
+  donc pas d'outils MCP.
 - **Qualification invitée** : ce lot est couvert par des tests unitaires ; les
   trois runtimes (Microsandbox, Tart, agent-vm) n'ont pas été rejoués dans un
   invité réel, faute de `/dev/kvm` et de `limactl` utilisable dans le sandbox de
   développement. La qualification invité reste à produire sur une machine de
   l'équipe avant la sortie beta.
 - **Fiabilité des appels d'outils en flux** : elle dépend du modèle côté Albert.
-  Ce lot ne la contourne pas et ne restreint pas la liste des modèles ; la
-  documentation signale les modèles mesurés fiables et le cas de `qwen3-coder`.
+  Ce lot ne contourne pas la défaillance, il en retire le modèle pour Pi et
+  laisse OpenCode inchangé ; les mesures sont ci-dessus et la documentation
+  signale les modèles fiables.

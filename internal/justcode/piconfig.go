@@ -63,11 +63,90 @@ type piSettingsFile struct {
 // Mistral AI and the OpenAI-compatible platform are all Chat Completions.
 const piAPI = "openai-completions"
 
+// piUnsupportedAlbertModels names the curated Albert models a Pi project must
+// not be given (#347, decided 2026-11-09). Qwen3 Coder 30B is unreliable in
+// streaming on Albert — 0/6, 1/3 and 3/5 across series, 6/6 non-streaming, and
+// tool_choice "auto" does not fix it — and OpenCode fails on it identically,
+// so the model is at fault, not the harness. OpenCode keeps offering it for
+// the projects that already rely on it; Pi drops it from the set it is handed.
+// The reason is part of the entry because both the refusal message and the
+// documentation quote it.
+var piUnsupportedAlbertModels = map[string]string{
+	"qwen3-coder": "Qwen3 Coder 30B est instable en streaming sur Albert",
+}
+
+// PiUnsupportedModelReason reports why a model an overlay selected cannot run
+// under Pi, or "" when nothing rules it out. A selection may name the curated
+// alias ("albert/qwen3-coder") or the API model id, so both are recognised:
+// the overlay carries aliases and the catalogue answers with ids.
+func PiUnsupportedModelReason(selection string) string {
+	name := strings.TrimPrefix(strings.TrimSpace(selection), "albert/")
+	if name == "" {
+		return ""
+	}
+	if reason, ok := piUnsupportedAlbertModels[name]; ok {
+		return reason
+	}
+	for _, choice := range CuratedAlbertModels() {
+		config := choice.AlbertModelConfig()
+		if name != config.ModelID {
+			continue
+		}
+		if reason, ok := piUnsupportedAlbertModels[config.ID]; ok {
+			return reason
+		}
+	}
+	return ""
+}
+
+// piDefaultModelRef is the Albert model a Pi project starts on when it selected
+// none. OpenCode falls back to the embedded asset's model; Pi has no embedded
+// asset, so it takes the first curated default it can actually run. Reading the
+// curated list rather than naming a model here keeps one source of truth: a
+// default dropped from that list cannot leave this function pointing at a model
+// Pi refuses.
+func piDefaultModelRef() string {
+	for _, choice := range CuratedAlbertModels() {
+		if !choice.Default {
+			continue
+		}
+		if ref := choice.Ref(); PiUnsupportedModelReason(ref) == "" {
+			return ref
+		}
+	}
+	return ""
+}
+
+// piEffectiveOverlay applies Pi's own defaults to the harness-independent
+// overlay. The single difference from OpenCode is the fallback model. The
+// decision is taken on the *raw* selection, so a project that named a model
+// keeps it — including one Pi refuses, which ComposePiModelsConfig reports
+// rather than rewrites.
+func piEffectiveOverlay(o ManagedOverlay) ManagedOverlay {
+	selected := strings.TrimSpace(o.Model)
+	effective := o.EffectiveOverlay()
+	if selected == "" {
+		if model := piDefaultModelRef(); model != "" {
+			effective.Model = model
+		}
+	}
+	return effective
+}
+
 // ComposePiModelsConfig renders the managed overlay as Pi's models.json. The
 // document is deterministic (sorted providers, sorted models) because it is
 // compared and diffed: the same overlay must always produce the same bytes.
 func ComposePiModelsConfig(o ManagedOverlay) (string, error) {
-	o = o.EffectiveOverlay()
+	// A project that named a model Pi cannot run is refused here rather than
+	// launched on another one: Pi has no merged configuration to fall back on,
+	// so the alternative would be a session silently running a model nobody
+	// chose (#347).
+	if selected := strings.TrimSpace(o.Model); selected != "" {
+		if reason := PiUnsupportedModelReason(selected); reason != "" {
+			return "", fmt.Errorf("%s. Ce modèle est écarté pour Pi : choisissez un autre modèle principal, ou OpenCode", reason)
+		}
+	}
+	o = piEffectiveOverlay(o)
 	providers := map[string]piProvider{}
 	if len(o.Models) > 0 || o.AlbertEnabled {
 		models := make([]piModel, 0, len(o.Models))
@@ -143,23 +222,31 @@ func ComposePiModelsConfig(o ManagedOverlay) (string, error) {
 // slice when nothing beyond the embedded defaults is selected, which for
 // OpenCode means "use the embedded asset". Pi has no embedded asset, so the
 // curated defaults fill in; without them the guest would start with no
-// provider at all on the default path.
+// provider at all on the default path. Entries the harness must not offer are
+// dropped from either source, so a selection that reaches a launch and the set
+// the guest is given cannot disagree.
 func piAlbertModels(o ManagedOverlay) []AlbertModelConfig {
-	if len(o.Models) > 0 {
-		return o.Models
-	}
-	var models []AlbertModelConfig
-	for _, choice := range CuratedAlbertModels() {
-		if choice.Default {
-			models = append(models, choice.AlbertModelConfig())
+	configured := o.Models
+	if len(configured) == 0 {
+		for _, choice := range CuratedAlbertModels() {
+			if choice.Default {
+				configured = append(configured, choice.AlbertModelConfig())
+			}
 		}
+	}
+	models := make([]AlbertModelConfig, 0, len(configured))
+	for _, m := range configured {
+		if PiUnsupportedModelReason(m.ID) != "" || PiUnsupportedModelReason(m.ModelID) != "" {
+			continue
+		}
+		models = append(models, m)
 	}
 	return models
 }
 
 // piModelFromAlbert maps a curated Albert model to a Pi entry. The curated ID
-// is the display alias ("qwen3-coder"); Pi must send the API id, which the
-// curated entry carries as ModelID.
+// is the display alias ("deepseek-v4-flash"); Pi must send the API id, which
+// the curated entry carries as ModelID.
 func piModelFromAlbert(m AlbertModelConfig) (piModel, bool) {
 	id := m.ModelID
 	if id == "" {
@@ -195,13 +282,13 @@ func ComposePiSettingsConfig() (string, error) {
 }
 
 // PiModelRef resolves the overlay's model selection to the "provider/id" form
-// Pi expects on --model. The overlay carries curated aliases ("albert/qwen3-coder");
-// Pi has to be given the API id, so the curated entry is looked up. An
-// unknown alias is passed through unchanged rather than silently replaced: the
-// catalogue is fetched live, and a project may legitimately name a model the
-// current catalogue did not list.
+// Pi expects on --model. The overlay carries curated aliases
+// ("albert/deepseek-v4-flash"); Pi has to be given the API id, so the curated
+// entry is looked up. An unknown alias is passed through unchanged rather than
+// silently replaced: the catalogue is fetched live, and a project may
+// legitimately name a model the current catalogue did not list.
 func PiModelRef(o ManagedOverlay) string {
-	o = o.EffectiveOverlay()
+	o = piEffectiveOverlay(o)
 	selection := strings.TrimSpace(o.Model)
 	if selection == "" {
 		return ""

@@ -731,7 +731,7 @@ func invalidInheritedInitSetting(opts initOptions, answers justcode.InitAnswers)
 		return "memory-mb", fmt.Errorf("mémoire demandée : %s. Maximum sur ce poste : %s", justcode.FormatMemorySize(answers.MemoryMB), justcode.FormatMemorySize(opts.maxMemoryMB))
 	}
 	if !opts.Set["model"] && strings.TrimSpace(answers.Model) != "" {
-		if _, err := validateInitModelInput(answers.Root, answers.Model); err != nil {
+		if _, err := validateInitModelInput(answers.Root, answers.Model, initHarnessValue(answers)); err != nil {
 			return "model", err
 		}
 	}
@@ -1442,7 +1442,7 @@ func askInitAdvancedLine(in *bufio.Reader, opts initOptions, answers justcode.In
 			if strings.TrimSpace(answer) == "" {
 				break
 			}
-			warning, err := validateInitModelInput(answers.Root, answer)
+			warning, err := validateInitModelInput(answers.Root, answer, initHarnessValue(answers))
 			if err != nil {
 				fmt.Printf("  %s\n", err)
 				continue

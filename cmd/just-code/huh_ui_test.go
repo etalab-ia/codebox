@@ -692,7 +692,7 @@ func TestInitModelInputDefaultsAndValidation(t *testing.T) {
 		return "catalogue unavailable", nil
 	})
 	for _, value := range []string{"", "  ", "défaut", "default"} {
-		warning, err := validateInitModelInput("project", value)
+		warning, err := validateInitModelInput("project", value, justcode.HarnessOpenCode)
 		if warning != "" || err != nil || normalizeInitModelInput(value) != "" {
 			t.Fatalf("default %q failed: %s, %v", value, warning, err)
 		}
@@ -700,9 +700,32 @@ func TestInitModelInputDefaultsAndValidation(t *testing.T) {
 	if calls != 0 {
 		t.Fatal("inherited model should not validate an empty identifier")
 	}
-	warning, err := validateInitModelInput("project", " qwen3-coder ")
+	warning, err := validateInitModelInput("project", " qwen3-coder ", justcode.HarnessOpenCode)
 	if err != nil || warning != "catalogue unavailable" || calls != 1 {
 		t.Fatalf("validation result: %s, %v, calls=%d", warning, err, calls)
+	}
+}
+
+func TestInitModelInputRefusesUnsupportedModelForPi(t *testing.T) {
+	calls := 0
+	stubCatalogueCheck(t, func(root, model string) (string, error) {
+		calls++
+		return "", nil
+	})
+	_, err := validateInitModelInput("project", "albert/qwen3-coder", justcode.HarnessPi)
+	if err == nil || !strings.Contains(err.Error(), "écarté pour Pi") {
+		t.Fatalf("Pi qwen3-coder validation error = %v, want a refusal naming the harness", err)
+	}
+	if calls != 0 {
+		t.Fatal("a refused model must not reach the catalogue check")
+	}
+	// The same identifier stays valid for OpenCode: the model is dropped for
+	// Pi only (#347).
+	if _, err := validateInitModelInput("project", "albert/qwen3-coder", justcode.HarnessOpenCode); err != nil {
+		t.Fatalf("OpenCode qwen3-coder validation = %v, want nil", err)
+	}
+	if calls != 1 {
+		t.Fatalf("OpenCode validation reached the catalogue %d times, want 1", calls)
 	}
 }
 

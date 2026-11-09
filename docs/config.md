@@ -470,13 +470,15 @@ changer de harnais recrée donc la machine isolée, ce qui détruit les sessions
 les fichiers propres à l'invité. Un projet qui reste sur OpenCode garde sa
 révision et n'est pas recréé.
 
-Deux limites à connaître avant de choisir Pi. Il ne prend pas en charge MCP :
-les connecteurs sélectionnés pour le projet ne s'appliquent qu'avec OpenCode, et
-l'assistant les enregistre sans les transmettre à Pi. Et tous les modèles
-d'Albert ne produisent pas d'appels d'outils structurés en flux : les modèles
-mesurés fiables sont `deepseek-v4-flash` et `gpt-oss-120b`, alors que
-`qwen3-coder`, le modèle par défaut, alterne entre appels d'outils et appels
-écrits en texte, ce qui interrompt l'agent. Mesures, dates et limites :
+Un projet Pi écarte les modèles dont les appels d'outils en flux ne sont pas
+fiables (#347). `qwen3-coder` est retiré de la liste que Pi reçoit et le repli
+d'un projet Pi qui n'a choisi aucun modèle est `deepseek-v4-flash`, le premier
+modèle retenu que Pi peut exécuter. Une sélection explicite de `qwen3-coder`
+pour un projet Pi est refusée, d'abord à la question du modèle puis au
+lancement, avec son motif : le projet enregistre un modèle qu'il peut exécuter,
+ou aucun. OpenCode continue de proposer `qwen3-coder` sans changement ; les
+connecteurs MCP, eux, ne s'appliquent qu'avec OpenCode, sans pont prévu pour Pi
+(#346). Mesures, dates et limites :
 [`docs/decisions/2026-11-09-pi-harness.md`](decisions/2026-11-09-pi-harness.md).
 
 `just-code models` valide la sélection contre le catalogue Albert. Les modèles

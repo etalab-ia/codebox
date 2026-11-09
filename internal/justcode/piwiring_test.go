@@ -37,7 +37,7 @@ func TestPiSandboxEnvCarriesVersionAndConfiguration(t *testing.T) {
 	if env[PiSkipVersionCheckEnv] != "1" {
 		t.Fatalf("%s = %q", PiSkipVersionCheckEnv, env[PiSkipVersionCheckEnv])
 	}
-	if !strings.Contains(env[PiModelsEnv], "Qwen/Qwen3-Coder-30B-A3B-Instruct") {
+	if !strings.Contains(env[PiModelsEnv], "deepseek-ai/DeepSeek-V4-Flash-0731") {
 		t.Fatalf("models.json does not carry the API model id: %s", env[PiModelsEnv])
 	}
 	if !strings.Contains(env[PiSettingsEnv], "enableInstallTelemetry") {
@@ -120,7 +120,7 @@ func TestProjectManifestHarnessRoundTrip(t *testing.T) {
 	}
 
 	legacy := filepath.Join("/legacy", ".just-code", "project.json")
-	if err := WriteProjectManifest(fs, legacy, ProjectManifest{Model: "albert/qwen3-coder"}); err != nil {
+	if err := WriteProjectManifest(fs, legacy, ProjectManifest{Model: "albert/deepseek-v4-flash"}); err != nil {
 		t.Fatal(err)
 	}
 	pm, err = ReadProjectManifest(fs, legacy)
@@ -141,7 +141,7 @@ func TestProjectManifestHarnessRoundTrip(t *testing.T) {
 // contains spaces).
 func TestPiAgentLaunch(t *testing.T) {
 	overlay := albertOverlay()
-	const ref = "albert/Qwen/Qwen3-Coder-30B-A3B-Instruct"
+	const ref = "albert/deepseek-ai/DeepSeek-V4-Flash-0731"
 
 	fresh := piAgentLaunch("/tmp/just-code-agent.env", "/Volumes/My Shared Files/workspace", piModelArgs(overlay))
 	if !strings.Contains(fresh, "exec pi"+` '--model' '`+ref+`'`) {
@@ -303,7 +303,7 @@ func TestTartPiLaunchInstallsConfiguresAndSelectsTheModel(t *testing.T) {
 		if strings.Contains(call, "npm install --global --prefix") && strings.Contains(call, PiPackage) && strings.Contains(call, PiVersion) {
 			installed = true
 		}
-		if strings.Contains(call, "/.pi/agent/models.json") && strings.Contains(call, "Qwen/Qwen3-Coder-30B-A3B-Instruct") {
+		if strings.Contains(call, "/.pi/agent/models.json") && strings.Contains(call, "deepseek-ai/DeepSeek-V4-Flash-0731") {
 			configured = true
 		}
 	}
@@ -323,7 +323,7 @@ func TestTartPiLaunchInstallsConfiguresAndSelectsTheModel(t *testing.T) {
 	if !strings.Contains(launch, "exec pi") {
 		t.Fatalf("the launch does not exec Pi: %s", launch)
 	}
-	if !strings.Contains(launch, "--model") || !strings.Contains(launch, "Qwen/Qwen3-Coder-30B-A3B-Instruct") {
+	if !strings.Contains(launch, "--model") || !strings.Contains(launch, "deepseek-ai/DeepSeek-V4-Flash-0731") {
 		t.Fatalf("the selected model never reached the agent: %s", launch)
 	}
 }

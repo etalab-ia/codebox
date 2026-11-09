@@ -565,7 +565,10 @@ func askInitAdvancedHuh(opts initOptions, answers justcode.InitAnswers) (justcod
 			input = answers.Model
 			field = huh.NewInput().Title("Modèle principal").
 				Description("Identifiant du modèle Albert ('just-code models' liste les modèles). Vide ou 'défaut' reprend le modèle défini dans setup. Échap : annuler cette modification.").
-				Validate(func(s string) error { _, err := validateInitModelInput(answers.Root, s); return err }).Value(&input)
+				Validate(func(s string) error {
+					_, err := validateInitModelInput(answers.Root, s, initHarnessValue(answers))
+					return err
+				}).Value(&input)
 		case "small-model":
 			input = answers.SmallModel
 			field = newInitSmallModelSelect(answers.Root, &input)
@@ -599,7 +602,7 @@ func askInitAdvancedHuh(opts initOptions, answers justcode.InitAnswers) (justcod
 				answers.MemoryMB = n
 			}
 		case "model":
-			warning, err := validateInitModelInput(answers.Root, input)
+			warning, err := validateInitModelInput(answers.Root, input, initHarnessValue(answers))
 			if err != nil {
 				return answers, err
 			}
@@ -624,10 +627,18 @@ func normalizeInitModelInput(value string) string {
 	return canonicalAlbertModelRef(value)
 }
 
-func validateInitModelInput(root, value string) (string, error) {
+func validateInitModelInput(root, value string, harness justcode.Harness) (string, error) {
 	model := normalizeInitModelInput(value)
 	if model == "" {
 		return "", nil
+	}
+	// A model the chosen harness cannot run is refused as it is typed, not at
+	// the recap (#347): the answer would otherwise look accepted and then come
+	// back as an error after the whole flow.
+	if harness == justcode.HarnessPi {
+		if reason := justcode.PiUnsupportedModelReason(model); reason != "" {
+			return "", fmt.Errorf("%s. Ce modèle est écarté pour Pi : choisissez un autre modèle principal, ou OpenCode", reason)
+		}
 	}
 	return catalogueModelWarningFn(root, model)
 }
