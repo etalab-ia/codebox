@@ -230,6 +230,23 @@ variable name without mixing.
   out fails (`FAIL probe-meta-line-missing`) instead of producing evidence that
   cannot be tied to what ran.
 
+### Re-qualification run (2026-11-09)
+
+The recorded pair above was captured against the loader set of its day, and the
+guest manifests have moved three times since. The kit was re-run on the current
+pins (#348): twice on macOS arm64 (Apple Silicon, macOS 27.2, Go 1.27.3) with
+`dotenv` 18.0.9 + `dotenv-expand` 13.0.0 and `python-dotenv` 1.2.4, **all 19
+assertions passing both times**, byte-identical between runs.
+
+A third run is kept as a negative control: the same flow with the guest
+manifest pinned to a `dotenv` version that does not exist. It fails
+`node-runtime-and-loaders-installed` and leaves every earlier case passing, so
+the pair above is evidence that the fixture installs really happen rather than a
+transcript of case names.
+
+`evidence/README.md` maps each transcript to the loader set it covers; the
+transcripts themselves do not name one (see #349).
+
 ## Cleanup
 
 Everything is bounded and self-cleaning: the runner has a 15-minute wall
