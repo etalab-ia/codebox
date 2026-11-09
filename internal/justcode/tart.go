@@ -1098,8 +1098,9 @@ func (t *Tart) runPiAgent(ctx context.Context) error {
 	if interactive == nil {
 		interactive = RunInteractive
 	}
+	launchArgs := append(piModelArgs(t.OpenCodeOverlay), piResumeArgs(hasSessions)...)
 	return interactive("tart", "exec", "-it", vm, "/bin/zsh", "-lc",
-		piAgentLaunch(guestSecretsEnvPath, guestWorkspaceDir, piResumeArgs(hasSessions)))
+		piAgentLaunch(guestSecretsEnvPath, guestWorkspaceDir, launchArgs))
 }
 
 // piGuestHasSessions reports whether the guest holds a saved Pi session. A

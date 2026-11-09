@@ -961,14 +961,21 @@ var msbGuestPrepareProbe = msbGuestPrepareProbeFor(HarnessOpenCode)
 // Readiness means the guest provides the harness's own CLI at the pinned
 // version: the prep script installs a different toolchain for Pi than for
 // OpenCode, so "the toolchain is ready" is not a harness-independent fact.
+//
+// The browser-profile clause is OpenCode-only for the same reason: only the
+// OpenCode prep installs the browser MCPs and writes their marker, so requiring
+// that marker from a Pi guest would wait for something no Pi preparation ever
+// produces. A Pi guest keeps the toolchain marker and the process scan.
 func msbGuestPrepareProbeFor(harness Harness) string {
 	toolchain := "[ \"$(opencode --version 2>/dev/null)\" = \"opencode v" + OpenCodeVersion + "\" ]"
+	profile := "if [ -z \"$fingerprint\" ] || [ \"$(cat " + msbBrowserMCPMarker + " 2>/dev/null)\" = \"$fingerprint\" ]; then exit " + strconv.Itoa(msbPrepareReady) + "; fi; fi; "
 	if harness == HarnessPi {
 		toolchain = "[ \"$(pi --version 2>/dev/null)\" = \"" + PiVersion + "\" ]"
+		profile = "exit " + strconv.Itoa(msbPrepareReady) + "; fi; "
 	}
 	return "fingerprint=\"${" + msbBrowserMCPFingerprintEnv + ":-}\"; " +
 		"if [ -f " + msbToolchainMarker + " ] && " + toolchain + "; then " +
-		"if [ -z \"$fingerprint\" ] || [ \"$(cat " + msbBrowserMCPMarker + " 2>/dev/null)\" = \"$fingerprint\" ]; then exit " + strconv.Itoa(msbPrepareReady) + "; fi; fi; " +
+		profile +
 		"self=$$; " +
 		"for p in /proc/[0-9]*/cmdline; do " +
 		"[ \"$p\" = \"/proc/$self/cmdline\" ] && continue; " +
@@ -982,14 +989,21 @@ func msbGuestPrepareProbeFor(harness Harness) string {
 // TUI happens to run must not change whether credentials are protected. The
 // spec carries binding metadata only — values transit exclusively through
 // withHostSecrets.
-func (m *MicrosandboxRuntime) sandboxSpec(bindings []resolvedBinding) msbSandboxSpec {
-	mcpIDs := m.OpenCodeOverlay.MCPConnectors
-	harness := m.cfg.EffectiveHarness()
-	if harness == HarnessPi {
-		// Pi has no MCP support: the managed connectors are not applicable, so
-		// they must not select the heavier browser image either.
-		mcpIDs = nil
+// msbApplicableMCPs is the connector selection that actually applies to this
+// guest. Pi has no MCP support, so a Pi project applies none of them: the
+// image, the guest profile, the prep script, the environment and the readiness
+// probe all follow from this one decision, and disagreeing about it is how a
+// Pi guest ends up waiting forever for a browser profile it never installs.
+func (m *MicrosandboxRuntime) msbApplicableMCPs() []string {
+	if m.cfg.EffectiveHarness() == HarnessPi {
+		return nil
 	}
+	return m.OpenCodeOverlay.MCPConnectors
+}
+
+func (m *MicrosandboxRuntime) sandboxSpec(bindings []resolvedBinding) msbSandboxSpec {
+	mcpIDs := m.msbApplicableMCPs()
+	harness := m.cfg.EffectiveHarness()
 	return msbSandboxSpec{
 		Name:            m.InstanceName(),
 		Image:           msbImageForMCPs(mcpIDs),
@@ -1031,7 +1045,7 @@ func (m *MicrosandboxRuntime) nextStartEnv() map[string]string {
 	for key, value := range piSandboxEnv(m.cfg.EffectiveHarness(), m.OpenCodeOverlay) {
 		env[key] = value
 	}
-	for key, value := range browserGuestEnv(m.OpenCodeOverlay.MCPConnectors) {
+	for key, value := range browserGuestEnv(m.msbApplicableMCPs()) {
 		env[key] = value
 	}
 	return env
@@ -1065,7 +1079,7 @@ func (m *MicrosandboxRuntime) sandboxEnv() map[string]string {
 	for key, value := range piSandboxEnv(m.cfg.EffectiveHarness(), m.OpenCodeOverlay) {
 		env[key] = value
 	}
-	for key, value := range browserGuestEnv(m.OpenCodeOverlay.MCPConnectors) {
+	for key, value := range browserGuestEnv(m.msbApplicableMCPs()) {
 		env[key] = value
 	}
 	return env
@@ -1591,8 +1605,8 @@ func (m *MicrosandboxRuntime) runPiAgent(ctx context.Context) error {
 			fmt.Fprintln(os.Stderr, line)
 		}
 	}
-	code, err := m.Client.AttachInteractive(ctx, m.InstanceName(), "pi",
-		piResumeArgs(m.piGuestHasSessions(ctx)), "/workspace")
+	launchArgs := append(piModelArgs(m.OpenCodeOverlay), piResumeArgs(m.piGuestHasSessions(ctx))...)
+	code, err := m.Client.AttachInteractive(ctx, m.InstanceName(), "pi", launchArgs, "/workspace")
 	if err != nil {
 		return err
 	}

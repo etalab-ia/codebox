@@ -775,6 +775,9 @@ func seedInitAnswersFromManifest(opts initOptions, answers justcode.InitAnswers)
 	if !opts.Set["isolation"] {
 		answers.Isolation = ""
 	}
+	if !opts.Set["harness"] {
+		answers.Harness = ""
+	}
 	if !opts.Set["model"] {
 		answers.Model = ""
 	}
@@ -820,6 +823,12 @@ func seedInitAnswersFromManifest(opts initOptions, answers justcode.InitAnswers)
 	}
 	if !opts.Set["isolation"] {
 		answers.Isolation = justcode.Isolation(manifest.Isolation)
+	}
+	// The harness is part of what reconfiguration preserves: rerunning init on
+	// a Pi project without --harness must not quietly write OpenCode back,
+	// which is exactly what a non-interactive `init --replace --yes` would do.
+	if !opts.Set["harness"] {
+		answers.Harness = manifest.Harness
 	}
 	if !opts.Set["model"] {
 		answers.Model = manifest.Model

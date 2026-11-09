@@ -2733,3 +2733,41 @@ func TestInitStepPrefixCounters(t *testing.T) {
 		}
 	}
 }
+
+// Rerunning init on a configured project must preserve its agent unless the
+// user says otherwise: a non-interactive `init --replace --yes` used to write
+// OpenCode back over a Pi project, because the harness was the one project
+// setting the wizard never reseeded from the manifest.
+func TestSeedInitAnswersFromManifestKeepsTheHarness(t *testing.T) {
+	root := initTestProject(t)
+	if err := justcode.WriteProjectManifest(justcode.DefaultFS, justcode.ProjectManifestPath(root), justcode.ProjectManifest{
+		Runtime: "microsandbox", Isolation: "full", Model: "albert/qwen3-coder", Harness: "pi",
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	seeded := seedInitAnswersFromManifest(initOptions{Root: root}, justcode.InitAnswers{Root: root})
+	if seeded.Harness != "pi" {
+		t.Fatalf("seeded harness = %q, want the manifest's pi", seeded.Harness)
+	}
+	if seeded.Model != "albert/qwen3-coder" || seeded.Isolation != "full" {
+		t.Fatalf("the rest of the manifest must still be seeded: %+v", seeded)
+	}
+
+	// An explicit --harness is the user's answer and must win. The flag
+	// reaches the answers before seeding, so that is what the answers carry.
+	flagged := seedInitAnswersFromManifest(
+		initOptions{Root: root, Harness: "opencode", Set: map[string]bool{"harness": true}},
+		justcode.InitAnswers{Root: root, Harness: "opencode"})
+	if flagged.Harness != "opencode" {
+		t.Fatalf("an explicit --harness was overwritten by the manifest: %q", flagged.Harness)
+	}
+
+	// A root without a manifest leaves the answer empty, so the wizard asks
+	// rather than inheriting the previous project's agent.
+	other := initTestProject(t)
+	empty := seedInitAnswersFromManifest(initOptions{}, justcode.InitAnswers{Root: other, Harness: "pi"})
+	if empty.Harness != "" {
+		t.Fatalf("a project change carried the previous harness over: %q", empty.Harness)
+	}
+}

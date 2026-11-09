@@ -218,6 +218,11 @@ type DesiredState struct {
 	// healthy running instance would take the no-op path and keep serving
 	// the old credential.
 	CredentialGeneration string
+	// Harness is the guest's agent harness (#176). The prep script and the
+	// image are creation-fixed — the entrypoint written at creation is what
+	// installs the harness — so a harness change cannot be applied to a live
+	// guest and must take the recreation path, like CPUs, memory and image.
+	Harness Harness
 	// BoundCredentials lists the store-sourced credential kinds (P09).
 	BoundCredentials []string
 	// Non-secret server credentials participate in the revision.
@@ -262,6 +267,14 @@ func (d DesiredState) ConfigRevision() string {
 		sorted := append([]string(nil), d.MCPConnectors...)
 		sort.Strings(sorted)
 		parts = append(parts, "mcps:"+strings.Join(sorted, ","))
+	}
+	// Same shape contract again: an OpenCode instance contributes nothing, so a
+	// guest created before #176 keeps its revision and is not recreated for a
+	// setting it never used. Switching to Pi adds the line and switching back
+	// removes it, so both directions trip, which is what the creation-fixed
+	// prep script requires.
+	if d.Harness == HarnessPi {
+		parts = append(parts, "harness:"+string(d.Harness))
 	}
 	for _, part := range parts {
 		_, _ = h.Write([]byte(part))
@@ -610,10 +623,15 @@ func (m *MicrosandboxRuntime) Reconcile(ctx context.Context) error {
 // credential-dependent operations in that case (see Reconcile), so carrying
 // the revision cannot leave a stale refresh unperformed.
 func (m *MicrosandboxRuntime) desiredState(resolved bool, bindings []resolvedBinding, applied *InstanceState) DesiredState {
+	// The connectors the guest will actually apply: a Pi guest applies none,
+	// so the image and the guest profile must be derived from that same
+	// selection or the desired state would describe a guest nobody creates.
+	applicableMCPs := m.msbApplicableMCPs()
 	d := DesiredState{
 		Instance:        m.InstanceName(),
 		Isolation:       m.cfg.Isolation,
-		Image:           msbImageForMCPs(m.OpenCodeOverlay.MCPConnectors),
+		Harness:         m.cfg.EffectiveHarness(),
+		Image:           msbImageForMCPs(applicableMCPs),
 		Username:        m.cfg.Username,
 		CPUs:            m.cfg.CPUs,
 		MemoryMB:        m.cfg.MemoryMB,
@@ -621,7 +639,7 @@ func (m *MicrosandboxRuntime) desiredState(resolved bool, bindings []resolvedBin
 		PortsConfigured: m.cfg.PortsConfigured,
 		MCPConnectors:   append([]string(nil), m.OpenCodeOverlay.MCPConnectors...),
 	}
-	if len(browserMCPIDs(m.OpenCodeOverlay.MCPConnectors)) > 0 {
+	if len(browserMCPIDs(applicableMCPs)) > 0 {
 		d.GuestProfile = browserGuestProfileRevision()
 	}
 	if resolved {

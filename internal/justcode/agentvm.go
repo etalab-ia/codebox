@@ -841,7 +841,8 @@ func (a *AgentVM) runPiAgent(ctx context.Context) error {
 	if err := a.guestRun(ctx, "sh", "-c", configScript); err != nil {
 		return err
 	}
-	launch := piAgentLaunch(agentVMSecretsEnvPath, cfg.WorkspaceDir, piResumeArgs(a.piGuestHasSessions(ctx, vm)))
+	launchArgs := append(piModelArgs(a.OpenCodeOverlay), piResumeArgs(a.piGuestHasSessions(ctx, vm))...)
+	launch := piAgentLaunch(agentVMSecretsEnvPath, cfg.WorkspaceDir, launchArgs)
 	interactive := a.Interactive
 	if interactive == nil {
 		interactive = RunInteractive

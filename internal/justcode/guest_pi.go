@@ -68,10 +68,34 @@ func piResumeArgs(hasSessions bool) []string {
 	return []string{"--continue"}
 }
 
+// piModelArgs returns the --model arguments for a Pi launch, resolving the
+// project's selection to the provider/id form Pi expects. Pi has no equivalent
+// of OpenCode's merged configuration, so the selection only reaches the agent
+// through this flag: without it, the model chosen in the wizard would be shown
+// in the recap and ignored at launch.
+//
+// Pi also falls back to its own default when given nothing, so an unresolvable
+// selection yields no argument rather than a broken one.
+func piModelArgs(overlay ManagedOverlay) []string {
+	ref := PiModelRef(overlay)
+	if ref == "" {
+		return nil
+	}
+	return []string{"--model", ref}
+}
+
 // piAgentLaunch is the in-guest launch line for full isolation: source the
-// 0600 secrets env file, cd into the workspace, exec the TUI. Both paths are
+// 0600 secrets env file, cd into the workspace, exec the TUI. Every value is
 // shell-quoted: the Tart workspace share contains spaces.
-func piAgentLaunch(secretsPath, workspaceDir string, resumeArgs []string) string {
+func piAgentLaunch(secretsPath, workspaceDir string, args []string) string {
+	quoted := make([]string, 0, len(args))
+	for _, arg := range args {
+		quoted = append(quoted, shellQuote(arg))
+	}
+	suffix := ""
+	if len(quoted) > 0 {
+		suffix = " " + strings.Join(quoted, " ")
+	}
 	return fmt.Sprintf("set -a; . %s; set +a; cd %s; exec pi%s",
-		shellQuote(secretsPath), shellQuote(workspaceDir), strings.Join(append([]string{""}, resumeArgs...), " "))
+		shellQuote(secretsPath), shellQuote(workspaceDir), suffix)
 }
