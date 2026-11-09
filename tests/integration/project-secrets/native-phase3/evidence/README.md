@@ -62,21 +62,35 @@ reaches it at the host LAN address; see the README's LAN-exposure note. Raw
 private diagnostics and the temporary CA keys are not checked in — only the
 sanitized `results.txt` transcripts.
 
-## Pin currency (2026-10-25)
+## Pin currency (2026-11-09)
 
 The transcripts themselves record no package versions, only
-`sdk=0.7.6 runtime=0.7.6 go=go1.27.1` and step names, so the qualified loader
-set comes from the guest manifests at the recorded commit `973ba24` (the
-`source=` field points at `f483a80`, where these paths did not yet exist):
-**Node dotenv 16.4.7 + dotenv-expand 12.0.2** and **python-dotenv 1.2.2**. The
-manifests under `guest/` have since moved to **18.0.9 / 13.0.0 / 1.2.4**
-(issues #246, #324 and #344), and the
-guest installs its packages from those manifests at run time. A fresh run
-therefore exercises a different loader set than the one recorded here, so this
-evidence should not be cited as covering the current pins. The host-side loader
-suites re-measure the same encoding and substitution properties on the new set,
-but the native qualification itself needs one more macOS arm64 run to be
-restated. Treat
-`main_test.go`'s `TestGuestFixtureDependencyPins` as the authority on which
-pins the kit currently carries, and `git show 973ba24:` on the two guest
-manifests as the authority on what this evidence covers.
+`sdk=0.7.6 runtime=0.7.6 go=<version>` and step names, so the qualified loader
+set comes from the guest manifests at the commit the kit was run from. The
+`source=` field is the kit's vendoring pin (`f483a80`), not the run revision: it
+names the same commit in every transcript, so it cannot separate two sets (issue
+#349). Which transcript covers which set:
+
+| Transcript | Run | Guest loader set covered |
+|---|---|---|
+| `darwin-arm64-run-1.txt`, `darwin-arm64-run-2.txt` | 2026-10-15, go1.27.1 | Node `dotenv` 16.4.7 + `dotenv-expand` 12.0.2, `python-dotenv` 1.2.2 (manifests at `973ba24`) |
+| `darwin-arm64-run-3.txt`, `darwin-arm64-run-4.txt` | 2026-11-09, go1.27.3 | Node `dotenv` 18.0.9 + `dotenv-expand` 13.0.0, `python-dotenv` 1.2.4 (manifests at `d1f6020`) |
+| `darwin-arm64-run-negative-control.txt` | 2026-11-09, go1.27.3 | as `-run-3`, with the guest `dotenv` pin replaced by a version that does not exist |
+
+The pair `-run-3` / `-run-4` re-runs the kit on the current pins, so the native
+qualification now covers what the fixtures carry: all 19 cases pass, twice in a
+row, and the two transcripts are byte-identical (issue #348; macOS 27.2 on
+Apple Silicon, Go 1.27.3). The 2026-10-15 pair still stands for the set named in
+its row, which is no longer the current one.
+
+The negative control is what keeps the pair meaningful. With the guest manifest
+pinned to `dotenv@99.99.99`, the run fails
+`node-runtime-and-loaders-installed` — its diagnostic records `npm error
+notarget No matching version found for dotenv@99.99.99` — while every earlier
+case still passes and the VM is still cleaned up. A kit that passed that
+mutation would have qualified nothing.
+
+The host-side loader suites re-measure the same encoding and substitution
+properties on every pin change in `fixture-contracts`; these transcripts carry
+the end-to-end claim. Treat `main_test.go`'s `TestGuestFixtureDependencyPins` as
+the authority on which pins the kit currently carries.

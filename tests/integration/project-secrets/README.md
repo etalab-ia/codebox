@@ -66,8 +66,9 @@ property of the dependency version, so the fixtures qualify it.
 `dotenv-expand` 13.0.0, applied by Dependabot #324, passes all 46 Node tests
 and carries no OSV advisory. The Python suite is not evidence about it: it
 loads `python-dotenv`, so its 16 tests qualify the applied `python-dotenv`
-1.2.4 pin only. The native macOS arm64 run predates this upgrade and remains
-tied to its recorded loader versions.
+1.2.4 pin only. The native macOS arm64 run now covers this upgrade rather than
+predating it: the 2026-11-09 re-run exercises `dotenv-expand` 13.0.0 on a real
+VM (`native-phase3/evidence/README.md`, #348).
 
 `dotenv` 18.0.9, applied by Dependabot #344, passes the same 46 Node tests
 against `dotenv-expand` 13.0.0 and carries no OSV advisory; nor does the
@@ -77,8 +78,8 @@ deferred while the direct pin stayed at 16.6.1, because the recorded native
 guest qualification had been measured against that pin. (`dotenv` 17.4.2 is not
 a candidate of its own: it is the version `dotenv-expand` 13.0.0 keeps for
 itself in the lockfile.) #344 re-measures the host-side suite on 18.0.9 and
-moves the direct pin, under the same native gap `dotenv-expand` 13.0.0 already
-carries.
+moves the direct pin; the native gap it left open is closed by the 2026-11-09
+re-run (#348), which qualifies that pin end to end.
 
 ## Design Consequence and Remaining Gate
 
