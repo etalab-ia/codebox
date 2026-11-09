@@ -149,9 +149,9 @@ type UnapprovedInput struct {
 // inside it), and the project-local Pi settings, which the review on #345
 // showed can declare extensions and packages — and the files that run without
 // any declaration at all, whether auto-discovered (OpenCode plugins, Pi
-// extensions) or reached through an explicit local plugin declaration. A file
-// can be both declared and auto-discovered; trust review and approval must
-// contain it only once.
+// extensions) or reached through an explicit local declaration (an OpenCode
+// plugin path, a Pi settings "extensions" entry). A file can be both declared
+// and auto-discovered; trust review and approval must contain it only once.
 func (inputs ProjectExecutionInputs) ExecutionInputPaths(root string) []string {
 	seen := map[string]bool{}
 	var paths []string
@@ -179,6 +179,9 @@ func (inputs ProjectExecutionInputs) ExecutionInputPaths(root string) []string {
 		add(rel)
 	}
 	for _, rel := range inputs.PiAutoDiscoveredExtensions {
+		add(rel)
+	}
+	for _, rel := range inputs.PiDeclaredExtensionFiles {
 		add(rel)
 	}
 	sort.Strings(paths)

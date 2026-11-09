@@ -63,6 +63,16 @@ y compris pour l'exécution d'outils.
   `~/.pi/agent/skills`, reprise de session via `pi --continue`.
 - Les connecteurs MCP ne s'appliquent qu'avec OpenCode : pour Pi, ils ne
   sélectionnent plus l'image navigateur et ne sont pas transmis.
+- La porte de confiance couvre la surface Pi, sur tous les chemins de
+  lancement : `.pi/settings.json`, les fichiers sous `.pi/extensions/`, et les
+  fichiers locaux que les entrées de `extensions` désignent (résolues comme Pi
+  les résout, relativement à `.pi`). Chaque fichier est approuvé par son propre
+  contenu, donc une modification tirée après approbation redemande une décision.
+  Un motif glob est élargi à son répertoire parent littéral : la liste peut
+  contenir des fichiers que le motif ne charge pas, jamais en omettre un. Une
+  déclaration impossible à épingler par contenu (motif à la racine du projet,
+  chemin hors du projet, chemin relatif au domicile) fait échouer le lancement
+  au lieu d'être ignorée.
 
 ## Limites connues, à traiter séparément
 

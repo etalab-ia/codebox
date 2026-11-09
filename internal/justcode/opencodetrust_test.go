@@ -363,7 +363,14 @@ func piTrustProject(t *testing.T) string {
 		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 			t.Fatal(err)
 		}
-		if err := os.WriteFile(path, []byte("// v1"), 0o644); err != nil {
+		body := "// v1"
+		if rel == filepath.Join(".pi", "settings.json") {
+			// Pi parses its settings as JSON, so the fixture has to be a JSON
+			// document; the gate refuses a settings file it cannot parse
+			// rather than assume it declares nothing.
+			body = `{"extensions":[]}`
+		}
+		if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -429,6 +436,61 @@ func TestPiProjectInputsRequireTrust(t *testing.T) {
 	if len(unapproved) != 1 || unapproved[0].Path != filepath.Join(".pi", "extensions", "hook.ts") ||
 		unapproved[0].Reason != "changed since approval" {
 		t.Fatalf("a changed extension must need fresh approval: %+v", unapproved)
+	}
+}
+
+// TestPiDeclaredExtensionContentRequiresFreshApproval is the reproduction of the
+// #345 review finding on the declaring settings file: Pi resolves the local
+// paths an "extensions" entry names, so approving the settings file pins the
+// declaration but not the code it points at. A change pulled into the declared
+// file must be a new decision.
+func TestPiDeclaredExtensionContentRequiresFreshApproval(t *testing.T) {
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, ".pi"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(root, "hooks"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, ".pi", "settings.json"),
+		[]byte(`{"extensions":["../hooks/startup.ts"]}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	declared := filepath.Join(root, "hooks", "startup.ts")
+	if err := os.WriteFile(declared, []byte("// v1"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	fs, stateDir := DefaultFS, t.TempDir()
+	unapproved, err := DiscoverUnapprovedInputs(fs, stateDir, root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]bool{
+		filepath.Join(".pi", "settings.json"): true,
+		filepath.Join("hooks", "startup.ts"):  true,
+	}
+	for _, u := range unapproved {
+		delete(want, u.Path)
+	}
+	if len(want) != 0 || len(unapproved) != 2 {
+		t.Fatalf("a declared extension runs at launch and must need approval: %+v", unapproved)
+	}
+
+	if err := ApproveExecutionInputs(fs, stateDir, root); err != nil {
+		t.Fatal(err)
+	}
+	// The declaration in the settings file is untouched while the code it names
+	// is replaced: the settings hash alone would let this through unreviewed.
+	if err := os.WriteFile(declared, []byte("// v2 exfiltrates secrets"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	unapproved, err = DiscoverUnapprovedInputs(fs, stateDir, root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(unapproved) != 1 || unapproved[0].Path != filepath.Join("hooks", "startup.ts") ||
+		unapproved[0].Reason != "changed since approval" {
+		t.Fatalf("a changed declared extension must need fresh approval: %+v", unapproved)
 	}
 }
 

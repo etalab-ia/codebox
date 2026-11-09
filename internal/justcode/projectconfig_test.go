@@ -187,3 +187,181 @@ func TestParseProjectOpenCodeConfigSizeLimit(t *testing.T) {
 		t.Fatalf("a config at exactly the limit must parse: %v", err)
 	}
 }
+
+// TestDiscoverProjectExecutionInputsResolvesDeclaredPiExtensions covers the
+// local path forms Pi accepts in a settings file's "extensions" array. A glob is
+// widened to its longest literal parent directory, so a matcher whose exact
+// semantics just-code does not implement can only add files to the approval set.
+func TestDiscoverProjectExecutionInputsResolvesDeclaredPiExtensions(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		settings func(root string) string
+		files    []string
+		want     []string
+	}{
+		{
+			name:     "file declaration resolved relative to .pi",
+			settings: func(string) string { return `{"extensions":["../hooks/startup.ts"]}` },
+			files:    []string{"hooks/startup.ts"},
+			want:     []string{filepath.Join("hooks", "startup.ts")},
+		},
+		{
+			name:     "force-include marker",
+			settings: func(string) string { return `{"extensions":["+../hooks/startup.ts"]}` },
+			files:    []string{"hooks/startup.ts"},
+			want:     []string{filepath.Join("hooks", "startup.ts")},
+		},
+		{
+			name: "absolute path inside the project",
+			settings: func(root string) string {
+				return `{"extensions":["` + filepath.ToSlash(filepath.Join(root, "hooks", "startup.ts")) + `"]}`
+			},
+			files: []string{"hooks/startup.ts"},
+			want:  []string{filepath.Join("hooks", "startup.ts")},
+		},
+		{
+			name:     "directory declaration lists every file under it",
+			settings: func(string) string { return `{"extensions":["extras"]}` },
+			files:    []string{".pi/extras/one.ts", ".pi/extras/nested/two.ts"},
+			want: []string{
+				filepath.Join(".pi", "extras", "nested", "two.ts"),
+				filepath.Join(".pi", "extras", "one.ts"),
+			},
+		},
+		{
+			name:     "a glob is widened to its literal parent directory",
+			settings: func(string) string { return `{"extensions":["../hooks/*.ts"]}` },
+			files:    []string{"hooks/startup.ts", "hooks/readme.md"},
+			want: []string{
+				filepath.Join("hooks", "readme.md"),
+				filepath.Join("hooks", "startup.ts"),
+			},
+		},
+		{
+			name:     "exclusions never add an input",
+			settings: func(string) string { return `{"extensions":["!../hooks/startup.ts","-../hooks/other.ts"]}` },
+			files:    []string{"hooks/startup.ts", "hooks/other.ts"},
+			want:     nil,
+		},
+		{
+			name:     "a missing declaration loads nothing",
+			settings: func(string) string { return `{"extensions":["../hooks/gone.ts"]}` },
+			want:     nil,
+		},
+		{
+			name:     "a pattern whose parent is missing loads nothing",
+			settings: func(string) string { return `{"extensions":["nothing/*.ts"]}` },
+			want:     nil,
+		},
+		{
+			name:     "a bare string is read as a single declaration",
+			settings: func(string) string { return `{"extensions":"../hooks/startup.ts"}` },
+			files:    []string{"hooks/startup.ts"},
+			want:     []string{filepath.Join("hooks", "startup.ts")},
+		},
+		{
+			name:     "no extensions array",
+			settings: func(string) string { return `{"packages":["npm:some-tool"]}` },
+			want:     nil,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			root := t.TempDir()
+			if err := os.MkdirAll(filepath.Join(root, ".pi"), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(filepath.Join(root, ".pi", "settings.json"), []byte(tc.settings(root)), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			for _, rel := range tc.files {
+				path := filepath.Join(root, filepath.FromSlash(rel))
+				if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.WriteFile(path, []byte("// v1"), 0o644); err != nil {
+					t.Fatal(err)
+				}
+			}
+			inputs, err := DiscoverProjectExecutionInputs(root)
+			if err != nil {
+				t.Fatal(err)
+			}
+			got := strings.Join(inputs.PiDeclaredExtensionFiles, ",")
+			want := strings.Join(tc.want, ",")
+			if got != want {
+				t.Fatalf("declared Pi extensions = %q; want %q", got, want)
+			}
+		})
+	}
+}
+
+// TestDeclaredPiExtensionsRefuseUnpinnablePaths keeps the resolution fail-closed:
+// a declaration that cannot be tied to project content must refuse the launch
+// rather than be skipped, or the settings hash would approve a declaration whose
+// target stays unreviewed.
+func TestDeclaredPiExtensionsRefuseUnpinnablePaths(t *testing.T) {
+	abs := filepath.Join(t.TempDir(), "evil.ts")
+	outside := t.TempDir()
+	symlinkSettings := func(root string) string {
+		return `{"extensions":["../link/evil.ts"]}`
+	}
+	for _, tc := range []struct {
+		name     string
+		settings func(root string) string
+		prepare  func(t *testing.T, root string) bool
+	}{
+		{
+			name:     "home-relative path",
+			settings: func(string) string { return `{"extensions":["~/.pi/agent/extensions/evil.ts"]}` },
+		},
+		{
+			name:     "absolute path outside the project",
+			settings: func(string) string { return `{"extensions":["` + filepath.ToSlash(abs) + `"]}` },
+		},
+		{
+			name:     "path above the project root",
+			settings: func(string) string { return `{"extensions":["../../hooks/evil.ts"]}` },
+		},
+		{
+			name:     "pattern rooted at the project root",
+			settings: func(string) string { return `{"extensions":["../**/*.ts"]}` },
+		},
+		{
+			name:     "pattern starting wild at the project root",
+			settings: func(string) string { return `{"extensions":["../../*/*.ts"]}` },
+		},
+		{
+			name:     "malformed settings",
+			settings: func(string) string { return `{"extensions":` },
+		},
+		{
+			name:     "declared path behind a symlink",
+			settings: symlinkSettings,
+			prepare: func(t *testing.T, root string) bool {
+				if err := os.WriteFile(filepath.Join(outside, "evil.ts"), []byte("// outside"), 0o644); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.Symlink(outside, filepath.Join(root, "link")); err != nil {
+					t.Skipf("symlinks unavailable: %v", err)
+				}
+				return true
+			},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			root := t.TempDir()
+			if err := os.MkdirAll(filepath.Join(root, ".pi"), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(filepath.Join(root, ".pi", "settings.json"), []byte(tc.settings(root)), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			if tc.prepare != nil && !tc.prepare(t, root) {
+				return
+			}
+			if _, err := DiscoverProjectExecutionInputs(root); err == nil {
+				t.Fatal("this declaration cannot be pinned by content and must refuse the launch")
+			}
+		})
+	}
+}
