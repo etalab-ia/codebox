@@ -30,11 +30,12 @@ tests clear the environment temporarily, and Go uses `Unmarshal` only.
 | Go godotenv | 1.5.1 | Preserved in all tested quote modes | Unquoted undefined `$MSB_...` erased |
 
 First measured 2026-10-14 on Node 16.4.7 / expand 12.0.2 / Python 1.2.2, and
-re-measured 2026-10-25 on the pinned set above after the fixture bump, then
-again 2026-11-09 on the `dotenv` 18.0.9 direct pin (`dotenv-expand` 13.0.0
-unchanged): the behaviour of every row is unchanged. The suites grew since the
-first run; Node now reports 46 tests and Python 16, all passing. Two component
-fixtures use the same application key with distinct markers.
+re-measured 2026-10-25 after the fixture bump, on the set then pinned (Node
+16.6.1 / expand 12.0.3 / Python 1.2.4), then again 2026-11-09 on the `dotenv`
+18.0.9 direct pin (`dotenv-expand` 13.0.0 unchanged): the behaviour of every row
+is unchanged. The suites grew since the first run; Node now reports 46 tests and
+Python 16, all passing. Two component fixtures use the same application key with
+distinct markers.
 
 Two majors were evaluated rather than applied blindly.
 
@@ -71,11 +72,13 @@ tied to its recorded loader versions.
 `dotenv` 18.0.9, applied by Dependabot #344, passes the same 46 Node tests
 against `dotenv-expand` 13.0.0 and carries no OSV advisory; nor does the
 `dotenv` 17.4.2 that `dotenv-expand` 13.0.0 keeps for itself in the lockfile.
-The majors Dependabot had offered before it, 17.4.2 and 18.0.8 (#254 / #262),
-were deferred while the direct pin stayed at 16.6.1, because the recorded native
-guest qualification had been measured against that pin. #344 re-measures the
-host-side suite on 18.0.9 and moves the direct pin, under the same native gap
-recorded for `dotenv-expand` above.
+The major Dependabot had offered before it, `dotenv` 18.0.8 (#254 / #262), was
+deferred while the direct pin stayed at 16.6.1, because the recorded native
+guest qualification had been measured against that pin. (`dotenv` 17.4.2 is not
+a candidate of its own: it is the version `dotenv-expand` 13.0.0 keeps for
+itself in the lockfile.) #344 re-measures the host-side suite on 18.0.9 and
+moves the direct pin, under the same native gap `dotenv-expand` 13.0.0 already
+carries.
 
 ## Design Consequence and Remaining Gate
 
