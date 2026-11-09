@@ -187,7 +187,7 @@ func retainedSkillOptions(options []huh.Option[string], selected []string) []huh
 // its technical detail for those runs. The displayed root never skips a step,
 // so it is not part of the signal.
 func initExpertFlags(opts initOptions) bool {
-	for _, field := range []string{"runtime", "isolation", "model", "small-model", "cpus", "memory-mb", "credential-ref", "github", "skills", "mcps"} {
+	for _, field := range []string{"runtime", "isolation", "harness", "model", "small-model", "cpus", "memory-mb", "credential-ref", "github", "skills", "mcps"} {
 		if opts.Set[field] {
 			return true
 		}
@@ -552,7 +552,9 @@ func askInitAdvancedHuh(opts initOptions, answers justcode.InitAnswers) (justcod
 			input = string(iso)
 			field = huh.NewSelect[string]().Title("Mode d'isolation").
 				Description("complet : l'agent et son interface tournent dans la machine isolée. partiel : l'interface tourne sur votre poste, l'agent dans la machine isolée.").
-				Options(huh.NewOption("complet (recommandé)", "full"), huh.NewOption("partiel", "backend")).Value(&input)
+				Options(huh.NewOption("complet (recommandé)", "full"), huh.NewOption("partiel", "backend")).
+				Validate(func(value string) error { return validateInitIsolationChoice(value, answers) }).
+				Value(&input)
 		case "cpus":
 			input = strconv.Itoa(cpus)
 			field = huh.NewInput().Title("Processeurs de la machine isolée").
@@ -567,7 +569,10 @@ func askInitAdvancedHuh(opts initOptions, answers justcode.InitAnswers) (justcod
 			input = answers.Model
 			field = huh.NewInput().Title("Modèle principal").
 				Description("Identifiant du modèle Albert ('just-code models' liste les modèles). Vide ou 'défaut' reprend le modèle défini dans setup. Échap : annuler cette modification.").
-				Validate(func(s string) error { _, err := validateInitModelInput(answers.Root, s); return err }).Value(&input)
+				Validate(func(s string) error {
+					_, err := validateInitModelInput(answers.Root, s, initHarnessValue(answers))
+					return err
+				}).Value(&input)
 		case "small-model":
 			input = answers.SmallModel
 			field = newInitSmallModelSelect(answers.Root, &input)
@@ -601,7 +606,7 @@ func askInitAdvancedHuh(opts initOptions, answers justcode.InitAnswers) (justcod
 				answers.MemoryMB = n
 			}
 		case "model":
-			warning, err := validateInitModelInput(answers.Root, input)
+			warning, err := validateInitModelInput(answers.Root, input, initHarnessValue(answers))
 			if err != nil {
 				return answers, err
 			}
@@ -626,10 +631,18 @@ func normalizeInitModelInput(value string) string {
 	return canonicalAlbertModelRef(value)
 }
 
-func validateInitModelInput(root, value string) (string, error) {
+func validateInitModelInput(root, value string, harness justcode.Harness) (string, error) {
 	model := normalizeInitModelInput(value)
 	if model == "" {
 		return "", nil
+	}
+	// A model the chosen harness cannot run is refused as it is typed, not at
+	// the recap (#347): the answer would otherwise look accepted and then come
+	// back as an error after the whole flow.
+	if harness == justcode.HarnessPi {
+		if reason := justcode.PiUnsupportedModelReason(model); reason != "" {
+			return "", fmt.Errorf("%s. Ce modèle est écarté pour Pi : choisissez un autre modèle principal, ou OpenCode", reason)
+		}
 	}
 	return catalogueModelWarningFn(root, model)
 }
@@ -669,37 +682,57 @@ func initRuntimeNotice(rt justcode.Runtime) string {
 
 func effectiveInitHarness(answers justcode.InitAnswers) string {
 	if answers.Harness == "" {
-		return "opencode"
+		return string(justcode.DefaultHarness)
 	}
 	return answers.Harness
 }
 
-// askHarnessStepHuh asks which agent harness to configure (#333). OpenCode is
-// the recommended choice; Pi is listed for visibility but not yet supported
-// (#176), so selecting it is a validation error rather than a hidden option.
-// The step has no flag: it is the wizard's first decision and always runs
-// interactively.
+// askHarnessStepHuh asks which agent harness to configure (#333, #176). Both
+// harnesses are supported; OpenCode is the recommended choice because it is
+// the historical one and the only one that can also run with partial
+// isolation. The step has no flag: it is the wizard's first decision and
+// always runs interactively.
 func askHarnessStepHuh(opts initOptions, answers justcode.InitAnswers) (justcode.InitAnswers, error) {
 	harness := effectiveInitHarness(answers)
 	field := huh.NewSelect[string]().
 		Title(initHarnessStepTitle(opts)).
-		Description("OpenCode fonctionne directement avec l'API Albert. Pi n'est pas encore pris en charge.").
+		Description("OpenCode est l'agent historique, avec ses greffons et ses MCP. Pi est un agent en terminal plus léger, installé dans la même machine isolée.").
 		Options(
-			huh.NewOption("OpenCode (recommandé)", "opencode"),
-			huh.NewOption("Pi (pas encore pris en charge)", "pi"),
+			huh.NewOption("OpenCode (recommandé)", string(justcode.HarnessOpenCode)),
+			huh.NewOption("Pi", string(justcode.HarnessPi)),
 		).
-		Validate(func(value string) error {
-			if value != "opencode" {
-				return fmt.Errorf("Pi n'est pas encore pris en charge ; choisissez OpenCode")
-			}
-			return nil
-		}).
 		Value(&harness)
 	if err := huhRun(huh.NewForm(huh.NewGroup(field))); err != nil {
 		return answers, err
 	}
 	answers.Harness = harness
 	return answers, nil
+}
+
+// validateInitIsolationChoice refuses an isolation mode the chosen harness
+// cannot run: Pi has no server mode, so partial isolation would leave the
+// interface on the host with nothing to attach to (#176). The message names
+// both values, because the user is choosing one of them right now.
+func validateInitIsolationChoice(value string, answers justcode.InitAnswers) error {
+	iso, err := justcode.ResolveIsolation(value, "")
+	if err != nil {
+		return err
+	}
+	if justcode.HarnessRequiresFullIsolation(initHarnessValue(answers)) && iso == justcode.IsolationBackend {
+		return fmt.Errorf("Pi exige l'isolation complète : il n'a pas de mode serveur auquel s'attacher depuis votre poste. Choisissez « complet » ou OpenCode")
+	}
+	return nil
+}
+
+// initHarnessValue resolves the wizard's harness answer to the typed value.
+// An unrecognised answer cannot reach here (the steps validate it), so the
+// default is the honest fallback rather than an error the caller must handle.
+func initHarnessValue(answers justcode.InitAnswers) justcode.Harness {
+	resolved, err := justcode.ResolveHarness(effectiveInitHarness(answers))
+	if err != nil {
+		return justcode.DefaultHarness
+	}
+	return resolved
 }
 
 // askVMStepHuh asks which isolated machine runs the agent (#333). It is
@@ -858,7 +891,13 @@ func askInitQuestionsHuh(opts initOptions, answers justcode.InitAnswers) (justco
 		// root change reseeds the answers and reopens these steps with the
 		// new project's manifest defaults.
 		var stepErr error
-		answers, stepErr = askHarnessStepHuh(opts, answers)
+		if opts.Set["harness"] {
+			// --harness answered the question: skip it so the counter and the
+			// on-screen order match what the user still has to decide.
+			answers.Harness = opts.Harness
+		} else {
+			answers, stepErr = askHarnessStepHuh(opts, answers)
+		}
 		if stepErr != nil {
 			recordInitAbandon(answers.Root, "harness")
 			return answers, stepErr

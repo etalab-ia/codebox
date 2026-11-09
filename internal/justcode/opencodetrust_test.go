@@ -345,3 +345,261 @@ func TestApproveDropsStaleEntries(t *testing.T) {
 		t.Fatalf("a re-created file must need a fresh approval: %+v", unapproved)
 	}
 }
+
+// piTrustProject builds a checkout whose Pi surface executes code at launch: an
+// auto-discovered extension file, a directory extension with its entry point
+// and a helper module, and the project-local settings Pi prefers over the
+// managed global ones.
+func piTrustProject(t *testing.T) string {
+	t.Helper()
+	dir := t.TempDir()
+	for _, rel := range []string{
+		filepath.Join(".pi", "settings.json"),
+		filepath.Join(".pi", "extensions", "hook.ts"),
+		filepath.Join(".pi", "extensions", "tool", "index.ts"),
+		filepath.Join(".pi", "extensions", "tool", "helper.ts"),
+	} {
+		path := filepath.Join(dir, rel)
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		body := "// v1"
+		if rel == filepath.Join(".pi", "settings.json") {
+			// Pi parses its settings as JSON, so the fixture has to be a JSON
+			// document; the gate refuses a settings file it cannot parse
+			// rather than assume it declares nothing.
+			body = `{"extensions":[]}`
+		}
+		if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return dir
+}
+
+// TestPiProjectInputsRequireTrust is the reproduction of the #345 review
+// finding that Pi project inputs bypassed the trust gate. Pi auto-discovers
+// .pi/extensions/*.ts and .pi/extensions/*/index.ts and reads the project-local
+// .pi/settings.json — which can declare further extensions and packages — then
+// runs all of it with the guest's permissions before the user sends a prompt.
+// None of those files is VCS metadata, dotenv-named, git-ignored or gitleaks
+// flagged, so the workspace transfer filter lets them cross into the guest: the
+// host-local approval gate has to cover them exactly like the OpenCode plugin
+// surface.
+func TestPiProjectInputsRequireTrust(t *testing.T) {
+	root := piTrustProject(t)
+	fs, stateDir := DefaultFS, t.TempDir()
+
+	unapproved, err := DiscoverUnapprovedInputs(fs, stateDir, root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	unapprovedSet := map[string]bool{}
+	for _, u := range unapproved {
+		unapprovedSet[u.Path] = true
+	}
+	want := []string{
+		filepath.Join(".pi", "settings.json"),
+		filepath.Join(".pi", "extensions", "hook.ts"),
+		filepath.Join(".pi", "extensions", "tool", "index.ts"),
+		filepath.Join(".pi", "extensions", "tool", "helper.ts"),
+	}
+	for _, rel := range want {
+		if !unapprovedSet[rel] {
+			t.Fatalf("%s runs at Pi launch and must need approval: %+v", rel, unapproved)
+		}
+	}
+	if len(unapproved) != len(want) {
+		t.Fatalf("unexpected extra inputs: %+v", unapproved)
+	}
+
+	// Approval records the current content of every Pi input, and the launch
+	// gate stops firing.
+	if err := ApproveExecutionInputs(fs, stateDir, root); err != nil {
+		t.Fatal(err)
+	}
+	unapproved, err = DiscoverUnapprovedInputs(fs, stateDir, root)
+	if err != nil || len(unapproved) != 0 {
+		t.Fatalf("after approval nothing may remain: %+v, %v", unapproved, err)
+	}
+
+	// A repository can change an extension after approval; approval is tied to
+	// content, so the changed file is a new decision.
+	hook := filepath.Join(root, ".pi", "extensions", "hook.ts")
+	if err := os.WriteFile(hook, []byte("// v2 exfiltrates secrets"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	unapproved, err = DiscoverUnapprovedInputs(fs, stateDir, root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(unapproved) != 1 || unapproved[0].Path != filepath.Join(".pi", "extensions", "hook.ts") ||
+		unapproved[0].Reason != "changed since approval" {
+		t.Fatalf("a changed extension must need fresh approval: %+v", unapproved)
+	}
+}
+
+// TestPiDeclaredExtensionContentRequiresFreshApproval is the reproduction of the
+// #345 review finding on the declaring settings file: Pi resolves the local
+// paths an "extensions" entry names, so approving the settings file pins the
+// declaration but not the code it points at. A change pulled into the declared
+// file must be a new decision.
+func TestPiDeclaredExtensionContentRequiresFreshApproval(t *testing.T) {
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, ".pi"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(root, "hooks"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, ".pi", "settings.json"),
+		[]byte(`{"extensions":["../hooks/startup.ts"]}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	declared := filepath.Join(root, "hooks", "startup.ts")
+	if err := os.WriteFile(declared, []byte("// v1"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	fs, stateDir := DefaultFS, t.TempDir()
+	unapproved, err := DiscoverUnapprovedInputs(fs, stateDir, root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]bool{
+		filepath.Join(".pi", "settings.json"): true,
+		filepath.Join("hooks", "startup.ts"):  true,
+	}
+	for _, u := range unapproved {
+		delete(want, u.Path)
+	}
+	if len(want) != 0 || len(unapproved) != 2 {
+		t.Fatalf("a declared extension runs at launch and must need approval: %+v", unapproved)
+	}
+
+	if err := ApproveExecutionInputs(fs, stateDir, root); err != nil {
+		t.Fatal(err)
+	}
+	// The declaration in the settings file is untouched while the code it names
+	// is replaced: the settings hash alone would let this through unreviewed.
+	if err := os.WriteFile(declared, []byte("// v2 exfiltrates secrets"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	unapproved, err = DiscoverUnapprovedInputs(fs, stateDir, root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(unapproved) != 1 || unapproved[0].Path != filepath.Join("hooks", "startup.ts") ||
+		unapproved[0].Reason != "changed since approval" {
+		t.Fatalf("a changed declared extension must need fresh approval: %+v", unapproved)
+	}
+}
+
+// TestPiDeclaredPackageContentRequiresFreshApproval is the reproduction of the
+// #345 review finding on local packages: a "packages" entry may name a project
+// file or directory, which Pi loads as an extension without copying it. The
+// settings hash pins the declaration and not the code it points at, so a change
+// pulled into the package must be a new decision — the same bypass the
+// "extensions" array has, reached through the other array.
+func TestPiDeclaredPackageContentRequiresFreshApproval(t *testing.T) {
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, ".pi"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(root, "vendor", "pkg"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, ".pi", "settings.json"),
+		[]byte(`{"packages":[{"source":"../vendor/pkg"}]}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	declared := filepath.Join(root, "vendor", "pkg", "index.ts")
+	if err := os.WriteFile(declared, []byte("// v1"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	fs, stateDir := DefaultFS, t.TempDir()
+	unapproved, err := DiscoverUnapprovedInputs(fs, stateDir, root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]bool{
+		filepath.Join(".pi", "settings.json"):      true,
+		filepath.Join("vendor", "pkg", "index.ts"): true,
+	}
+	for _, u := range unapproved {
+		delete(want, u.Path)
+	}
+	if len(want) != 0 || len(unapproved) != 2 {
+		t.Fatalf("a local package runs at launch and must need approval: %+v", unapproved)
+	}
+
+	if err := ApproveExecutionInputs(fs, stateDir, root); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(declared, []byte("// v2 exfiltrates secrets"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	unapproved, err = DiscoverUnapprovedInputs(fs, stateDir, root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(unapproved) != 1 || unapproved[0].Path != filepath.Join("vendor", "pkg", "index.ts") ||
+		unapproved[0].Reason != "changed since approval" {
+		t.Fatalf("a changed local package must need fresh approval: %+v", unapproved)
+	}
+}
+
+// TestPiProjectSettingsAloneRequireTrust covers the other half of the same
+// surface: the project-local settings file is itself an execution input because
+// its schema can declare extensions and packages, so a project carrying nothing
+// but .pi/settings.json still needs approval before Pi reads it.
+func TestPiProjectSettingsAloneRequireTrust(t *testing.T) {
+	root := t.TempDir()
+	settings := filepath.Join(root, ".pi", "settings.json")
+	if err := os.MkdirAll(filepath.Dir(settings), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(settings, []byte(`{"packages":["npm:some-tool"]}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	inputs, err := DiscoverProjectExecutionInputs(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if inputs.PiProjectConfig != settings {
+		t.Fatalf("project-local Pi settings must be an input: %q", inputs.PiProjectConfig)
+	}
+	unapproved, err := DiscoverUnapprovedInputs(DefaultFS, t.TempDir(), root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(unapproved) != 1 || unapproved[0].Path != filepath.Join(".pi", "settings.json") {
+		t.Fatalf("declared Pi packages must need approval: %+v", unapproved)
+	}
+}
+
+// TestPiProjectInputsRefuseSymlinks keeps the surface fail-closed: a symlinked
+// settings file or extension must be refused rather than skipped, so content
+// outside the approval boundary cannot hide behind a link.
+func TestPiProjectInputsRefuseSymlinks(t *testing.T) {
+	outside := t.TempDir()
+	target := filepath.Join(outside, "hook.ts")
+	if err := os.WriteFile(target, []byte("// outside the checkout"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	for _, rel := range []string{
+		filepath.Join(".pi", "settings.json"),
+		filepath.Join(".pi", "extensions", "hook.ts"),
+	} {
+		root := t.TempDir()
+		path := filepath.Join(root, rel)
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Symlink(target, path); err != nil {
+			t.Skipf("symlinks unavailable: %v", err)
+		}
+		if _, err := DiscoverProjectExecutionInputs(root); err == nil {
+			t.Fatalf("%s is a symlink and must be refused, not followed", rel)
+		}
+	}
+}

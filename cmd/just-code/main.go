@@ -209,15 +209,37 @@ func run(args []string) (int, error) {
 	// configuration contract (#29). Resolving them before any backend is
 	// constructed is what makes them effective rather than merely displayed.
 	manifestRuntime, manifestIsolation := projectRuntimeIsolation(projectRoot)
+	// The agent harness (#176). Like the runtime and isolation, it is resolved
+	// after discovery and before any backend is constructed: the backends read
+	// cfg.Harness when they are built.
+	harness, harnessErr := resolveHarnessSelection(projectRoot)
+	if harnessErr != nil {
+		if isLaunchAction(parsed.action) {
+			return 2, harnessErr
+		}
+		fmt.Fprintf(os.Stderr, "Warning: %v; using the default agent harness\n", harnessErr)
+	}
+	cfg.Harness = harness
 	var launch *justcode.LaunchUX
 	if isLaunchAction(parsed.action) && runtimeUsesMicrosandbox(parsed.runtime, manifestRuntime) {
-		launch = justcode.NewLaunchUX(projectRoot, "OpenCode")
+		launch = justcode.NewLaunchUX(projectRoot, harness.DisplayName())
 		launch.TimingStore = justcode.DefaultLaunchTimingStore()
 	}
 	// Resolve the isolation level before any backend is constructed: the
 	// backends read cfg.Isolation at construction time, so applying the flag
 	// afterwards would leave them in the wrong mode.
 	cfg, isoErr := applyIsolation(cfg, parsed.isolation, manifestIsolation)
+	// A harness without a server mode cannot run in backend isolation. The
+	// pair is checked as soon as both are known, so the refusal happens before
+	// a guest is created rather than when the launch finds nothing to attach to.
+	if isoErr == nil {
+		if err := justcode.ValidateHarnessIsolation(cfg.EffectiveHarness(), cfg.Isolation); err != nil {
+			if isLaunchAction(parsed.action) {
+				return 2, err
+			}
+			fmt.Fprintf(os.Stderr, "Warning: %v\n", err)
+		}
+	}
 	// Guest sizing from the project manifest (P12b). A malformed value is
 	// fatal only where the guest would actually be created; read-only
 	// commands keep working, which is when the user needs them.
@@ -303,7 +325,8 @@ func run(args []string) (int, error) {
 		}
 	}
 	// Trust gate (P10): project plugins and MCP commands execute code at
-	// OpenCode config load, so starting a runtime for this project requires
+	// OpenCode config load, and Pi runs the project's own extensions and
+	// settings at launch, so starting a runtime for this project requires
 	// every execution input to be approved at its current content hash. A
 	// changed file is a new decision, not an inherited one. Only start paths
 	// are gated: stop, check, logs and shell operate on an existing guest.
@@ -333,7 +356,7 @@ func run(args []string) (int, error) {
 	}
 
 	// trust manages the host-local approval of execution-relevant project
-	// OpenCode inputs (P10). It runs before any runtime is constructed.
+	// inputs (P10). It runs before any runtime is constructed.
 	if parsed.action == "trust" {
 		if projErr != nil {
 			return 2, fmt.Errorf("trust requires a project directory: %v", projErr)
@@ -795,6 +818,20 @@ func resolveModelSelection(projectRoot string) string {
 	return ""
 }
 
+// resolveHarnessSelection applies the harness precedence (#176):
+// JUST_CODE_HARNESS > project manifest > default (OpenCode). An unrecognised
+// value is an error rather than a silent fallback: running a different agent
+// than the project asked for is exactly what this setting exists to prevent.
+func resolveHarnessSelection(projectRoot string) (justcode.Harness, error) {
+	if v := strings.TrimSpace(os.Getenv("JUST_CODE_HARNESS")); v != "" {
+		return justcode.ResolveHarness(v)
+	}
+	if pm, err := justcode.ReadProjectManifest(justcode.DefaultFS, justcode.ProjectManifestPath(projectRoot)); err == nil && pm.Harness != "" {
+		return justcode.ResolveHarness(pm.Harness)
+	}
+	return justcode.ResolveHarness("")
+}
+
 // resolveSmallModelSelection reads the explicit project-only lightweight
 // model. Empty deliberately leaves the overlay free to follow the effective
 // main model (including JUST_CODE_MODEL) instead of pinning it here.
@@ -983,8 +1020,9 @@ func opencodeConfigReview(projectRoot string, overlay justcode.ManagedOverlay) (
 }
 
 // requireTrustedExecutionInputs blocks the launch when the project carries
-// execution-relevant OpenCode inputs that are unapproved or changed since
-// approval. Read-only commands (stop, check, status, logs, shell on an
+// execution-relevant inputs that are unapproved or changed since approval:
+// OpenCode project plugins and MCP commands, and Pi project extensions and
+// settings. Read-only commands (stop, check, status, logs, shell on an
 // already-running guest) are not gated here; only paths that start a
 // runtime.
 func requireTrustedExecutionInputs(projectRoot string) error {
@@ -1002,7 +1040,7 @@ func requireTrustedExecutionInputs(projectRoot string) error {
 	for _, u := range unapproved {
 		lines = append(lines, fmt.Sprintf("  %s (%s)", u.Path, u.Reason))
 	}
-	return fmt.Errorf("this project declares OpenCode inputs that execute code or launch processes, and they are not approved at their current content:\n%s\n"+
+	return fmt.Errorf("this project declares inputs that execute code or launch processes (OpenCode plugins and MCP commands, Pi extensions and settings), and they are not approved at their current content:\n%s\n"+
 		"Review them, then run 'just-code trust approve' to record approval for the current content",
 		strings.Join(lines, "\n"))
 }
@@ -1366,7 +1404,7 @@ Commands:
   secrets    Import and manage project-scoped dotenv values (import)
   bindings   Approve or revoke optional credential bindings for this
              project (list, approve, revoke)
-  trust      Approve execution-relevant project OpenCode inputs (status,
+  trust      Approve execution-relevant project inputs (status,
              approve)
   models     List the validated Albert models (live, or last-known-good)
   mcp        Check configured remote MCP endpoints (status)

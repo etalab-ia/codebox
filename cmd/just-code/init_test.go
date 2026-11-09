@@ -290,7 +290,7 @@ func stubMCPBindingStateDir(t *testing.T) string {
 // TestParseInitArgs pins the flag surface, including the two numeric options.
 func TestParseInitArgs(t *testing.T) {
 	opts, err := parseInitArgs([]string{
-		"--root", "/tmp/p", "--runtime", "tart", "--isolation", "backend",
+		"--root", "/tmp/p", "--runtime", "tart", "--isolation", "backend", "--harness", "pi",
 		"--model", "albert/x", "--small-model", "ministral-3-8b-instruct-2512", "--cpus", "4", "--memory-mb", "2048",
 		"--credential-ref", "work", "--github", "--skill", "official/rgaa",
 		"--skill", "experimental/rag-parse", "--local-only-skills", "--replace", "--yes",
@@ -298,15 +298,20 @@ func TestParseInitArgs(t *testing.T) {
 	if err != nil {
 		t.Fatalf("parseInitArgs: %v", err)
 	}
-	if opts.Root != "/tmp/p" || opts.Runtime != "tart" || opts.Isolation != "backend" ||
+	if opts.Root != "/tmp/p" || opts.Runtime != "tart" || opts.Isolation != "backend" || opts.Harness != "pi" ||
 		opts.Model != "albert/x" || opts.SmallModel != "ministral-3-8b-instruct-2512" || opts.CPUs != 4 || opts.MemoryMB != 2048 ||
 		opts.CredentialRef != "work" || !opts.GitHub || !opts.Replace || !opts.Yes ||
 		len(opts.Skills) != 2 || !opts.SkillsLocalOnly {
 		t.Fatalf("options = %+v", opts)
 	}
 	if !opts.Set["root"] || !opts.Set["cpus"] || !opts.Set["memory-mb"] || !opts.Set["github"] ||
-		!opts.Set["skills"] || !opts.Set["skills-storage"] {
+		!opts.Set["skills"] || !opts.Set["skills-storage"] || !opts.Set["harness"] {
 		t.Fatalf("every supplied field must be recorded as set: %v", opts.Set)
+	}
+	for _, args := range [][]string{{"--harness", "claude"}, {"--harness", "Pi"}} {
+		if _, err := parseInitArgs(args); err == nil {
+			t.Fatalf("%v must be rejected: the stored value is exact", args)
+		}
 	}
 	readableMemory, err := parseInitArgs([]string{"--memory-mb", "2.5G"})
 	if err != nil || readableMemory.MemoryMB != 2560 {
@@ -2726,5 +2731,43 @@ func TestInitStepPrefixCounters(t *testing.T) {
 		if got := initGitHubStepTitle(expert); got != "GitHub (facultatif)" {
 			t.Errorf("with --%s, GitHub title = %q, want no counter", field, got)
 		}
+	}
+}
+
+// Rerunning init on a configured project must preserve its agent unless the
+// user says otherwise: a non-interactive `init --replace --yes` used to write
+// OpenCode back over a Pi project, because the harness was the one project
+// setting the wizard never reseeded from the manifest.
+func TestSeedInitAnswersFromManifestKeepsTheHarness(t *testing.T) {
+	root := initTestProject(t)
+	if err := justcode.WriteProjectManifest(justcode.DefaultFS, justcode.ProjectManifestPath(root), justcode.ProjectManifest{
+		Runtime: "microsandbox", Isolation: "full", Model: "albert/qwen3-coder", Harness: "pi",
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	seeded := seedInitAnswersFromManifest(initOptions{Root: root}, justcode.InitAnswers{Root: root})
+	if seeded.Harness != "pi" {
+		t.Fatalf("seeded harness = %q, want the manifest's pi", seeded.Harness)
+	}
+	if seeded.Model != "albert/qwen3-coder" || seeded.Isolation != "full" {
+		t.Fatalf("the rest of the manifest must still be seeded: %+v", seeded)
+	}
+
+	// An explicit --harness is the user's answer and must win. The flag
+	// reaches the answers before seeding, so that is what the answers carry.
+	flagged := seedInitAnswersFromManifest(
+		initOptions{Root: root, Harness: "opencode", Set: map[string]bool{"harness": true}},
+		justcode.InitAnswers{Root: root, Harness: "opencode"})
+	if flagged.Harness != "opencode" {
+		t.Fatalf("an explicit --harness was overwritten by the manifest: %q", flagged.Harness)
+	}
+
+	// A root without a manifest leaves the answer empty, so the wizard asks
+	// rather than inheriting the previous project's agent.
+	other := initTestProject(t)
+	empty := seedInitAnswersFromManifest(initOptions{}, justcode.InitAnswers{Root: other, Harness: "pi"})
+	if empty.Harness != "" {
+		t.Fatalf("a project change carried the previous harness over: %q", empty.Harness)
 	}
 }

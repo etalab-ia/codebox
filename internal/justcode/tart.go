@@ -946,6 +946,9 @@ func (t *Tart) Shell() error {
 // guest binary on stdin (never argv); the TUI then runs under `tart exec -it`,
 // sourcing the 0600 env file and execing opencode --continue in the workspace.
 func (t *Tart) RunAgent(ctx context.Context) error {
+	if t.Config.EffectiveHarness() == HarnessPi {
+		return t.runPiAgent(ctx)
+	}
 	cfg := t.Config
 	vm := t.VMName()
 	if err := t.stageGuestBinary(); err != nil {
@@ -1030,6 +1033,85 @@ func tartAgentLaunch(secretsPath, workspaceDir string, continueSession bool) str
 		resume = " --continue"
 	}
 	return fmt.Sprintf("set -a; . %s; set +a; cd %s; exec opencode --standalone%s", shellQuote(secretsPath), shellQuote(workspaceDir), resume)
+}
+
+// runPiAgent launches Pi's TUI inside the guest (#176). Pi has no server mode,
+// so this is the only launch shape it has: the agent, its configuration and
+// its sessions all live in the guest, and the host is a terminal passthrough.
+//
+// The preparation mirrors the OpenCode path where it must (the staged binary
+// writes the 0600 secrets file from stdin) and differs where OpenCode stops
+// being relevant: OpenCode is not installed, and the sessions probed for
+// resumption are Pi's.
+func (t *Tart) runPiAgent(ctx context.Context) error {
+	cfg := t.Config
+	vm := t.VMName()
+	if err := t.stageGuestBinary(); err != nil {
+		return err
+	}
+	if err := t.guestRun(ctx, "/bin/cp", guestShareBinary, guestLocalBinary); err != nil {
+		return err
+	}
+	if err := t.guestRun(ctx, "/bin/chmod", "755", guestLocalBinary); err != nil {
+		return err
+	}
+	keys, err := t.resolveProviderKeysFor(ctx)
+	if err != nil {
+		return err
+	}
+	guestArgs, err := guestSecretsArgs(cfg.Username, t.OpenCodeOverlay, nil)
+	if err != nil {
+		return err
+	}
+	secretArgs := append([]string{"tart", "exec", "-i", vm, guestLocalBinary}, guestArgs...)
+	stdin, err := SecretsReaderWithKeys(cfg.Password, keys)
+	if err != nil {
+		return err
+	}
+	if err := runStdinOK(t.Runner, ctx, stdin, secretArgs[0], secretArgs[1:]...); err != nil {
+		return err
+	}
+	// The git identity the guest binary would set in the OpenCode path. Pi
+	// commits from the same workspace, so it needs the same identity.
+	name, email := hostGitIdentity()
+	for _, args := range [][]string{
+		{"git", "config", "--global", "user.name", name},
+		{"git", "config", "--global", "user.email", email},
+		{"git", "config", "--global", "--add", "safe.directory", "*"},
+	} {
+		if err := t.guestRun(ctx, args...); err != nil {
+			return err
+		}
+	}
+	if err := t.guestRun(ctx, "/bin/zsh", "-lc", piGuestInstallScript()); err != nil {
+		return err
+	}
+	configScript, err := piGuestConfigScript(t.OpenCodeOverlay)
+	if err != nil {
+		return err
+	}
+	if err := t.guestRun(ctx, "/bin/zsh", "-lc", configScript); err != nil {
+		return err
+	}
+	hasSessions := t.piGuestHasSessions(ctx, vm)
+	interactive := t.Interactive
+	if interactive == nil {
+		interactive = RunInteractive
+	}
+	launchArgs := append(piModelArgs(t.OpenCodeOverlay), piResumeArgs(hasSessions)...)
+	return interactive("tart", "exec", "-it", vm, "/bin/zsh", "-lc",
+		piAgentLaunch(guestSecretsEnvPath, guestWorkspaceDir, launchArgs))
+}
+
+// piGuestHasSessions reports whether the guest holds a saved Pi session. A
+// probe that cannot run reports "no session": starting a fresh session is
+// always a valid launch, unlike attaching to a guest that is not there.
+func (t *Tart) piGuestHasSessions(ctx context.Context, vm string) bool {
+	result, err := t.Runner.Run(ctx, "tart", "exec", vm, "/bin/zsh", "-lc", piGuestSessionProbe())
+	if err != nil || result.ExitCode != 0 {
+		return false
+	}
+	return strings.TrimSpace(result.Stdout) != ""
 }
 
 // Status describes the managed VM's current state, for `check` in isolation

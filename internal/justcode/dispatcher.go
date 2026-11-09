@@ -395,7 +395,7 @@ func (d *Dispatcher) Check(ctx context.Context, client *http.Client) error {
 			return err
 		}
 		fmt.Println(state)
-		fmt.Println("isolation full: the OpenCode session runs interactively inside the guest (no health endpoint).")
+		fmt.Printf("isolation full: the %s session runs interactively inside the guest (no health endpoint).\n", d.cfg.EffectiveHarness().DisplayName())
 		if rt == RuntimeMicrosandbox {
 			d.probePublishedPorts(ctx)
 		}

@@ -323,7 +323,6 @@ func subtractSkillIDs(ids, remove []string) []string {
 func (w InitWizard) Plan(answers InitAnswers) (InitPlan, error) {
 	plan := InitPlan{Answers: answers}
 	plan.Expert = w.Expert
-	plan.DefaultModelName = initReviewModelName(w.resolveDefaultModel())
 	fs := w.fs()
 
 	given := strings.TrimSpace(answers.Root)
@@ -389,8 +388,33 @@ func (w InitWizard) Plan(answers InitAnswers) (InitPlan, error) {
 	}
 	plan.Answers.Isolation = iso
 
+	// The harness (#176). An empty answer means the default, and the pair
+	// harness/isolation is validated here so the wizard refuses a combination
+	// the guest cannot run before it writes anything.
+	harness, err := ResolveHarness(string(answers.Harness))
+	if err != nil {
+		return plan, err
+	}
+	if err := ValidateHarnessIsolation(harness, iso); err != nil {
+		return plan, err
+	}
+	plan.Answers.Harness = string(harness)
+	// The recap names the model a project with no model answer will launch
+	// with, and that fallback depends on the harness: OpenCode takes the
+	// embedded asset's model, Pi takes the first curated default it can run.
+	resolvedDefault := w.resolveDefaultModel(harness)
+	plan.DefaultModelName = initReviewModelName(resolvedDefault)
+
 	if model := strings.TrimSpace(answers.Model); model != "" {
 		plan.Answers.Model = model
+		// A model Pi cannot run is refused before anything is written: the
+		// project must not record a selection its own launch would reject
+		// (#347).
+		if harness == HarnessPi {
+			if reason := PiUnsupportedModelReason(model); reason != "" {
+				return plan, fmt.Errorf("%s. Ce modèle est écarté pour Pi : choisissez un autre modèle principal, ou OpenCode", reason)
+			}
+		}
 		if w.ValidateModel != nil {
 			warning, err := w.ValidateModel(model)
 			if err != nil {
@@ -400,6 +424,19 @@ func (w InitWizard) Plan(answers InitAnswers) (InitPlan, error) {
 				plan.Warnings = append(plan.Warnings, warning)
 			}
 		}
+	} else if harness == HarnessPi && resolvedDefault != "" {
+		// A Pi project must not be left with an empty model the way an
+		// OpenCode project can. Empty means the launch resolves the model from
+		// the user settings, which is OpenCode's (albert/qwen3-coder by
+		// default) — one Pi refuses, so the project the recap just described
+		// could not launch (#347 review). Recording the model the recap showed
+		// is also what makes the recap a promise rather than a hint.
+		//
+		// The fallback skips the validation an explicit answer gets: it is a
+		// curated model already checked against Pi's refusals, and the
+		// catalogue check warns rather than refuses, so running it here would
+		// add a warning about a model the user never chose.
+		plan.Answers.Model = resolvedDefault
 	}
 	if model := strings.TrimSpace(answers.SmallModel); model != "" {
 		plan.Answers.SmallModel = model
@@ -681,12 +718,25 @@ func (w InitWizard) Plan(answers InitAnswers) (InitPlan, error) {
 
 // resolveDefaultModel is the model a project with no model answer launches
 // with: the caller-provided setup default, or the embedded default when the
-// seam is unset or empty.
-func (w InitWizard) resolveDefaultModel() string {
+// seam is unset or empty. The setup default is harness-independent and may name
+// a model Pi refuses, so a Pi project falls back to the first curated default
+// Pi can run instead of inheriting a model that would only fail at launch
+// (#347).
+func (w InitWizard) resolveDefaultModel(harness Harness) string {
+	model := ""
 	if w.ResolveDefaultModel != nil {
-		if model := strings.TrimSpace(w.ResolveDefaultModel()); model != "" {
-			return model
+		model = strings.TrimSpace(w.ResolveDefaultModel())
+	}
+	if model != "" && PiUnsupportedModelReason(model) == "" {
+		return model
+	}
+	if harness == HarnessPi {
+		if piDefault := piDefaultModelRef(); piDefault != "" {
+			return piDefault
 		}
+	}
+	if model != "" {
+		return model
 	}
 	return defaultOpencodeModel
 }
@@ -787,7 +837,11 @@ func FormatInteractiveInitReview(plan InitPlan) string {
 	if a.Model == "" && plan.DefaultModelName != "" {
 		model = plan.DefaultModelName
 	}
-	row("Agent", "OpenCode, modèle "+model)
+	harness := DefaultHarness
+	if resolved, err := ResolveHarness(a.Harness); err == nil {
+		harness = resolved
+	}
+	row("Agent", harness.DisplayName()+", modèle "+model)
 	if a.SmallModel != "" {
 		row("Petit modèle", initReviewModelName(a.SmallModel))
 	}
@@ -1229,6 +1283,7 @@ func (w InitWizard) applyLocked(plan InitPlan, replace bool) error {
 		Runtime:         string(plan.Answers.Runtime),
 		Isolation:       string(plan.Answers.Isolation),
 		Model:           plan.Answers.Model,
+		Harness:         string(plan.Answers.Harness),
 		SmallModel:      plan.Answers.SmallModel,
 		CPUs:            plan.Answers.CPUs,
 		MemoryMB:        plan.Answers.MemoryMB,

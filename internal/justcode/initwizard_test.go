@@ -1680,3 +1680,85 @@ func TestInitWarnsForARelativeNestedRoot(t *testing.T) {
 		t.Fatalf("a relative nested root must still be reported: %v", plan.Warnings)
 	}
 }
+
+// The harness is a project decision, so it must reach the manifest; and the
+// pair harness/isolation is validated at plan time, before anything is written.
+func TestInitPlanRecordsTheHarnessAndRefusesPiWithPartialIsolation(t *testing.T) {
+	root := initTestRoot(t)
+	plan, err := (InitWizard{}).Plan(InitAnswers{Root: root, Harness: string(HarnessPi)})
+	if err != nil {
+		t.Fatalf("Pi with the default isolation must be accepted: %v", err)
+	}
+	if plan.Answers.Harness != string(HarnessPi) {
+		t.Fatalf("plan answers harness = %q", plan.Answers.Harness)
+	}
+	review := FormatInteractiveInitReview(plan)
+	if !strings.Contains(review, "Agent        Pi, modèle") {
+		t.Fatalf("the review does not name the harness:\n%s", review)
+	}
+
+	backendRoot := initTestRoot(t)
+	_, err = (InitWizard{}).Plan(InitAnswers{Root: backendRoot, Harness: string(HarnessPi), Isolation: IsolationBackend})
+	if err == nil || !strings.Contains(err.Error(), "--isolation full") {
+		t.Fatalf("Pi with backend isolation = %v, want a refusal naming the fix", err)
+	}
+	if _, statErr := os.Stat(ProjectManifestPath(backendRoot)); !os.IsNotExist(statErr) {
+		t.Fatalf("a refused plan must write nothing (stat err = %v)", statErr)
+	}
+
+	// An unset harness keeps the OpenCode default, so every project configured
+	// before the setting existed keeps working unchanged.
+	defaultRoot := initTestRoot(t)
+	defaultPlan, err := (InitWizard{}).Plan(InitAnswers{Root: defaultRoot})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if defaultPlan.Answers.Harness != string(HarnessOpenCode) {
+		t.Fatalf("default harness = %q, want %q", defaultPlan.Answers.Harness, HarnessOpenCode)
+	}
+}
+
+// A Pi project must not be left with an empty model the way an OpenCode one
+// can. Empty resolves at launch to the user settings' model, which is
+// OpenCode's and which Pi refuses by default, so the project the recap just
+// described could not start (#347 review). Init records the model it showed.
+func TestInitPlanRecordsThePiModelItShows(t *testing.T) {
+	root := initTestRoot(t)
+	wizard := InitWizard{ResolveDefaultModel: func() string { return "albert/qwen3-coder" }}
+	plan, err := wizard.Plan(InitAnswers{Root: root, Harness: string(HarnessPi)})
+	if err != nil {
+		t.Fatalf("Plan: %v", err)
+	}
+	if plan.Answers.Model != "albert/deepseek-v4-flash" {
+		t.Fatalf("plan model = %q, want the curated default Pi can run", plan.Answers.Model)
+	}
+	// The recap is unchanged by the recording: it shows the same model it
+	// always did, and now the manifest agrees with it.
+	if review := FormatInteractiveInitReview(plan); !strings.Contains(review, "modèle DeepSeek V4 Flash") {
+		t.Fatalf("the recap does not name the recorded model:\n%s", review)
+	}
+	if err := wizard.Apply(plan, false); err != nil {
+		t.Fatalf("Apply: %v", err)
+	}
+	pm, err := ReadProjectManifest(DefaultFS, plan.ManifestPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if pm.Model != plan.Answers.Model {
+		t.Fatalf("manifest model = %q, want the model the recap showed (%q)", pm.Model, plan.Answers.Model)
+	}
+	if reason := PiUnsupportedModelReason(pm.Model); reason != "" {
+		t.Fatalf("the recorded model cannot run under Pi: %s", reason)
+	}
+
+	// OpenCode keeps the empty answer: its launches already resolve the
+	// embedded asset's model, so recording one would change that behaviour.
+	opencodeRoot := initTestRoot(t)
+	opencodePlan, err := (InitWizard{}).Plan(InitAnswers{Root: opencodeRoot, Harness: string(HarnessOpenCode)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if opencodePlan.Answers.Model != "" {
+		t.Fatalf("an OpenCode plan recorded model %q", opencodePlan.Answers.Model)
+	}
+}

@@ -738,6 +738,9 @@ func (a *AgentVM) Shell() error {
 // mount, which shares the host's absolute path. The TUI's /new command starts
 // a fresh session.
 func (a *AgentVM) RunAgent(ctx context.Context) error {
+	if a.Config.EffectiveHarness() == HarnessPi {
+		return a.runPiAgent(ctx)
+	}
 	if err := a.ensureOpenCode(ctx); err != nil {
 		return err
 	}
@@ -799,6 +802,63 @@ func (a *AgentVM) RunAgent(ctx context.Context) error {
 		interactive = RunInteractive
 	}
 	return interactive("limactl", "shell", vm, "sh", "-c", launch)
+}
+
+// runPiAgent launches Pi's TUI inside the guest (#176). Pi has no server mode,
+// so the whole agent — configuration, skills and sessions — stays in the
+// guest and the host is only a terminal passthrough. The preparation mirrors
+// the OpenCode path where it must: the secrets env file is written host-side
+// and copied in, because Pi reads its provider key from the environment.
+func (a *AgentVM) runPiAgent(ctx context.Context) error {
+	cfg := a.Config
+	vm := a.VMName()
+	if err := os.MkdirAll(a.StateDir, 0o755); err != nil {
+		return err
+	}
+	keys, err := ResolveProviderKeysWith(readStoredWith, ctx, cfg, "")
+	if err != nil {
+		return err
+	}
+	secretsPath, err := a.writeSecretsEnv(a.StageDir(), keys)
+	if err != nil {
+		return err
+	}
+	if err := runOK(a.Runner, ctx, "limactl", "copy", secretsPath, vm+":"+agentVMSecretsEnvPath); err != nil {
+		return err
+	}
+	if err := a.guestRun(ctx, "chmod", "600", agentVMSecretsEnvPath); err != nil {
+		return err
+	}
+	// Install the pinned release first: a custom template may ship Node
+	// without Pi, and the managed template deliberately does not install Pi.
+	if err := a.guestRun(ctx, "sh", "-c", piGuestInstallScript()); err != nil {
+		return err
+	}
+	configScript, err := piGuestConfigScript(a.OpenCodeOverlay)
+	if err != nil {
+		return err
+	}
+	if err := a.guestRun(ctx, "sh", "-c", configScript); err != nil {
+		return err
+	}
+	launchArgs := append(piModelArgs(a.OpenCodeOverlay), piResumeArgs(a.piGuestHasSessions(ctx, vm))...)
+	launch := piAgentLaunch(agentVMSecretsEnvPath, cfg.WorkspaceDir, launchArgs)
+	interactive := a.Interactive
+	if interactive == nil {
+		interactive = RunInteractive
+	}
+	return interactive("limactl", "shell", vm, "sh", "-c", launch)
+}
+
+// piGuestHasSessions reports whether the guest holds a saved Pi session. A
+// probe that cannot run reports "no session": starting a fresh session is
+// always a valid launch, unlike attaching to a guest that is not there.
+func (a *AgentVM) piGuestHasSessions(ctx context.Context, vm string) bool {
+	result, err := a.Runner.Run(ctx, "limactl", "shell", vm, "sh", "-c", piGuestSessionProbe())
+	if err != nil || result.ExitCode != 0 {
+		return false
+	}
+	return strings.TrimSpace(result.Stdout) != ""
 }
 
 // Status describes the managed VM's current state, for `check` in isolation

@@ -269,7 +269,7 @@ func TestGuestSkillInventoryScriptRejectsOrphanedManagedDirectory(t *testing.T) 
 	}
 	home := t.TempDir()
 	run := func() ([]byte, error) {
-		cmd := exec.Command(sh, "-c", readGuestSkillInventoryScript())
+		cmd := exec.Command(sh, "-c", readGuestSkillInventoryScript(HarnessOpenCode))
 		cmd.Env = []string{"HOME=" + home}
 		return cmd.CombinedOutput()
 	}
@@ -300,7 +300,7 @@ func TestGuestSkillPreflightFindsManagedDirectoriesOmittedFromInventory(t *testi
 	}
 	home := t.TempDir()
 	run := func(allowedNames []string) ([]byte, error) {
-		cmd := exec.Command(sh, "-c", guestSkillPathsPrelude()+guestSkillInventoryOrphanCheckScript(allowedNames))
+		cmd := exec.Command(sh, "-c", guestSkillPathsPrelude(HarnessOpenCode)+guestSkillInventoryOrphanCheckScript(allowedNames))
 		cmd.Env = []string{"HOME=" + home}
 		return cmd.CombinedOutput()
 	}

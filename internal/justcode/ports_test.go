@@ -39,7 +39,7 @@ func TestWriteProjectPortsPreservesUnknownManifestFields(t *testing.T) {
 		t.Fatal(err)
 	}
 	got := string(fs.files[path])
-	for _, want := range []string{`"schemaVersion": 5`, `"portsConfigured": true`, `"host": 8080`, `"guest": 80`, `"futureField"`} {
+	for _, want := range []string{`"schemaVersion": 6`, `"portsConfigured": true`, `"host": 8080`, `"guest": 80`, `"futureField"`} {
 		if !strings.Contains(got, want) {
 			t.Errorf("updated manifest missing %q: %s", want, got)
 		}

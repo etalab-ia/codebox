@@ -59,10 +59,10 @@ func approveLaunchInputs(root string, inputs []justcode.UnapprovedInput) error {
 }
 
 // trustCmd implements `just-code trust <subcommand>` (P10): the host-local
-// approval of execution-relevant project OpenCode inputs (project plugins,
-// auto-discovered plugins, MCP server commands). The record lives in host
-// state keyed by the canonical project root and content hashes — never in
-// the repository.
+// approval of execution-relevant project inputs (OpenCode project and
+// auto-discovered plugins, MCP server commands, Pi project extensions and
+// settings). The record lives in host state keyed by the canonical project
+// root and content hashes — never in the repository.
 //
 //	trust status    # what is declared, what is approved, what changed
 //	trust approve   # record approval for the current content of every input
@@ -97,11 +97,11 @@ func trustStatusCmd(projectRoot string) (int, error) {
 	if err != nil {
 		return 1, err
 	}
-	if inputs.ConfigPath == "" && len(inputs.AutoDiscoveredPlugins) == 0 {
-		fmt.Println("No execution-relevant OpenCode inputs found in this project.")
+	if len(inputs.ExecutionInputPaths(projectRoot)) == 0 {
+		fmt.Println("No execution-relevant inputs found in this project.")
 		return 0, nil
 	}
-	fmt.Println("Execution-relevant OpenCode inputs in this project:")
+	fmt.Println("Execution-relevant inputs in this project:")
 	if inputs.ConfigPath != "" && (len(inputs.Plugins) > 0 || len(inputs.MCPCommands) > 0) {
 		for _, p := range inputs.Plugins {
 			fmt.Printf("  plugin declared in the project config: %s\n", p)
@@ -113,6 +113,15 @@ func trustStatusCmd(projectRoot string) (int, error) {
 	}
 	for _, p := range inputs.AutoDiscoveredPlugins {
 		fmt.Printf("  auto-discovered plugin (executes without declaration): %s\n", p)
+	}
+	if inputs.PiProjectConfig != "" {
+		fmt.Printf("  project-local Pi settings (can declare extensions and packages): %s\n", inputs.PiProjectConfig)
+	}
+	for _, p := range inputs.PiAutoDiscoveredExtensions {
+		fmt.Printf("  Pi extension (executes at launch without declaration): %s\n", p)
+	}
+	for _, p := range inputs.PiDeclaredCodeFiles {
+		fmt.Printf("  Pi code declared in the project settings (extension or local package): %s\n", p)
 	}
 	if len(unapproved) == 0 {
 		fmt.Println("All inputs are approved at their current content.")

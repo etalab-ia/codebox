@@ -157,6 +157,12 @@ type InstanceState struct {
 	// embedded in the guest start script. A profile change requires explicit
 	// recreation because the runtime cannot replace that persisted script.
 	GuestProfile string `json:"guestProfile,omitempty"`
+	// Harness is the agent harness the guest was created with (#176). It is
+	// creation-fixed for the same reason as the guest profile: the entrypoint
+	// written at creation is what installs the agent, so no restart can turn an
+	// OpenCode guest into a Pi one. Empty is a state written before harnesses
+	// existed, which means the default (OpenCode) — see appliedHarness.
+	Harness string `json:"harness,omitempty"`
 	// CPUs and MemoryMB are creation-fixed too: the sandbox SDK sets them at
 	// creation and cannot resize a running guest, so a change must ask for a
 	// recreation instead of silently keeping the old sizing.
@@ -218,6 +224,11 @@ type DesiredState struct {
 	// healthy running instance would take the no-op path and keep serving
 	// the old credential.
 	CredentialGeneration string
+	// Harness is the guest's agent harness (#176). The prep script and the
+	// image are creation-fixed — the entrypoint written at creation is what
+	// installs the harness — so a harness change cannot be applied to a live
+	// guest and must take the recreation path, like CPUs, memory and image.
+	Harness Harness
 	// BoundCredentials lists the store-sourced credential kinds (P09).
 	BoundCredentials []string
 	// Non-secret server credentials participate in the revision.
@@ -231,6 +242,15 @@ type DesiredState struct {
 	// excluded: a model change is a rendering preference, effective at the
 	// next boot by design, not a security state.
 	MCPConnectors []string
+	// PiConfigFingerprint is the digest of the Pi configuration the guest is
+	// sent (models.json and settings.json). It participates for a different
+	// reason than the managed Model is excluded: the Pi launch resolves the
+	// selection to a model id and passes it on the command line, so a running
+	// guest prepared from an older catalogue cannot serve a model added since.
+	// The digest is hashed, not the selection, so two selections that compose
+	// the same documents describe the same guest. It is empty for another
+	// harness, which keeps an OpenCode guest's revision unchanged.
+	PiConfigFingerprint string
 }
 
 // ConfigRevision hashes the non-secret configuration. Credential values
@@ -262,6 +282,12 @@ func (d DesiredState) ConfigRevision() string {
 		sorted := append([]string(nil), d.MCPConnectors...)
 		sort.Strings(sorted)
 		parts = append(parts, "mcps:"+strings.Join(sorted, ","))
+	}
+	// Same shape contract as GitHubOrigin and MCPConnectors: an empty
+	// fingerprint contributes nothing, so a project with no managed Pi
+	// configuration keeps the revision it already had.
+	if d.PiConfigFingerprint != "" {
+		parts = append(parts, "pi:"+d.PiConfigFingerprint)
 	}
 	for _, part := range parts {
 		_, _ = h.Write([]byte(part))
@@ -310,9 +336,9 @@ func PlanReconcile(applied *InstanceState, desired DesiredState, facts Reconcile
 			// The reason enumerates what can actually change. It must not
 			// name a cause the runtime no longer has (a "workspace mount"
 			// became a provenance check in P22) or omit one it does (guest
-			// sizing), because it is the only thing the user sees before
-			// deciding whether to lose the guest's state.
-			Reason: "the isolation level, image, guest profile, workspace provenance, guest sizing or Microsandbox published ports changed; these are fixed at creation",
+			// sizing, the agent harness), because it is the only thing the
+			// user sees before deciding whether to lose the guest's state.
+			Reason: "the isolation level, image, guest profile, agent harness, workspace provenance, guest sizing or Microsandbox published ports changed; these are fixed at creation",
 		}
 	}
 	if applied == nil {
@@ -610,10 +636,15 @@ func (m *MicrosandboxRuntime) Reconcile(ctx context.Context) error {
 // credential-dependent operations in that case (see Reconcile), so carrying
 // the revision cannot leave a stale refresh unperformed.
 func (m *MicrosandboxRuntime) desiredState(resolved bool, bindings []resolvedBinding, applied *InstanceState) DesiredState {
+	// The connectors the guest will actually apply: a Pi guest applies none,
+	// so the image and the guest profile must be derived from that same
+	// selection or the desired state would describe a guest nobody creates.
+	applicableMCPs := m.msbApplicableMCPs()
 	d := DesiredState{
 		Instance:        m.InstanceName(),
 		Isolation:       m.cfg.Isolation,
-		Image:           msbImageForMCPs(m.OpenCodeOverlay.MCPConnectors),
+		Harness:         m.cfg.EffectiveHarness(),
+		Image:           msbImageForMCPs(applicableMCPs),
 		Username:        m.cfg.Username,
 		CPUs:            m.cfg.CPUs,
 		MemoryMB:        m.cfg.MemoryMB,
@@ -621,7 +652,11 @@ func (m *MicrosandboxRuntime) desiredState(resolved bool, bindings []resolvedBin
 		PortsConfigured: m.cfg.PortsConfigured,
 		MCPConnectors:   append([]string(nil), m.OpenCodeOverlay.MCPConnectors...),
 	}
-	if len(browserMCPIDs(m.OpenCodeOverlay.MCPConnectors)) > 0 {
+	// The composed Pi configuration is prepared into the guest once, from the
+	// environment this run builds; carrying its digest here is how a later
+	// change to it reaches a guest that is still running the previous one.
+	d.PiConfigFingerprint = piConfigFingerprint(m.cfg.EffectiveHarness(), m.OpenCodeOverlay)
+	if len(browserMCPIDs(applicableMCPs)) > 0 {
 		d.GuestProfile = browserGuestProfileRevision()
 	}
 	if resolved {
@@ -659,6 +694,7 @@ func (d DesiredState) toState() InstanceState {
 		Isolation:        string(d.Isolation),
 		Image:            d.Image,
 		GuestProfile:     d.GuestProfile,
+		Harness:          string(d.Harness),
 		CPUs:             d.CPUs,
 		MemoryMB:         d.MemoryMB,
 		PortsConfigured:  d.PortsConfigured,
@@ -669,6 +705,42 @@ func (d DesiredState) toState() InstanceState {
 		CredentialGen:    credentialGenJSON(d.CredentialGeneration),
 		BoundCredentials: append([]string(nil), d.BoundCredentials...),
 	}
+}
+
+// appliedHarness normalizes a harness recorded in the instance state. A state
+// file written before #176 carries none, and empty means the default
+// (OpenCode), exactly as an absent manifest field does. Without this
+// normalization every existing guest would look creation-fixed on upgrade and
+// be recreated for a setting it never had.
+func appliedHarness(raw string) Harness {
+	if raw == "" {
+		return DefaultHarness
+	}
+	return Harness(raw)
+}
+
+// creationFixedChanged reports whether the instance was created with an
+// attribute that cannot be changed in place, which makes recreation the only
+// correct plan. Recreating destroys the guest's sessions and guest-only files,
+// so this comparison is deliberately conservative about what counts as "the
+// same": an unrecorded value is treated as the default rather than as a
+// difference, but a recorded difference always counts.
+func creationFixedChanged(applied *InstanceState, desired DesiredState) bool {
+	if applied == nil {
+		return false
+	}
+	// An instance whose state predates the recorded sizing carries 0 for it.
+	// Zero means "not recorded", not "zero CPUs": comparing it against the
+	// desired default would ask for a recreation of every pre-existing
+	// sandbox. Only a recorded value is compared.
+	resourcesChanged := (applied.CPUs != 0 && applied.CPUs != desired.CPUs) ||
+		(applied.MemoryMB != 0 && applied.MemoryMB != desired.MemoryMB)
+	return applied.Isolation != string(desired.Isolation) ||
+		applied.Image != desired.Image ||
+		applied.GuestProfile != desired.GuestProfile ||
+		appliedHarness(applied.Harness) != desired.Harness ||
+		resourcesChanged ||
+		portMappingsChanged(applied.PortsConfigured, applied.Ports, desired.Ports, desired.PortsConfigured)
 }
 
 // reconcileFacts gathers what the plan needs from the guest. All guest
@@ -700,18 +772,7 @@ func (m *MicrosandboxRuntime) reconcileFacts(ctx context.Context, applied *Insta
 	// Creation-fixed comparison. The applied state is the authority when it
 	// exists; without it, the live checks (isolation script, mount) stand in.
 	if applied != nil {
-		// An instance whose state predates the recorded sizing carries 0 for
-		// it. Zero means "not recorded", not "zero CPUs": comparing it
-		// against the desired default would ask for a recreation of every
-		// pre-existing sandbox. Only a recorded value is compared.
-		resourcesChanged := (applied.CPUs != 0 && applied.CPUs != desired.CPUs) ||
-			(applied.MemoryMB != 0 && applied.MemoryMB != desired.MemoryMB)
-		creationFixed := applied.Isolation != string(desired.Isolation) ||
-			applied.Image != desired.Image ||
-			applied.GuestProfile != desired.GuestProfile ||
-			resourcesChanged ||
-			portMappingsChanged(applied.PortsConfigured, applied.Ports, desired.Ports, desired.PortsConfigured)
-		if creationFixed {
+		if creationFixedChanged(applied, desired) {
 			facts.CreationFixedChanged = true
 			return facts, nil
 		}
@@ -760,6 +821,14 @@ func (m *MicrosandboxRuntime) workspaceProvenanceChanged(ctx context.Context) bo
 // applyReconcileOp executes one plan operation. Every operation is
 // idempotent, which is what makes the journal safe to replay.
 func (m *MicrosandboxRuntime) applyReconcileOp(ctx context.Context, op ReconcileOp, bindings []resolvedBinding) error {
+	// Every operation below either refreshes the guest environment or boots
+	// the harness in it, so none of them runs for a Pi guest whose managed
+	// configuration this run cannot compose: the refresh merges and would
+	// leave the previous configuration in place, and the boot would launch
+	// the selected model against a guest prepared for another one.
+	if err := m.piManagedConfigError(); err != nil {
+		return err
+	}
 	switch op {
 	case OpCreate, OpStartVM:
 		return m.Start(ctx)

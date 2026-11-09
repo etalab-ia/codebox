@@ -321,10 +321,10 @@ func TestProjectManifestMCPSelectionBumpsSchemaAndReadsPreviousVersion(t *testin
 	if err := WriteProjectManifest(fs, path, manifest); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(fs.files[path]), `"schemaVersion": 5`) {
-		t.Fatalf("updated manifest did not write schema version 5: %s", fs.files[path])
+	if !strings.Contains(string(fs.files[path]), `"schemaVersion": 6`) {
+		t.Fatalf("updated manifest did not write schema version 6: %s", fs.files[path])
 	}
-	fs.files[path] = []byte(`{"schemaVersion":6}`)
+	fs.files[path] = []byte(`{"schemaVersion":7}`)
 	if _, err := ReadProjectManifest(fs, path); err == nil || !strings.Contains(err.Error(), "newer than this build supports") {
 		t.Fatalf("unsupported future manifest schema error = %v", err)
 	}

@@ -172,6 +172,11 @@ type ProjectManifest struct {
 	Runtime   string `json:"runtime,omitempty"`
 	Isolation string `json:"isolation,omitempty"`
 	Model     string `json:"model,omitempty"`
+	// Harness is the agent harness the project runs (#176). Empty means the
+	// default: OpenCode. The field carries semantic weight — a manifest that
+	// selects anything else must not be read by a binary that would silently
+	// run OpenCode for it — which is why adding it bumps the schemaVersion.
+	Harness string `json:"harness,omitempty"`
 	// SmallModel is an explicit lightweight model for OpenCode titles. Empty
 	// follows the effective main model, including later changes to that model.
 	SmallModel string `json:"smallModel,omitempty"`
@@ -211,13 +216,16 @@ type PortMapping struct {
 
 // projectManifestSchemaVersion is the current project.json format version.
 // P18 adds a dependency-set generation so a launch can reject a partially
-// written manifest/lock pair after an interrupted update.
-const projectManifestSchemaVersion = 5
+// written manifest/lock pair after an interrupted update. #176 adds the
+// harness: a binary that does not know the field would run OpenCode for a
+// project that asked for something else, which is the silent substitution the
+// version check exists to prevent.
+const projectManifestSchemaVersion = 6
 
 // maxSupportedManifestSchema is the highest manifest schemaVersion this build
 // reads. A newer version is a hard error: the file was written by a binary
 // this one cannot interpret.
-const maxSupportedManifestSchema = 5
+const maxSupportedManifestSchema = 6
 
 // Lockfile is the project lock (.just-code/lock.json): resolved revisions of
 // everything the manifest pins (skills, images, connector packages), so a

@@ -24,6 +24,7 @@ import (
 // Guest assets are read directly from the binary, without writing host files.
 var (
 	guestPrepScript        = mustAsset("guest-prep.sh")
+	piGuestPrepScript      = mustAsset("pi-guest-prep.sh")
 	browserGuestPrepScript = mustAsset("browser-guest-prep.sh")
 	opencodeConfigContent  = mustAsset("opencode-config.json")
 )
@@ -33,13 +34,20 @@ var (
 // execs `opencode serve`; in full mode the sandbox is only kept alive — the
 // TUI is launched interactively by RunAgent, not by the entrypoint.
 func msbStartScript(iso Isolation) string {
-	return msbStartScriptFor(iso, nil)
+	return msbStartScriptFor(iso, nil, HarnessOpenCode)
 }
 
-func msbStartScriptFor(iso Isolation, mcpIDs []string) string {
+func msbStartScriptFor(iso Isolation, mcpIDs []string, harness Harness) string {
 	tail := "exec opencode serve --hostname 0.0.0.0 --port " + strconv.Itoa(DefaultPort)
 	if iso == IsolationFull {
 		tail = "exec sleep infinity"
+	}
+	// Pi has no server mode (ValidateHarnessIsolation refuses the pair), so its
+	// guest is always kept alive and its managed configuration replaces the
+	// OpenCode prep entirely. The browser MCP profile is OpenCode-only: a
+	// connector just-code cannot apply must not drag in a heavier image.
+	if harness == HarnessPi {
+		return piGuestPrepScript + tail + "\n"
 	}
 	prep := guestPrepScript
 	if len(browserMCPIDs(mcpIDs)) > 0 {

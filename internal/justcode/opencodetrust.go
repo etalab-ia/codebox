@@ -14,7 +14,8 @@ import (
 
 // This file implements the P10 host-local trust record for
 // execution-relevant project inputs. OpenCode loads project plugins and MCP
-// commands as executable code at config load (D-001), so a cloned repository
+// commands as executable code at config load (D-001) and Pi runs the project's
+// own extensions and settings at launch (#176 review), so a cloned repository
 // can execute code on first start without any declaration. Approval is a
 // host-local decision keyed by the canonical project and the CONTENT hash
 // of the approved inputs: a changed file is unapproved again until the user
@@ -141,17 +142,47 @@ type UnapprovedInput struct {
 	Hash string
 }
 
-// pluginInputPaths returns every local plugin file that executes directly or
-// through a declaration. A file can be both declared and auto-discovered; trust
-// review and approval must contain it only once.
-func pluginInputPaths(inputs ProjectExecutionInputs) []string {
+// ExecutionInputPaths returns every project file whose content executes or
+// launches a process, as paths relative to root. Two classes feed it: the
+// config files that carry executable declarations — the OpenCode config when it
+// declares plugins or MCP entries (its own hash then covers every declaration
+// inside it), and the project-local Pi settings, which the review on #345
+// showed can declare extensions and packages — and the files that run without
+// any declaration at all, whether auto-discovered (OpenCode plugins, Pi
+// extensions) or reached through an explicit local declaration (an OpenCode
+// plugin path, a Pi settings "extensions" entry). A file can be both declared
+// and auto-discovered; trust review and approval must contain it only once.
+func (inputs ProjectExecutionInputs) ExecutionInputPaths(root string) []string {
 	seen := map[string]bool{}
 	var paths []string
-	for _, rel := range append(append([]string{}, inputs.AutoDiscoveredPlugins...), inputs.DeclaredPluginFiles...) {
-		if !seen[rel] {
-			seen[rel] = true
-			paths = append(paths, rel)
+	add := func(rel string) {
+		if rel == "" || seen[rel] {
+			return
 		}
+		seen[rel] = true
+		paths = append(paths, rel)
+	}
+	if inputs.ConfigPath != "" && (len(inputs.Plugins) > 0 || len(inputs.MCPCommands) > 0 || len(inputs.MCPEndpoints) > 0) {
+		if rel, err := filepath.Rel(root, inputs.ConfigPath); err == nil {
+			add(rel)
+		}
+	}
+	if inputs.PiProjectConfig != "" {
+		if rel, err := filepath.Rel(root, inputs.PiProjectConfig); err == nil {
+			add(rel)
+		}
+	}
+	for _, rel := range inputs.AutoDiscoveredPlugins {
+		add(rel)
+	}
+	for _, rel := range inputs.DeclaredPluginFiles {
+		add(rel)
+	}
+	for _, rel := range inputs.PiAutoDiscoveredExtensions {
+		add(rel)
+	}
+	for _, rel := range inputs.PiDeclaredCodeFiles {
+		add(rel)
 	}
 	sort.Strings(paths)
 	return paths
@@ -188,15 +219,7 @@ func DiscoverUnapprovedInputs(fs FS, stateDir, projectRoot string) ([]Unapproved
 			out = append(out, UnapprovedInput{Path: rel, Reason: "changed since approval", Hash: hash})
 		}
 	}
-	// The config file (when it declares plugins or MCP commands) is itself
-	// an execution input: its content hash covers every declaration inside.
-	if inputs.ConfigPath != "" && (len(inputs.Plugins) > 0 || len(inputs.MCPCommands) > 0 || len(inputs.MCPEndpoints) > 0) {
-		rel, err := filepath.Rel(projectRoot, inputs.ConfigPath)
-		if err == nil {
-			check(rel)
-		}
-	}
-	for _, rel := range pluginInputPaths(inputs) {
+	for _, rel := range inputs.ExecutionInputPaths(projectRoot) {
 		check(rel)
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Path < out[j].Path })
@@ -256,12 +279,7 @@ func ApproveExecutionInputs(fs FS, stateDir, projectRoot string) error {
 	// plugin's approval must not survive to re-approve a re-created file
 	// of the same name with different content).
 	live := map[string]bool{}
-	if inputs.ConfigPath != "" && (len(inputs.Plugins) > 0 || len(inputs.MCPCommands) > 0 || len(inputs.MCPEndpoints) > 0) {
-		if rel, err := filepath.Rel(projectRoot, inputs.ConfigPath); err == nil {
-			live[rel] = true
-		}
-	}
-	for _, rel := range pluginInputPaths(inputs) {
+	for _, rel := range inputs.ExecutionInputPaths(projectRoot) {
 		live[rel] = true
 	}
 	keep := map[string]string{}
@@ -279,14 +297,7 @@ func ApproveExecutionInputs(fs FS, stateDir, projectRoot string) error {
 		keep[rel] = hash
 		return nil
 	}
-	if inputs.ConfigPath != "" && (len(inputs.Plugins) > 0 || len(inputs.MCPCommands) > 0 || len(inputs.MCPEndpoints) > 0) {
-		if rel, err := filepath.Rel(projectRoot, inputs.ConfigPath); err == nil {
-			if err := add(rel); err != nil {
-				return err
-			}
-		}
-	}
-	for _, rel := range pluginInputPaths(inputs) {
+	for _, rel := range inputs.ExecutionInputPaths(projectRoot) {
 		if err := add(rel); err != nil {
 			return err
 		}

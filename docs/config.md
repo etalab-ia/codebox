@@ -46,7 +46,7 @@ qu'une référence souveraine ne puisse pas alimenter une autre plateforme.
 | Fichier | Rôle | Version de schéma |
 |---|---|---|
 | `~/.config/just-code/settings.json` | Réglages globaux utilisateur (sans secrets) | 1 |
-| `.just-code/project.json` | Manifeste projet (sans secrets, sans chemins absolus hôte) | 5 |
+| `.just-code/project.json` | Manifeste projet (sans secrets, sans chemins absolus hôte) | 6 |
 | `.just-code/lock.json` | Verrou : révisions et digests des éléments épinglés | 3 |
 
 `settings.json` conserve aussi `statsEnabled` et `statsConsentAsked` : l'état
@@ -184,6 +184,7 @@ Un `.env.example` reste dans le dépôt comme **gabarit documentaire** : il list
 | `PROJECT_DIR` | non | — | Ancien nom de `WORKSPACE_DIR`, encore accepté avec un avertissement. Ne pas utiliser dans une nouvelle configuration. |
 | `OPENCODE_SERVER_USERNAME` | non | `opencode` | Identité fixe d'OpenCode v2 : seule la valeur `opencode` est acceptée au démarrage en mode backend. |
 | `OPENCODE_SERVER_PASSWORD` | non | `albert-dev-pass` | Mot de passe HTTP du backend. OpenCode v2 exige une valeur non vide en mode backend ; la valeur est transmise aux processus par `OPENCODE_PASSWORD`, jamais par les arguments. Une variable `OPENCODE_PASSWORD` héritée ne remplace pas ce réglage just-code. |
+| `JUST_CODE_HARNESS` | non | `opencode` | Harnais de l'agent exécuté dans l'invité : `opencode` ou `pi`. Prioritaire sur le manifeste du projet. Un harnais inconnu est refusé au lancement plutôt que remplacé silencieusement. |
 | `JUST_CODE_START_TIMEOUT` | non | `300` | Délai maximal, en secondes entières positives, pour attendre que le backend soit prêt avant d'attacher le TUI. |
 | `JUST_CODE_CPUS` | non | `2` (réduit à `1` sur un hôte de deux CPU ou moins) | Nombre de processeurs alloués à l'invité Microsandbox, jusqu'au nombre de processeurs logiques détectés sur l'hôte. L'utilisation de tous les CPU déclenche un avertissement ; une valeur supérieure est refusée. Si un seul CPU est disponible, il est sélectionné automatiquement. Prioritaire sur le manifeste du projet. |
 | `JUST_CODE_MEMORY_MB` | non | `4096` Mio (abaissé pour laisser 25 % de mémoire à l'hôte si nécessaire) | Mémoire allouée à l'invité Microsandbox. Accepte un nombre entier en Mio ou un nombre en Gio, par exemple `4096`, `4G` ou `2.5G` (`G` = 1024 Mio). Le plafond est la mémoire hôte détectée ; une valeur supérieure est refusée. Un avertissement est affiché à partir de 80 % de la mémoire hôte. Prioritaire sur le manifeste du projet. |
@@ -443,10 +444,42 @@ Le choix est enregistré dans `smallModel` du manifeste projet et transmis à
 just-code init --root . --small-model ministral-3-8b-instruct-2512 --yes
 ```
 
-Utilisez `--small-model default` pour revenir au modèle principal. OpenCode
-reste le seul harnais pris en charge ; le support de Pi est suivi dans
-[#176](https://github.com/etalab-ia/just-code/issues/176). La référence d'identifiant
-Albert n'est plus demandée dans l'assistant ; `--credential-ref` reste disponible.
+Utilisez `--small-model default` pour revenir au modèle principal. La référence
+d'identifiant Albert n'est plus demandée dans l'assistant ; `--credential-ref`
+reste disponible.
+
+### Harnais de l'agent
+
+Le harnais est le logiciel d'agent exécuté dans la machine isolée. `init`
+l'enregistre dans le champ `harness` du manifeste projet et le lancement le
+relit ; `JUST_CODE_HARNESS` reste prioritaire pour un essai ponctuel.
+
+- `opencode` (défaut) : l'agent historique, avec ses greffons, ses skills et ses MCP.
+- `pi` : [Pi](https://github.com/badlogic/pi-mono), un agent en terminal plus léger,
+  installé dans l'invité à une version épinglée par just-code.
+
+Pi n'a pas de mode serveur : il exige l'isolation complète, où l'agent, sa
+configuration et ses sessions restent dans la machine isolée. L'assistant refuse
+la combinaison Pi et isolation partielle, et le lancement la refuse aussi. Sa
+configuration (`models.json`, `settings.json`) est écrite dans `~/.pi/agent` de
+l'invité à partir des mêmes plateformes d'inférence que celles décrites
+ci-dessus, et ses skills de projet sont installés dans `~/.pi/agent/skills`.
+
+Le script de préparation d'un invité est figé à sa création, comme son image :
+changer de harnais recrée donc la machine isolée, ce qui détruit les sessions et
+les fichiers propres à l'invité. Un projet qui reste sur OpenCode garde sa
+révision et n'est pas recréé.
+
+Un projet Pi écarte les modèles dont les appels d'outils en flux ne sont pas
+fiables (#347). `qwen3-coder` est retiré de la liste que Pi reçoit et le repli
+d'un projet Pi qui n'a choisi aucun modèle est `deepseek-v4-flash`, le premier
+modèle retenu que Pi peut exécuter. Une sélection explicite de `qwen3-coder`
+pour un projet Pi est refusée, d'abord à la question du modèle puis au
+lancement, avec son motif : le projet enregistre un modèle qu'il peut exécuter,
+ou aucun. OpenCode continue de proposer `qwen3-coder` sans changement ; les
+connecteurs MCP, eux, ne s'appliquent qu'avec OpenCode, sans pont prévu pour Pi
+(#346). Mesures, dates et limites :
+[`docs/decisions/2026-11-09-pi-harness.md`](decisions/2026-11-09-pi-harness.md).
 
 `just-code models` valide la sélection contre le catalogue Albert. Les modèles
 `text-generation` et les modèles de chat multimodaux connus sont listés, sans
