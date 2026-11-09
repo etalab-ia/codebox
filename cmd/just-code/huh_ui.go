@@ -367,6 +367,8 @@ func confirmNoMCPsHuh() (bool, error) {
 			huh.NewConfirm().
 				Title("Aucun MCP sélectionné. Continuer sans MCP ?").
 				Description("L'agent n'aura accès à aucun service distant ni outil de navigateur géré ; un MCP restera ajoutable plus tard.").
+				Affirmative("Oui").
+				Negative("Non").
 				Value(&keep),
 		),
 	))
@@ -410,6 +412,8 @@ func huhConfirm(title, description string, defaultYes bool) (bool, error) {
 			huh.NewConfirm().
 				Title(title).
 				Description(description).
+				Affirmative("Oui").
+				Negative("Non").
 				Value(&value),
 		),
 	))

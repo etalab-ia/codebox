@@ -751,7 +751,7 @@ func TestSetupIntroScreenContent(t *testing.T) {
 		"1. Plateformes d'inférence (au moins une)",
 		"2. Sélection des modèles à utiliser.",
 		"3. GitHub (facultatif)",
-		"Vos identifiants et votre identité git sont enregistrés au fil des questions,",
+		"Vos identifiants sont enregistrés au fil des questions,",
 		"pour que la configuration puisse reprendre si elle est interrompue.",
 		"Appuyez sur Entrée pour commencer, ou sur Ctrl+C pour quitter.",
 	} {

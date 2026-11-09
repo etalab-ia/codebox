@@ -197,6 +197,8 @@ func FormatLaunchSeconds(seconds int64) string {
 	switch {
 	case seconds <= 0:
 		return ""
+	case seconds == 1:
+		return "1 seconde"
 	case seconds < 60:
 		return fmt.Sprintf("%d secondes", seconds)
 	case seconds < 90:
