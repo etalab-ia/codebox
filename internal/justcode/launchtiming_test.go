@@ -262,6 +262,28 @@ func TestLaunchUXMeasuredHintsAndWarningSynthesis(t *testing.T) {
 	}
 }
 
+func TestFormatLaunchSeconds(t *testing.T) {
+	cases := []struct {
+		name    string
+		seconds int64
+		want    string
+	}{
+		{"one second", 1, "1 seconde"},
+		{"several seconds", 25, "25 secondes"},
+		{"just under a minute", 59, "59 secondes"},
+		{"about a minute", 75, "environ 1 minute"},
+		{"about minutes", 130, "environ 2 minutes"},
+		{"non positive", 0, ""},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := FormatLaunchSeconds(tc.seconds); got != tc.want {
+				t.Fatalf("FormatLaunchSeconds(%d) = %q, want %q", tc.seconds, got, tc.want)
+			}
+		})
+	}
+}
+
 func TestLaunchDisablesOpenCodeUpdates(t *testing.T) {
 	m := NewMicrosandboxRuntime(Config{Isolation: IsolationFull})
 	for _, env := range []map[string]string{m.sandboxEnv(), m.nextStartEnv()} {
