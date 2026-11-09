@@ -157,6 +157,12 @@ type InstanceState struct {
 	// embedded in the guest start script. A profile change requires explicit
 	// recreation because the runtime cannot replace that persisted script.
 	GuestProfile string `json:"guestProfile,omitempty"`
+	// Harness is the agent harness the guest was created with (#176). It is
+	// creation-fixed for the same reason as the guest profile: the entrypoint
+	// written at creation is what installs the agent, so no restart can turn an
+	// OpenCode guest into a Pi one. Empty is a state written before harnesses
+	// existed, which means the default (OpenCode) — see appliedHarness.
+	Harness string `json:"harness,omitempty"`
 	// CPUs and MemoryMB are creation-fixed too: the sandbox SDK sets them at
 	// creation and cannot resize a running guest, so a change must ask for a
 	// recreation instead of silently keeping the old sizing.
@@ -268,14 +274,6 @@ func (d DesiredState) ConfigRevision() string {
 		sort.Strings(sorted)
 		parts = append(parts, "mcps:"+strings.Join(sorted, ","))
 	}
-	// Same shape contract again: an OpenCode instance contributes nothing, so a
-	// guest created before #176 keeps its revision and is not recreated for a
-	// setting it never used. Switching to Pi adds the line and switching back
-	// removes it, so both directions trip, which is what the creation-fixed
-	// prep script requires.
-	if d.Harness == HarnessPi {
-		parts = append(parts, "harness:"+string(d.Harness))
-	}
 	for _, part := range parts {
 		_, _ = h.Write([]byte(part))
 		_, _ = h.Write([]byte{0})
@@ -323,9 +321,9 @@ func PlanReconcile(applied *InstanceState, desired DesiredState, facts Reconcile
 			// The reason enumerates what can actually change. It must not
 			// name a cause the runtime no longer has (a "workspace mount"
 			// became a provenance check in P22) or omit one it does (guest
-			// sizing), because it is the only thing the user sees before
-			// deciding whether to lose the guest's state.
-			Reason: "the isolation level, image, guest profile, workspace provenance, guest sizing or Microsandbox published ports changed; these are fixed at creation",
+			// sizing, the agent harness), because it is the only thing the
+			// user sees before deciding whether to lose the guest's state.
+			Reason: "the isolation level, image, guest profile, agent harness, workspace provenance, guest sizing or Microsandbox published ports changed; these are fixed at creation",
 		}
 	}
 	if applied == nil {
@@ -677,6 +675,7 @@ func (d DesiredState) toState() InstanceState {
 		Isolation:        string(d.Isolation),
 		Image:            d.Image,
 		GuestProfile:     d.GuestProfile,
+		Harness:          string(d.Harness),
 		CPUs:             d.CPUs,
 		MemoryMB:         d.MemoryMB,
 		PortsConfigured:  d.PortsConfigured,
@@ -687,6 +686,42 @@ func (d DesiredState) toState() InstanceState {
 		CredentialGen:    credentialGenJSON(d.CredentialGeneration),
 		BoundCredentials: append([]string(nil), d.BoundCredentials...),
 	}
+}
+
+// appliedHarness normalizes a harness recorded in the instance state. A state
+// file written before #176 carries none, and empty means the default
+// (OpenCode), exactly as an absent manifest field does. Without this
+// normalization every existing guest would look creation-fixed on upgrade and
+// be recreated for a setting it never had.
+func appliedHarness(raw string) Harness {
+	if raw == "" {
+		return DefaultHarness
+	}
+	return Harness(raw)
+}
+
+// creationFixedChanged reports whether the instance was created with an
+// attribute that cannot be changed in place, which makes recreation the only
+// correct plan. Recreating destroys the guest's sessions and guest-only files,
+// so this comparison is deliberately conservative about what counts as "the
+// same": an unrecorded value is treated as the default rather than as a
+// difference, but a recorded difference always counts.
+func creationFixedChanged(applied *InstanceState, desired DesiredState) bool {
+	if applied == nil {
+		return false
+	}
+	// An instance whose state predates the recorded sizing carries 0 for it.
+	// Zero means "not recorded", not "zero CPUs": comparing it against the
+	// desired default would ask for a recreation of every pre-existing
+	// sandbox. Only a recorded value is compared.
+	resourcesChanged := (applied.CPUs != 0 && applied.CPUs != desired.CPUs) ||
+		(applied.MemoryMB != 0 && applied.MemoryMB != desired.MemoryMB)
+	return applied.Isolation != string(desired.Isolation) ||
+		applied.Image != desired.Image ||
+		applied.GuestProfile != desired.GuestProfile ||
+		appliedHarness(applied.Harness) != desired.Harness ||
+		resourcesChanged ||
+		portMappingsChanged(applied.PortsConfigured, applied.Ports, desired.Ports, desired.PortsConfigured)
 }
 
 // reconcileFacts gathers what the plan needs from the guest. All guest
@@ -718,18 +753,7 @@ func (m *MicrosandboxRuntime) reconcileFacts(ctx context.Context, applied *Insta
 	// Creation-fixed comparison. The applied state is the authority when it
 	// exists; without it, the live checks (isolation script, mount) stand in.
 	if applied != nil {
-		// An instance whose state predates the recorded sizing carries 0 for
-		// it. Zero means "not recorded", not "zero CPUs": comparing it
-		// against the desired default would ask for a recreation of every
-		// pre-existing sandbox. Only a recorded value is compared.
-		resourcesChanged := (applied.CPUs != 0 && applied.CPUs != desired.CPUs) ||
-			(applied.MemoryMB != 0 && applied.MemoryMB != desired.MemoryMB)
-		creationFixed := applied.Isolation != string(desired.Isolation) ||
-			applied.Image != desired.Image ||
-			applied.GuestProfile != desired.GuestProfile ||
-			resourcesChanged ||
-			portMappingsChanged(applied.PortsConfigured, applied.Ports, desired.Ports, desired.PortsConfigured)
-		if creationFixed {
+		if creationFixedChanged(applied, desired) {
 			facts.CreationFixedChanged = true
 			return facts, nil
 		}

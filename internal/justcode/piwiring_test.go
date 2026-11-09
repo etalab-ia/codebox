@@ -196,24 +196,48 @@ func TestPiGuestAppliesNoBrowserMCPProfile(t *testing.T) {
 }
 
 // The prep script and the image are creation-fixed, so a harness change has to
-// trip the configuration revision and take the recreation path; an OpenCode
-// guest must keep the revision it already had, or every existing guest would be
-// recreated by an upgrade that changed nothing for it.
-func TestHarnessChangeTripsTheGuestConfigRevision(t *testing.T) {
-	base := DesiredState{Instance: "p", Isolation: IsolationFull, Image: msbImage, Username: "opencode"}
-	opencode := base
-	opencode.Harness = HarnessOpenCode
-	pi := base
-	pi.Harness = HarnessPi
+// be classified as such — hashing it into the revision would only schedule a
+// restart. An instance whose state predates the setting reads as OpenCode, so
+// upgrading does not recreate guests that never chose a harness.
+func TestHarnessChangeIsCreationFixed(t *testing.T) {
+	desired := func(h Harness) DesiredState {
+		return DesiredState{Instance: "p", Isolation: IsolationFull, Image: msbImage, Username: "opencode", Harness: h}
+	}
+	state := func(h string) *InstanceState {
+		return &InstanceState{SchemaVersion: instanceStateSchemaVersion, Instance: "p", Isolation: string(IsolationFull), Image: msbImage, Harness: h}
+	}
 
-	if opencode.ConfigRevision() != base.ConfigRevision() {
-		t.Fatal("the default harness changed the revision of an existing guest")
+	// Legacy state (no harness) against an OpenCode project: not a difference.
+	if creationFixedChanged(state(""), desired(HarnessOpenCode)) {
+		t.Fatal("a guest created before harnesses existed was treated as creation-fixed")
 	}
-	if pi.ConfigRevision() == base.ConfigRevision() {
-		t.Fatal("switching to Pi left the revision unchanged: the guest would keep its OpenCode prep script")
+	// Legacy state against a Pi project: recreation is the only way to install
+	// Pi, because the entrypoint that installs it was written at creation.
+	if !creationFixedChanged(state(""), desired(HarnessPi)) {
+		t.Fatal("switching to Pi was not classified as creation-fixed: the guest would restart and never install Pi")
 	}
-	if pi.ConfigRevision() == opencode.ConfigRevision() {
-		t.Fatal("switching back to OpenCode would not be detected")
+	// Recorded Pi state against an OpenCode project, and the reverse.
+	if !creationFixedChanged(state(string(HarnessPi)), desired(HarnessOpenCode)) {
+		t.Fatal("switching back to OpenCode was not classified as creation-fixed")
+	}
+	if creationFixedChanged(state(string(HarnessPi)), desired(HarnessPi)) {
+		t.Fatal("an unchanged Pi project was reported as creation-fixed")
+	}
+	// The harness is creation-fixed but is not a revision fact: hashing it
+	// would also schedule a non-destructive restart for the same change.
+	openCode := desired(HarnessOpenCode)
+	pi := desired(HarnessPi)
+	if openCode.ConfigRevision() != pi.ConfigRevision() {
+		t.Fatal("the harness still participates in the configuration revision")
+	}
+
+	// The state file carries the harness, so the next run can compare it.
+	recorded := pi.toState()
+	if recorded.Harness != string(HarnessPi) {
+		t.Fatalf("the applied state did not record the harness: %+v", recorded)
+	}
+	if appliedHarness(recorded.Harness) != HarnessPi || appliedHarness("") != HarnessOpenCode {
+		t.Fatal("appliedHarness does not normalize a legacy empty value to the default")
 	}
 }
 
