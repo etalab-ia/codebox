@@ -163,7 +163,9 @@ func TestComposePiModelsConfigRequiresAPlatform(t *testing.T) {
 
 func TestPiModelRefResolvesTheAPIID(t *testing.T) {
 	overlay := albertOverlay()
-	if got := PiModelRef(overlay); got != "albert/Qwen/Qwen3-Coder-30B-A3B-Instruct" {
+	// The overlay selects the curated alias; Pi has to be handed the API id of
+	// that same model, or the request fails on an id the API does not know.
+	if got := PiModelRef(overlay); got != "albert/deepseek-ai/DeepSeek-V4-Flash-0731" {
 		t.Fatalf("PiModelRef() = %q", got)
 	}
 	// A model the current catalogue did not list is passed through: the
@@ -182,10 +184,95 @@ func TestPiModelRefResolvesTheAPIID(t *testing.T) {
 	if got := PiModelRef(provider); got != "openai-compatible/vendor/real-model" {
 		t.Fatalf("provider model ref = %q", got)
 	}
-	// An overlay that names no model at all still resolves: the effective
-	// overlay applies the default, and the default is a curated Albert model.
-	if got := PiModelRef(ManagedOverlay{}); got != "albert/Qwen/Qwen3-Coder-30B-A3B-Instruct" {
+	// An overlay that names no model at all resolves through the effective
+	// default, and for Pi that default is the curated model it can run.
+	if got := PiModelRef(ManagedOverlay{AlbertEnabled: true}); got != "albert/deepseek-ai/DeepSeek-V4-Flash-0731" {
 		t.Fatalf("default overlay produced %q", got)
+	}
+}
+
+// The models a project renders decide its fallback: a project connected to
+// another platform must not be handed an Albert reference its own models.json
+// does not contain (#347 review).
+func TestPiFallbackFollowsTheRenderedModels(t *testing.T) {
+	mistralOnly := ManagedOverlay{
+		Providers: []ProviderOverlay{{
+			Kind:      "mistral",
+			Name:      "Mistral AI",
+			BaseURL:   "https://api.mistral.ai/v1",
+			APIKeyEnv: MistralAPIKeyEnv,
+			Models:    []ProviderModelConfig{{ID: "mistral-medium-3", ModelID: "mistral-medium-3-5", Name: "Mistral Medium"}},
+		}},
+	}
+	if got := piFallbackModelRef(mistralOnly); got != "" {
+		t.Fatalf("a project with no Albert models fell back to %q", got)
+	}
+	got, err := ComposePiModelsConfig(mistralOnly)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var doc piModelsFile
+	if err := json.Unmarshal([]byte(got), &doc); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := doc.Providers["albert"]; ok {
+		t.Fatalf("an Albert provider was written for a Mistral-only project:\n%s", got)
+	}
+	if _, ok := doc.Providers["mistral"]; !ok {
+		t.Fatalf("no mistral provider in:\n%s", got)
+	}
+
+	// Albert connected, but the project listed a model set that holds none of
+	// the curated defaults: the fallback is one of the models it did list, and
+	// PiModelRef still resolves its alias to the id the API knows.
+	gemmaOnly := ManagedOverlay{
+		AlbertEnabled: true,
+		Models:        []AlbertModelConfig{{ID: "gemma-4", ModelID: "google/gemma-4-31B-it", Name: "Gemma 4"}},
+	}
+	if got := piFallbackModelRef(gemmaOnly); got != "albert/gemma-4" {
+		t.Fatalf("explicit list fallback = %q", got)
+	}
+	if got := PiModelRef(gemmaOnly); got != "albert/google/gemma-4-31B-it" {
+		t.Fatalf("PiModelRef() = %q", got)
+	}
+
+	// A curated default is preferred over that first-entry rule, so the default
+	// path keeps starting on the model the init recap showed.
+	if got := piFallbackModelRef(albertOverlay()); got != "albert/deepseek-v4-flash" {
+		t.Fatalf("curated default was not preferred: %q", got)
+	}
+}
+
+// A selection that belongs to a platform this run does not configure is refused
+// with the platforms that are configured: Pi resolves the model on the command
+// line alone, so the alternative is a session that fails on its first request
+// (#347 review).
+func TestPiRefusesAModelFromAnUnconfiguredPlatform(t *testing.T) {
+	overlay := ManagedOverlay{
+		Model: "albert/deepseek-v4-flash",
+		Providers: []ProviderOverlay{{
+			Kind:      "mistral",
+			BaseURL:   "https://api.mistral.ai/v1",
+			APIKeyEnv: MistralAPIKeyEnv,
+			Models:    []ProviderModelConfig{{ID: "mistral-medium-3", ModelID: "mistral-medium-3-5"}},
+		}},
+	}
+	_, err := ComposePiModelsConfig(overlay)
+	if err == nil {
+		t.Fatal("a model from an unconfigured platform was accepted")
+	}
+	for _, want := range []string{"albert/deepseek-v4-flash", "mistral"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Fatalf("refusal = %v, want it to name %q", err, want)
+		}
+	}
+	// The same selection is fine once Albert is one of the connected platforms:
+	// a known platform is not a promise that the model exists in a catalogue
+	// fetched live.
+	overlay.Models = albertOverlay().Models
+	overlay.AlbertEnabled = true
+	if _, err := ComposePiModelsConfig(overlay); err != nil {
+		t.Fatalf("Albert is configured but its model was refused: %v", err)
 	}
 }
 

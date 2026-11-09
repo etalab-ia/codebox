@@ -65,14 +65,18 @@ y compris pour l'exécution d'outils.
   sélectionnent plus l'image navigateur et ne sont pas transmis.
 - La porte de confiance couvre la surface Pi, sur tous les chemins de
   lancement : `.pi/settings.json`, les fichiers sous `.pi/extensions/`, et les
-  fichiers locaux que les entrées de `extensions` désignent (résolues comme Pi
-  les résout, relativement à `.pi`). Chaque fichier est approuvé par son propre
-  contenu, donc une modification tirée après approbation redemande une décision.
-  Un motif glob est élargi à son répertoire parent littéral : la liste peut
-  contenir des fichiers que le motif ne charge pas, jamais en omettre un. Une
-  déclaration impossible à épingler par contenu (motif à la racine du projet,
-  chemin hors du projet, chemin relatif au domicile) fait échouer le lancement
-  au lieu d'être ignorée.
+  fichiers locaux que les entrées de `extensions` et de `packages` désignent
+  (résolues comme Pi les résout, relativement à `.pi`). Une entrée `packages`
+  qui nomme un fichier ou un répertoire du projet charge du code sans le
+  copier, donc elle est épinglée comme une extension ; une entrée qui vient de
+  npm, de git ou d'une URL reste une dépendance, dont le contenu n'est pas dans
+  le projet — la même frontière que pour les plugins OpenCode. Chaque fichier
+  est approuvé par son propre contenu, donc une modification tirée après
+  approbation redemande une décision. Un motif glob est élargi à son répertoire
+  parent littéral : la liste peut contenir des fichiers que le motif ne charge
+  pas, jamais en omettre un. Une déclaration impossible à épingler par contenu
+  (motif à la racine du projet, chemin hors du projet, chemin relatif au
+  domicile) fait échouer le lancement au lieu d'être ignorée.
 
 ## Décisions du 9 novembre 2026
 
@@ -85,6 +89,15 @@ y compris pour l'exécution d'outils.
   question du modèle, puis au lancement — au lieu d'être remplacée en silence.
   OpenCode garde `qwen3-coder` : ses projets existants ne changent pas, et le
   défaut rompu est celui de Pi, dont personne ne dépend encore.
+- **Le repli d'un projet Pi est écrit dans le manifeste**, pas seulement montré
+  dans le récapitulatif. Un modèle vide veut dire « prendre celui des réglages
+  utilisateur », qui est celui d'OpenCode (`qwen3-coder`) et que Pi refuse : le
+  projet que le récapitulatif venait de décrire ne se serait pas lancé. `init`
+  enregistre donc le modèle qu'il affiche. Le repli suit les modèles réellement
+  écrits dans `models.json` : un projet relié à une autre plateforme prend le
+  premier modèle de celle-ci, jamais une référence Albert. Une sélection qui
+  appartient à une plateforme non configurée pour ce projet est refusée au
+  lancement, en nommant les plateformes configurées.
 - **`schemaVersion` 6 : rupture du sens du manifeste acceptée.** Un champ
   `harness` inconnu d'un binaire antérieur vaut « OpenCode » pour lui, donc un
   projet Pi exécuté par un binaire antérieur lancerait le mauvais agent sans le

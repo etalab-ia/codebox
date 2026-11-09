@@ -188,11 +188,12 @@ func TestParseProjectOpenCodeConfigSizeLimit(t *testing.T) {
 	}
 }
 
-// TestDiscoverProjectExecutionInputsResolvesDeclaredPiExtensions covers the
-// local path forms Pi accepts in a settings file's "extensions" array. A glob is
-// widened to its longest literal parent directory, so a matcher whose exact
-// semantics just-code does not implement can only add files to the approval set.
-func TestDiscoverProjectExecutionInputsResolvesDeclaredPiExtensions(t *testing.T) {
+// TestDiscoverProjectExecutionInputsResolvesDeclaredPiCode covers the local path
+// forms Pi accepts in a settings file's "extensions" and "packages" arrays. Both
+// make Pi load code at launch, so both have to reach the approval set, and a
+// glob is widened to its longest literal parent directory so a matcher whose
+// exact semantics just-code does not implement can only add files to that set.
+func TestDiscoverProjectExecutionInputsResolvesDeclaredPiCode(t *testing.T) {
 	for _, tc := range []struct {
 		name     string
 		settings func(root string) string
@@ -264,6 +265,51 @@ func TestDiscoverProjectExecutionInputsResolvesDeclaredPiExtensions(t *testing.T
 			settings: func(string) string { return `{"packages":["npm:some-tool"]}` },
 			want:     nil,
 		},
+		{
+			name:     "a local package is pinned by content",
+			settings: func(string) string { return `{"packages":["../hooks/startup.ts"]}` },
+			files:    []string{"hooks/startup.ts"},
+			want:     []string{filepath.Join("hooks", "startup.ts")},
+		},
+		{
+			name:     "the object form's source is what resolves",
+			settings: func(string) string { return `{"packages":[{"source":"../hooks/startup.ts","filter":"tools"}]}` },
+			files:    []string{"hooks/startup.ts"},
+			want:     []string{filepath.Join("hooks", "startup.ts")},
+		},
+		{
+			name:     "a local package directory lists every file under it",
+			settings: func(string) string { return `{"packages":["../extras"]}` },
+			files:    []string{"extras/one.ts", "extras/nested/two.ts"},
+			want: []string{
+				filepath.Join("extras", "nested", "two.ts"),
+				filepath.Join("extras", "one.ts"),
+			},
+		},
+		{
+			name: "extensions and packages are both resolved",
+			settings: func(string) string {
+				return `{"extensions":["../hooks/two.ts"],"packages":["../hooks/one.ts"]}`
+			},
+			files: []string{"hooks/one.ts", "hooks/two.ts"},
+			want: []string{
+				filepath.Join("hooks", "one.ts"),
+				filepath.Join("hooks", "two.ts"),
+			},
+		},
+		{
+			name: "registry, git and URL packages add nothing",
+			settings: func(string) string {
+				return `{"packages":["npm:@scope/tool","git:github.com/owner/repo","https://github.com/owner/repo","git@github.com:owner/repo.git"]}`
+			},
+			want: nil,
+		},
+		{
+			name:     "an excluded package never adds an input",
+			settings: func(string) string { return `{"packages":["!../hooks/startup.ts"]}` },
+			files:    []string{"hooks/startup.ts"},
+			want:     nil,
+		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			root := t.TempDir()
@@ -286,20 +332,21 @@ func TestDiscoverProjectExecutionInputsResolvesDeclaredPiExtensions(t *testing.T
 			if err != nil {
 				t.Fatal(err)
 			}
-			got := strings.Join(inputs.PiDeclaredExtensionFiles, ",")
+			got := strings.Join(inputs.PiDeclaredCodeFiles, ",")
 			want := strings.Join(tc.want, ",")
 			if got != want {
-				t.Fatalf("declared Pi extensions = %q; want %q", got, want)
+				t.Fatalf("declared Pi code = %q; want %q", got, want)
 			}
 		})
 	}
 }
 
-// TestDeclaredPiExtensionsRefuseUnpinnablePaths keeps the resolution fail-closed:
+// TestDeclaredPiCodeRefusesUnpinnablePaths keeps the resolution fail-closed:
 // a declaration that cannot be tied to project content must refuse the launch
 // rather than be skipped, or the settings hash would approve a declaration whose
-// target stays unreviewed.
-func TestDeclaredPiExtensionsRefuseUnpinnablePaths(t *testing.T) {
+// target stays unreviewed. "extensions" and "packages" are both checked, since
+// either one can name an executing file.
+func TestDeclaredPiCodeRefusesUnpinnablePaths(t *testing.T) {
 	abs := filepath.Join(t.TempDir(), "evil.ts")
 	outside := t.TempDir()
 	symlinkSettings := func(root string) string {
@@ -315,12 +362,24 @@ func TestDeclaredPiExtensionsRefuseUnpinnablePaths(t *testing.T) {
 			settings: func(string) string { return `{"extensions":["~/.pi/agent/extensions/evil.ts"]}` },
 		},
 		{
+			name:     "home-relative package",
+			settings: func(string) string { return `{"packages":["~/.pi/packages/evil.ts"]}` },
+		},
+		{
 			name:     "absolute path outside the project",
 			settings: func(string) string { return `{"extensions":["` + filepath.ToSlash(abs) + `"]}` },
 		},
 		{
 			name:     "path above the project root",
 			settings: func(string) string { return `{"extensions":["../../hooks/evil.ts"]}` },
+		},
+		{
+			name:     "package above the project root",
+			settings: func(string) string { return `{"packages":["../../hooks/evil.ts"]}` },
+		},
+		{
+			name:     "object-form package above the project root",
+			settings: func(string) string { return `{"packages":[{"source":"../../hooks/evil.ts"}]}` },
 		},
 		{
 			name:     "pattern rooted at the project root",

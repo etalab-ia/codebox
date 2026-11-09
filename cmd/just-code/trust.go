@@ -120,8 +120,8 @@ func trustStatusCmd(projectRoot string) (int, error) {
 	for _, p := range inputs.PiAutoDiscoveredExtensions {
 		fmt.Printf("  Pi extension (executes at launch without declaration): %s\n", p)
 	}
-	for _, p := range inputs.PiDeclaredExtensionFiles {
-		fmt.Printf("  Pi extension declared in the project settings: %s\n", p)
+	for _, p := range inputs.PiDeclaredCodeFiles {
+		fmt.Printf("  Pi code declared in the project settings (extension or local package): %s\n", p)
 	}
 	if len(unapproved) == 0 {
 		fmt.Println("All inputs are approved at their current content.")

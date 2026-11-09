@@ -99,34 +99,100 @@ func PiUnsupportedModelReason(selection string) string {
 	return ""
 }
 
-// piDefaultModelRef is the Albert model a Pi project starts on when it selected
-// none. OpenCode falls back to the embedded asset's model; Pi has no embedded
-// asset, so it takes the first curated default it can actually run. Reading the
-// curated list rather than naming a model here keeps one source of truth: a
-// default dropped from that list cannot leave this function pointing at a model
-// Pi refuses.
+// piAlbertRendered reports whether this overlay gets an Albert provider in
+// models.json: the project asked for Albert models, or Albert is one of the
+// connected platforms. Both the composition and the fallback read the same
+// condition, so a model can never be chosen from a provider the document
+// leaves out.
+func piAlbertRendered(o ManagedOverlay) bool {
+	return len(o.Models) > 0 || o.AlbertEnabled
+}
+
+// piDefaultModelRef is the Albert model an init wizard names for a Pi project
+// that selected none, and the one it writes to the manifest. OpenCode falls
+// back to the embedded asset's model; Pi has no embedded asset, so the first
+// curated default Pi can actually run is taken instead. Reading the curated
+// list rather than naming a model here keeps one source of truth: a default
+// dropped from that list cannot leave this function pointing at a model Pi
+// refuses.
 func piDefaultModelRef() string {
-	for _, choice := range CuratedAlbertModels() {
-		if !choice.Default {
+	// The default project declares no model list, so what Pi renders for it is
+	// exactly the curated defaults: resolving through the same function the
+	// launch uses keeps the recap, the manifest and the launched configuration
+	// on one answer.
+	return piFallbackModelRef(ManagedOverlay{AlbertEnabled: true})
+}
+
+// piFallbackModelRef is the model a Pi project starts on when it selected none,
+// taken from the models this overlay actually renders (#347 review). Naming a
+// curated default unconditionally would hand a launch a model its own
+// models.json does not contain: a project connected to Mistral only would be
+// given an Albert reference, and a project whose Albert list excludes every
+// curated default would be given one of the excluded ones.
+//
+// The curated order decides first, so the default path keeps starting on the
+// model the init recap showed. A list that names no curated default falls back
+// to the first rendered alias in sorted order — the alias being the form the
+// configuration carries and the form PiModelRef resolves to an API id. It is a
+// stable choice rather than the one models.json happens to list first, whose
+// entries are sorted on the API id instead. Nothing rendered means no fallback:
+// the caller keeps whatever EffectiveOverlay resolved, and the composition
+// reports the gap.
+//
+// The reference is returned in its alias form ("albert/gemma-4"), the form the
+// overlay carries and the form PiModelRef resolves to an API id — the same
+// shape the curated defaults come in, so callers need no second rule.
+func piFallbackModelRef(o ManagedOverlay) string {
+	if !piAlbertRendered(o) {
+		return ""
+	}
+	rendered := piAlbertModels(o)
+	// piAlbertModels drops the models Pi must not run, from either source, so
+	// an alias present here is runnable.
+	aliases := make([]string, 0, len(rendered))
+	present := make(map[string]bool, len(rendered))
+	for _, m := range rendered {
+		alias := m.ID
+		if alias == "" {
+			alias = m.ModelID
+		}
+		if alias == "" || present[alias] {
 			continue
 		}
-		if ref := choice.Ref(); PiUnsupportedModelReason(ref) == "" {
-			return ref
+		present[alias] = true
+		aliases = append(aliases, alias)
+	}
+	for _, choice := range CuratedAlbertModels() {
+		// An AlbertModelConfig carries the curated alias in ID and the API model
+		// id in ModelID (AlbertModelChoice.ID is the API id), so the alias is
+		// what a curated choice has to be matched on.
+		if choice.Default && present[choice.OpenCodeID] {
+			return choice.Ref()
 		}
 	}
-	return ""
+	if len(aliases) == 0 {
+		return ""
+	}
+	sort.Strings(aliases)
+	return "albert/" + aliases[0]
 }
 
 // piEffectiveOverlay applies Pi's own defaults to the harness-independent
-// overlay. The single difference from OpenCode is the fallback model. The
-// decision is taken on the *raw* selection, so a project that named a model
-// keeps it — including one Pi refuses, which ComposePiModelsConfig reports
-// rather than rewrites.
+// overlay. The difference from OpenCode is the fallback model. The decision is
+// taken on the *raw* selection, so a project that named a model keeps it —
+// including one Pi refuses, which ComposePiModelsConfig reports rather than
+// rewrites.
+//
+// A project that named no model is a case the launch no longer reaches empty:
+// init writes the fallback it showed in its recap into the manifest, so the
+// model the recap promised is the one that launches (#347 review). This branch
+// covers the projects that predate that — a manifest with no model — and the
+// harness-independent callers that pass a bare overlay.
 func piEffectiveOverlay(o ManagedOverlay) ManagedOverlay {
 	selected := strings.TrimSpace(o.Model)
 	effective := o.EffectiveOverlay()
 	if selected == "" {
-		if model := piDefaultModelRef(); model != "" {
+		if model := piFallbackModelRef(o); model != "" {
 			effective.Model = model
 		}
 	}
@@ -147,8 +213,58 @@ func ComposePiModelsConfig(o ManagedOverlay) (string, error) {
 		}
 	}
 	o = piEffectiveOverlay(o)
+	providers := piProviders(o)
+	if len(providers) == 0 {
+		return "", fmt.Errorf("no inference platform to configure for Pi")
+	}
+	if err := validatePiModelPlatform(o, providers); err != nil {
+		return "", err
+	}
+	document := piModelsFile{Providers: providers}
+	// Marshal with sorted keys: map keys are emitted in sorted order by
+	// encoding/json, and the model slices are sorted above, so the output is
+	// stable without a custom marshaller.
+	data, err := json.MarshalIndent(document, "", "  ")
+	if err != nil {
+		return "", err
+	}
+	return string(data) + "\n", nil
+}
+
+// validatePiModelPlatform refuses a launch whose selected model belongs to a
+// platform this run does not configure. Pi resolves the model on the command
+// line and nothing else, so a selection pointing at an unconnected platform
+// starts a session that fails on its first request with the provider's own
+// error; naming the selection, the platform and the configured ones here keeps
+// the failure actionable. A known platform is not a promise the model exists:
+// the catalogue is fetched live and a project may legitimately name a model it
+// did not list.
+func validatePiModelPlatform(o ManagedOverlay, providers map[string]piProvider) error {
+	ref := strings.TrimSpace(o.Model)
+	if ref == "" {
+		return nil
+	}
+	kind, _, ok := strings.Cut(ref, "/")
+	if !ok || kind == "" {
+		return nil
+	}
+	if _, configured := providers[kind]; configured {
+		return nil
+	}
+	names := make([]string, 0, len(providers))
+	for name := range providers {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	return fmt.Errorf("le modèle %q appartient à la plateforme %q, qui n'est pas configurée pour ce projet ; plateformes configurées : %s. Choisissez un modèle de l'une d'elles (just-code init --model …), ou retirez le modèle du manifeste pour prendre celui de la plateforme connectée", ref, kind, strings.Join(names, ", "))
+}
+
+// piProviders builds the provider blocks of models.json. A platform appears only
+// when it has at least one model to advertise: a provider entry with an empty
+// model list would give Pi a choice it cannot honour.
+func piProviders(o ManagedOverlay) map[string]piProvider {
 	providers := map[string]piProvider{}
-	if len(o.Models) > 0 || o.AlbertEnabled {
+	if piAlbertRendered(o) {
 		models := make([]piModel, 0, len(o.Models))
 		for _, m := range piAlbertModels(o) {
 			if entry, ok := piModelFromAlbert(m); ok {
@@ -203,18 +319,7 @@ func ComposePiModelsConfig(o ManagedOverlay) (string, error) {
 			Models:  models,
 		}
 	}
-	if len(providers) == 0 {
-		return "", fmt.Errorf("no inference platform to configure for Pi")
-	}
-	document := piModelsFile{Providers: providers}
-	// Marshal with sorted keys: map keys are emitted in sorted order by
-	// encoding/json, and the model slices are sorted above, so the output is
-	// stable without a custom marshaller.
-	data, err := json.MarshalIndent(document, "", "  ")
-	if err != nil {
-		return "", err
-	}
-	return string(data) + "\n", nil
+	return providers
 }
 
 // piAlbertModels resolves the Albert model set a Pi configuration must

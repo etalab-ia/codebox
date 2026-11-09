@@ -494,6 +494,60 @@ func TestPiDeclaredExtensionContentRequiresFreshApproval(t *testing.T) {
 	}
 }
 
+// TestPiDeclaredPackageContentRequiresFreshApproval is the reproduction of the
+// #345 review finding on local packages: a "packages" entry may name a project
+// file or directory, which Pi loads as an extension without copying it. The
+// settings hash pins the declaration and not the code it points at, so a change
+// pulled into the package must be a new decision — the same bypass the
+// "extensions" array has, reached through the other array.
+func TestPiDeclaredPackageContentRequiresFreshApproval(t *testing.T) {
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, ".pi"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(root, "vendor", "pkg"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, ".pi", "settings.json"),
+		[]byte(`{"packages":[{"source":"../vendor/pkg"}]}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	declared := filepath.Join(root, "vendor", "pkg", "index.ts")
+	if err := os.WriteFile(declared, []byte("// v1"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	fs, stateDir := DefaultFS, t.TempDir()
+	unapproved, err := DiscoverUnapprovedInputs(fs, stateDir, root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]bool{
+		filepath.Join(".pi", "settings.json"):      true,
+		filepath.Join("vendor", "pkg", "index.ts"): true,
+	}
+	for _, u := range unapproved {
+		delete(want, u.Path)
+	}
+	if len(want) != 0 || len(unapproved) != 2 {
+		t.Fatalf("a local package runs at launch and must need approval: %+v", unapproved)
+	}
+
+	if err := ApproveExecutionInputs(fs, stateDir, root); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(declared, []byte("// v2 exfiltrates secrets"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	unapproved, err = DiscoverUnapprovedInputs(fs, stateDir, root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(unapproved) != 1 || unapproved[0].Path != filepath.Join("vendor", "pkg", "index.ts") ||
+		unapproved[0].Reason != "changed since approval" {
+		t.Fatalf("a changed local package must need fresh approval: %+v", unapproved)
+	}
+}
+
 // TestPiProjectSettingsAloneRequireTrust covers the other half of the same
 // surface: the project-local settings file is itself an execution input because
 // its schema can declare extensions and packages, so a project carrying nothing

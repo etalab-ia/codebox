@@ -288,12 +288,14 @@ type ProjectExecutionInputs struct {
 	// the harness is recorded in the repository-controlled project manifest,
 	// so a cloned repository can select Pi on its own.
 	PiAutoDiscoveredExtensions []string
-	// PiDeclaredExtensionFiles lists the regular files reachable through the
-	// local path declarations of the settings file's "extensions" array. They
-	// execute at launch like the auto-discovered ones, so they need their own
-	// content approval: the settings hash would otherwise pin the declaration
-	// while a later change to the declared file slipped through unreviewed.
-	PiDeclaredExtensionFiles []string
+	// PiDeclaredCodeFiles lists the regular files reachable through the local
+	// path declarations of the settings file: the "extensions" array, and the
+	// "packages" entries that name a local file or directory rather than an
+	// npm or git dependency. They execute at launch like the auto-discovered
+	// ones, so they need their own content approval: the settings hash would
+	// otherwise pin the declaration while a later change to the declared file
+	// slipped through unreviewed.
+	PiDeclaredCodeFiles []string
 	// MCPCommands lists the "command" of every mcp server entry declared in
 	// the project config (local servers only; remote URLs are endpoints,
 	// gated by the endpoint check instead).
@@ -404,11 +406,11 @@ func DiscoverProjectExecutionInputs(root string) (ProjectExecutionInputs, error)
 		return out, fmt.Errorf("inspect %s: %w", piSettings, err)
 	}
 	if out.PiProjectConfig != "" {
-		files, err := declaredPiExtensionFiles(root, out.PiProjectConfig)
+		files, err := declaredPiCodeFiles(root, out.PiProjectConfig)
 		if err != nil {
 			return out, fmt.Errorf("inspect %s: %w", piSettings, err)
 		}
-		out.PiDeclaredExtensionFiles = append(out.PiDeclaredExtensionFiles, files...)
+		out.PiDeclaredCodeFiles = append(out.PiDeclaredCodeFiles, files...)
 	}
 	piExtensions := filepath.Join(".pi", "extensions")
 	if abs, err := confinedProjectPath(root, piExtensions); err == nil {
@@ -424,7 +426,7 @@ func DiscoverProjectExecutionInputs(root string) (ProjectExecutionInputs, error)
 	sort.Strings(out.DeclaredPluginFiles)
 	sort.Strings(out.AutoDiscoveredPlugins)
 	sort.Strings(out.PiAutoDiscoveredExtensions)
-	sort.Strings(out.PiDeclaredExtensionFiles)
+	sort.Strings(out.PiDeclaredCodeFiles)
 	sort.Strings(out.MCPCommands)
 	sort.Strings(out.MCPEndpoints)
 	return out, nil
@@ -536,20 +538,24 @@ func declaredPluginTarget(configPath, ref string) (target string, local bool, er
 	return "", false, nil
 }
 
-// piExtensionMetacharacters are the characters that turn an "extensions" entry
-// into a glob pattern rather than a plain path.
+// piExtensionMetacharacters are the characters that turn a declared path (an
+// "extensions" entry, or a local "packages" source) into a glob pattern rather
+// than a plain path.
 const piExtensionMetacharacters = "*?[]{}"
 
-// declaredPiExtensionFiles resolves the local path declarations of a Pi
-// settings file's "extensions" array into the regular files Pi loads and runs
-// at launch.
+// declaredPiCodeFiles resolves the local path declarations of a Pi settings file
+// into the regular files Pi loads and runs at launch.
 //
 // Pi reads .pi/settings.json in preference to the managed global settings and
-// resolves path-valued entries relative to .pi. Only "extensions" is resolved:
-// it is the one resource Pi executes. "skills", "prompts" and "themes" name
-// content the model reads, and "packages" names registry packages — the same
-// boundary this package already draws for OpenCode, where a plugin declaration
-// is hashed but the contents of an npm package are not.
+// resolves path-valued entries relative to .pi. Two arrays can name project
+// files: "extensions" is the resource Pi executes directly, and "packages" may
+// name a local file or directory, which Pi loads as an extension without
+// copying it. Both have to be pinned by content here, or a change to a declared
+// file would slip past the approval that the settings hash gates (#345 review).
+// "skills", "prompts" and "themes" name content the model reads, and a package
+// that comes from npm or git is a dependency whose contents are not in the
+// project — the same boundary this package already draws for OpenCode, where a
+// plugin declaration is hashed but the contents of an npm package are not.
 //
 // Resolution is deliberately conservative in one direction only: a glob pattern
 // is resolved to its longest literal parent directory and everything under it
@@ -558,7 +564,7 @@ const piExtensionMetacharacters = "*?[]{}"
 // that resolves to the project root, a path above the project root, and a
 // home-relative path are refused rather than skipped, because skipping one would
 // reopen the bypass this resolution exists to close.
-func declaredPiExtensionFiles(root, settingsPath string) ([]string, error) {
+func declaredPiCodeFiles(root, settingsPath string) ([]string, error) {
 	rel, err := filepath.Rel(root, settingsPath)
 	if err != nil {
 		return nil, fmt.Errorf("read project Pi settings %s: %w", settingsPath, err)
@@ -578,23 +584,40 @@ func declaredPiExtensionFiles(root, settingsPath string) ([]string, error) {
 	if err != nil {
 		return nil, fmt.Errorf("parse project Pi settings %s: %w", settingsPath, err)
 	}
+	// The declared kind only shapes the wording of an error, but it has to be
+	// the kind the user wrote: "declared Pi extension" sent a user looking at
+	// the wrong array of the wrong file.
+	groups := []struct {
+		kind    string
+		values  []string
+		remotes bool
+	}{
+		{kind: "extension", values: piExtensionEntries(parsed["extensions"])},
+		{kind: "package", values: piPackageSources(parsed["packages"]), remotes: true},
+	}
 	var files []string
-	for _, entry := range piExtensionEntries(parsed["extensions"]) {
-		declared := strings.TrimSpace(entry)
-		if declared == "" {
-			continue
+	for _, group := range groups {
+		for _, entry := range group.values {
+			declared := strings.TrimSpace(entry)
+			if declared == "" {
+				continue
+			}
+			// Exclusions subtract from what Pi loads, so they cannot add an input:
+			// listing an excluded file would only be a false positive, and skipping
+			// one can never drop a file that loads.
+			if strings.HasPrefix(declared, "!") || strings.HasPrefix(declared, "-") {
+				continue
+			}
+			declared = strings.TrimPrefix(declared, "+")
+			if group.remotes && piPackageSourceIsRemote(declared) {
+				continue
+			}
+			resolved, err := piDeclaredPathTargetFiles(root, abs, group.kind, declared)
+			if err != nil {
+				return nil, err
+			}
+			files = append(files, resolved...)
 		}
-		// Exclusions subtract from what Pi loads, so they cannot add an input:
-		// listing an excluded file would only be a false positive, and skipping
-		// one can never drop a file that loads.
-		if strings.HasPrefix(declared, "!") || strings.HasPrefix(declared, "-") {
-			continue
-		}
-		resolved, err := piExtensionTargetFiles(root, abs, strings.TrimPrefix(declared, "+"))
-		if err != nil {
-			return nil, err
-		}
-		files = append(files, resolved...)
 	}
 	sort.Strings(files)
 	return files, nil
@@ -621,14 +644,60 @@ func piExtensionEntries(value any) []string {
 	}
 }
 
-// piExtensionTargetFiles resolves one "extensions" entry into the project files
-// it can make Pi load. Plain paths name a file or a directory; a glob pattern is
-// widened to its longest literal parent directory, which may list files the
-// pattern itself does not match.
-func piExtensionTargetFiles(root, settingsPath, entry string) ([]string, error) {
-	declared := fmt.Sprintf("declared Pi extension %q", entry)
+// piPackageSources normalizes the "packages" value into the source strings it
+// declares: Pi accepts a bare string or the object form, whose "source" field
+// holds the same string. A filter in the object form narrows what a package
+// loads, so it cannot add an input and is not resolved here.
+func piPackageSources(value any) []string {
+	switch typed := value.(type) {
+	case string:
+		return []string{typed}
+	case []any:
+		var out []string
+		for _, entry := range typed {
+			switch item := entry.(type) {
+			case string:
+				out = append(out, item)
+			case map[string]any:
+				if source, ok := item["source"].(string); ok {
+					out = append(out, source)
+				}
+			}
+		}
+		return out
+	default:
+		return nil
+	}
+}
+
+// piPackageSourceIsRemote reports whether a package source names something Pi
+// fetches rather than a project file. A dependency's contents are not in the
+// project, so they cannot be pinned by content — the boundary this package
+// already draws for OpenCode plugins. Anything left over is treated as a local
+// path by the caller, which refuses it if it escapes the project, so an
+// unrecognized protocol fails closed rather than silently skipping an input.
+func piPackageSourceIsRemote(source string) bool {
+	trimmed := strings.TrimSpace(source)
+	if trimmed == "" {
+		return true
+	}
+	for _, prefix := range []string{"npm:", "git:", "git@", "http://", "https://", "ssh://", "git://"} {
+		if strings.HasPrefix(trimmed, prefix) {
+			return true
+		}
+	}
+	return false
+}
+
+// piDeclaredPathTargetFiles resolves one declared path of a Pi settings file into
+// the project files it can make Pi load. Plain paths name a file or a directory;
+// a glob pattern is widened to its longest literal parent directory, which may
+// list files the pattern itself does not match. kind names the array the path
+// came from and appears in the refusals, so they point at what the user wrote.
+func piDeclaredPathTargetFiles(root, settingsPath, kind, entry string) ([]string, error) {
+	declared := fmt.Sprintf("declared Pi %s %q", kind, entry)
 	if entry == "~" || strings.HasPrefix(entry, "~/") || strings.HasPrefix(entry, `~\`) {
-		return nil, fmt.Errorf("%s: a home-relative path cannot be pinned by content; move the extension into the project", declared)
+		return nil, fmt.Errorf("%s: a home-relative path cannot be pinned by content; move the file into the project", declared)
 	}
 	parent, isPattern := piExtensionPatternParent(entry)
 	target := parent
@@ -643,7 +712,7 @@ func piExtensionTargetFiles(root, settingsPath, entry string) ([]string, error) 
 		return nil, fmt.Errorf("%s: resolves outside the project; only paths inside the project can be pinned by content", declared)
 	}
 	if isPattern && rel == "." {
-		return nil, fmt.Errorf("%s: a pattern rooted at the project root matches too much to pin by content; list the extensions explicitly", declared)
+		return nil, fmt.Errorf("%s: a pattern rooted at the project root matches too much to pin by content; list the files explicitly", declared)
 	}
 	abs, err := confinedProjectPath(root, rel)
 	if os.IsNotExist(err) {

@@ -181,7 +181,7 @@ func (inputs ProjectExecutionInputs) ExecutionInputPaths(root string) []string {
 	for _, rel := range inputs.PiAutoDiscoveredExtensions {
 		add(rel)
 	}
-	for _, rel := range inputs.PiDeclaredExtensionFiles {
+	for _, rel := range inputs.PiDeclaredCodeFiles {
 		add(rel)
 	}
 	sort.Strings(paths)

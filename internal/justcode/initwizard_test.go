@@ -1717,3 +1717,48 @@ func TestInitPlanRecordsTheHarnessAndRefusesPiWithPartialIsolation(t *testing.T)
 		t.Fatalf("default harness = %q, want %q", defaultPlan.Answers.Harness, HarnessOpenCode)
 	}
 }
+
+// A Pi project must not be left with an empty model the way an OpenCode one
+// can. Empty resolves at launch to the user settings' model, which is
+// OpenCode's and which Pi refuses by default, so the project the recap just
+// described could not start (#347 review). Init records the model it showed.
+func TestInitPlanRecordsThePiModelItShows(t *testing.T) {
+	root := initTestRoot(t)
+	wizard := InitWizard{ResolveDefaultModel: func() string { return "albert/qwen3-coder" }}
+	plan, err := wizard.Plan(InitAnswers{Root: root, Harness: string(HarnessPi)})
+	if err != nil {
+		t.Fatalf("Plan: %v", err)
+	}
+	if plan.Answers.Model != "albert/deepseek-v4-flash" {
+		t.Fatalf("plan model = %q, want the curated default Pi can run", plan.Answers.Model)
+	}
+	// The recap is unchanged by the recording: it shows the same model it
+	// always did, and now the manifest agrees with it.
+	if review := FormatInteractiveInitReview(plan); !strings.Contains(review, "modèle DeepSeek V4 Flash") {
+		t.Fatalf("the recap does not name the recorded model:\n%s", review)
+	}
+	if err := wizard.Apply(plan, false); err != nil {
+		t.Fatalf("Apply: %v", err)
+	}
+	pm, err := ReadProjectManifest(DefaultFS, plan.ManifestPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if pm.Model != plan.Answers.Model {
+		t.Fatalf("manifest model = %q, want the model the recap showed (%q)", pm.Model, plan.Answers.Model)
+	}
+	if reason := PiUnsupportedModelReason(pm.Model); reason != "" {
+		t.Fatalf("the recorded model cannot run under Pi: %s", reason)
+	}
+
+	// OpenCode keeps the empty answer: its launches already resolve the
+	// embedded asset's model, so recording one would change that behaviour.
+	opencodeRoot := initTestRoot(t)
+	opencodePlan, err := (InitWizard{}).Plan(InitAnswers{Root: opencodeRoot, Harness: string(HarnessOpenCode)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if opencodePlan.Answers.Model != "" {
+		t.Fatalf("an OpenCode plan recorded model %q", opencodePlan.Answers.Model)
+	}
+}
