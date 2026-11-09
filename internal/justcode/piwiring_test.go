@@ -241,7 +241,10 @@ func TestHarnessChangeIsCreationFixed(t *testing.T) {
 		t.Fatal("an unchanged Pi project was reported as creation-fixed")
 	}
 	// The harness is creation-fixed but is not a revision fact: hashing it
-	// would also schedule a non-destructive restart for the same change.
+	// would also schedule a non-destructive restart for the same change. (The
+	// composed Pi configuration is a revision fact on its own account, see
+	// TestConfigRevisionIncludesPiConfiguration; this asserts the harness field
+	// itself, which is what a switch changes.)
 	openCode := desired(HarnessOpenCode)
 	pi := desired(HarnessPi)
 	if openCode.ConfigRevision() != pi.ConfigRevision() {
@@ -363,5 +366,45 @@ func TestPiConfigFingerprintTracksTheConfiguration(t *testing.T) {
 	// The two documents must not be able to trade content for one another.
 	if PiConfigFingerprint(`{"a":1}`, `{"b":2}`) == PiConfigFingerprint(`{"a":1}{"b":2}`, ``) {
 		t.Fatal("the fingerprint does not separate the two documents")
+	}
+}
+
+// The desired state has to carry the composed configuration, not only the
+// revision machinery it feeds. A wiring gap here would compute the same
+// revision for a changed catalogue, reconcile a running guest to a no-op, and
+// let the launch ask Pi for a model the guest's models.json lacks.
+func TestDesiredStateCarriesTheComposedPiConfiguration(t *testing.T) {
+	isolateHostState(t)
+	m := newTestMicrosandbox(t, &fakeMSBClient{})
+	m.OpenCodeOverlay = albertOverlay()
+
+	// Another harness composes no Pi configuration, so an OpenCode project's
+	// revision does not move.
+	if got := m.desiredState(true, nil, nil).PiConfigFingerprint; got != "" {
+		t.Fatalf("an OpenCode project carried a Pi fingerprint: %q", got)
+	}
+
+	m.cfg.Harness = HarnessPi
+	desired := m.desiredState(true, nil, nil)
+	env := piSandboxEnv(HarnessPi, m.OpenCodeOverlay)
+	if desired.PiConfigFingerprint == "" {
+		t.Fatal("a Pi project's desired state carries no configuration fingerprint")
+	}
+	if desired.PiConfigFingerprint != env[PiConfigFingerprintEnv] {
+		t.Fatalf("fingerprint = %q, want the value the guest is prepared with (%q)",
+			desired.PiConfigFingerprint, env[PiConfigFingerprintEnv])
+	}
+
+	// A curated model is added: the composition changes, so the guest that is
+	// still running the previous document has to be refreshed and restarted.
+	applied := desired.toState()
+	changed := m.OpenCodeOverlay
+	changed.Models = append(append([]AlbertModelConfig(nil), changed.Models...),
+		AlbertModelConfig{ID: "gemma-3", ModelID: "google/gemma-3-27b-it", Name: "Gemma 3", Context: 131072})
+	m.OpenCodeOverlay = changed
+	plan := PlanReconcile(&applied, m.desiredState(true, nil, nil),
+		ReconcileFacts{Exists: true, Running: true, Healthy: true})
+	if !sameOps(plan.Ops, []ReconcileOp{OpRefreshCredentials, OpRestartVM}) {
+		t.Fatalf("a recomposed Pi catalogue must refresh and restart the guest, got %v (%s)", plan.Ops, plan.Reason)
 	}
 }

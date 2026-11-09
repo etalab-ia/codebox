@@ -1131,6 +1131,36 @@ func piSandboxEnv(harness Harness, overlay ManagedOverlay) map[string]string {
 	return env
 }
 
+// piConfigFingerprint is the digest of the composed Pi configuration for an
+// effective harness, or "" when there is none. The guest is prepared from that
+// configuration once, out of the sandbox environment, and the launch then
+// passes the selected model on the command line. Carrying the digest in the
+// desired state is what makes a guest still running the previous catalogue
+// restart before it is asked for a model it does not have.
+//
+// This recomposes the documents rather than reading the environment builder's
+// value, the same way the desired state recomputes the image and the guest
+// profile: a read-only reconcile must not print a warning about a
+// configuration it is not applying. A composition failure reports "" and
+// cannot hide it, because the same failure omits the variables the prep script
+// refuses to finish without. The agreement between this value and the one the
+// guest is prepared with is pinned by
+// TestDesiredStateCarriesTheComposedPiConfiguration.
+func piConfigFingerprint(harness Harness, overlay ManagedOverlay) string {
+	if harness != HarnessPi {
+		return ""
+	}
+	models, err := ComposePiModelsConfig(overlay)
+	if err != nil {
+		return ""
+	}
+	settings, err := ComposePiSettingsConfig()
+	if err != nil {
+		return ""
+	}
+	return PiConfigFingerprint(models, settings)
+}
+
 // msbGitNameEnv and msbGitEmailEnv carry the guest commit identity into the
 // sandbox environment, where the prep script reads them.
 const (

@@ -242,6 +242,15 @@ type DesiredState struct {
 	// excluded: a model change is a rendering preference, effective at the
 	// next boot by design, not a security state.
 	MCPConnectors []string
+	// PiConfigFingerprint is the digest of the Pi configuration the guest is
+	// sent (models.json and settings.json). It participates for a different
+	// reason than the managed Model is excluded: the Pi launch resolves the
+	// selection to a model id and passes it on the command line, so a running
+	// guest prepared from an older catalogue cannot serve a model added since.
+	// The digest is hashed, not the selection, so two selections that compose
+	// the same documents describe the same guest. It is empty for another
+	// harness, which keeps an OpenCode guest's revision unchanged.
+	PiConfigFingerprint string
 }
 
 // ConfigRevision hashes the non-secret configuration. Credential values
@@ -273,6 +282,12 @@ func (d DesiredState) ConfigRevision() string {
 		sorted := append([]string(nil), d.MCPConnectors...)
 		sort.Strings(sorted)
 		parts = append(parts, "mcps:"+strings.Join(sorted, ","))
+	}
+	// Same shape contract as GitHubOrigin and MCPConnectors: an empty
+	// fingerprint contributes nothing, so a project with no managed Pi
+	// configuration keeps the revision it already had.
+	if d.PiConfigFingerprint != "" {
+		parts = append(parts, "pi:"+d.PiConfigFingerprint)
 	}
 	for _, part := range parts {
 		_, _ = h.Write([]byte(part))
@@ -637,6 +652,10 @@ func (m *MicrosandboxRuntime) desiredState(resolved bool, bindings []resolvedBin
 		PortsConfigured: m.cfg.PortsConfigured,
 		MCPConnectors:   append([]string(nil), m.OpenCodeOverlay.MCPConnectors...),
 	}
+	// The composed Pi configuration is prepared into the guest once, from the
+	// environment this run builds; carrying its digest here is how a later
+	// change to it reaches a guest that is still running the previous one.
+	d.PiConfigFingerprint = piConfigFingerprint(m.cfg.EffectiveHarness(), m.OpenCodeOverlay)
 	if len(browserMCPIDs(applicableMCPs)) > 0 {
 		d.GuestProfile = browserGuestProfileRevision()
 	}

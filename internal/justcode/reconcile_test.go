@@ -191,6 +191,60 @@ func TestPlanReconcileRestartsRunningGuestOnMCPChange(t *testing.T) {
 	}
 }
 
+// TestConfigRevisionIncludesPiConfiguration pins the Pi counterpart of the MCP
+// contract: a Pi guest is prepared from the composed documents, and the launch
+// resolves the selection on the host and passes the model on the command line,
+// so a changed composition has to move the revision or a guest still running
+// the previous catalogue is asked for a model it does not have.
+func TestConfigRevisionIncludesPiConfiguration(t *testing.T) {
+	base := DesiredState{Instance: "i", Isolation: IsolationBackend, Image: "img", Username: "u"}
+	configured := base
+	configured.PiConfigFingerprint = PiConfigFingerprint(`{"models":"a"}`, `{"settings":"a"}`)
+	if base.ConfigRevision() == configured.ConfigRevision() {
+		t.Fatal("a managed Pi configuration must change the revision")
+	}
+	changed := base
+	changed.PiConfigFingerprint = PiConfigFingerprint(`{"models":"b"}`, `{"settings":"a"}`)
+	if configured.ConfigRevision() == changed.ConfigRevision() {
+		t.Fatal("a model added to the composed Pi catalogue must change the revision")
+	}
+	// The empty case is pinned against the hash shape a state file written
+	// before this field carries, not by comparing two revisions computed by
+	// the same code: a regression that made a non-Pi project contribute a part
+	// would move both sides together and stay green, while every existing
+	// OpenCode guest would restart once on upgrade.
+	legacyHash := sha256.New()
+	for _, part := range []string{"jc-state-v1", base.Instance, string(base.Isolation), base.Image, base.Username,
+		"rev:" + base.CredentialRev, "gen:" + base.CredentialGeneration} {
+		_, _ = legacyHash.Write([]byte(part))
+		_, _ = legacyHash.Write([]byte{0})
+	}
+	if got, want := base.ConfigRevision(), hex.EncodeToString(legacyHash.Sum(nil))[:16]; got != want {
+		t.Fatalf("empty fingerprint revision = %s, want the unchanged hash %s (an OpenCode guest must not restart)", got, want)
+	}
+}
+
+// TestPlanReconcileRestartsRunningGuestOnPiConfigurationChange pins the
+// classification end to end for the reported defect: a running healthy guest
+// holding the previous Pi catalogue has to be refreshed and restarted, not
+// left as a no-op that the launch then walks into.
+func TestPlanReconcileRestartsRunningGuestOnPiConfigurationChange(t *testing.T) {
+	base := DesiredState{Instance: "i", Isolation: IsolationBackend, Image: "img", Username: "u"}
+	applied := base.toState()
+	desired := base
+	desired.PiConfigFingerprint = PiConfigFingerprint(`{"models":"qwen3-coder"}`, `{"settings":"managed"}`)
+	plan := PlanReconcile(&applied, desired, ReconcileFacts{Exists: true, Running: true, Healthy: true})
+	if !sameOps(plan.Ops, []ReconcileOp{OpRefreshCredentials, OpRestartVM}) {
+		t.Fatalf("ops = %v, want refresh-credentials + restart-vm (reason: %s)", plan.Ops, plan.Reason)
+	}
+	// The same configuration on the same guest stays a no-op, so a Pi project
+	// does not restart on every run.
+	same := desired.toState()
+	if plan := PlanReconcile(&same, desired, ReconcileFacts{Exists: true, Running: true, Healthy: true}); !plan.IsNoOp() {
+		t.Fatalf("an unchanged Pi configuration must stay a no-op, got %v", plan.Ops)
+	}
+}
+
 // TestDesiredStateCarriesOverlayMCPSelection pins the wiring the revision
 // tests abstract away: the overlay the dispatcher installs must reach the
 // desired state, or a changed selection would compute the same revision as
