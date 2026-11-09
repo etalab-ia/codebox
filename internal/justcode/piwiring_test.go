@@ -59,6 +59,48 @@ func TestPiSandboxEnvCarriesVersionAndConfiguration(t *testing.T) {
 	}
 }
 
+// A Pi project whose provider block cannot be composed is refused before the
+// guest is touched, rather than by omitting the managed variables: the refresh
+// merges, so an existing guest would keep preparing itself against a model the
+// project no longer selects and the launch would then ask it for the rejected
+// one (#347).
+func TestMSBPiCompositionFailureIsRefusedBeforeTheGuestIsTouched(t *testing.T) {
+	client := &fakeMSBClient{exists: true, status: "running"}
+	m := newTestMicrosandbox(t, client)
+	m.cfg.Harness = HarnessPi
+	overlay := albertOverlay()
+	overlay.Model = "albert/qwen3-coder"
+	m.OpenCodeOverlay = overlay
+
+	ctx := context.Background()
+	for name, run := range map[string]func() error{
+		"refresh": func() error { return m.applyReconcileOp(ctx, OpRefreshCredentials, nil) },
+		"start":   func() error { return m.start(ctx, nil) },
+		"attach":  func() error { return m.runPiAgent(ctx) },
+	} {
+		err := run()
+		if err == nil || !strings.Contains(err.Error(), "cannot compose the managed Pi provider configuration") {
+			t.Fatalf("%s error = %v, want the Pi composition refusal", name, err)
+		}
+	}
+	if len(client.calls) != 0 {
+		t.Fatalf("a refused Pi launch touched the guest: %v", client.calls)
+	}
+	if client.modifiedEnv != nil {
+		t.Fatalf("a refused Pi launch persisted an environment: %v", client.modifiedEnv)
+	}
+
+	// The refusal is about preparing a Pi guest, not about the project: the
+	// same overlay under the other harness still composes.
+	if err := m.piManagedConfigError(); err == nil {
+		t.Fatal("Pi accepted a model it cannot run")
+	}
+	m.cfg.Harness = HarnessOpenCode
+	if err := m.piManagedConfigError(); err != nil {
+		t.Fatalf("OpenCode refused a configuration it does not compose: %v", err)
+	}
+}
+
 // Readiness is harness-specific: waiting for `opencode --version` in a Pi
 // guest would never become true, and the launch would time out for the wrong
 // reason.

@@ -588,6 +588,13 @@ func (m *MicrosandboxRuntime) Start(ctx context.Context) error {
 // The two steps are separate because provisioning needs a running guest: the
 // transfer is written into the sandbox, so it can only happen after boot.
 func (m *MicrosandboxRuntime) start(ctx context.Context, bindings []resolvedBinding) error {
+	// A Pi guest whose managed configuration this run cannot compose is
+	// refused here, before the sandbox is created or refreshed: the composed
+	// documents travel in the guest environment, and a start that omits them
+	// comes back as a preparation timeout rather than as the reason.
+	if err := m.piManagedConfigError(); err != nil {
+		return err
+	}
 	skillsReconciledBeforeLaunch := false
 	preflightSkills := func() error {
 		if err := m.installProjectSkills(ctx); err != nil {
@@ -1099,14 +1106,36 @@ func (m *MicrosandboxRuntime) sandboxEnv() map[string]string {
 	return env
 }
 
+// piManagedConfigError reports why the managed Pi configuration cannot be
+// composed, or nil when it can and for every other harness. A Pi guest is
+// prepared from that configuration once, and the launch then asks the guest
+// for the selected model, so a project whose provider block cannot be composed
+// must fail before the guest is touched.
+func (m *MicrosandboxRuntime) piManagedConfigError() error {
+	if m.cfg.EffectiveHarness() != HarnessPi {
+		return nil
+	}
+	if _, err := ComposePiModelsConfig(m.OpenCodeOverlay); err != nil {
+		return fmt.Errorf("cannot compose the managed Pi provider configuration: %w", err)
+	}
+	if _, err := ComposePiSettingsConfig(); err != nil {
+		return fmt.Errorf("cannot compose the managed Pi settings: %w", err)
+	}
+	return nil
+}
+
 // piSandboxEnv returns the Pi-specific guest environment: the pinned release
 // and the managed configuration. It is empty for another harness, so the
 // OpenCode guest environment is unchanged.
 //
-// A composition failure omits the configuration variables on purpose. The prep
-// script runs under `set -u` and refuses to announce readiness without them, so
-// the launch fails with a visible preparation error instead of starting Pi
-// without any provider.
+// A composition failure omits the configuration variables, and that omission
+// is only a backstop for a guest that never had them: ModifyNextStart merges,
+// so a guest already holding them keeps preparing itself against a
+// configuration this project no longer selects. The paths that boot, refresh
+// or attach to a Pi guest therefore refuse the operation through
+// piManagedConfigError before the environment is applied, and the prep
+// script's refusal to announce readiness without the variables covers only the
+// guest that has none.
 func piSandboxEnv(harness Harness, overlay ManagedOverlay) map[string]string {
 	if harness != HarnessPi {
 		return nil
@@ -1141,9 +1170,10 @@ func piSandboxEnv(harness Harness, overlay ManagedOverlay) map[string]string {
 // This recomposes the documents rather than reading the environment builder's
 // value, the same way the desired state recomputes the image and the guest
 // profile: a read-only reconcile must not print a warning about a
-// configuration it is not applying. A composition failure reports "" and
-// cannot hide it, because the same failure omits the variables the prep script
-// refuses to finish without. The agreement between this value and the one the
+// configuration it is not applying. A composition failure reports "" here,
+// and the apply refuses the operation through piManagedConfigError instead of
+// relying on omitted variables to invalidate an existing guest. The agreement
+// between this value and the one the
 // guest is prepared with is pinned by
 // TestDesiredStateCarriesTheComposedPiConfiguration.
 func piConfigFingerprint(harness Harness, overlay ManagedOverlay) string {
@@ -1645,6 +1675,12 @@ func (m *MicrosandboxRuntime) RunAgent(ctx context.Context) error {
 // terminal passthrough. There is no session listing CLI to probe, so the
 // resume decision reads the session store the same way Pi does.
 func (m *MicrosandboxRuntime) runPiAgent(ctx context.Context) error {
+	// The launch passes the selected model on the command line, so a
+	// configuration this run cannot compose must not reach a guest that is
+	// still prepared from the previous one.
+	if err := m.piManagedConfigError(); err != nil {
+		return err
+	}
 	if m.Launch != nil && m.Launch.Terminal {
 		for _, line := range m.Launch.Checklist() {
 			fmt.Fprintln(os.Stderr, line)

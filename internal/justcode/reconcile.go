@@ -821,6 +821,14 @@ func (m *MicrosandboxRuntime) workspaceProvenanceChanged(ctx context.Context) bo
 // applyReconcileOp executes one plan operation. Every operation is
 // idempotent, which is what makes the journal safe to replay.
 func (m *MicrosandboxRuntime) applyReconcileOp(ctx context.Context, op ReconcileOp, bindings []resolvedBinding) error {
+	// Every operation below either refreshes the guest environment or boots
+	// the harness in it, so none of them runs for a Pi guest whose managed
+	// configuration this run cannot compose: the refresh merges and would
+	// leave the previous configuration in place, and the boot would launch
+	// the selected model against a guest prepared for another one.
+	if err := m.piManagedConfigError(); err != nil {
+		return err
+	}
 	switch op {
 	case OpCreate, OpStartVM:
 		return m.Start(ctx)
