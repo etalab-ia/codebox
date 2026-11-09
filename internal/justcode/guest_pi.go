@@ -18,13 +18,27 @@ import (
 // macOS guest, the Lima guest and the Microsandbox guest, without the host
 // having to know the guest user.
 
+// piGuestBinDir is the directory the runtime-exec install puts the pinned Pi
+// binary in, and what piAgentLaunch prepends to the guest PATH.
+//
+// It lives under $HOME because the install runs as the guest user. The managed
+// agent-vm template installs Node system-wide through apt, which leaves npm's
+// global prefix root-owned, so a plain `npm install -g` there fails with EACCES
+// and Pi never launches. The Microsandbox path has root and installs under
+// /opt/just-code/pi with a symlink into /usr/local/bin instead.
+const piGuestBinDir = "$HOME/.local/bin"
+
 // piGuestInstallScript is a POSIX shell fragment that installs the pinned Pi
-// release in the guest when it is missing or at another version. The guest
-// needs npm on its PATH; every supported runtime's guest image provides it.
+// release in the guest when it is missing or at another version, into a
+// user-owned npm prefix. The trailing check makes a failed install fail the
+// step rather than reaching the launch with no binary. The guest needs npm on
+// its PATH; every supported runtime's guest image provides it.
 func piGuestInstallScript() string {
 	return fmt.Sprintf(
-		`if ! command -v pi >/dev/null 2>&1 || [ "$(pi --version 2>/dev/null)" != %s ]; then npm install -g %s@%s || exit 1; fi`,
-		shellQuote(PiVersion), shellQuote(PiPackage), shellQuote(PiVersion))
+		`if [ "$(%[1]s/pi --version 2>/dev/null || true)" != %[2]s ]; then `+
+			`npm install --global --prefix "$HOME/.local" %[3]s@%[2]s || exit 1; fi; `+
+			`test "$(%[1]s/pi --version 2>/dev/null)" = %[2]s`,
+		piGuestBinDir, shellQuote(PiVersion), shellQuote(PiPackage))
 }
 
 // piGuestConfigScript is a POSIX shell fragment that writes the managed Pi
@@ -96,6 +110,6 @@ func piAgentLaunch(secretsPath, workspaceDir string, args []string) string {
 	if len(quoted) > 0 {
 		suffix = " " + strings.Join(quoted, " ")
 	}
-	return fmt.Sprintf("set -a; . %s; set +a; cd %s; exec pi%s",
-		shellQuote(secretsPath), shellQuote(workspaceDir), suffix)
+	return fmt.Sprintf("set -a; . %s; set +a; cd %s; PATH=%s:$PATH; export PATH; exec pi%s",
+		shellQuote(secretsPath), shellQuote(workspaceDir), piGuestBinDir, suffix)
 }

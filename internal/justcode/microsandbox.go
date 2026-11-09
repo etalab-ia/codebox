@@ -51,6 +51,11 @@ const (
 	// which has no health endpoint.
 	msbToolchainMarker  = "/var/lib/just-code/toolchain-ready"
 	msbBrowserMCPMarker = "/var/lib/just-code/browser-mcps-ready"
+	// msbPiConfigMarker is written by pi-guest-prep.sh once Pi's models.json and
+	// settings.json are on disk. Its content is the fingerprint of the
+	// configuration that was written, so a marker left by an earlier
+	// configuration cannot report the guest ready for the current one.
+	msbPiConfigMarker = "/var/lib/just-code/pi-config-ready"
 
 	msbBrowserMCPIDsEnv         = "JUST_CODE_BROWSER_MCP_IDS"
 	msbBrowserMCPPackagesEnv    = "JUST_CODE_BROWSER_MCP_PACKAGES"
@@ -965,15 +970,24 @@ var msbGuestPrepareProbe = msbGuestPrepareProbeFor(HarnessOpenCode)
 // The browser-profile clause is OpenCode-only for the same reason: only the
 // OpenCode prep installs the browser MCPs and writes their marker, so requiring
 // that marker from a Pi guest would wait for something no Pi preparation ever
-// produces. A Pi guest keeps the toolchain marker and the process scan.
+// produces.
+//
+// Pi's readiness additionally requires its configuration marker. Pi always has
+// a managed configuration and the prep writes it after the binary, so probing
+// only the binary would report a cold guest ready before the configuration
+// exists, and a restarted guest ready on the previous configuration while the
+// prep rewrites it. The marker carries the fingerprint of what was written, so
+// the comparison is against the configuration this launch is sending.
 func msbGuestPrepareProbeFor(harness Harness) string {
+	fingerprintEnv := msbBrowserMCPFingerprintEnv
 	toolchain := "[ \"$(opencode --version 2>/dev/null)\" = \"opencode v" + OpenCodeVersion + "\" ]"
 	profile := "if [ -z \"$fingerprint\" ] || [ \"$(cat " + msbBrowserMCPMarker + " 2>/dev/null)\" = \"$fingerprint\" ]; then exit " + strconv.Itoa(msbPrepareReady) + "; fi; fi; "
 	if harness == HarnessPi {
+		fingerprintEnv = PiConfigFingerprintEnv
 		toolchain = "[ \"$(pi --version 2>/dev/null)\" = \"" + PiVersion + "\" ]"
-		profile = "exit " + strconv.Itoa(msbPrepareReady) + "; fi; "
+		profile = "if [ -f " + msbPiConfigMarker + " ] && [ \"$(cat " + msbPiConfigMarker + " 2>/dev/null)\" = \"$fingerprint\" ]; then exit " + strconv.Itoa(msbPrepareReady) + "; fi; fi; "
 	}
-	return "fingerprint=\"${" + msbBrowserMCPFingerprintEnv + ":-}\"; " +
+	return "fingerprint=\"${" + fingerprintEnv + ":-}\"; " +
 		"if [ -f " + msbToolchainMarker + " ] && " + toolchain + "; then " +
 		profile +
 		"self=$$; " +
@@ -1113,6 +1127,7 @@ func piSandboxEnv(harness Harness, overlay ManagedOverlay) map[string]string {
 	}
 	env[PiModelsEnv] = models
 	env[PiSettingsEnv] = settings
+	env[PiConfigFingerprintEnv] = PiConfigFingerprint(models, settings)
 	return env
 }
 

@@ -185,8 +185,34 @@ func TestPiGuestInstallScriptPinsTheRelease(t *testing.T) {
 	if !strings.Contains(script, PiPackage) || !strings.Contains(script, PiVersion) {
 		t.Fatalf("install script does not pin the release: %s", script)
 	}
-	if !strings.Contains(script, "npm install -g") {
+	if !strings.Contains(script, "npm install --global --prefix") {
 		t.Fatalf("install script = %s", script)
+	}
+	// The install runs as the guest user, and the managed agent-vm template
+	// leaves npm's global prefix root-owned: a plain global install fails there
+	// with EACCES and Pi never launches. The prefix must stay user-owned.
+	if !strings.Contains(script, `--prefix "$HOME/.local"`) {
+		t.Fatalf("install script does not use a user-owned prefix: %s", script)
+	}
+	if strings.Contains(script, "npm install -g ") {
+		t.Fatalf("install script still installs into the root-owned global prefix: %s", script)
+	}
+	// The fragment is run through `sh -c`, so a failure has to be an exit code.
+	if !strings.Contains(script, "|| exit 1") {
+		t.Fatalf("install script swallows a failed install: %s", script)
+	}
+}
+
+// The install lands in a user-owned prefix, so the launch has to put that
+// prefix on the guest PATH: nothing else does, and `exec pi` would otherwise
+// not find the binary it just installed.
+func TestPiAgentLaunchAddsTheInstallPrefixToPath(t *testing.T) {
+	launch := piAgentLaunch("/tmp/just-code-agent.env", "/workspace", nil)
+	if !strings.Contains(launch, "PATH="+piGuestBinDir+":$PATH") {
+		t.Fatalf("launch does not search the install prefix: %s", launch)
+	}
+	if !strings.Contains(launch, "exec pi") {
+		t.Fatalf("launch does not exec pi: %s", launch)
 	}
 }
 

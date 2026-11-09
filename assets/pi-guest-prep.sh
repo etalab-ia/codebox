@@ -37,6 +37,18 @@ printf '%s\n' "${JUST_CODE_PI_MODELS_JSON}" > "$HOME/.pi/agent/models.json"
 printf '%s\n' "${JUST_CODE_PI_SETTINGS_JSON}" > "$HOME/.pi/agent/settings.json"
 chmod 600 "$HOME/.pi/agent/models.json" "$HOME/.pi/agent/settings.json"
 
+# The readiness marker is written last, and only once the configuration is on
+# disk: the probe requires it, so a guest whose configuration is still being
+# written is never reported ready. Its content is the fingerprint of what was
+# written, which is compared against the configuration the host is sending.
+if [ -z "${JUST_CODE_PI_CONFIG_FINGERPRINT:-}" ]; then
+  echo "pi-guest-prep: the managed Pi configuration fingerprint is missing from the guest environment" >&2
+  exit 1
+fi
+pi_config_marker=/var/lib/just-code/pi-config-ready
+printf '%s\n' "$JUST_CODE_PI_CONFIG_FINGERPRINT" > "${pi_config_marker}.tmp"
+mv "${pi_config_marker}.tmp" "$pi_config_marker"
+
 # The identity configured by the global setup (P11) reaches the guest through
 # the sandbox environment; these defaults keep an unconfigured machine usable.
 git config --global user.name "${JUST_CODE_GIT_NAME:-Albert Code Agent}"

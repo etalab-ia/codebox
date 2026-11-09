@@ -47,6 +47,11 @@ const (
 	PiModelsEnv = "JUST_CODE_PI_MODELS_JSON"
 	// PiSettingsEnv carries the composed settings.json the same way.
 	PiSettingsEnv = "JUST_CODE_PI_SETTINGS_JSON"
+	// PiConfigFingerprintEnv carries a digest of both composed documents into
+	// the Microsandbox guest. The prep writes it back to a marker once the two
+	// files are on disk, and the readiness probe requires that marker, so a
+	// guest whose configuration is still being written is not reported ready.
+	PiConfigFingerprintEnv = "JUST_CODE_PI_CONFIG_FINGERPRINT"
 	// PiSkipVersionCheckEnv disables Pi's own update check inside the guest.
 	// A managed guest has no update path (see #178 for OpenCode's equivalent):
 	// the release is the pinned one above, and prompting about a newer Pi would

@@ -1,6 +1,8 @@
 package justcode
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"sort"
@@ -230,4 +232,15 @@ func PiModelRef(o ManagedOverlay) string {
 		}
 	}
 	return selection
+}
+
+// PiConfigFingerprint digests the managed Pi configuration so a guest can
+// report which configuration it actually has on disk. The prep writes it to a
+// marker next to the files, and the readiness probe compares the marker to the
+// fingerprint the host is currently sending: matching means the guest holds the
+// configuration this launch wants, and a mismatch means preparation still has
+// to run, even when an older marker and the installed binary already exist.
+func PiConfigFingerprint(models, settings string) string {
+	sum := sha256.Sum256([]byte(models + "\x00" + settings))
+	return hex.EncodeToString(sum[:])
 }

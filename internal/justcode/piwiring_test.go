@@ -48,6 +48,12 @@ func TestPiSandboxEnvCarriesVersionAndConfiguration(t *testing.T) {
 	if strings.Contains(env[PiModelsEnv], "ALBERT_API_KEY:") {
 		t.Fatalf("models.json embeds a literal key: %s", env[PiModelsEnv])
 	}
+	// The readiness probe compares the guest's marker against this value, so it
+	// has to describe the two documents actually being sent.
+	if env[PiConfigFingerprintEnv] != PiConfigFingerprint(env[PiModelsEnv], env[PiSettingsEnv]) {
+		t.Fatalf("%s = %q does not match the configuration it is sent with",
+			PiConfigFingerprintEnv, env[PiConfigFingerprintEnv])
+	}
 	if got := piSandboxEnv(HarnessOpenCode, overlay); got != nil {
 		t.Fatalf("OpenCode harness got a Pi environment: %v", got)
 	}
@@ -80,6 +86,17 @@ func TestMSBGuestPrepareProbeFollowsTheHarness(t *testing.T) {
 	}
 	if strings.Contains(pi, msbBrowserMCPMarker) {
 		t.Fatalf("the Pi probe still waits for a browser profile it never installs: %s", pi)
+	}
+	// Pi writes its managed configuration after the binary, so probing the
+	// binary alone reports a cold guest ready before that configuration exists,
+	// and a restarted guest ready on the previous one while the prep rewrites
+	// it. Readiness has to require the marker carrying the configuration the
+	// host is currently sending.
+	if !strings.Contains(pi, msbPiConfigMarker) || !strings.Contains(pi, PiConfigFingerprintEnv) {
+		t.Fatalf("the Pi probe does not wait for the Pi configuration: %s", pi)
+	}
+	if strings.Contains(opencode, msbPiConfigMarker) || strings.Contains(opencode, PiConfigFingerprintEnv) {
+		t.Fatalf("the OpenCode probe waits for a Pi configuration: %s", opencode)
 	}
 }
 
@@ -280,7 +297,7 @@ func TestTartPiLaunchInstallsConfiguresAndSelectsTheModel(t *testing.T) {
 	for _, call := range r.calls {
 		// shellQuote quotes the package and the version separately, so the
 		// assertion is on the two values and the install verb.
-		if strings.Contains(call, "npm install -g") && strings.Contains(call, PiPackage) && strings.Contains(call, PiVersion) {
+		if strings.Contains(call, "npm install --global --prefix") && strings.Contains(call, PiPackage) && strings.Contains(call, PiVersion) {
 			installed = true
 		}
 		if strings.Contains(call, "/.pi/agent/models.json") && strings.Contains(call, "Qwen/Qwen3-Coder-30B-A3B-Instruct") {
@@ -305,5 +322,46 @@ func TestTartPiLaunchInstallsConfiguresAndSelectsTheModel(t *testing.T) {
 	}
 	if !strings.Contains(launch, "--model") || !strings.Contains(launch, "Qwen/Qwen3-Coder-30B-A3B-Instruct") {
 		t.Fatalf("the selected model never reached the agent: %s", launch)
+	}
+}
+
+// The prep script and the probe have to agree on where readiness is recorded,
+// and the marker has to be written after the configuration it describes: a
+// marker published earlier reports a guest ready before it has a provider.
+func TestPiPrepPublishesTheConfigurationMarkerLast(t *testing.T) {
+	models := strings.Index(piGuestPrepScript, `> "$HOME/.pi/agent/models.json"`)
+	settings := strings.Index(piGuestPrepScript, `> "$HOME/.pi/agent/settings.json"`)
+	marker := strings.Index(piGuestPrepScript, msbPiConfigMarker)
+	if models < 0 || settings < 0 || marker < 0 {
+		t.Fatalf("the Pi prep script lost a configuration step:\n%s", piGuestPrepScript)
+	}
+	if marker < models || marker < settings {
+		t.Fatalf("the Pi prep script publishes the readiness marker before the configuration it describes")
+	}
+	if !strings.Contains(piGuestPrepScript, PiConfigFingerprintEnv) {
+		t.Fatalf("the Pi prep script does not publish the fingerprint the probe compares")
+	}
+}
+
+// The fingerprint is what ties a marker to the configuration it was written
+// for: two different configurations must not share one, or a restarted guest
+// reports ready on the previous configuration while the prep rewrites it.
+func TestPiConfigFingerprintTracksTheConfiguration(t *testing.T) {
+	base := PiConfigFingerprint(`{"a":1}`, `{"b":2}`)
+	if base == "" {
+		t.Fatal("fingerprint is empty")
+	}
+	if base != PiConfigFingerprint(`{"a":1}`, `{"b":2}`) {
+		t.Fatal("the same configuration produced two fingerprints")
+	}
+	if base == PiConfigFingerprint(`{"a":1}`, `{"b":3}`) {
+		t.Fatal("a changed setting did not change the fingerprint")
+	}
+	if base == PiConfigFingerprint(`{"a":9}`, `{"b":2}`) {
+		t.Fatal("a changed model document did not change the fingerprint")
+	}
+	// The two documents must not be able to trade content for one another.
+	if PiConfigFingerprint(`{"a":1}`, `{"b":2}`) == PiConfigFingerprint(`{"a":1}{"b":2}`, ``) {
+		t.Fatal("the fingerprint does not separate the two documents")
 	}
 }
