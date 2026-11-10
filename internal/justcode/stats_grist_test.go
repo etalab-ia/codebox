@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 )
 
@@ -281,6 +282,76 @@ func TestFlushStatsToGristKeepsABare403(t *testing.T) {
 	}
 	if events, _ := PendingStatsEvents(DefaultFS, stateDir); len(events) != 1 {
 		t.Fatalf("a bare 403 must keep the event: %v", events)
+	}
+}
+
+// A 400 means the request does not match the table, which hits every event
+// equally. Discarding on it destroys the whole dataset while reporting nothing:
+// observed live when a column became a formula and the client drained its queue
+// to zero with no row written.
+func TestFlushStatsToGristKeepsEventsWhenTheTableRejectsTheShape(t *testing.T) {
+	statsTestHome(t)
+	if err := WriteStatsConsent(DefaultFS, mustSettingsPath(t), true, true); err != nil {
+		t.Fatal(err)
+	}
+	stateDir := t.TempDir()
+	for _, id := range []string{"e1", "e2", "e3"} {
+		if err := EnqueueStatsEvent(DefaultFS, stateDir, StatsEvent{SchemaVersion: 1, EventID: id, Kind: "setup"}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusBadRequest)
+		_, _ = w.Write([]byte(`{"error":"Error manipulating data: [Sandbox] ValueError Can't save value to formula column eventId"}`))
+	}))
+	defer server.Close()
+	t.Setenv("JUST_CODE_STATS_URL", server.URL+gristTestPath)
+
+	err := FlushStats(context.Background(), DefaultFS, stateDir)
+	if err == nil {
+		t.Fatal("a 400 must be reported")
+	}
+	// The cause has to be named, or the operator cannot tell a bad column from
+	// an outage.
+	if !strings.Contains(err.Error(), "formula column eventId") {
+		t.Fatalf("the error must carry Grist's message: %v", err)
+	}
+	if events, _ := PendingStatsEvents(DefaultFS, stateDir); len(events) != 3 {
+		t.Fatalf("a 400 must keep every event until the table is fixed: got %d", len(events))
+	}
+}
+
+// Correcting the snapshot must be enough to deliver a backlog a 400 had held.
+func TestFlushStatsToGristDeliversABacklogOnceTheTableIsFixed(t *testing.T) {
+	statsTestHome(t)
+	if err := WriteStatsConsent(DefaultFS, mustSettingsPath(t), true, true); err != nil {
+		t.Fatal(err)
+	}
+	stateDir := t.TempDir()
+	if err := EnqueueStatsEvent(DefaultFS, stateDir, StatsEvent{SchemaVersion: 1, EventID: "held", Kind: "setup"}); err != nil {
+		t.Fatal(err)
+	}
+	var healthy atomic.Bool
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !healthy.Load() {
+			w.WriteHeader(http.StatusBadRequest)
+			_, _ = w.Write([]byte(`{"error":"Invalid column \"typo\""}`))
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+	t.Setenv("JUST_CODE_STATS_URL", server.URL+gristTestPath)
+
+	if err := FlushStats(context.Background(), DefaultFS, stateDir); err == nil {
+		t.Fatal("the misconfigured attempt must report")
+	}
+	healthy.Store(true)
+	if err := FlushStats(context.Background(), DefaultFS, stateDir); err != nil {
+		t.Fatalf("once the table is fixed the backlog must go: %v", err)
+	}
+	if events, _ := PendingStatsEvents(DefaultFS, stateDir); len(events) != 0 {
+		t.Fatalf("the backlog must be delivered: %v", events)
 	}
 }
 

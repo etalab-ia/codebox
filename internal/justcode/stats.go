@@ -641,15 +641,20 @@ func flushStatsToGrist(ctx context.Context, endpoint string, fs FS, stateDir str
 			// everything, and retry the same set on the next flush.
 			return err
 		case status >= 200 && status < 300:
-		case status == http.StatusConflict || status == http.StatusBadRequest:
-			// Grist refused the record outright; it cannot be accepted later.
 		case status == http.StatusForbidden && statsGristDuplicateRejection(respBody):
 			// The duplicate guard refused the write, so the event is already
 			// stored and its response was merely lost. Retrying would keep it
 			// in the queue until eviction.
 		default:
+			// Everything else keeps the event and is reported. In particular a
+			// 400 is NOT an event-level rejection: Grist returns it when the
+			// request does not match the table ("Invalid column", "Can't save
+			// value to formula column"), which is a configuration error that
+			// affects every event equally. Discarding on it would destroy the
+			// whole dataset while reporting nothing, and the events become
+			// deliverable again as soon as the table is corrected.
 			if firstErr == nil {
-				firstErr = fmt.Errorf("statistics endpoint returned HTTP %d", status)
+				firstErr = fmt.Errorf("statistics endpoint returned HTTP %d: %s", status, statsGristErrorSummary(respBody))
 			}
 			continue
 		}
@@ -728,6 +733,27 @@ func postStatsGristRecord(ctx context.Context, endpoint string, body []byte) (in
 
 // statsGristMaxErrorBody bounds how much of an error response is inspected.
 const statsGristMaxErrorBody = 4 << 10
+
+// statsGristErrorSummary extracts Grist's own error text so a failed flush says
+// what to fix ("Invalid column \"x\"") instead of only the status code.
+func statsGristErrorSummary(body []byte) string {
+	if len(body) == 0 {
+		return "no response body"
+	}
+	var parsed struct {
+		Error string `json:"error"`
+	}
+	if err := json.Unmarshal(body, &parsed); err == nil && parsed.Error != "" {
+		// Grist prefixes engine errors; keep the whole message but bound it, as
+		// it can embed a traceback.
+		message := parsed.Error
+		if len(message) > 200 {
+			message = message[:200] + "…"
+		}
+		return message
+	}
+	return string(body)
+}
 
 // SpawnStatsFlush starts the detached flusher and returns immediately. The
 // caller never waits: an unreachable endpoint must not slow the wizard.

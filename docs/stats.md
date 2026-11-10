@@ -149,3 +149,25 @@ configuré, ce qui rend l'envoi observable, et `just-code stats off` l'arrête.
 
 Le consentement est relu avant **chaque** écriture, pas une fois pour le lot :
 un `just-code stats off` lancé pendant un envoi arrête les suivants.
+
+### Ce que le client fait des réponses en erreur
+
+- **`2xx`** : l'événement est retiré de la file.
+- **`403` portant la mémo `Dupliqué`** : l'événement est déjà enregistré, il est
+  retiré de la file.
+- **Tout le reste** (dont `400`, `403` sans cette mémo, `5xx`, réseau) : la file
+  est conservée et l'erreur est remontée, avec le message de Grist lorsqu'il y
+  en a un.
+
+Le `400` est un cas de configuration, pas un rejet d'événement : Grist le renvoie
+quand la requête ne correspond pas à la table (`Invalid column "…"`, `Can't save
+value to formula column …`), ce qui touche tous les événements de la même
+façon. Les retirer un par un détruirait l'ensemble des données sans rien
+signaler ; conservés, ils repartent dès que la table est corrigée.
+
+`eventId` doit donc rester une **colonne de données** (texte) : c'est le jeton
+généré par le client, celui qui permet de reconnaître un renvoi. Une colonne de
+formule `UUID()` est calculée par Grist, ne peut pas recevoir cette valeur (le
+client reçoit alors un `400`), et surtout change à chaque ligne — elle rend donc
+toute déduplication impossible. Grist fournit déjà un identifiant unique par
+ligne sans qu'on ait à le créer.
