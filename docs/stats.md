@@ -67,6 +67,23 @@ release peut le fixer avec
 `-ldflags "-X github.com/etalab-ia/just-code/internal/justcode.StatsEndpointDefault=<url>"`,
 et `JUST_CODE_STATS_URL` le remplace pour les tests et le développement.
 
+La valeur de release est lue dans la variable de dépôt GitHub
+`JUST_CODE_STATS_URL` (Settings → Secrets and variables → Actions → Variables).
+La modifier change la destination des prochaines releases sans toucher au code ;
+variable absente (fork, dépôt tiers), aucune URL n'est intégrée et rien n'est
+envoyé.
+
+Valeur utilisée aujourd'hui :
+
+```
+https://grist.numerique.gouv.fr/o/albert/api/docs/dUBCQK1eFcUHrdGAcViVyZ/tables/Events/records
+```
+
+C'est l'identifiant **stable** du document, et non l'identifiant d'URL
+`dUBCQK1eFcUH` : ce dernier change si le document est renommé ou redéplacé,
+alors que le premier est invariant. Les deux fonctionnent aujourd'hui, mais
+seul le second survit à un renommage.
+
 Deux formats d'envoi existent, et c'est l'URL de l'endpoint qui décide lequel
 s'applique — les deux valeurs ne peuvent donc pas se contredire :
 

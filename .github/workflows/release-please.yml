@@ -93,10 +93,19 @@ jobs:
       - name: Build release binary
         env:
           VERSION: ${{ needs.release-please.outputs.tag_name }}
+          # Where usage statistics are sent. Kept in the JUST_CODE_STATS_URL
+          # repository variable so changing the receiving document is a
+          # settings change, not a code change. Empty (unset variable, forks)
+          # means no endpoint, and nothing is ever sent.
+          STATS_URL: ${{ vars.JUST_CODE_STATS_URL }}
         run: |
           VERSION="${VERSION#just-code-}"
           mkdir -p dist
-          go build -trimpath -ldflags="-s -w -X main.version=$VERSION" \
+          LDFLAGS="-s -w -X main.version=$VERSION"
+          if [ -n "$STATS_URL" ]; then
+            LDFLAGS="$LDFLAGS -X github.com/etalab-ia/just-code/internal/justcode.StatsEndpointDefault=$STATS_URL"
+          fi
+          go build -trimpath -ldflags="$LDFLAGS" \
             -o "dist/just-code-${{ matrix.asset }}" ./cmd/just-code
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
@@ -177,10 +186,15 @@ jobs:
         shell: bash
         env:
           VERSION: ${{ needs.release-please.outputs.tag_name }}
+          STATS_URL: ${{ vars.JUST_CODE_STATS_URL }}
         run: |
           VERSION="${VERSION#just-code-}"
           mkdir -p dist
-          go build -trimpath -ldflags="-s -w -X main.version=$VERSION" \
+          LDFLAGS="-s -w -X main.version=$VERSION"
+          if [ -n "$STATS_URL" ]; then
+            LDFLAGS="$LDFLAGS -X github.com/etalab-ia/just-code/internal/justcode.StatsEndpointDefault=$STATS_URL"
+          fi
+          go build -trimpath -ldflags="$LDFLAGS" \
             -o "dist/just-code-${{ matrix.asset }}${{ matrix.ext }}" ./cmd/just-code
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
