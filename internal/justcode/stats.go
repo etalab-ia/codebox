@@ -665,49 +665,35 @@ func flushStatsToGrist(ctx context.Context, endpoint string, fs FS, stateDir str
 	return firstErr
 }
 
-// statsGristDuplicateMemo marks the duplicate guard's access rule. Grist's
-// error message is the same for every denial ("Blocked by <type> <action>
-// access rules"), so the message alone cannot distinguish "this event is
-// already stored" from "this document is temporarily not writable" -- and
-// treating the second as the first would silently discard the whole queue.
-//
-// The memo is the operator-supplied hint attached to the denying rule
-// (support.getgrist.com/access-rules/ "Access rule memos"), carried in the
-// response's details.memos. The receiving rule must therefore carry this
-// exact text; see docs/stats.md.
-const statsGristDuplicateMemo = "Dupliqué"
-
 // statsGristDuplicateRejection reports whether a response is the duplicate
 // guard refusing a write, which means the event is already stored.
+//
+// Grist names the rule type that denied the action in its error message, which
+// is what separates "already stored" from "not writable right now":
+//
+//	Blocked by row create access rules    <- a row-level rule (newRec.Count > 1)
+//	Blocked by table create access rules  <- a table-wide or default rule
+//
+// The duplicate guard is necessarily row-level, because it inspects newRec,
+// while a misconfigured or temporarily withdrawn permission is table-level.
+// Verified against grist.numerique.gouv.fr: the guard returns the first form
+// and every configuration denial the second.
+//
+// Deliberately NOT keyed on details.memos: Grist documents a memo on a rule
+// condition, but this server returns an empty memos array for every denial, so
+// requiring one would make the duplicate path dead code.
 func statsGristDuplicateRejection(body []byte) bool {
 	if len(body) == 0 {
 		return false
 	}
 	var parsed struct {
-		Error   string `json:"error"`
-		Details *struct {
-			Memos []struct {
-				Text string `json:"text"`
-			} `json:"memos"`
-		} `json:"details"`
+		Error string `json:"error"`
 	}
 	if err := json.Unmarshal(body, &parsed); err != nil {
 		return false
 	}
-	// A non-denial first, so a server that returns this text for an unrelated
-	// reason cannot be mistaken for the guard.
-	if !strings.Contains(parsed.Error, "access rules") {
-		return false
-	}
-	if parsed.Details == nil {
-		return false
-	}
-	for _, memo := range parsed.Details.Memos {
-		if strings.TrimSpace(memo.Text) == statsGristDuplicateMemo {
-			return true
-		}
-	}
-	return false
+	return strings.Contains(parsed.Error, "Blocked by row ") &&
+		strings.Contains(parsed.Error, "access rules")
 }
 
 // postStatsGristRecord sends one record and reports the status code and body.

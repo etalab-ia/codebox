@@ -203,9 +203,9 @@ func TestFlushStatsToGristPostsOneRecordPerEventWithoutACredential(t *testing.T)
 }
 
 // The documented duplicate guard (newRec.Count > 1) rejects the write through
-// access rules. Grist answers 403 with an ACL_DENY message and the rule's memo
-// in details.memos, so this uses the real response shape as expressWrap sends
-// it: a synthetic 409 would have passed without covering any of this.
+// access rules. Grist names the rule type in the 403 message, so this uses the
+// exact body the live server returns: a synthetic 409 would have passed
+// without covering any of this.
 func TestFlushStatsToGristDropsAnEventTheDuplicateGuardRejects(t *testing.T) {
 	statsTestHome(t)
 	if err := WriteStatsConsent(DefaultFS, mustSettingsPath(t), true, true); err != nil {
@@ -217,7 +217,8 @@ func TestFlushStatsToGristDropsAnEventTheDuplicateGuardRejects(t *testing.T) {
 	}
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusForbidden)
-		_, _ = w.Write([]byte(`{"error":"Blocked by table Create access rules","details":{"memos":[{"kind":"memo","text":"Dupliqué"}]}}`))
+		// Exactly what grist.numerique.gouv.fr returns for the guard.
+		_, _ = w.Write([]byte(`{"error":"Blocked by row create access rules","details":{"memos":[]}}`))
 	}))
 	defer server.Close()
 	t.Setenv("JUST_CODE_STATS_URL", server.URL+gristTestPath)
@@ -230,10 +231,10 @@ func TestFlushStatsToGristDropsAnEventTheDuplicateGuardRejects(t *testing.T) {
 	}
 }
 
-// The case that matters most: an access rule temporarily denying Create is
-// NOT the duplicate guard. Its 403 has the same message, so dequeuing on the
-// message alone would silently discard every event while none was stored.
-func TestFlushStatsToGristKeepsEventsWhenACLRulesDenyWithoutTheDuplicateMemo(t *testing.T) {
+// The case that matters most: a table-wide permission denial is NOT the
+// duplicate guard. Dequeuing on any 403 would silently discard every event
+// while none was stored.
+func TestFlushStatsToGristKeepsEventsWhenATableRuleDenies(t *testing.T) {
 	statsTestHome(t)
 	if err := WriteStatsConsent(DefaultFS, mustSettingsPath(t), true, true); err != nil {
 		t.Fatal(err)
@@ -246,14 +247,15 @@ func TestFlushStatsToGristKeepsEventsWhenACLRulesDenyWithoutTheDuplicateMemo(t *
 	}
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusForbidden)
-		// Same message Grist emits for any denial, but no duplicate memo.
-		_, _ = w.Write([]byte(`{"error":"Blocked by table Create access rules","details":{"memos":[{"kind":"memo","text":"Période de gel"}]}}`))
+		// A table-wide denial, which is what a broken or withdrawn permission
+		// produces -- same prefix as the guard, different rule type.
+		_, _ = w.Write([]byte(`{"error":"Blocked by table create access rules","details":{"memos":[]}}`))
 	}))
 	defer server.Close()
 	t.Setenv("JUST_CODE_STATS_URL", server.URL+gristTestPath)
 
 	if err := FlushStats(context.Background(), DefaultFS, stateDir); err == nil {
-		t.Fatal("a denial without the duplicate memo must be reported")
+		t.Fatal("a table-level denial must be reported")
 	}
 	if events, _ := PendingStatsEvents(DefaultFS, stateDir); len(events) != 2 {
 		t.Fatalf("a denial that is not the duplicate guard must keep every event: %v", events)

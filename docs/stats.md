@@ -96,9 +96,8 @@ dont notre client suit le format.
      avec toutes les permissions refusées (`R U C D`) ;
    - ajouter des règles de table pour `Events`, condition vide (« Everyone »),
      et n'accorder que `C` (création) ;
-   - ajouter le garde-fou anti-doublon décrit plus bas, avec sa mémo
-     `Dupliqué` : c'est une seconde règle, placée **au-dessus** de celle qui
-     autorise `C`.
+   - ajouter le garde-fou anti-doublon décrit plus bas : c'est une seconde
+     règle, placée **au-dessus** de celle qui autorise `C`.
 4. Partager le document en accès public avec le rôle `Editor`. Les règles
    ci-dessus annulent tout ce que ce rôle permettrait d'autre.
 5. Vérifier depuis une fenêtre de navigation privée : le document s'ouvre mais
@@ -139,13 +138,18 @@ configuré, ce qui rend l'envoi observable, et `just-code stats off` l'arrête.
   réessai crée une ligne en double** : le client ne peut pas dédupliquer seul,
   faute de droit de lecture.
 
-  Cette règle doit porter une **mémo `Dupliqué`** (icône mémo à droite de la
-  condition). Grist renvoie le même message d'erreur pour tout refus
-  (`Blocked by … access rules`) ; sans la mémo, le client ne peut pas
-  distinguer « cet événement est déjà enregistré » de « le document n'est plus
-  ouvert en écriture ». Or cette distinction décide du sort de la file : le
-  premier cas retire l'événement, le second doit tout conserver pour un envoi
-  ultérieur. La mémo voyage dans `details.memos` de la réponse d'erreur.
+  Aucune configuration supplémentaire n'est nécessaire : Grist nomme le type de
+  règle qui refuse l'action, et c'est ce qui distingue les deux cas.
+
+  ```
+  Blocked by row create access rules      <- le garde-fou (condition sur newRec)
+  Blocked by table create access rules    <- une règle de table ou par défaut
+  ```
+
+  Le garde-fou portant sur `newRec`, il est forcément **au niveau ligne**,
+  alors qu'une permission mal configurée ou temporairement retirée refuse au
+  niveau **table**. Le client retire donc l'événement sur le premier message et
+  le conserve sur le second. C'est vérifié sur l'instance réelle.
 
 Le consentement est relu avant **chaque** écriture, pas une fois pour le lot :
 un `just-code stats off` lancé pendant un envoi arrête les suivants.
@@ -153,9 +157,9 @@ un `just-code stats off` lancé pendant un envoi arrête les suivants.
 ### Ce que le client fait des réponses en erreur
 
 - **`2xx`** : l'événement est retiré de la file.
-- **`403` portant la mémo `Dupliqué`** : l'événement est déjà enregistré, il est
-  retiré de la file.
-- **Tout le reste** (dont `400`, `403` sans cette mémo, `5xx`, réseau) : la file
+- **`403` de niveau ligne** (`Blocked by row … access rules`) : le garde-fou
+  anti-doublon a refusé, l'événement est déjà enregistré et retiré de la file.
+- **Tout le reste** (dont `400`, `403` de niveau table, `5xx`, réseau) : la file
   est conservée et l'erreur est remontée, avec le message de Grist lorsqu'il y
   en a un.
 
