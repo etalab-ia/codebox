@@ -34,8 +34,8 @@
       }
     }
   },
-  "model": "albert/qwen3-coder",
-  "small_model": "albert/qwen3-coder",
+  "model": "albert/deepseek-v4-flash",
+  "small_model": "albert/deepseek-v4-flash",
   "permissions": [
     { "action": "edit", "resource": "*", "effect": "allow" },
     { "action": "external_directory", "resource": "*", "effect": "allow" },

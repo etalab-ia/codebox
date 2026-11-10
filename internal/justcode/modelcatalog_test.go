@@ -58,7 +58,7 @@ func TestCuratedAlbertModelDefaultsAndIDs(t *testing.T) {
 			defaults = append(defaults, model.Name)
 		}
 	}
-	if len(defaults) != 2 || defaults[0] != "Qwen3 Coder" || defaults[1] != "DeepSeek V4 Flash" {
+	if len(defaults) != 1 || defaults[0] != "DeepSeek V4 Flash" {
 		t.Fatalf("default models = %v", defaults)
 	}
 	if models[1].AlbertModelConfig().RequestBody["tool_choice"] != "auto" {

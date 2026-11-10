@@ -40,7 +40,7 @@ type AlbertModelChoice struct {
 // separately from the live or cached Albert catalogue.
 func CuratedAlbertModels() []AlbertModelChoice {
 	return []AlbertModelChoice{
-		{ID: "Qwen/Qwen3-Coder-30B-A3B-Instruct", OpenCodeID: "qwen3-coder", Name: "Qwen3 Coder", Description: "orienté code et tâches agentiques, contexte long", Context: 262144, Default: true},
+		{ID: "Qwen/Qwen3-Coder-30B-A3B-Instruct", OpenCodeID: "qwen3-coder", Name: "Qwen3 Coder", Description: "orienté code et tâches agentiques, contexte long", Context: 262144},
 		{ID: "deepseek-ai/DeepSeek-V4-Flash-0731", OpenCodeID: "deepseek-v4-flash", Name: "DeepSeek V4 Flash", Description: "spécialisé code, raisonnement", Context: 131072, Output: 65536, Default: true, ToolChoiceAuto: true},
 		{ID: "openai/gpt-oss-120b", OpenCodeID: "gpt-oss-120b", Name: "gpt-oss 120b", Description: "généraliste, pour les tâches complexes", Context: 131072},
 		{ID: "google/gemma-4-31B-it", OpenCodeID: "gemma-4", Name: "Gemma 4", Description: "tâches modérées, sait lire des images", Context: 262144, Vision: true},

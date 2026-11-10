@@ -124,8 +124,9 @@ func (o ManagedOverlay) firstProviderModel() string {
 
 // defaultOpencodeModel mirrors assets/opencode-config.json's "model" field.
 // The embedded asset stays the baseline; this constant is what the composer
-// writes when the user selected nothing.
-const defaultOpencodeModel = "albert/qwen3-coder"
+// writes when the user selected nothing. DeepSeek V4 Flash is the tool-call
+// reliable default; qwen3-coder stays available as an explicit choice (#347).
+const defaultOpencodeModel = "albert/deepseek-v4-flash"
 
 // ComposeConfigContent builds the full OPENCODE_CONFIG_CONTENT from the
 // embedded base and the managed overlay by deep-merging them host-side: the

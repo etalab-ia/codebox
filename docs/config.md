@@ -88,8 +88,9 @@ données concernées sont décrits dans [Statistiques d'usage](stats.md).
 
 L'ordre suit celui annoncé par l'écran d'introduction : plateformes et clés,
 modèles, puis GitHub. Pour Albert API, l'écran présente les quatre modèles
-retenus et pré-sélectionne Qwen3 Coder et DeepSeek V4 Flash ; pour Mistral AI et
-une plateforme compatible OpenAI, il lit le catalogue brut de la plateforme à
+retenus et pré-sélectionne DeepSeek V4 Flash par défaut, tandis que Qwen3 Coder
+reste un choix explicite possible. Pour Mistral AI et une plateforme compatible
+OpenAI, il lit le catalogue brut de la plateforme à
 l'exécution. La disponibilité Albert vient du catalogue Albert API ; un modèle
 absent est marqué indisponible et ne peut pas être choisi. Si un catalogue est
 injoignable, la sélection actuelle est conservée. Les modèles cochés sont
@@ -393,7 +394,7 @@ contenu inline en dernier
 la config projet et la config utilisateur survivent champ par champ en
 dessous. Précédence de la sélection : `JUST_CODE_MODEL` > `model` du
 manifeste projet > `defaultModel` des réglages utilisateur > valeur intégrée
-(`albert/qwen3-coder`). `settings.json` conserve le modèle par défaut
+(`albert/deepseek-v4-flash`). `settings.json` conserve le modèle par défaut
 (`defaultModel`) et la liste des modèles autorisés (`models`). Une référence de
 modèle est `plateforme/modèle` pour Mistral AI et une plateforme compatible
 OpenAI ; une valeur sans préfixe géré reste un identifiant Albert (y compris

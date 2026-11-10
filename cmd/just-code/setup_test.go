@@ -452,8 +452,8 @@ func TestPromptSetupModelsKeepsDefaultsWhenCatalogueIsUnavailable(t *testing.T) 
 	if !sameStrings(selected, defaultSetupModelIDs()) {
 		t.Fatalf("catalogue outage changed default selections: %v", selected)
 	}
-	if defaultModel != "albert/qwen3-coder" {
-		t.Fatalf("default model = %q, want albert/qwen3-coder", defaultModel)
+	if defaultModel != "albert/deepseek-v4-flash" {
+		t.Fatalf("default model = %q, want albert/deepseek-v4-flash", defaultModel)
 	}
 }
 

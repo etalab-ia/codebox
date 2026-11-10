@@ -427,7 +427,7 @@ func (w InitWizard) Plan(answers InitAnswers) (InitPlan, error) {
 	} else if harness == HarnessPi && resolvedDefault != "" {
 		// A Pi project must not be left with an empty model the way an
 		// OpenCode project can. Empty means the launch resolves the model from
-		// the user settings, which is OpenCode's (albert/qwen3-coder by
+		// the user settings, which is OpenCode's (albert/deepseek-v4-flash by
 		// default) — one Pi refuses, so the project the recap just described
 		// could not launch (#347 review). Recording the model the recap showed
 		// is also what makes the recap a promise rather than a hint.
