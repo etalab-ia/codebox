@@ -2289,17 +2289,17 @@ func TestRecoverBootsStoppedSealedSandbox(t *testing.T) {
 
 	joined := strings.Join(client.calls, "\n")
 	// Sealed-workspace provenance is verified, and the instance is booted.
-	if !strings.Contains(joined, "owned test-instance") {
+	if !strings.Contains(joined, "owned "+m.InstanceName()) {
 		t.Fatalf("Recover must verify sealed workspace provenance, got calls:\n%s", joined)
 	}
-	if !strings.Contains(joined, "start test-instance") {
+	if !strings.Contains(joined, "start "+m.InstanceName()) {
 		t.Fatalf("Recover must boot the instance, got calls:\n%s", joined)
 	}
 	// It waits for a guest shell, not the backend: only the trivial probe runs.
-	if !strings.Contains(joined, "exec test-instance echo ok") {
+	if !strings.Contains(joined, "exec "+m.InstanceName()+" echo ok") {
 		t.Fatalf("Recover must probe for a guest shell, got calls:\n%s", joined)
 	}
-	if strings.Contains(joined, "modify test-instance") {
+	if strings.Contains(joined, "modify "+m.InstanceName()) {
 		t.Fatalf("Recover must not apply the current configuration via ModifyNextStart, got calls:\n%s", joined)
 	}
 	if strings.Contains(joined, msbRelaunchCommand) {
@@ -2321,10 +2321,10 @@ func TestRecoverRunningSealedSandboxWaitsForGuestShell(t *testing.T) {
 	joined := strings.Join(client.calls, "\n")
 	// A running sandbox is not started again, but the guest shell is still
 	// probed - the sandbox may be up while the guest is not yet reachable.
-	if strings.Contains(joined, "start test-instance") {
+	if strings.Contains(joined, "start "+m.InstanceName()) {
 		t.Fatalf("Recover must not restart an already-running sandbox, got calls:\n%s", joined)
 	}
-	if !strings.Contains(joined, "exec test-instance echo ok") {
+	if !strings.Contains(joined, "exec "+m.InstanceName()+" echo ok") {
 		t.Fatalf("Recover must still probe a running sandbox's guest shell, got calls:\n%s", joined)
 	}
 }
