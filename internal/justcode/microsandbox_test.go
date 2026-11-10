@@ -30,19 +30,25 @@ type fakeMSBClient struct {
 	doctorErr    error
 	mount        string
 	mountErr     error
-	appliedPorts []PortMapping
-	appliedErr   error
-	startScript  string
-	env          map[string]string
-	envErr       error
-	createErr    error
-	startErr     error
-	modifyErr    error
-	stopErr      error
-	removeErr    error
-	logsErr      error
-	shellErr     error
-	attachErr    error
+	// persistedSecretRefs are the JUST_CODE_HOST_* transport variables the
+	// sandbox's persisted secret registrations reference. Recovery republishes
+	// them at boot even when the current provider configuration differs, so
+	// this is what drives the persisted-binding resolution path.
+	persistedSecretRefs    []string
+	persistedSecretRefsErr error
+	appliedPorts           []PortMapping
+	appliedErr             error
+	startScript            string
+	env                    map[string]string
+	envErr                 error
+	createErr              error
+	startErr               error
+	modifyErr              error
+	stopErr                error
+	removeErr              error
+	logsErr                error
+	shellErr               error
+	attachErr              error
 
 	calls []string
 	// startHostEnv captures the JUST_CODE_HOST_* transport variables that were
@@ -543,6 +549,11 @@ func (f *fakeMSBClient) StartScript(_ context.Context, name string) (string, err
 func (f *fakeMSBClient) Env(_ context.Context, name string) (map[string]string, error) {
 	f.record("readenv " + name)
 	return cloneStringMap(f.env), f.envErr
+}
+
+func (f *fakeMSBClient) PersistedSecretRefs(_ context.Context, name string) ([]string, error) {
+	f.record("persistedsecretrefs " + name)
+	return append([]string(nil), f.persistedSecretRefs...), f.persistedSecretRefsErr
 }
 
 func (f *fakeMSBClient) List(_ context.Context) ([]msbSandboxInfo, error) {
@@ -1994,6 +2005,61 @@ func TestGuestEnvFromHandleReadsThePersistedDocument(t *testing.T) {
 	}
 }
 
+// persistedConfigWithSecrets builds a persisted sandbox document carrying the
+// given secret registrations, in the shape the SDK's catalog encoder writes.
+// The source field is the part recovery depends on: only env-reference secrets
+// (source.kind == "env") name a host transport variable to republish.
+func persistedConfigWithSecrets(secrets ...string) string {
+	return `{"name":"` + msbSandbox + `",` +
+		`"runtime":{"workdir":"/workspace","shell":"/bin/sh","scripts":{"start":"exec sleep infinity"}},` +
+		`"secrets":[` + strings.Join(secrets, ",") + `]}`
+}
+
+// TestParsePersistedEnvRefSecretsReadsThePersistedDocument pins what recovery
+// reads from the stored document. The typed SandboxConfig never fills its
+// Secrets field, so this is the only source that carries the host transport
+// variables the stop-start script actually references.
+func TestParsePersistedEnvRefSecretsReadsThePersistedDocument(t *testing.T) {
+	h := handledConfig{configJSON: persistedConfigWithSecrets(
+		`{"name":"ALBERT_API_KEY","source":{"kind":"env","var":"JUST_CODE_HOST_ALBERT_API_KEY"}}`,
+	)}
+	refs, err := persistedSecretRefsFromHandle(h)
+	if err != nil {
+		t.Fatalf("persistedSecretRefsFromHandle: %v", err)
+	}
+	if len(refs) != 1 || refs[0] != "JUST_CODE_HOST_ALBERT_API_KEY" {
+		t.Fatalf("persisted secret refs = %v, want [JUST_CODE_HOST_ALBERT_API_KEY]", refs)
+	}
+}
+
+func TestParsePersistedEnvRefSecretsSkipsNonEnvAndDedupes(t *testing.T) {
+	config := persistedConfigWithSecrets(
+		`{"name":"ALBERT_API_KEY","source":{"kind":"env","var":"JUST_CODE_HOST_ALBERT_API_KEY"}}`,
+		`{"name":"ALBERT_API_KEY","source":{"kind":"env","var":"JUST_CODE_HOST_ALBERT_API_KEY"}}`,
+		`{"name":"INLINE","value":"not-a-source"}`,
+	)
+	refs, err := parsePersistedEnvRefSecrets(config)
+	if err != nil {
+		t.Fatalf("parsePersistedEnvRefSecrets: %v", err)
+	}
+	if len(refs) != 1 || refs[0] != "JUST_CODE_HOST_ALBERT_API_KEY" {
+		t.Fatalf("persisted secret refs = %v, want the env reference deduplicated once", refs)
+	}
+}
+
+// TestParsePersistedEnvRefSecretsEmptyDocument verifies a document with no
+// env-reference secrets is an empty result, not an error: that is the signal
+// recovery uses to fall back to the current provider configuration.
+func TestParsePersistedEnvRefSecretsEmptyDocument(t *testing.T) {
+	refs, err := parsePersistedEnvRefSecrets(persistedConfigWithGuestEnv())
+	if err != nil {
+		t.Fatalf("parsePersistedEnvRefSecrets: %v", err)
+	}
+	if len(refs) != 0 {
+		t.Fatalf("persisted secret refs = %v, want empty", refs)
+	}
+}
+
 func containsString(haystack []string, needle string) bool {
 	for _, item := range haystack {
 		if item == needle {
@@ -2402,6 +2468,43 @@ func TestRecoverBootsStoppedSandboxWithHostSecrets(t *testing.T) {
 
 	if got := client.startHostEnv["JUST_CODE_HOST_ALBERT_API_KEY"]; got != "stored-albert-secret" {
 		t.Fatalf("Recover boot must publish the persisted credential transport variable, got %q", got)
+	}
+	if got := os.Getenv("JUST_CODE_HOST_ALBERT_API_KEY"); got != "" {
+		t.Fatalf("Recover must restore the host environment after boot, %q still set", got)
+	}
+}
+
+// Recover resolves the bindings actually persisted on the stopped sandbox, not
+// the bindings the current provider configuration selects. A sandbox created
+// with Albert but a configuration now using Mistral must boot with Albert's
+// transport variable published and must not require a Mistral credential.
+func TestRecoverUsesPersistedBindingsWhenProviderDiffers(t *testing.T) {
+	client := sealedFakeMSB()
+	client.persistedSecretRefs = []string{"JUST_CODE_HOST_ALBERT_API_KEY"}
+	m := newTestMicrosandbox(t, client)
+	// The current configuration selects Mistral only; the persisted sandbox
+	// was created with Albert, so only Albert must be republished.
+	m.cfg.APIKey = ""
+	m.cfg.Providers = []InferenceProvider{{
+		Kind:           "mistral",
+		Name:           "Mistral AI",
+		CredentialKind: CredentialMistral,
+		APIKeyEnv:      MistralAPIKeyEnv,
+		Host:           "api.mistral.ai",
+	}}
+	m.credentialRead = func(context.Context, CredentialKind, string) (string, string, error) {
+		return "albert-persisted-secret", "native", nil
+	}
+
+	if err := m.Recover(context.Background()); err != nil {
+		t.Fatalf("Recover: %v", err)
+	}
+
+	if got := client.startHostEnv["JUST_CODE_HOST_ALBERT_API_KEY"]; got != "albert-persisted-secret" {
+		t.Fatalf("Recover must publish the persisted Albert transport variable even when Mistral is configured, got %q", got)
+	}
+	if got := client.startHostEnv["JUST_CODE_HOST_MISTRAL_API_KEY"]; got != "" {
+		t.Fatalf("Recover must not publish a Mistral transport variable the persisted sandbox did not reference, got %q", got)
 	}
 	if got := os.Getenv("JUST_CODE_HOST_ALBERT_API_KEY"); got != "" {
 		t.Fatalf("Recover must restore the host environment after boot, %q still set", got)

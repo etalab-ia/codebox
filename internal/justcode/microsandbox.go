@@ -319,6 +319,13 @@ type msbClient interface {
 	// used only to detect a plaintext credential persisted by an earlier
 	// version; they are never copied into a new sandbox.
 	Env(ctx context.Context, name string) (map[string]string, error)
+	// PersistedSecretRefs returns the host transport variables (JUST_CODE_HOST_*)
+	// the sandbox's persisted secret registrations reference. These are the
+	// bindings the sandbox was created with, which recovery republishes at boot
+	// even when the current provider configuration selects different platforms.
+	// An error means the persisted document could not be inspected, treated as a
+	// refusal rather than as an empty reference list.
+	PersistedSecretRefs(ctx context.Context, name string) ([]string, error)
 	// Logs streams sandbox logs to the terminal until interrupted.
 	Logs(name string) error
 	// Shell opens an interactive shell in the sandbox.
@@ -1587,7 +1594,7 @@ func (m *MicrosandboxRuntime) Recover(ctx context.Context) error {
 		// sandbox can actually be recovered. Unlike Start, no current guest
 		// configuration is applied (no ModifyNextStart): recovery exists only
 		// to reach the guest's persisted state for workspace delivery.
-		bindings, err := m.resolveBindings(ctx)
+		bindings, err := m.resolveRecoveryBindings(ctx)
 		if err != nil {
 			return fmt.Errorf("cannot resolve credentials to boot %s for recovery: %w", m.InstanceName(), err)
 		}
@@ -1606,6 +1613,80 @@ func (m *MicrosandboxRuntime) Recover(ctx context.Context) error {
 	}
 	fmt.Fprintln(os.Stderr, "Recovered the sandbox guest state. Run 'just-code workspace apply' or 'just-code workspace export' to deliver the guest's changes to the host checkout before 'just-code recreate --microsandbox' (which deletes guest-only state).")
 	return nil
+}
+
+// resolveRecoveryBindings resolves the credentials the recovery boot will
+// publish. The persisted secret registrations on the stopped sandbox are the
+// authority: the sandbox's start script reads the host transport variables
+// that were fixed at creation, and the current provider configuration may now
+// select different platforms. When the sandbox persists no env-reference
+// secrets (for example an isolated plaintext sandbox with nothing to bind),
+// the current configuration is used as before.
+func (m *MicrosandboxRuntime) resolveRecoveryBindings(ctx context.Context) ([]resolvedBinding, error) {
+	refs, err := m.Client.PersistedSecretRefs(ctx, m.InstanceName())
+	if err != nil {
+		return nil, fmt.Errorf("cannot inspect the persisted credentials of %s to recover it: %w", m.InstanceName(), err)
+	}
+	if len(refs) == 0 {
+		return m.resolveBindings(ctx)
+	}
+	bindings, err := m.resolvePersistedBindings(ctx, refs)
+	if err != nil {
+		return nil, err
+	}
+	if len(bindings) != 0 {
+		return bindings, nil
+	}
+	// No persisted binding survived resolution (for example optional bindings
+	// whose credentials are now gone). Fall back to the current configuration
+	// rather than publishing nothing and booting without any credential.
+	return m.resolveBindings(ctx)
+}
+
+// resolvePersistedBindings resolves the bindings whose host transport
+// variables the stopped sandbox's secret registrations actually reference,
+// mapped back through the binding registry to the platform each was created
+// for. Unlike resolveBindings it never consults the current provider
+// configuration, so a sandbox created with Albert is recovered with Albert's
+// transport variable even when the configuration now selects Mistral. A
+// provider binding that cannot resolve is a hard error, matching the start
+// path's contract; an optional binding (GitHub, Context7) whose credential is
+// gone is skipped with a warning rather than blocking recovery.
+func (m *MicrosandboxRuntime) resolvePersistedBindings(ctx context.Context, refs []string) ([]resolvedBinding, error) {
+	read := m.credentialRead
+	if read == nil {
+		read = readStoredWith
+	}
+	out := make([]resolvedBinding, 0, len(refs))
+	for _, hostEnv := range refs {
+		b, ok := bindingForHostEnv(hostEnv)
+		if !ok {
+			// Unknown persisted variable: do not guess a credential shape.
+			// Skip it so a tolerated extra registration does not block
+			// reaching the guest state.
+			m.warn("référence de secret persisté inconnue, ignorée", "Warning: %s persisted an unrecognized host secret reference %q; skipping it during recovery", m.InstanceName(), hostEnv)
+			continue
+		}
+		if b.Provider {
+			v, src, store, entry, err := resolveProviderWith(read, ctx, m.cfg, b.Kind, b.GuestEnv, m.CredentialStore)
+			if err != nil {
+				return nil, fmt.Errorf("cannot resolve the persisted %s credential of %s: %w (store one with 'just-code auth add %s', or recreate the sandbox)", b.Kind, m.InstanceName(), err, b.Kind)
+			}
+			out = append(out, resolvedBinding{msbSecretBinding: b, source: src, value: v, store: store, entry: entry})
+			continue
+		}
+		v, store, err := read(ctx, b.Kind, m.CredentialStore)
+		if err != nil {
+			if isNotFound(err) {
+				m.warn("identifiant facultatif absent ; détail : just-code bindings list", "Warning: the persisted %s binding on %s has no %q credential stored; skipping it during recovery (just-code auth add %s)", b.Kind, m.InstanceName(), b.Kind, b.Kind)
+				continue
+			}
+			m.warn("identifiant facultatif illisible, ignoré", "Warning: cannot read the persisted %s binding on %s (%v); skipping it during recovery", b.Kind, m.InstanceName(), err)
+			continue
+		}
+		out = append(out, resolvedBinding{msbSecretBinding: b, source: bindingSourceStore, value: v, store: store, entry: string(b.Kind)})
+	}
+	return out, nil
 }
 
 // waitForGuestShell blocks until the guest answers an exec probe, bounded by
