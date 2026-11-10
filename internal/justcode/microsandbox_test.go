@@ -44,7 +44,7 @@ type fakeMSBClient struct {
 	shellErr     error
 	attachErr    error
 
-	calls            []string
+	calls []string
 	// startHostEnv captures the JUST_CODE_HOST_* transport variables that were
 	// published (via withHostSecrets) while Start ran, keyed by variable name.
 	startHostEnv     map[string]string
