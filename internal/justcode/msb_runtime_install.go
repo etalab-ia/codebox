@@ -29,8 +29,8 @@ import (
 // is untrusted by design. A local mirror is deliberately not kept, because it
 // would not add any guarantee.
 const (
-	msbRuntimeVersion     = "0.7.13"
-	msbRuntimeReleaseURL  = "https://github.com/superradcompany/microsandbox/releases/download/v0.7.13"
+	msbRuntimeVersion     = "0.7.14"
+	msbRuntimeReleaseURL  = "https://github.com/superradcompany/microsandbox/releases/download/v0.7.14"
 	msbRuntimeHTTPTimeout = 5 * time.Minute
 	msbRuntimeMaxArchive  = 128 << 20
 	msbRuntimeMaxFile     = 64 << 20
@@ -59,14 +59,14 @@ func msbRuntimeArtifactFor(goos, goarch string) (msbRuntimeArtifact, error) {
 	switch goos + "/" + goarch {
 	case "darwin/arm64":
 		artifact = msbRuntimeArtifact{
-			sha256:     "5eb53ca1d6beb36caa64d19602284b9ce37872eff340a8db0542ab91b5808c96",
+			sha256:     "9cc2bd2874cc1aa98cb139429a9482830b1e64b48255aa9f40a25b8979a23a9f",
 			msbName:    "msb",
 			libName:    "libkrunfw.5.dylib",
 			libSymlink: [][2]string{{"libkrunfw.dylib", "libkrunfw.5.dylib"}},
 		}
 	case "linux/arm64":
 		artifact = msbRuntimeArtifact{
-			sha256:  "bd95fbc51954c2c20077c782262157bf5aed17b3717c5d4494d9d34035f3432c",
+			sha256:  "a0c54cd06bea4d2a5bd3fc291063f8f2f5e073232db78f6860c527922ec71906",
 			msbName: "msb",
 			libName: "libkrunfw.so.5.6.1",
 			libSymlink: [][2]string{
@@ -76,7 +76,7 @@ func msbRuntimeArtifactFor(goos, goarch string) (msbRuntimeArtifact, error) {
 		}
 	case "linux/amd64":
 		artifact = msbRuntimeArtifact{
-			sha256:  "c41aeefc050e97f42cd55ce55cc139efc13c6ee2dc371e8d30c325a305a5c3b1",
+			sha256:  "34d49a7388685f0ea24bfbeecf6864a44718959b57087f1d7481775672db9585",
 			msbName: "msb",
 			libName: "libkrunfw.so.5.6.1",
 			libSymlink: [][2]string{
@@ -86,13 +86,13 @@ func msbRuntimeArtifactFor(goos, goarch string) (msbRuntimeArtifact, error) {
 		}
 	case "windows/arm64":
 		artifact = msbRuntimeArtifact{
-			sha256:  "ac82dd9003325617ef00f921c0ac616ee758f293465dc7d58918b81a2739cf6f",
+			sha256:  "c543bd33fdcb03cfbb9a16b7d91632643d52f31d2538715a34595edaa49748e4",
 			msbName: "msb.exe",
 			libName: "libkrunfw.dll",
 		}
 	case "windows/amd64":
 		artifact = msbRuntimeArtifact{
-			sha256:  "5d18afc0b5116e18ed9cedbaba029b711976bd91a31fa21ba9debd8625ccb6df",
+			sha256:  "e97223e5c4dc46142244d418ba0685a2ffb94993ac8d60b955a59ed5364692bd",
 			msbName: "msb.exe",
 			libName: "libkrunfw.dll",
 		}
