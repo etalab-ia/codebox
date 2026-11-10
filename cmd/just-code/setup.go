@@ -694,7 +694,7 @@ func setupWizardRun(fallback bool, in *bufio.Reader, validate func(context.Conte
 		// recap must not announce a change the run will not make.
 		fmt.Println("  Modèles             sélection actuelle conservée")
 	} else {
-		fmt.Println("  Modèles             Qwen3 Coder (par défaut)")
+		fmt.Println("  Modèles             DeepSeek V4 Flash (par défaut)")
 	}
 	if statsEnabled {
 		fmt.Println("  Statistiques d'usage : partagées")
