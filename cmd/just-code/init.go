@@ -134,20 +134,21 @@ func printInitIntro(root string, in *bufio.Reader) bool {
 Dossier : %s
 
 just-code va préparer une machine isolée pour ce projet.
-Par défaut, Microsandbox travaille sur une copie filtrée : vos fichiers .env
+Microsandbox (recommandé) travaille sur une copie filtrée : vos fichiers .env
 et les fichiers ignorés par git ne sont pas copiés.
 
-3 étapes :
-  1. Skills (facultatif) : des savoir-faire pour l'agent (sécurité, accessibilité…).
-  2. MCP (facultatif) : des services que l'agent peut interroger (data.gouv.fr, documentation…).
-  3. GitHub (facultatif) : autoriser l'agent à proposer ses modifications sur ce dépôt.
+5 étapes :
+  1. Agent (harnais) : le moteur qui travaille dans la machine isolée.
+  2. Machine isolée : le type d'environnement qui exécute l'agent.
+  3. Skills (facultatif) : des savoir-faire pour l'agent (sécurité, accessibilité…).
+  4. MCP (facultatif) : des services que l'agent peut interroger (data.gouv.fr, chrome-devtools…).
+  5. GitHub (facultatif) : autoriser l'agent à proposer ses modifications sur ce dépôt.
 
-Les réglages techniques (ressources, isolation…) ont des valeurs par défaut,
-modifiables depuis le récapitulatif. Les autres types de machine isolée
-et le partage du dossier qu'ils impliquent sont expliqués dans les
-réglages avancés.
+Les réglages techniques (ressources, isolation…) ont des valeurs par défaut.
+Les autres types de machine isolée et le partage du dossier qu'ils impliquent
+sont expliqués dans les réglages avancés.
 
-Rien n'est enregistré avant le récapitulatif final.
+La configuration est enregistrée à la fin de ces étapes, puis le projet démarre.
 Appuyez sur Entrée pour commencer, ou sur Ctrl+C pour quitter.
 `, project, root)
 	_, ok := promptLine(in, "")
@@ -2065,6 +2066,9 @@ func offerProjectInitWithReader(projectRoot string, parsed parsedArgs, given *bu
 		if !proceed {
 			return false, 1, fmt.Errorf("projet non configuré : rien n'a été écrit. Lancez 'just-code init' quand vous voudrez le configurer")
 		}
+		if !printInitIntro(projectRoot, in) {
+			return false, 1, fmt.Errorf("projet non configuré : rien n'a été écrit. Lancez 'just-code init' quand vous voudrez le configurer")
+		}
 		code, err = initRun(initOptions{Root: projectRoot, FromLaunch: true, Set: map[string]bool{"root": true}}, nil, true)
 		if err != nil || code != 0 {
 			return false, code, err
@@ -2074,6 +2078,9 @@ func offerProjectInitWithReader(projectRoot string, parsed parsedArgs, given *bu
 	answer, _ := promptLine(in, "Configurer maintenant ? [O/n] : ")
 	switch strings.ToLower(strings.TrimSpace(answer)) {
 	case "n", "non", "no":
+		return false, 1, fmt.Errorf("projet non configuré : rien n'a été écrit. Lancez 'just-code init' quand vous voudrez le configurer")
+	}
+	if !printInitIntro(projectRoot, in) {
 		return false, 1, fmt.Errorf("projet non configuré : rien n'a été écrit. Lancez 'just-code init' quand vous voudrez le configurer")
 	}
 	code, err = initRun(initOptions{Root: projectRoot, FromLaunch: true, Set: map[string]bool{"root": true}}, in, true)
