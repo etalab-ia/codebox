@@ -947,7 +947,7 @@ func resolveEnabledAlbertModels(activeModels ...string) []justcode.AlbertModelCo
 	if len(ids) == 0 {
 		embeddedOnly := true
 		for _, activeModel := range activeModels {
-			if activeModel != "" && activeModel != "albert/qwen3-coder" {
+			if activeModel != "" && activeModel != "albert/deepseek-v4-flash" {
 				embeddedOnly = false
 			}
 		}

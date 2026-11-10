@@ -50,7 +50,7 @@ def main():
             try: rc=probe.wait(timeout=540)
             except subprocess.TimeoutExpired: raise RuntimeError('native probe deadline exceeded')
         raw=(directory/'native-stdout-private.log').read_text(errors='replace')
-        lines=[s for s in raw.splitlines() if re.fullmatch(r'(?:PASS|FAIL) [a-z0-9-]+',s) or re.fullmatch(r'META kit=v3 source=[0-9a-f]{40} sdk=0\.7\.13 runtime=0\.7\.13 archive_sha256=[0-9a-f]{64} go=go[0-9.]+',s)]
+        lines=[s for s in raw.splitlines() if re.fullmatch(r'(?:PASS|FAIL) [a-z0-9-]+',s) or re.fullmatch(r'META kit=v3 source=[0-9a-f]{40} sdk=0\.7\.14 runtime=0\.7\.14 archive_sha256=[0-9a-f]{64} go=go[0-9.]+',s)]
         (directory/'results.txt').write_text('\n'.join(lines)+'\n')
         print((directory/'results.txt').read_text(),end='',flush=True)
     except (Exception,KeyboardInterrupt):
