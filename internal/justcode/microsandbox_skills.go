@@ -439,12 +439,58 @@ func (m *MicrosandboxRuntime) verifyProjectSkills(ctx context.Context) error {
 	if m.cfg.EffectiveHarness() == HarnessPi {
 		return m.verifyPiProjectSkills(ctx)
 	}
+	expected := make(map[string]bool, len(m.cfg.ProjectSkills))
+	for _, skill := range m.cfg.ProjectSkills {
+		expected[skill.Name] = true
+	}
+	// Right after a cold start, OpenCode 2.2.5 can answer /api/skill with an
+	// empty list before its skill index is ready (upstream anomalycoco/opencode
+	// #61669). That empty result is a startup race, not a failed install, so the
+	// query is retried with the bounded guest-agent backoff when a pinned skill
+	// is reported missing. A genuine command error, a malformed response, or a
+	// duplicated report stays a hard failure: none of those resolve by waiting.
+	delay := m.launchRetryDelay
+	if delay == 0 {
+		delay = msbLaunchRetryDelay
+	}
+	var problem error
+	for attempt := 1; attempt <= msbLaunchAttempts; attempt++ {
+		missing, returned, err := m.queryOpenCodeSkillDiscovery(ctx, expected)
+		if err != nil {
+			return err
+		}
+		// A skill reported more than once is a real response anomaly, not a
+		// cold-start race; surface it immediately rather than retrying.
+		if dup := firstDuplicate(expected, returned); dup != "" {
+			return fmt.Errorf("verify guest skill discovery: OpenCode reports the pinned skill %q more than once", dup)
+		}
+		if len(missing) == 0 {
+			return nil
+		}
+		problem = fmt.Errorf("verify guest skill discovery: OpenCode did not discover the pinned skill %q", missing[0])
+		if attempt == msbLaunchAttempts {
+			break
+		}
+		select {
+		case <-time.After(delay):
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	}
+	return problem
+}
+
+// queryOpenCodeSkillDiscovery asks OpenCode what skills it discovered and
+// returns the pinned skills that were not reported (missing) and the full set
+// of reported names (returned). Command, exit and JSON errors are returned as
+// hard errors.
+func (m *MicrosandboxRuntime) queryOpenCodeSkillDiscovery(ctx context.Context, expected map[string]bool) (missing, returned []string, err error) {
 	stdout, stderr, code, err := m.Client.ExecCapture(ctx, m.InstanceName(), "opencode api --standalone GET /api/skill")
 	if err != nil {
-		return fmt.Errorf("verify guest skill discovery: %w", err)
+		return nil, nil, fmt.Errorf("verify guest skill discovery: %w", err)
 	}
 	if code != 0 {
-		return fmt.Errorf("verify guest skill discovery: opencode api --standalone GET /api/skill exited %d: %s", code, strings.TrimSpace(stderr))
+		return nil, nil, fmt.Errorf("verify guest skill discovery: opencode api --standalone GET /api/skill exited %d: %s", code, strings.TrimSpace(stderr))
 	}
 	var response struct {
 		Data []struct {
@@ -452,27 +498,35 @@ func (m *MicrosandboxRuntime) verifyProjectSkills(ctx context.Context) error {
 		} `json:"data"`
 	}
 	if err := json.Unmarshal([]byte(stdout), &response); err != nil {
-		return fmt.Errorf("verify guest skill discovery: invalid OpenCode response: %w", err)
-	}
-	expected := make(map[string]bool, len(m.cfg.ProjectSkills))
-	for _, skill := range m.cfg.ProjectSkills {
-		expected[skill.Name] = true
+		return nil, nil, fmt.Errorf("verify guest skill discovery: invalid OpenCode response: %w", err)
 	}
 	seen := make(map[string]int, len(expected))
 	for _, item := range response.Data {
 		if expected[item.Name] {
 			seen[item.Name]++
+			returned = append(returned, item.Name)
 		}
 	}
 	for _, skill := range m.cfg.ProjectSkills {
 		if seen[skill.Name] == 0 {
-			return fmt.Errorf("verify guest skill discovery: OpenCode did not discover the pinned skill %q", skill.Name)
-		}
-		if seen[skill.Name] > 1 {
-			return fmt.Errorf("verify guest skill discovery: OpenCode reports the pinned skill %q more than once", skill.Name)
+			missing = append(missing, skill.Name)
 		}
 	}
-	return nil
+	return missing, returned, nil
+}
+
+func firstDuplicate(expected map[string]bool, returned []string) string {
+	seen := make(map[string]bool, len(returned))
+	for _, name := range returned {
+		if !expected[name] {
+			continue
+		}
+		if seen[name] {
+			return name
+		}
+		seen[name] = true
+	}
+	return ""
 }
 
 // verifyPiProjectSkills checks that every pinned skill is present in the

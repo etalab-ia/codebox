@@ -471,6 +471,47 @@ func TestVerifyProjectSkillsRejectsDuplicateDiscovery(t *testing.T) {
 	}
 }
 
+func TestVerifyProjectSkillsRetriesTransientEmptyDiscovery(t *testing.T) {
+	// OpenCode 2.2.5 can answer /api/skill with an empty list right after a
+	// cold start (upstream anomalycoco/opencode #61669). The verification must
+	// retry that race and succeed once discovery catches up, rather than
+	// declaring the pinned skill missing.
+	client := &fakeMSBClient{execCaptureResults: []fakeMSBExecCaptureResult{
+		{stdout: `{"data":[]}`},
+		{stdout: `{"data":[{"name":"rgaa"}]}`},
+	}}
+	m := NewMicrosandboxRuntime(Config{ProjectSkills: []SkillPackage{{Name: "rgaa"}}})
+	m.Client = client
+	m.launchRetryDelay = time.Millisecond
+	if err := m.verifyProjectSkills(context.Background()); err != nil {
+		t.Fatalf("transient empty discovery should be retried: %v", err)
+	}
+	if len(client.calls) != 2 {
+		t.Fatalf("discovery attempts = %d, want 2: %v", len(client.calls), client.calls)
+	}
+}
+
+func TestVerifyProjectSkillsDoesNotRetryCommandOrJSONError(t *testing.T) {
+	for name, result := range map[string]fakeMSBExecCaptureResult{
+		"command error": {err: errors.New("connection refused")},
+		"nonzero exit":  {code: 1, stderr: "boom"},
+		"malformed":     {stdout: "not json"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			client := &fakeMSBClient{execCaptureResults: []fakeMSBExecCaptureResult{result}}
+			m := NewMicrosandboxRuntime(Config{ProjectSkills: []SkillPackage{{Name: "rgaa"}}})
+			m.Client = client
+			m.launchRetryDelay = time.Millisecond
+			if err := m.verifyProjectSkills(context.Background()); err == nil {
+				t.Fatalf("expected a hard error for %s", name)
+			}
+			if len(client.calls) != 1 {
+				t.Fatalf("hard error should not be retried: attempts = %d, want 1", len(client.calls))
+			}
+		})
+	}
+}
+
 func TestSkillDeselectionRequiresExplicitGuestRecreation(t *testing.T) {
 	old := guestSkillInventory{SchemaVersion: guestSkillInventorySchema, Skills: []guestSkillEntry{{
 		ID: "official/rgaa", Name: "rgaa", Revision: projectSkillsRevision, SHA256: strings.Repeat("a", 64),
