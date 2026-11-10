@@ -1677,7 +1677,7 @@ func TestInitSkillPromptShowsSixChoicesAndConfirmsEmptySelection(t *testing.T) {
 	for _, want := range []string{
 		"Skills (facultatif)", "[x] securite-developpement", "[ ] anssi-guides",
 		"[ ] rgaa", "[ ] react-dsfr", "[ ] lasuite-ui-kit", "[ ] datagouv-apis",
-		"Aucune skill sélectionnée. Continuer sans skill ? (O/n)",
+		"Aucune skill sélectionnée. Continuer sans skill ?",
 		"Où enregistrer les skills ?", "règles de sécurité de l'État, issues des guides ANSSI",
 	} {
 		if !strings.Contains(out, want) {
