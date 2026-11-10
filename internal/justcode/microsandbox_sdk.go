@@ -956,30 +956,38 @@ type persistedSecretRef struct {
 // recovery republishes them even when the current provider configuration selects
 // different platforms. A document with no secrets, or none of kind "env", yields
 // an empty result (no error).
+//
+// Three shape details follow the runtime's own persisted format and are easy to
+// get wrong; all three are pinned by
+// TestParsePersistedEnvRefSecretsReadsTheRuntimeDocumentShape:
+//
+//   - Secret policy lives under network.secrets.secrets, not at the top level.
+//   - An allowlist entry is a tagged host pattern ({"exact":"api.example.com"},
+//     {"wildcard":"*.openai.com"}, or the bare string "any"), not a plain
+//     hostname. Reading them into []string fails the whole decode, which would
+//     turn every sandbox with a secret into a recovery refusal.
+//   - The placeholder is a required string in the persisted record, so its
+//     absence is missing metadata rather than an empty placeholder. It is read
+//     through a pointer to keep "absent" distinguishable from "".
 func parsePersistedEnvRefSecrets(configJSON string) ([]persistedSecretRef, error) {
 	var raw struct {
-		Secrets []struct {
-			Name   string                `json:"name"`
-			Source persistedSecretSource `json:"source"`
-			// The persisted document does not have one agreed spelling for the
-			// destination allowlist: the create-time/YAML surface names it
-			// `allow`, while the modify patch and its core serde aliases use
-			// `allowed_hosts`. The SDK's typed SandboxConfig never decodes
-			// secret registrations, so neither spelling can be confirmed from
-			// Go alone. Read both and treat either as the same list: this only
-			// widens what recovery can prove, and an absent allowlist still
-			// fails closed.
-			AllowedHosts []string `json:"allowed_hosts"`
-			Allow        []string `json:"allow"`
-			Placeholder  *string  `json:"placeholder"`
-		} `json:"secrets"`
+		Network struct {
+			Secrets struct {
+				Secrets []struct {
+					EnvVar       string                 `json:"env_var"`
+					Source       persistedSecretSource  `json:"source"`
+					Placeholder  *string                `json:"placeholder"`
+					AllowedHosts []persistedHostPattern `json:"allowed_hosts"`
+				} `json:"secrets"`
+			} `json:"secrets"`
+		} `json:"network"`
 	}
 	if err := json.Unmarshal([]byte(configJSON), &raw); err != nil {
 		return nil, fmt.Errorf("decode persisted sandbox secrets: %w", err)
 	}
-	seen := make(map[string]struct{}, len(raw.Secrets))
+	seen := make(map[string]struct{}, len(raw.Network.Secrets.Secrets))
 	var out []persistedSecretRef
-	for _, s := range raw.Secrets {
+	for _, s := range raw.Network.Secrets.Secrets {
 		if s.Source.Kind != "env" || s.Source.Var == "" {
 			continue
 		}
@@ -987,17 +995,66 @@ func parsePersistedEnvRefSecrets(configJSON string) ([]persistedSecretRef, error
 			continue
 		}
 		seen[s.Source.Var] = struct{}{}
-		allowed := s.AllowedHosts
-		if len(allowed) == 0 {
-			allowed = s.Allow
+		allowed := make([]string, 0, len(s.AllowedHosts))
+		for _, p := range s.AllowedHosts {
+			if host := p.host(); host != "" {
+				allowed = append(allowed, host)
+			}
 		}
 		out = append(out, persistedSecretRef{
 			HostEnv:      s.Source.Var,
-			AllowedHosts: append([]string(nil), allowed...),
+			AllowedHosts: allowed,
 			Placeholder:  s.Placeholder,
 		})
 	}
 	return out, nil
+}
+
+// persistedHostPattern is one entry of a persisted destination allowlist. The
+// runtime serializes HostPattern as an externally tagged enum: an exact hostname
+// is {"exact":"api.example.com"}, a wildcard is {"wildcard":"*.openai.com"}, and
+// the catch-all unit variant is the bare string "any". All three must decode or
+// the whole registration is unreadable, so this accepts both the object and the
+// string spelling.
+//
+// The catch-all is reported as hostAny rather than dropped: it cannot be proven
+// compatible with a concrete approval, and silently discarding it would make an
+// unrestricted allowlist look like a narrow one.
+type persistedHostPattern struct {
+	Exact    string `json:"exact"`
+	Wildcard string `json:"wildcard"`
+}
+
+// hostAny is the sentinel reported for the runtime's catch-all host variant. It
+// never equals a concrete hostname, so a subset check against real destinations
+// refuses it instead of treating it as a match.
+const hostAny = "*"
+
+func (p *persistedHostPattern) UnmarshalJSON(data []byte) error {
+	var obj struct {
+		Exact    string `json:"exact"`
+		Wildcard string `json:"wildcard"`
+	}
+	if err := json.Unmarshal(data, &obj); err == nil {
+		p.Exact, p.Wildcard = obj.Exact, obj.Wildcard
+		return nil
+	}
+	var unit string
+	if err := json.Unmarshal(data, &unit); err != nil {
+		return fmt.Errorf("decode persisted host pattern: %w", err)
+	}
+	if unit == "any" {
+		p.Exact = hostAny
+		return nil
+	}
+	return fmt.Errorf("decode persisted host pattern: unrecognized variant %q", unit)
+}
+
+func (p persistedHostPattern) host() string {
+	if p.Exact != "" {
+		return p.Exact
+	}
+	return p.Wildcard
 }
 
 // persistedConfigReader is the part of an SDK sandbox handle the guest-env

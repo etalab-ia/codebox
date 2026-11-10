@@ -1693,6 +1693,20 @@ func (m *MicrosandboxRuntime) resolvePersistedBindings(ctx context.Context, refs
 			continue
 		}
 		if b.Provider {
+			// A configurable platform's credential kind is shared across
+			// platforms: every OpenAI-compatible endpoint stores its key under
+			// the same credential kind and guest variable. Recovery resolves
+			// the *current* configuration's value, while the persisted
+			// registration keeps the endpoint and allowlist it was created
+			// with, and recovery does not call ModifyNextStart to reconcile
+			// them. Publishing after the user re-pointed that variable at a
+			// different platform would therefore hand the new platform's key
+			// to the old, still-allowed host. Require the persisted allowlist
+			// to still be a destination of the currently configured platform
+			// before resolving its credential.
+			if err := validatePersistedProviderCompatibility(ref, b, m.cfg.Providers); err != nil {
+				return nil, fmt.Errorf("cannot recover %s: %w: the persisted %s registration %q no longer matches the configured platform; recreate the sandbox to apply the new platform's endpoint", m.InstanceName(), err, b.Kind, hostEnv)
+			}
 			v, src, store, entry, err := resolveProviderWith(read, ctx, m.cfg, b.Kind, b.GuestEnv, m.CredentialStore)
 			if err != nil {
 				return nil, fmt.Errorf("cannot resolve the persisted %s credential of %s: %w (store one with 'just-code auth add %s', or recreate the sandbox)", b.Kind, m.InstanceName(), err, b.Kind)
@@ -1835,6 +1849,67 @@ func stringSetIsSubset(subset, set []string) bool {
 		}
 	}
 	return true
+}
+
+// validatePersistedProviderCompatibility rejects republishing a persisted
+// built-in provider credential when the current configuration has re-pointed its
+// credential kind at a different endpoint.
+//
+// A configurable platform shares one credential kind and one guest variable
+// across endpoints: every OpenAI-compatible platform stores its key under
+// CredentialOpenAICompatible and exposes it as OPENAI_COMPATIBLE_API_KEY.
+// Recovery resolves the *current* configuration's value for that kind, while the
+// persisted registration keeps the endpoint it was created with, and recovery
+// never calls ModifyNextStart, so the old destination allowlist stays in force.
+// Re-pointing that variable from platform A to platform B and then recovering
+// would publish B's key to A's still-allowed host.
+//
+// The check is deliberately narrow. It needs positive evidence of where the
+// registration pointed, which is the persisted allowlist, so a registration that
+// persisted none is left alone rather than guessed at. And it only applies when a
+// platform of that kind is currently configured: when the kind is not configured
+// at all, no value for it can be misrouted, and Albert-to-Mistral recovery — a
+// sandbox created with one platform recovered under another — must keep working,
+// since those kinds map to fixed endpoints one-to-one and each resolves from its
+// own store entry.
+func validatePersistedProviderCompatibility(ref persistedSecretRef, b msbSecretBinding, configured []InferenceProvider) error {
+	if len(ref.AllowedHosts) == 0 {
+		return nil
+	}
+	provider, ok := providerForKind(b.Kind, configured)
+	if !ok {
+		// No platform of this kind is configured now. The credential still
+		// resolves from the same kind's store entry, which is the platform the
+		// registration was created for, so there is nothing to misroute.
+		return nil
+	}
+	if !stringSetIsSubset([]string{provider.Host}, ref.AllowedHosts) {
+		return fmt.Errorf("the persisted destinations %v no longer include the configured platform's host %s", ref.AllowedHosts, provider.Host)
+	}
+	return nil
+}
+
+// providerForKind returns the configured platform that owns a credential kind.
+// It resolves the runtime's own provider set, so recovery compares against the
+// same endpoints the start path would use, including a configurable platform's
+// current base URL. An empty set falls back to the resolved defaults, exactly as
+// the binding registry does, so the comparison cannot disagree with the start
+// path about which platforms exist.
+func providerForKind(kind CredentialKind, configured []InferenceProvider) (InferenceProvider, bool) {
+	providers := configured
+	if len(providers) == 0 {
+		resolved, err := ResolveProviders(nil)
+		if err != nil {
+			return InferenceProvider{}, false
+		}
+		providers = resolved
+	}
+	for _, p := range providers {
+		if p.CredentialKind == kind {
+			return p, true
+		}
+	}
+	return InferenceProvider{}, false
 }
 
 // waitForGuestShell blocks until the guest answers an exec probe, bounded by

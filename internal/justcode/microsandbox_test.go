@@ -2007,13 +2007,14 @@ func TestGuestEnvFromHandleReadsThePersistedDocument(t *testing.T) {
 }
 
 // persistedConfigWithSecrets builds a persisted sandbox document carrying the
-// given secret registrations, in the shape the SDK's catalog encoder writes.
-// The source field is the part recovery depends on: only env-reference secrets
-// (source.kind == "env") name a host transport variable to republish.
+// given secret registrations the way the runtime actually saves them: under
+// network.secrets.secrets, not at the top level. The source field is the part
+// recovery depends on: only env-reference secrets (source.kind == "env") name a
+// host transport variable to republish.
 func persistedConfigWithSecrets(secrets ...string) string {
 	return `{"name":"` + msbSandbox + `",` +
 		`"runtime":{"workdir":"/workspace","shell":"/bin/sh","scripts":{"start":"exec sleep infinity"}},` +
-		`"secrets":[` + strings.Join(secrets, ",") + `]}`
+		`"network":{"secrets":{"secrets":[` + strings.Join(secrets, ",") + `]}}}`
 }
 
 // TestParsePersistedEnvRefSecretsReadsThePersistedDocument pins what recovery
@@ -2067,7 +2068,7 @@ func TestParsePersistedEnvRefSecretsEmptyDocument(t *testing.T) {
 // the current approval before recovery republishes the transport variable.
 func TestParsePersistedEnvRefSecretsPreservesMetadata(t *testing.T) {
 	config := persistedConfigWithSecrets(
-		`{"name":"JC_API_KEY","source":{"kind":"env","var":"JUST_CODE_HOST_PROJECT_JC_API_KEY"},"allowed_hosts":["api.example.com"],"placeholder":"__MKR__"}`,
+		`{"env_var":"JC_API_KEY","source":{"kind":"env","var":"JUST_CODE_HOST_PROJECT_JC_API_KEY"},"allowed_hosts":[{"exact":"api.example.com"}],"placeholder":"__MKR__"}`,
 	)
 	refs, err := parsePersistedEnvRefSecrets(config)
 	if err != nil {
@@ -2112,24 +2113,59 @@ func TestParsePersistedEnvRefSecretsMissingMetadataFailsClosed(t *testing.T) {
 	}
 }
 
-// TestParsePersistedEnvRefSecretsAcceptsAllowSpelling pins the second spelling
-// of the destination allowlist. The persisted document does not have one agreed
-// name for it, and the typed SandboxConfig cannot confirm either from Go, so a
-// parser that understood only one spelling would silently fail closed on real
-// sandboxes created through the other surface.
-func TestParsePersistedEnvRefSecretsAcceptsAllowSpelling(t *testing.T) {
-	config := persistedConfigWithSecrets(
-		`{"name":"JC_API_KEY","source":{"kind":"env","var":"JUST_CODE_HOST_PROJECT_JC_API_KEY"},"allow":["api.example.com"],"placeholder":"__MKR__"}`,
-	)
+// TestParsePersistedEnvRefSecretsReadsTheRuntimeDocumentShape pins the parser
+// against a document copied from the runtime's own saved configuration, not
+// from a shape I assumed. Three details here are easy to get wrong and each one
+// silently breaks recovery rather than failing loudly:
+//
+//   - the secret policy is nested under network.secrets.secrets;
+//   - allowlist entries are tagged host patterns ({"exact": ...} /
+//     {"wildcard": ...}), so reading them as plain strings would fail the whole
+//     decode and turn every credential-backed sandbox into a refusal;
+//   - a wildcard entry must be reported as written, so validation can tell it
+//     apart from an exact host it could actually verify against the approval.
+func TestParsePersistedEnvRefSecretsReadsTheRuntimeDocumentShape(t *testing.T) {
+	config := `{"name":"jc-proj","network":{"secrets":{"secrets":[` +
+		`{"env_var":"API_KEY","source":{"kind":"env","var":"JUST_CODE_HOST_PROJECT_JC_API_KEY"},` +
+		`"placeholder":"$MSB_API_KEY","allowed_hosts":[{"exact":"api.example.com"},{"wildcard":"*.openai.com"}]}]}}}`
 	refs, err := parsePersistedEnvRefSecrets(config)
 	if err != nil {
 		t.Fatalf("parsePersistedEnvRefSecrets: %v", err)
 	}
 	if len(refs) != 1 {
-		t.Fatalf("persisted secret refs = %v, want one project-secret registration", refs)
+		t.Fatalf("persisted secret refs = %v, want one env-reference registration", refs)
 	}
-	if len(refs[0].AllowedHosts) != 1 || refs[0].AllowedHosts[0] != "api.example.com" {
-		t.Fatalf("AllowedHosts = %v, want [api.example.com] read from the allow field", refs[0].AllowedHosts)
+	ref := refs[0]
+	if ref.HostEnv != "JUST_CODE_HOST_PROJECT_JC_API_KEY" {
+		t.Fatalf("HostEnv = %q, want the persisted source variable", ref.HostEnv)
+	}
+	if len(ref.AllowedHosts) != 2 || ref.AllowedHosts[0] != "api.example.com" || ref.AllowedHosts[1] != "*.openai.com" {
+		t.Fatalf("AllowedHosts = %v, want [api.example.com *.openai.com] from the tagged host patterns", ref.AllowedHosts)
+	}
+	if ref.Placeholder == nil || *ref.Placeholder != "$MSB_API_KEY" {
+		t.Fatalf("Placeholder = %v, want %q", ref.Placeholder, "$MSB_API_KEY")
+	}
+}
+
+// TestParsePersistedEnvRefSecretsReadsTheAnyHostVariant pins the third spelling
+// of an allowlist entry. The runtime's catch-all variant serializes as the bare
+// string "any" while the others are objects, so a parser that only accepted
+// objects would fail to read any sandbox whose allowlist contains it. It is
+// reported as the wildcard sentinel rather than dropped, so validation refuses
+// it instead of mistaking an unrestricted allowlist for a narrow one.
+func TestParsePersistedEnvRefSecretsReadsTheAnyHostVariant(t *testing.T) {
+	config := `{"network":{"secrets":{"secrets":[` +
+		`{"env_var":"API_KEY","source":{"kind":"env","var":"JUST_CODE_HOST_PROJECT_JC_API_KEY"},` +
+		`"placeholder":"$MSB_API_KEY","allowed_hosts":["any"]}]}}}`
+	refs, err := parsePersistedEnvRefSecrets(config)
+	if err != nil {
+		t.Fatalf("parsePersistedEnvRefSecrets: %v", err)
+	}
+	if len(refs) != 1 {
+		t.Fatalf("persisted secret refs = %v, want one env-reference registration", refs)
+	}
+	if len(refs[0].AllowedHosts) != 1 || refs[0].AllowedHosts[0] != hostAny {
+		t.Fatalf("AllowedHosts = %v, want [%s] for the catch-all variant", refs[0].AllowedHosts, hostAny)
 	}
 }
 
@@ -2813,6 +2849,85 @@ func TestRecoverRefusesPersistedProjectSecretWithoutProvenance(t *testing.T) {
 				t.Fatalf("Recover must not read the secret on ambiguous metadata, got %d reads", got)
 			}
 		})
+	}
+}
+
+// Recover refuses to republish a configurable platform's credential when the
+// persisted registration was created for a different endpoint than the one now
+// configured for that credential kind.
+//
+// Every OpenAI-compatible platform shares one credential kind and one guest
+// variable, so re-pointing OPENAI_COMPATIBLE_API_KEY at platform B while a
+// sandbox still carries platform A's persisted registration would publish B's
+// key to A's host: recovery keeps the persisted allowlist because it never calls
+// ModifyNextStart. The refusal must happen before the value is resolved.
+func TestRecoverRefusesPersistedProviderWhoseEndpointChanged(t *testing.T) {
+	client := sealedFakeMSB()
+	m := newTestMicrosandbox(t, client)
+	// The configuration now points the shared variable at platform B.
+	m.cfg.Providers = []InferenceProvider{{
+		Kind:           ProviderOpenAICompatible,
+		Name:           "Platform B",
+		BaseURL:        "https://b.example.net/v1",
+		CredentialKind: CredentialOpenAICompatible,
+		APIKeyEnv:      OpenAICompatibleAPIKeyEnv,
+		Host:           "b.example.net",
+	}}
+	resolved := false
+	m.credentialRead = func(context.Context, CredentialKind, string) (string, string, error) {
+		resolved = true
+		return "platform-b-secret", "native", nil
+	}
+	// The stopped sandbox persisted platform A's registration and allowlist.
+	client.persistedSecretRefs = []persistedSecretRef{{
+		HostEnv:      "JUST_CODE_HOST_OPENAI_COMPATIBLE_API_KEY",
+		AllowedHosts: []string{"a.example.com"},
+		Placeholder:  strPtr("$MSB_OPENAI_COMPATIBLE_API_KEY"),
+	}}
+
+	err := m.Recover(context.Background())
+	if err == nil {
+		t.Fatal("Recover must refuse when the configured platform no longer matches the persisted registration")
+	}
+	if !strings.Contains(err.Error(), "no longer include the configured platform's host") {
+		t.Fatalf("refusal should name the endpoint mismatch, got: %v", err)
+	}
+	if resolved {
+		t.Fatal("Recover must not resolve the credential before proving the endpoint still matches")
+	}
+	if hasCall(client, "start ") {
+		t.Fatalf("Recover must not boot the sandbox on a re-pointed credential, got calls:\n%s", strings.Join(client.calls, "\n"))
+	}
+}
+
+// Recover still accepts a persisted provider registration whose allowlist does
+// contain the configured platform's host: that is the ordinary case, and the new
+// endpoint check must not disturb it.
+func TestRecoverAcceptsPersistedProviderWhoseEndpointStillMatches(t *testing.T) {
+	client := sealedFakeMSB()
+	m := newTestMicrosandbox(t, client)
+	m.cfg.Providers = []InferenceProvider{{
+		Kind:           ProviderOpenAICompatible,
+		Name:           "Platform A",
+		BaseURL:        "https://a.example.com/v1",
+		CredentialKind: CredentialOpenAICompatible,
+		APIKeyEnv:      OpenAICompatibleAPIKeyEnv,
+		Host:           "a.example.com",
+	}}
+	m.credentialRead = func(context.Context, CredentialKind, string) (string, string, error) {
+		return "platform-a-secret", "native", nil
+	}
+	client.persistedSecretRefs = []persistedSecretRef{{
+		HostEnv:      "JUST_CODE_HOST_OPENAI_COMPATIBLE_API_KEY",
+		AllowedHosts: []string{"a.example.com"},
+		Placeholder:  strPtr("$MSB_OPENAI_COMPATIBLE_API_KEY"),
+	}}
+
+	if err := m.Recover(context.Background()); err != nil {
+		t.Fatalf("Recover must accept a persisted registration that still matches the configured endpoint: %v", err)
+	}
+	if got := client.startHostEnv["JUST_CODE_HOST_OPENAI_COMPATIBLE_API_KEY"]; got != "platform-a-secret" {
+		t.Fatalf("Recover must publish the persisted provider transport variable, got %q", got)
 	}
 }
 
