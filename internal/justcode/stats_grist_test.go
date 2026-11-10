@@ -50,6 +50,29 @@ func TestStatsGristRecordsURLAcceptsLoopbackOverHTTP(t *testing.T) {
 	}
 }
 
+// A path ending at the organization prefix has nothing left to parse. Every
+// nonempty queue reaches this helper, so a panic here kills the detached
+// flusher instead of simply classifying the endpoint as non-Grist.
+func TestStatsGristRecordsURLDoesNotPanicOnATruncatedPath(t *testing.T) {
+	for _, endpoint := range []string{
+		"https://grist.example.fr/o",
+		"https://grist.example.fr/o/",
+		"https://grist.example.fr/api",
+		"https://grist.example.fr/api/docs",
+	} {
+		func() {
+			defer func() {
+				if r := recover(); r != nil {
+					t.Fatalf("statsGristRecordsURL(%q) panicked: %v", endpoint, r)
+				}
+			}()
+			if _, ok := statsGristRecordsURL(endpoint); ok {
+				t.Fatalf("statsGristRecordsURL(%q) must not be a records collection", endpoint)
+			}
+		}()
+	}
+}
+
 func TestStatsGristFieldsCarryTheDocumentedColumns(t *testing.T) {
 	event := StatsEvent{
 		SchemaVersion: 1,
@@ -178,10 +201,10 @@ func TestFlushStatsToGristPostsOneRecordPerEventWithoutACredential(t *testing.T)
 	}
 }
 
-// A Grist document with Create-only access rules refuses an update, so a retry
-// surfaces as a rejection. The event must leave the queue, or it would sit there
-// until the queue cap silently discarded it.
-func TestFlushStatsToGristDropsAnEventGristRejects(t *testing.T) {
+// The documented duplicate guard (newRec.Count > 1) rejects the write through
+// access rules. Grist answers 403 with an ACL_DENY message, so this uses the
+// real response shape: a synthetic 409 would have passed without covering it.
+func TestFlushStatsToGristDropsAnEventTheAccessRulesReject(t *testing.T) {
 	statsTestHome(t)
 	if err := WriteStatsConsent(DefaultFS, mustSettingsPath(t), true, true); err != nil {
 		t.Fatal(err)
@@ -191,8 +214,8 @@ func TestFlushStatsToGristDropsAnEventGristRejects(t *testing.T) {
 		t.Fatal(err)
 	}
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusConflict)
-		_, _ = w.Write([]byte(`{"error":"duplicate"}`))
+		w.WriteHeader(http.StatusForbidden)
+		_, _ = w.Write([]byte(`{"error":"Blocked by table Create access rules","memos":{}}`))
 	}))
 	defer server.Close()
 	t.Setenv("JUST_CODE_STATS_URL", server.URL+gristTestPath)
@@ -202,6 +225,74 @@ func TestFlushStatsToGristDropsAnEventGristRejects(t *testing.T) {
 	}
 	if events, _ := PendingStatsEvents(DefaultFS, stateDir); len(events) != 0 {
 		t.Fatalf("a rejected event must not stay queued: %v", events)
+	}
+}
+
+// A 403 that is not an access-rule rejection must stay queued: an operator who
+// fixes the rules should still see the backlog delivered.
+func TestFlushStatsToGristKeepsAnUnrelated403(t *testing.T) {
+	statsTestHome(t)
+	if err := WriteStatsConsent(DefaultFS, mustSettingsPath(t), true, true); err != nil {
+		t.Fatal(err)
+	}
+	stateDir := t.TempDir()
+	if err := EnqueueStatsEvent(DefaultFS, stateDir, StatsEvent{SchemaVersion: 1, EventID: "e", Kind: "setup"}); err != nil {
+		t.Fatal(err)
+	}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusForbidden)
+		_, _ = w.Write([]byte(`{"error":"Unauthorized"}`))
+	}))
+	defer server.Close()
+	t.Setenv("JUST_CODE_STATS_URL", server.URL+gristTestPath)
+
+	if err := FlushStats(context.Background(), DefaultFS, stateDir); err == nil {
+		t.Fatal("an unrelated 403 must be reported")
+	}
+	if events, _ := PendingStatsEvents(DefaultFS, stateDir); len(events) != 1 {
+		t.Fatalf("an unrelated 403 must keep the event: %v", events)
+	}
+}
+
+// `stats off` during a flush must stop it. The loop holds an in-memory snapshot
+// the command cannot reach, so consent has to be re-read per request.
+func TestFlushStatsToGristStopsWhenConsentIsWithdrawnMidFlush(t *testing.T) {
+	statsTestHome(t)
+	if err := WriteStatsConsent(DefaultFS, mustSettingsPath(t), true, true); err != nil {
+		t.Fatal(err)
+	}
+	stateDir := t.TempDir()
+	for _, id := range []string{"evt-1", "evt-2", "evt-3", "evt-4"} {
+		if err := EnqueueStatsEvent(DefaultFS, stateDir, StatsEvent{SchemaVersion: 1, EventID: id, Kind: "setup"}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	var mu sync.Mutex
+	var calls int
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		calls++
+		first := calls == 1
+		mu.Unlock()
+		if first {
+			// The user runs `stats off` while this first request is in flight.
+			if err := WriteStatsConsent(DefaultFS, mustSettingsPath(t), false, true); err != nil {
+				t.Errorf("withdraw consent: %v", err)
+			}
+		}
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+	t.Setenv("JUST_CODE_STATS_URL", server.URL+gristTestPath)
+
+	if err := FlushStats(context.Background(), DefaultFS, stateDir); err != nil {
+		t.Fatal(err)
+	}
+	mu.Lock()
+	got := calls
+	mu.Unlock()
+	if got != 1 {
+		t.Fatalf("no request may follow a withdrawal, made %d", got)
 	}
 }
 

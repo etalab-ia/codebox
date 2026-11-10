@@ -123,10 +123,18 @@ configuré, ce qui rend l'envoi observable, et `just-code stats off` l'arrête.
   sous-traitant tiers, mais cela ne remplace pas la vérification prévue par le
   relais.
 - **Les doublons après réessai.** Réessayer un événement déjà écrit se heurte au
-  refus de mise à jour. Le client traite un refus comme « déjà enregistré » et
-  retire l'événement de la file, pour qu'un réessai ne bloque pas les suivants
-  jusqu'à la limite de 32. Pour compter sans doublon, ajouter le garde-fou
-  publié par Grist : une colonne de formule `Count` valant
-  `len(Events.lookupRecords(eventId=$eventId))`, et une règle d'accès qui
-  refuse `C` (et `U`) quand `newRec.Count > 1` — donc sur la ligne proposée,
-  pas sur celle qui existe déjà.
+  refus de la règle d'accès, et Grist répond alors `403` avec un message
+  `Blocked by … access rules`. Le client traite ce refus précis comme « déjà
+  enregistré » et retire l'événement de la file, pour qu'un réessai ne bloque
+  pas les suivants jusqu'à la limite de 32. Un `403` qui ne vient pas des règles
+  d'accès reste, lui, réessayé.
+
+  Pour compter sans doublon, ajouter le garde-fou publié par Grist : une colonne
+  de formule `Count` valant `len(Events.lookupRecords(eventId=$eventId))`, et
+  une règle d'accès qui refuse `C` (et `U`) quand `newRec.Count > 1` — donc sur
+  la ligne proposée, pas sur celle qui existe déjà. **Sans cette règle, un
+  réessai crée une ligne en double** : le client ne peut pas dédupliquer seul,
+  faute de droit de lecture.
+
+Le consentement est relu avant **chaque** écriture, pas une fois pour le lot :
+un `just-code stats off` lancé pendant un envoi arrête les suivants.

@@ -91,7 +91,10 @@ func statsGristRecordsURL(endpoint string) (string, bool) {
 	}
 	segments := strings.Split(strings.Trim(u.Path, "/"), "/")
 	// [/o/<org>]/api/docs/<docId>/tables/<tableId>/records
-	if len(segments) > 0 && segments[0] == "o" {
+	// Strip the optional organization prefix only when what follows it can
+	// still be a records path: an endpoint ending in "/o" or "/o/" would
+	// otherwise slice past the end and panic in the detached flusher.
+	if len(segments) > 2 && segments[0] == "o" {
 		segments = segments[2:]
 	}
 	if len(segments) != 6 || segments[0] != "api" || segments[1] != "docs" ||
@@ -592,11 +595,23 @@ const statsGristTimeout = 5 * time.Second
 // Retries are not deduplicated server-side. Grist's own recipe for that is an
 // access rule on a formula column that counts records sharing the eventId and
 // denies Create when the count exceeds one, which rejects the duplicate rather
-// than merging it. The flusher treats that rejection as "already recorded" so a
-// retried event cannot sit in the queue until the queue cap discards it.
+// than merging it. Grist reports that refusal as 403 with an ACL_DENY message,
+// so the flusher treats exactly that response as "already recorded" and leaves
+// every other 403 retryable.
 func flushStatsToGrist(ctx context.Context, endpoint string, fs FS, stateDir string, events []StatsEvent) error {
+	settingsPath, err := UserSettingsPath()
+	if err != nil {
+		return err
+	}
 	var firstErr error
 	for _, event := range events {
+		// Consent is re-read before EVERY request, not once for the batch.
+		// `stats off` persists the refusal and clears the queue, but neither
+		// action reaches this in-memory snapshot; without this check a
+		// withdrawal mid-flush would still send up to every queued event.
+		if !statsConsentForFlush(fs, stateDir, settingsPath) {
+			return firstErr
+		}
 		fields, err := statsGristFields(event)
 		if err != nil {
 			// An event that cannot be encoded will never encode; keeping it
@@ -619,7 +634,7 @@ func flushStatsToGrist(ctx context.Context, endpoint string, fs FS, stateDir str
 			}
 			continue
 		}
-		status, err := postStatsGristRecord(ctx, endpoint, body)
+		status, respBody, err := postStatsGristRecord(ctx, endpoint, body)
 		switch {
 		case err != nil:
 			// The endpoint is unreachable or the request failed: stop, keep
@@ -627,9 +642,12 @@ func flushStatsToGrist(ctx context.Context, endpoint string, fs FS, stateDir str
 			return err
 		case status >= 200 && status < 300:
 		case status == http.StatusConflict || status == http.StatusBadRequest:
-			// A duplicate rejected by the uniqueness access rule, or a record
-			// Grist refused outright. Either way this event cannot be accepted
-			// later, so it must not stay in the queue.
+			// Grist refused the record outright; it cannot be accepted later.
+		case status == http.StatusForbidden && statsGristAccessRuleRejection(respBody):
+			// An access rule refused the write. When that rule is the
+			// documented duplicate guard (newRec.Count > 1), the event is
+			// already stored and the response was merely lost, so retrying
+			// forever would keep it in the queue until eviction.
 		default:
 			if firstErr == nil {
 				firstErr = fmt.Errorf("statistics endpoint returned HTTP %d", status)
@@ -643,24 +661,47 @@ func flushStatsToGrist(ctx context.Context, endpoint string, fs FS, stateDir str
 	return firstErr
 }
 
-// postStatsGristRecord sends one record and reports the status code. The body is
-// always drained so a keep-alive connection can be reused.
-func postStatsGristRecord(ctx context.Context, endpoint string, body []byte) (int, error) {
+// statsGristAccessRuleRejection reports whether a response is Grist refusing a
+// write through access rules, which is what the duplicate guard produces. It
+// matches the shape GranularAccess emits rather than any 403: an unrelated
+// permission failure must stay retryable, because an operator who corrects the
+// rules should see the backlog delivered afterwards.
+func statsGristAccessRuleRejection(body []byte) bool {
+	if len(body) == 0 {
+		return false
+	}
+	var parsed struct {
+		Error string `json:"error"`
+	}
+	if err := json.Unmarshal(body, &parsed); err != nil {
+		return false
+	}
+	return strings.Contains(parsed.Error, "Blocked by") && strings.Contains(parsed.Error, "access rules")
+}
+
+// postStatsGristRecord sends one record and reports the status code and body.
+// The body is read (and therefore drained) so a keep-alive connection can be
+// reused; the caller needs the tail of it to classify a rejection.
+func postStatsGristRecord(ctx context.Context, endpoint string, body []byte) (int, []byte, error) {
 	ctx, cancel := context.WithTimeout(ctx, statsGristTimeout)
 	defer cancel()
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(body))
 	if err != nil {
-		return 0, err
+		return 0, nil, err
 	}
 	req.Header.Set("Content-Type", "application/json")
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
-		return 0, err
+		return 0, nil, err
 	}
 	defer resp.Body.Close()
+	respBody, _ := io.ReadAll(io.LimitReader(resp.Body, statsGristMaxErrorBody))
 	_, _ = io.Copy(io.Discard, resp.Body)
-	return resp.StatusCode, nil
+	return resp.StatusCode, respBody, nil
 }
+
+// statsGristMaxErrorBody bounds how much of an error response is inspected.
+const statsGristMaxErrorBody = 4 << 10
 
 // SpawnStatsFlush starts the detached flusher and returns immediately. The
 // caller never waits: an unreachable endpoint must not slow the wizard.
