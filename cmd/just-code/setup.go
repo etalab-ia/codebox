@@ -1844,7 +1844,7 @@ func (m setupModelPicker) View() tea.View {
 		}
 		line := fmt.Sprintf("%s%s %-32s %s", cursor, mark, choice.Name, choice.Description)
 		if m.defaultModel == choice.Ref() {
-			line += " (recommandé)"
+			line += " (par défaut)"
 		}
 		if !m.isAvailable(choice.Ref()) {
 			line += " (indisponible)"
