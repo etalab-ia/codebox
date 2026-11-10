@@ -30,21 +30,30 @@ type fakeMSBClient struct {
 	doctorErr    error
 	mount        string
 	mountErr     error
-	appliedPorts []PortMapping
-	appliedErr   error
-	startScript  string
-	env          map[string]string
-	envErr       error
-	createErr    error
-	startErr     error
-	modifyErr    error
-	stopErr      error
-	removeErr    error
-	logsErr      error
-	shellErr     error
-	attachErr    error
+	// persistedSecretRefs are the env-reference secret registrations the
+	// sandbox's persisted document carries. Recovery republishes them at boot
+	// even when the current provider configuration differs, so this is what
+	// drives the persisted-binding resolution path.
+	persistedSecretRefs    []persistedSecretRef
+	persistedSecretRefsErr error
+	appliedPorts           []PortMapping
+	appliedErr             error
+	startScript            string
+	env                    map[string]string
+	envErr                 error
+	createErr              error
+	startErr               error
+	modifyErr              error
+	stopErr                error
+	removeErr              error
+	logsErr                error
+	shellErr               error
+	attachErr              error
 
-	calls            []string
+	calls []string
+	// startHostEnv captures the JUST_CODE_HOST_* transport variables that were
+	// published (via withHostSecrets) while Start ran, keyed by variable name.
+	startHostEnv     map[string]string
 	created          *msbSandboxSpec
 	modifiedEnv      map[string]string
 	modifiedBindings []msbSecretBinding
@@ -131,6 +140,19 @@ func (f *fakeMSBClient) AppliedPortMappings(_ context.Context, _ string) ([]Port
 
 func (f *fakeMSBClient) Start(_ context.Context, name string) error {
 	f.record("start " + name)
+	if f.startHostEnv == nil {
+		f.startHostEnv = map[string]string{}
+	}
+	// Capture every published transport variable, not a fixed list. The point
+	// of these assertions is what was actually present for the boot, and a
+	// hardcoded list silently reports "" for any variable outside it — which
+	// reads as "not published" rather than "not observed".
+	for _, entry := range os.Environ() {
+		k, v, ok := strings.Cut(entry, "=")
+		if ok && strings.HasPrefix(k, "JUST_CODE_HOST_") {
+			f.startHostEnv[k] = v
+		}
+	}
 	return f.startErr
 }
 
@@ -569,6 +591,11 @@ func (f *fakeMSBClient) StartScript(_ context.Context, name string) (string, err
 func (f *fakeMSBClient) Env(_ context.Context, name string) (map[string]string, error) {
 	f.record("readenv " + name)
 	return cloneStringMap(f.env), f.envErr
+}
+
+func (f *fakeMSBClient) PersistedSecretRefs(_ context.Context, name string) ([]persistedSecretRef, error) {
+	f.record("persistedsecretrefs " + name)
+	return append([]persistedSecretRef(nil), f.persistedSecretRefs...), f.persistedSecretRefsErr
 }
 
 func (f *fakeMSBClient) List(_ context.Context) ([]msbSandboxInfo, error) {
@@ -2020,6 +2047,169 @@ func TestGuestEnvFromHandleReadsThePersistedDocument(t *testing.T) {
 	}
 }
 
+// persistedConfigWithSecrets builds a persisted sandbox document carrying the
+// given secret registrations the way the runtime actually saves them: under
+// network.secrets.secrets, not at the top level. The source field is the part
+// recovery depends on: only env-reference secrets (source.kind == "env") name a
+// host transport variable to republish.
+func persistedConfigWithSecrets(secrets ...string) string {
+	return `{"name":"` + msbSandbox + `",` +
+		`"runtime":{"workdir":"/workspace","shell":"/bin/sh","scripts":{"start":"exec sleep infinity"}},` +
+		`"network":{"secrets":{"secrets":[` + strings.Join(secrets, ",") + `]}}}`
+}
+
+// TestParsePersistedEnvRefSecretsReadsThePersistedDocument pins what recovery
+// reads from the stored document. The typed SandboxConfig never fills its
+// Secrets field, so this is the only source that carries the host transport
+// variables the stop-start script actually references.
+func TestParsePersistedEnvRefSecretsReadsThePersistedDocument(t *testing.T) {
+	h := handledConfig{configJSON: persistedConfigWithSecrets(
+		`{"name":"ALBERT_API_KEY","source":{"kind":"env","var":"JUST_CODE_HOST_ALBERT_API_KEY"}}`,
+	)}
+	refs, err := persistedSecretRefsFromHandle(h)
+	if err != nil {
+		t.Fatalf("persistedSecretRefsFromHandle: %v", err)
+	}
+	if len(refs) != 1 || refs[0].HostEnv != "JUST_CODE_HOST_ALBERT_API_KEY" {
+		t.Fatalf("persisted secret refs = %v, want [JUST_CODE_HOST_ALBERT_API_KEY]", refs)
+	}
+}
+
+func TestParsePersistedEnvRefSecretsSkipsNonEnvAndDedupes(t *testing.T) {
+	config := persistedConfigWithSecrets(
+		`{"name":"ALBERT_API_KEY","source":{"kind":"env","var":"JUST_CODE_HOST_ALBERT_API_KEY"}}`,
+		`{"name":"ALBERT_API_KEY","source":{"kind":"env","var":"JUST_CODE_HOST_ALBERT_API_KEY"}}`,
+		`{"name":"INLINE","value":"not-a-source"}`,
+	)
+	refs, err := parsePersistedEnvRefSecrets(config)
+	if err != nil {
+		t.Fatalf("parsePersistedEnvRefSecrets: %v", err)
+	}
+	if len(refs) != 1 || refs[0].HostEnv != "JUST_CODE_HOST_ALBERT_API_KEY" {
+		t.Fatalf("persisted secret refs = %v, want the env reference deduplicated once", refs)
+	}
+}
+
+// TestParsePersistedEnvRefSecretsEmptyDocument verifies a document with no
+// env-reference secrets is an empty result, not an error: that is the signal
+// recovery uses to fall back to the current provider configuration.
+func TestParsePersistedEnvRefSecretsEmptyDocument(t *testing.T) {
+	refs, err := parsePersistedEnvRefSecrets(persistedConfigWithGuestEnv())
+	if err != nil {
+		t.Fatalf("parsePersistedEnvRefSecrets: %v", err)
+	}
+	if len(refs) != 0 {
+		t.Fatalf("persisted secret refs = %v, want empty", refs)
+	}
+}
+
+// TestParsePersistedEnvRefSecretsPreservesMetadata pins that recovery keeps the
+// destination allowlist and placeholder a project-secret registration persisted
+// at creation. These are what prove the registration is still compatible with
+// the current approval before recovery republishes the transport variable.
+func TestParsePersistedEnvRefSecretsPreservesMetadata(t *testing.T) {
+	config := persistedConfigWithSecrets(
+		`{"env_var":"JC_API_KEY","source":{"kind":"env","var":"JUST_CODE_HOST_PROJECT_JC_API_KEY"},"allowed_hosts":[{"exact":"api.example.com"}],"placeholder":"__MKR__"}`,
+	)
+	refs, err := parsePersistedEnvRefSecrets(config)
+	if err != nil {
+		t.Fatalf("parsePersistedEnvRefSecrets: %v", err)
+	}
+	if len(refs) != 1 {
+		t.Fatalf("persisted secret refs = %v, want one project-secret registration", refs)
+	}
+	ref := refs[0]
+	if ref.HostEnv != "JUST_CODE_HOST_PROJECT_JC_API_KEY" {
+		t.Fatalf("HostEnv = %q, want the project transport variable", ref.HostEnv)
+	}
+	if len(ref.AllowedHosts) != 1 || ref.AllowedHosts[0] != "api.example.com" {
+		t.Fatalf("AllowedHosts = %v, want [api.example.com]", ref.AllowedHosts)
+	}
+	if ref.Placeholder == nil || *ref.Placeholder != "__MKR__" {
+		t.Fatalf("Placeholder = %v, want %q", ref.Placeholder, "__MKR__")
+	}
+}
+
+// TestParsePersistedEnvRefSecretsMissingMetadataFailsClosed pins that an
+// env-reference registration with no allowlist and no placeholder surface the
+// ambiguity directly: the allowlist is empty and the placeholder is nil, so the
+// recovery path can refuse rather than assume compatibility.
+func TestParsePersistedEnvRefSecretsMissingMetadataFailsClosed(t *testing.T) {
+	config := persistedConfigWithSecrets(
+		`{"name":"JC_API_KEY","source":{"kind":"env","var":"JUST_CODE_HOST_PROJECT_JC_API_KEY"}}`,
+	)
+	refs, err := parsePersistedEnvRefSecrets(config)
+	if err != nil {
+		t.Fatalf("parsePersistedEnvRefSecrets: %v", err)
+	}
+	if len(refs) != 1 {
+		t.Fatalf("persisted secret refs = %v, want one project-secret registration", refs)
+	}
+	ref := refs[0]
+	if len(ref.AllowedHosts) != 0 {
+		t.Fatalf("AllowedHosts = %v, want empty when the document omits it", ref.AllowedHosts)
+	}
+	if ref.Placeholder != nil {
+		t.Fatalf("Placeholder = %v, want nil when the document omits it", ref.Placeholder)
+	}
+}
+
+// TestParsePersistedEnvRefSecretsReadsTheRuntimeDocumentShape pins the parser
+// against a document copied from the runtime's own saved configuration, not
+// from a shape I assumed. Three details here are easy to get wrong and each one
+// silently breaks recovery rather than failing loudly:
+//
+//   - the secret policy is nested under network.secrets.secrets;
+//   - allowlist entries are tagged host patterns ({"exact": ...} /
+//     {"wildcard": ...}), so reading them as plain strings would fail the whole
+//     decode and turn every credential-backed sandbox into a refusal;
+//   - a wildcard entry must be reported as written, so validation can tell it
+//     apart from an exact host it could actually verify against the approval.
+func TestParsePersistedEnvRefSecretsReadsTheRuntimeDocumentShape(t *testing.T) {
+	config := `{"name":"jc-proj","network":{"secrets":{"secrets":[` +
+		`{"env_var":"API_KEY","source":{"kind":"env","var":"JUST_CODE_HOST_PROJECT_JC_API_KEY"},` +
+		`"placeholder":"$MSB_API_KEY","allowed_hosts":[{"exact":"api.example.com"},{"wildcard":"*.openai.com"}]}]}}}`
+	refs, err := parsePersistedEnvRefSecrets(config)
+	if err != nil {
+		t.Fatalf("parsePersistedEnvRefSecrets: %v", err)
+	}
+	if len(refs) != 1 {
+		t.Fatalf("persisted secret refs = %v, want one env-reference registration", refs)
+	}
+	ref := refs[0]
+	if ref.HostEnv != "JUST_CODE_HOST_PROJECT_JC_API_KEY" {
+		t.Fatalf("HostEnv = %q, want the persisted source variable", ref.HostEnv)
+	}
+	if len(ref.AllowedHosts) != 2 || ref.AllowedHosts[0] != "api.example.com" || ref.AllowedHosts[1] != "*.openai.com" {
+		t.Fatalf("AllowedHosts = %v, want [api.example.com *.openai.com] from the tagged host patterns", ref.AllowedHosts)
+	}
+	if ref.Placeholder == nil || *ref.Placeholder != "$MSB_API_KEY" {
+		t.Fatalf("Placeholder = %v, want %q", ref.Placeholder, "$MSB_API_KEY")
+	}
+}
+
+// TestParsePersistedEnvRefSecretsReadsTheAnyHostVariant pins the third spelling
+// of an allowlist entry. The runtime's catch-all variant serializes as the bare
+// string "any" while the others are objects, so a parser that only accepted
+// objects would fail to read any sandbox whose allowlist contains it. It is
+// reported as the wildcard sentinel rather than dropped, so validation refuses
+// it instead of mistaking an unrestricted allowlist for a narrow one.
+func TestParsePersistedEnvRefSecretsReadsTheAnyHostVariant(t *testing.T) {
+	config := `{"network":{"secrets":{"secrets":[` +
+		`{"env_var":"API_KEY","source":{"kind":"env","var":"JUST_CODE_HOST_PROJECT_JC_API_KEY"},` +
+		`"placeholder":"$MSB_API_KEY","allowed_hosts":["any"]}]}}}`
+	refs, err := parsePersistedEnvRefSecrets(config)
+	if err != nil {
+		t.Fatalf("parsePersistedEnvRefSecrets: %v", err)
+	}
+	if len(refs) != 1 {
+		t.Fatalf("persisted secret refs = %v, want one env-reference registration", refs)
+	}
+	if len(refs[0].AllowedHosts) != 1 || refs[0].AllowedHosts[0] != hostAny {
+		t.Fatalf("AllowedHosts = %v, want [%s] for the catch-all variant", refs[0].AllowedHosts, hostAny)
+	}
+}
+
 func containsString(haystack []string, needle string) bool {
 	for _, item := range haystack {
 		if item == needle {
@@ -2314,5 +2504,568 @@ func TestMSBInvalidSizingIsReported(t *testing.T) {
 	m.cfg.SandboxResourcesErr = fmt.Errorf("JUST_CODE_CPUS must be at most 255, got 256")
 	if err := m.validateConfig(); err == nil {
 		t.Fatal("an invalid guest sizing must be reported before any runtime work")
+	}
+}
+
+// Recover must boot a stopped, guest-owned sandbox with its persisted start
+// script and wait only for a usable guest shell - never applying the current
+// configuration (ModifyNextStart) and never relaunching the OpenCode backend.
+func TestRecoverBootsStoppedSealedSandbox(t *testing.T) {
+	client := sealedFakeMSB()
+	m := newTestMicrosandbox(t, client)
+
+	if err := m.Recover(context.Background()); err != nil {
+		t.Fatalf("Recover: %v", err)
+	}
+
+	joined := strings.Join(client.calls, "\n")
+	// Sealed-workspace provenance is verified, and the instance is booted.
+	if !strings.Contains(joined, "owned "+m.InstanceName()) {
+		t.Fatalf("Recover must verify sealed workspace provenance, got calls:\n%s", joined)
+	}
+	if !strings.Contains(joined, "start "+m.InstanceName()) {
+		t.Fatalf("Recover must boot the instance, got calls:\n%s", joined)
+	}
+	// It waits for a guest shell, not the backend: only the trivial probe runs.
+	if !strings.Contains(joined, "exec "+m.InstanceName()+" echo ok") {
+		t.Fatalf("Recover must probe for a guest shell, got calls:\n%s", joined)
+	}
+	if strings.Contains(joined, "modify "+m.InstanceName()) {
+		t.Fatalf("Recover must not apply the current configuration via ModifyNextStart, got calls:\n%s", joined)
+	}
+	if strings.Contains(joined, msbRelaunchCommand) {
+		t.Fatalf("Recover must never relaunch the OpenCode backend, got calls:\n%s", joined)
+	}
+}
+
+// Recover on a sandbox that is already running still verifies the guest shell
+// is reachable before reporting success.
+func TestRecoverRunningSealedSandboxWaitsForGuestShell(t *testing.T) {
+	client := sealedFakeMSB()
+	client.status = "running"
+	m := newTestMicrosandbox(t, client)
+
+	if err := m.Recover(context.Background()); err != nil {
+		t.Fatalf("Recover: %v", err)
+	}
+
+	joined := strings.Join(client.calls, "\n")
+	// A running sandbox is not started again, but the guest shell is still
+	// probed - the sandbox may be up while the guest is not yet reachable.
+	if strings.Contains(joined, "start "+m.InstanceName()) {
+		t.Fatalf("Recover must not restart an already-running sandbox, got calls:\n%s", joined)
+	}
+	if !strings.Contains(joined, "exec "+m.InstanceName()+" echo ok") {
+		t.Fatalf("Recover must still probe a running sandbox's guest shell, got calls:\n%s", joined)
+	}
+}
+
+// Recover keeps the sealed-workspace guard fail-closed: a sandbox whose
+// /workspace is a host bind mount is refused, not silently adopted.
+func TestRecoverRefusesBindMountedWorkspace(t *testing.T) {
+	client := &fakeMSBClient{exists: true, mount: "/host/checkout"}
+	m := newTestMicrosandbox(t, client)
+
+	err := m.Recover(context.Background())
+	if err == nil {
+		t.Fatal("Recover must refuse a bind-mounted workspace")
+	}
+	if !strings.Contains(err.Error(), "mounted from the host") {
+		t.Fatalf("Recover refusal should name the host mount, got: %v", err)
+	}
+	// The guard must refuse before any boot attempt.
+	if strings.Contains(strings.Join(client.calls, "\n"), "start ") {
+		t.Fatalf("Recover must not boot a non-sealed sandbox, got calls:\n%s", client.calls)
+	}
+}
+
+// Recover keeps the legacy-plaintext-key guard fail-closed: a sandbox whose
+// guest environment still stores the real credential is refused.
+func TestRecoverRefusesLegacyRawKey(t *testing.T) {
+	client := sealedFakeMSB()
+	client.env = map[string]string{msbAPISecretEnv: "an-exposed-value"}
+	m := newTestMicrosandbox(t, client)
+
+	err := m.Recover(context.Background())
+	if err == nil {
+		t.Fatal("Recover must refuse a sandbox storing a plaintext credential")
+	}
+	if !strings.Contains(err.Error(), "plaintext") {
+		t.Fatalf("Recover refusal should mention the plaintext credential, got: %v", err)
+	}
+	if strings.Contains(strings.Join(client.calls, "\n"), "start ") {
+		t.Fatalf("Recover must not boot a legacy plaintext-key sandbox, got calls:\n%s", client.calls)
+	}
+}
+
+// Recover on a credential-backed stopped sandbox publishes the host transport
+// variable for the persisted credential reference during boot, matching the
+// Start contract. Without it the guest start script cannot resolve the
+// env-reference secret and the sandbox boots without its credential. The
+// variable is restored once recovery returns: the raw value never lingers in
+// the host environment.
+func TestRecoverBootsStoppedSandboxWithHostSecrets(t *testing.T) {
+	client := sealedFakeMSB()
+	m := newTestMicrosandbox(t, client)
+	m.cfg.APIKey = "" // force the stored-credential path
+	m.credentialRead = func(context.Context, CredentialKind, string) (string, string, error) {
+		return "stored-albert-secret", "native", nil
+	}
+
+	if err := m.Recover(context.Background()); err != nil {
+		t.Fatalf("Recover: %v", err)
+	}
+
+	if got := client.startHostEnv["JUST_CODE_HOST_ALBERT_API_KEY"]; got != "stored-albert-secret" {
+		t.Fatalf("Recover boot must publish the persisted credential transport variable, got %q", got)
+	}
+	if got := os.Getenv("JUST_CODE_HOST_ALBERT_API_KEY"); got != "" {
+		t.Fatalf("Recover must restore the host environment after boot, %q still set", got)
+	}
+}
+
+// Recover resolves the bindings actually persisted on the stopped sandbox, not
+// the bindings the current provider configuration selects. A sandbox created
+// with Albert but a configuration now using Mistral must boot with Albert's
+// transport variable published and must not require a Mistral credential.
+func TestRecoverUsesPersistedBindingsWhenProviderDiffers(t *testing.T) {
+	client := sealedFakeMSB()
+	client.persistedSecretRefs = []persistedSecretRef{{HostEnv: "JUST_CODE_HOST_ALBERT_API_KEY"}}
+	m := newTestMicrosandbox(t, client)
+	// The current configuration selects Mistral only; the persisted sandbox
+	// was created with Albert, so only Albert must be republished.
+	m.cfg.APIKey = ""
+	m.cfg.Providers = []InferenceProvider{{
+		Kind:           "mistral",
+		Name:           "Mistral AI",
+		CredentialKind: CredentialMistral,
+		APIKeyEnv:      MistralAPIKeyEnv,
+		Host:           "api.mistral.ai",
+	}}
+	m.credentialRead = func(context.Context, CredentialKind, string) (string, string, error) {
+		return "albert-persisted-secret", "native", nil
+	}
+
+	if err := m.Recover(context.Background()); err != nil {
+		t.Fatalf("Recover: %v", err)
+	}
+
+	if got := client.startHostEnv["JUST_CODE_HOST_ALBERT_API_KEY"]; got != "albert-persisted-secret" {
+		t.Fatalf("Recover must publish the persisted Albert transport variable even when Mistral is configured, got %q", got)
+	}
+	if got := client.startHostEnv["JUST_CODE_HOST_MISTRAL_API_KEY"]; got != "" {
+		t.Fatalf("Recover must not publish a Mistral transport variable the persisted sandbox did not reference, got %q", got)
+	}
+	if got := os.Getenv("JUST_CODE_HOST_ALBERT_API_KEY"); got != "" {
+		t.Fatalf("Recover must restore the host environment after boot, %q still set", got)
+	}
+}
+
+// Recover resolves a persisted project-secret registration through the approved
+// project-secret metadata, not the current provider configuration. A sandbox
+// that persisted both a built-in Albert transport variable and a project-secret
+// transport variable must boot with both published, even when the current
+// configuration selects a different provider, and the host environment must be
+// restored once recovery returns.
+func TestRecoverPublishesPersistedProjectSecretBinding(t *testing.T) {
+	client := sealedFakeMSB()
+	m := newTestMicrosandbox(t, client)
+	// The current configuration selects Mistral only; the persisted sandbox
+	// was created with Albert plus an approved project secret, so both must be
+	// republished from what the sandbox actually persisted.
+	m.cfg.APIKey = ""
+	m.cfg.Providers = []InferenceProvider{{
+		Kind:           "mistral",
+		Name:           "Mistral AI",
+		CredentialKind: CredentialMistral,
+		APIKeyEnv:      MistralAPIKeyEnv,
+		Host:           "api.mistral.ai",
+	}}
+	m.credentialRead = func(context.Context, CredentialKind, string) (string, string, error) {
+		return "albert-persisted-secret", "native", nil
+	}
+	// Approved project-secret registration backing the persisted transport
+	// variable. The store value is what recovery must publish, independent of
+	// the current provider or binding configuration.
+	store := newProjectSecretFakeStore()
+	s := projectSecretFixture(t, m.cfg.WorkspaceDir, m.StateDir, store)
+	m.ProjectSecrets = s
+	importProjectSecrets(t, s, "development", ".env", map[string]string{"API_KEY": "project-persisted-secret"})
+	approveForTest(t, m, "API_KEY", "JC_API_KEY")
+	// The persisted registration carries the metadata fixed at creation: the
+	// destination allowlist and marker the approval produced. Recovery proves
+	// these still match the current approval before publishing the value.
+	client.persistedSecretRefs = []persistedSecretRef{
+		{HostEnv: "JUST_CODE_HOST_ALBERT_API_KEY"},
+		{
+			HostEnv:      "JUST_CODE_HOST_PROJECT_JC_API_KEY",
+			AllowedHosts: []string{"api.example.com"},
+			Placeholder:  strPtr(ProjectSecretPlaceholder(s.Namespace(), "development", ".env", "API_KEY")),
+		},
+	}
+
+	if err := m.Recover(context.Background()); err != nil {
+		t.Fatalf("Recover: %v", err)
+	}
+
+	if got := client.startHostEnv["JUST_CODE_HOST_ALBERT_API_KEY"]; got != "albert-persisted-secret" {
+		t.Fatalf("Recover must publish the persisted Albert transport variable, got %q", got)
+	}
+	if got := client.startHostEnv["JUST_CODE_HOST_PROJECT_JC_API_KEY"]; got != "project-persisted-secret" {
+		t.Fatalf("Recover must publish the persisted project-secret transport variable, got %q", got)
+	}
+	if got := client.startHostEnv["JUST_CODE_HOST_MISTRAL_API_KEY"]; got != "" {
+		t.Fatalf("Recover must not publish a Mistral transport variable the persisted sandbox did not reference, got %q", got)
+	}
+	for _, env := range []string{"JUST_CODE_HOST_ALBERT_API_KEY", "JUST_CODE_HOST_PROJECT_JC_API_KEY"} {
+		if got := os.Getenv(env); got != "" {
+			t.Fatalf("Recover must restore the host environment after boot, %s still set", env)
+		}
+	}
+}
+
+// preparePersistedProjectSecretRecovery builds a sealed fake runtime holding an
+// approved proxy-protected project secret plus an imported value, and returns
+// the pieces a persisted-registration case needs to describe itself. The caller
+// sets client.persistedSecretRefs to express the registration metadata under
+// test.
+func preparePersistedProjectSecretRecovery(t *testing.T) (*fakeMSBClient, *MicrosandboxRuntime, *ProjectSecretStore, *projectSecretFakeStore) {
+	t.Helper()
+	client := sealedFakeMSB()
+	m := newTestMicrosandbox(t, client)
+	store := newProjectSecretFakeStore()
+	s := projectSecretFixture(t, m.cfg.WorkspaceDir, m.StateDir, store)
+	m.ProjectSecrets = s
+	importProjectSecrets(t, s, "development", ".env", map[string]string{"API_KEY": "project-persisted-secret"})
+	approveForTest(t, m, "API_KEY", "JC_API_KEY")
+	return client, m, s, store
+}
+
+// Recover republishes a persisted project-secret registration whose allowlist is
+// a strict subset of the current approval. The sandbox keeps the destinations it
+// persisted at creation, so a destination approved later is not reachable by the
+// booted guest and the operation stays safe.
+func TestRecoverAcceptsPersistedProjectSecretDestinationSubset(t *testing.T) {
+	client, m, s, _ := preparePersistedProjectSecretRecovery(t)
+	// The current approval also grants a destination the sandbox never persisted.
+	if err := ApproveProjectSecretBinding(DefaultFS, m.StateDir, s.Namespace(), ProjectSecretBinding{
+		Profile: "development", Component: ".env", Name: "API_KEY",
+		GuestEnv: "JC_API_KEY", Destinations: []string{"api.example.com", "api2.example.com"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	client.persistedSecretRefs = []persistedSecretRef{{
+		HostEnv:      "JUST_CODE_HOST_PROJECT_JC_API_KEY",
+		AllowedHosts: []string{"api.example.com"},
+		Placeholder:  strPtr(ProjectSecretPlaceholder(s.Namespace(), "development", ".env", "API_KEY")),
+	}}
+
+	if err := m.Recover(context.Background()); err != nil {
+		t.Fatalf("Recover must accept a persisted allowlist that is a subset of the approval: %v", err)
+	}
+	// The published value is observed by the boot: the transport variable is
+	// set while Start runs and restored afterwards, so assert the boot itself
+	// happened on a compatible registration.
+	if !hasCall(client, "start ") {
+		t.Fatalf("Recover must boot the sandbox on a compatible subset registration, got calls:\n%s", strings.Join(client.calls, "\n"))
+	}
+	if got := client.startHostEnv["JUST_CODE_HOST_PROJECT_JC_API_KEY"]; got == "" {
+		t.Fatalf("Recover must publish the persisted project-secret transport variable during boot, got %q", got)
+	}
+	if got := os.Getenv("JUST_CODE_HOST_PROJECT_JC_API_KEY"); got != "" {
+		t.Fatalf("Recover must restore the host environment after boot, JUST_CODE_HOST_PROJECT_JC_API_KEY still set")
+	}
+}
+
+// Recover refuses to republish a persisted project-secret registration whose
+// allowlist carries a destination the current approval no longer grants.
+// Recovery boots the persisted start script without ModifyNextStart, so the
+// proxy would keep the older, wider allowlist and hand the freshly published
+// value to a destination the user has since removed. The refusal must happen
+// before the secret is read, and must tell the user to recreate the sandbox.
+func TestRecoverRefusesPersistedProjectSecretWithRemovedDestination(t *testing.T) {
+	client, m, s, store := preparePersistedProjectSecretRecovery(t)
+	client.persistedSecretRefs = []persistedSecretRef{{
+		HostEnv:      "JUST_CODE_HOST_PROJECT_JC_API_KEY",
+		AllowedHosts: []string{"api.example.com", "revoked.example.com"},
+		Placeholder:  strPtr(ProjectSecretPlaceholder(s.Namespace(), "development", ".env", "API_KEY")),
+	}}
+	before := store.getCount()
+
+	err := m.Recover(context.Background())
+	if err == nil {
+		t.Fatal("Recover must refuse a persisted destination the current approval no longer grants")
+	}
+	if !strings.Contains(err.Error(), "not all still approved") {
+		t.Fatalf("refusal should name the destination mismatch, got: %v", err)
+	}
+	if !strings.Contains(err.Error(), "recreate the sandbox") {
+		t.Fatalf("refusal should tell the user to recreate the sandbox, got: %v", err)
+	}
+	if hasCall(client, "start ") {
+		t.Fatalf("Recover must not boot the sandbox on an incompatible registration, got calls:\n%s", strings.Join(client.calls, "\n"))
+	}
+	if got := store.getCount() - before; got != 0 {
+		t.Fatalf("Recover must not read the secret before proving compatibility, got %d reads", got)
+	}
+}
+
+// Recover refuses a persisted project-secret registration whose placeholder no
+// longer matches the marker the current approval derives: the guest-facing
+// reference would not resolve, so booting would hand the guest an unusable
+// value.
+func TestRecoverRefusesPersistedProjectSecretWithStalePlaceholder(t *testing.T) {
+	client, m, _, store := preparePersistedProjectSecretRecovery(t)
+	client.persistedSecretRefs = []persistedSecretRef{{
+		HostEnv:      "JUST_CODE_HOST_PROJECT_JC_API_KEY",
+		AllowedHosts: []string{"api.example.com"},
+		Placeholder:  strPtr("__JUST_CODE_SECRET_stale_marker__"),
+	}}
+	before := store.getCount()
+
+	err := m.Recover(context.Background())
+	if err == nil {
+		t.Fatal("Recover must refuse a persisted placeholder that no longer matches the approval marker")
+	}
+	if !strings.Contains(err.Error(), "placeholder no longer matches") {
+		t.Fatalf("refusal should name the placeholder mismatch, got: %v", err)
+	}
+	if hasCall(client, "start ") {
+		t.Fatalf("Recover must not boot the sandbox on a stale placeholder, got calls:\n%s", strings.Join(client.calls, "\n"))
+	}
+	if got := store.getCount() - before; got != 0 {
+		t.Fatalf("Recover must not read the secret before proving compatibility, got %d reads", got)
+	}
+}
+
+// Recover fails closed when the persisted registration lacks the metadata
+// needed to prove it still matches the approval. Absent metadata is ambiguous,
+// not permission: recovery cannot distinguish a safe republish from a widened
+// allowlist, so it refuses and points at recreation.
+func TestRecoverRefusesPersistedProjectSecretWithoutProvenance(t *testing.T) {
+	marker := func(t *testing.T, s *ProjectSecretStore) *string {
+		t.Helper()
+		return strPtr(ProjectSecretPlaceholder(s.Namespace(), "development", ".env", "API_KEY"))
+	}
+	cases := []struct {
+		name    string
+		ref     func(t *testing.T, s *ProjectSecretStore) persistedSecretRef
+		wantErr string
+	}{
+		{
+			name: "no destination allowlist",
+			ref: func(t *testing.T, s *ProjectSecretStore) persistedSecretRef {
+				return persistedSecretRef{HostEnv: "JUST_CODE_HOST_PROJECT_JC_API_KEY", Placeholder: marker(t, s)}
+			},
+			wantErr: "carries no destination allowlist",
+		},
+		{
+			name: "no placeholder",
+			ref: func(*testing.T, *ProjectSecretStore) persistedSecretRef {
+				return persistedSecretRef{
+					HostEnv:      "JUST_CODE_HOST_PROJECT_JC_API_KEY",
+					AllowedHosts: []string{"api.example.com"},
+				}
+			},
+			wantErr: "carries no placeholder",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			client, m, s, store := preparePersistedProjectSecretRecovery(t)
+			client.persistedSecretRefs = []persistedSecretRef{tc.ref(t, s)}
+			before := store.getCount()
+
+			err := m.Recover(context.Background())
+			if err == nil {
+				t.Fatalf("Recover must fail closed when the persisted registration cannot be proven compatible (%s)", tc.name)
+			}
+			if !strings.Contains(err.Error(), tc.wantErr) {
+				t.Fatalf("refusal should say %q, got: %v", tc.wantErr, err)
+			}
+			if hasCall(client, "start ") {
+				t.Fatalf("Recover must not boot the sandbox on ambiguous metadata, got calls:\n%s", strings.Join(client.calls, "\n"))
+			}
+			if got := store.getCount() - before; got != 0 {
+				t.Fatalf("Recover must not read the secret on ambiguous metadata, got %d reads", got)
+			}
+		})
+	}
+}
+
+// Recover refuses to republish a configurable platform's credential when the
+// persisted registration was created for a different endpoint than the one now
+// configured for that credential kind.
+//
+// Every OpenAI-compatible platform shares one credential kind and one guest
+// variable, so re-pointing OPENAI_COMPATIBLE_API_KEY at platform B while a
+// sandbox still carries platform A's persisted registration would publish B's
+// key to A's host: recovery keeps the persisted allowlist because it never calls
+// ModifyNextStart. The refusal must happen before the value is resolved.
+func TestRecoverRefusesPersistedProviderWhoseEndpointChanged(t *testing.T) {
+	client := sealedFakeMSB()
+	m := newTestMicrosandbox(t, client)
+	// The configuration now points the shared variable at platform B.
+	m.cfg.Providers = []InferenceProvider{{
+		Kind:           ProviderOpenAICompatible,
+		Name:           "Platform B",
+		BaseURL:        "https://b.example.net/v1",
+		CredentialKind: CredentialOpenAICompatible,
+		APIKeyEnv:      OpenAICompatibleAPIKeyEnv,
+		Host:           "b.example.net",
+	}}
+	resolved := false
+	m.credentialRead = func(context.Context, CredentialKind, string) (string, string, error) {
+		resolved = true
+		return "platform-b-secret", "native", nil
+	}
+	// The stopped sandbox persisted platform A's registration and allowlist.
+	client.persistedSecretRefs = []persistedSecretRef{{
+		HostEnv:      "JUST_CODE_HOST_OPENAI_COMPATIBLE_API_KEY",
+		AllowedHosts: []string{"a.example.com"},
+		Placeholder:  strPtr("$MSB_OPENAI_COMPATIBLE_API_KEY"),
+	}}
+
+	err := m.Recover(context.Background())
+	if err == nil {
+		t.Fatal("Recover must refuse when the configured platform no longer matches the persisted registration")
+	}
+	if !strings.Contains(err.Error(), "no longer include the configured platform's host") {
+		t.Fatalf("refusal should name the endpoint mismatch, got: %v", err)
+	}
+	if resolved {
+		t.Fatal("Recover must not resolve the credential before proving the endpoint still matches")
+	}
+	if hasCall(client, "start ") {
+		t.Fatalf("Recover must not boot the sandbox on a re-pointed credential, got calls:\n%s", strings.Join(client.calls, "\n"))
+	}
+}
+
+// Recover still accepts a persisted provider registration whose allowlist does
+// contain the configured platform's host: that is the ordinary case, and the new
+// endpoint check must not disturb it.
+func TestRecoverAcceptsPersistedProviderWhoseEndpointStillMatches(t *testing.T) {
+	client := sealedFakeMSB()
+	m := newTestMicrosandbox(t, client)
+	m.cfg.Providers = []InferenceProvider{{
+		Kind:           ProviderOpenAICompatible,
+		Name:           "Platform A",
+		BaseURL:        "https://a.example.com/v1",
+		CredentialKind: CredentialOpenAICompatible,
+		APIKeyEnv:      OpenAICompatibleAPIKeyEnv,
+		Host:           "a.example.com",
+	}}
+	m.credentialRead = func(context.Context, CredentialKind, string) (string, string, error) {
+		return "platform-a-secret", "native", nil
+	}
+	client.persistedSecretRefs = []persistedSecretRef{{
+		HostEnv:      "JUST_CODE_HOST_OPENAI_COMPATIBLE_API_KEY",
+		AllowedHosts: []string{"a.example.com"},
+		Placeholder:  strPtr("$MSB_OPENAI_COMPATIBLE_API_KEY"),
+	}}
+
+	if err := m.Recover(context.Background()); err != nil {
+		t.Fatalf("Recover must accept a persisted registration that still matches the configured endpoint: %v", err)
+	}
+	if got := client.startHostEnv["JUST_CODE_HOST_OPENAI_COMPATIBLE_API_KEY"]; got != "platform-a-secret" {
+		t.Fatalf("Recover must publish the persisted provider transport variable, got %q", got)
+	}
+}
+
+// Recover must satisfy every persisted registration at boot, including the ones
+// it cannot resolve. An env-reference secret is resolved from the host
+// environment when the sandbox starts, so leaving its variable unset refuses the
+// start rather than disabling the secret (see
+// docs/decisions/2026-09-24-microsandbox-credential-transport.md). Recovery never
+// removes a persisted registration, so an optional binding whose credential is
+// gone must still publish something: the inert sentinel, which grants nothing.
+// Omitting it would block workspace recovery for the sake of a credential the
+// sandbox can run without.
+func TestRecoverBootsWithInertValueForUnavailableOptionalBinding(t *testing.T) {
+	client := sealedFakeMSB()
+	m := newTestMicrosandbox(t, client)
+	m.cfg.APIKey = ""
+	m.credentialRead = func(_ context.Context, kind CredentialKind, _ string) (string, string, error) {
+		if kind == CredentialAlbert {
+			return "stored-albert-secret", "native", nil
+		}
+		return "", "", ErrCredentialNotFound
+	}
+	client.persistedSecretRefs = []persistedSecretRef{
+		{HostEnv: "JUST_CODE_HOST_ALBERT_API_KEY"},
+		{HostEnv: "JUST_CODE_HOST_GITHUB_TOKEN"},
+	}
+
+	if err := m.Recover(context.Background()); err != nil {
+		t.Fatalf("Recover must proceed when an optional persisted credential is unavailable: %v", err)
+	}
+
+	if got := client.startHostEnv["JUST_CODE_HOST_GITHUB_TOKEN"]; got != msbSecretBootstrapValue {
+		t.Fatalf("the unavailable optional registration must be booted with the inert sentinel, got %q", got)
+	}
+	if got := client.startHostEnv["JUST_CODE_HOST_ALBERT_API_KEY"]; got != "stored-albert-secret" {
+		t.Fatalf("the available provider credential must still be published, got %q", got)
+	}
+	if got := os.Getenv("JUST_CODE_HOST_GITHUB_TOKEN"); got != "" {
+		t.Fatalf("Recover must restore the host environment after boot, got %q", got)
+	}
+}
+
+// Recover must also satisfy a persisted registration it cannot map back to a
+// known binding. Guessing a credential shape would be wrong, but leaving the
+// variable unset refuses the boot just the same, so the inert sentinel is
+// published and nothing is granted.
+func TestRecoverBootsWithInertValueForUnrecognizedRegistration(t *testing.T) {
+	client := sealedFakeMSB()
+	m := newTestMicrosandbox(t, client)
+	m.cfg.APIKey = ""
+	m.credentialRead = func(context.Context, CredentialKind, string) (string, string, error) {
+		return "stored-albert-secret", "native", nil
+	}
+	client.persistedSecretRefs = []persistedSecretRef{
+		{HostEnv: "JUST_CODE_HOST_ALBERT_API_KEY"},
+		{HostEnv: "JUST_CODE_HOST_SOMETHING_RETIRED"},
+	}
+
+	if err := m.Recover(context.Background()); err != nil {
+		t.Fatalf("Recover must proceed past an unrecognized persisted registration: %v", err)
+	}
+	if got := client.startHostEnv["JUST_CODE_HOST_SOMETHING_RETIRED"]; got != msbSecretBootstrapValue {
+		t.Fatalf("the unrecognized registration must be booted with the inert sentinel, got %q", got)
+	}
+}
+
+// Recover refuses a sandbox that does not exist, telling the user to start it.
+func TestRecoverRefusesMissingSandbox(t *testing.T) {
+	client := &fakeMSBClient{}
+	m := newTestMicrosandbox(t, client)
+
+	err := m.Recover(context.Background())
+	if err == nil {
+		t.Fatal("Recover must refuse a nonexistent sandbox")
+	}
+	if !strings.Contains(err.Error(), "does not exist") {
+		t.Fatalf("Recover refusal should say the sandbox does not exist, got: %v", err)
+	}
+}
+
+// Recover fails with a bounded timeout when the guest shell never becomes
+// reachable, instead of launching the backend or hanging.
+func TestRecoverTimesOutWhenGuestShellUnreachable(t *testing.T) {
+	client := sealedFakeMSB()
+	client.execDefault = &fakeMSBExecResult{code: 127, stderr: "sh: not found"}
+	m := newTestMicrosandbox(t, client)
+	m.cfg.StartTimeout = 20 * time.Millisecond
+	m.toolchainPollDelay = time.Millisecond
+
+	err := m.Recover(context.Background())
+	if err == nil {
+		t.Fatal("Recover must fail when the guest shell never becomes reachable")
+	}
+	if !strings.Contains(err.Error(), "not reachable") {
+		t.Fatalf("Recover failure should state the guest shell was unreachable, got: %v", err)
+	}
+	if strings.Contains(strings.Join(client.calls, "\n"), msbRelaunchCommand) {
+		t.Fatalf("Recover must not relaunch the backend on a shell timeout, got calls:\n%s", client.calls)
 	}
 }

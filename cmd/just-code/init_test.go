@@ -74,14 +74,16 @@ func TestPrintInitIntroShowsProjectAndSteps(t *testing.T) {
 	for _, want := range []string{
 		"Configuration du projet : qa-just-code-scratch",
 		"Dossier : " + root,
-		"Par défaut, Microsandbox travaille sur une copie filtrée",
+		"Microsandbox (recommandé) travaille sur une copie filtrée",
 		"vos fichiers .env",
 		"Les autres types de machine isolée",
 		"réglages avancés.",
-		"1. Skills (facultatif)",
-		"2. MCP (facultatif)",
-		"3. GitHub (facultatif)",
-		"Rien n'est enregistré avant le récapitulatif final.",
+		"1. Agent (harnais)",
+		"2. Machine isolée",
+		"3. Skills (facultatif)",
+		"4. MCP (facultatif)",
+		"5. GitHub (facultatif)",
+		"La configuration est enregistrée à la fin de ces étapes",
 		"Appuyez sur Entrée pour commencer, ou sur Ctrl+C pour quitter.",
 	} {
 		if !strings.Contains(out, want) {
@@ -116,7 +118,7 @@ func TestPrintInitIntroEOFStopsBeforeInit(t *testing.T) {
 			t.Fatal("EOF must cancel init")
 		}
 	})
-	if !strings.Contains(out, "Rien n'est enregistré avant le récapitulatif final.") {
+	if !strings.Contains(out, "La configuration est enregistrée à la fin de ces étapes") {
 		t.Fatalf("intro was not shown before cancellation: %q", out)
 	}
 }
@@ -1675,7 +1677,7 @@ func TestInitSkillPromptShowsSixChoicesAndConfirmsEmptySelection(t *testing.T) {
 	for _, want := range []string{
 		"Skills (facultatif)", "[x] securite-developpement", "[ ] anssi-guides",
 		"[ ] rgaa", "[ ] react-dsfr", "[ ] lasuite-ui-kit", "[ ] datagouv-apis",
-		"Aucune skill sélectionnée. Continuer sans skill ? (O/n)",
+		"Aucune skill sélectionnée. Continuer sans skill ?",
 		"Où enregistrer les skills ?", "règles de sécurité de l'État, issues des guides ANSSI",
 	} {
 		if !strings.Contains(out, want) {
@@ -2164,10 +2166,10 @@ func TestOfferProjectInitAppliesWhatItWrote(t *testing.T) {
 	stubCatalogueCheck(t, func(string, string) (string, error) { return "", nil })
 	stubProjectSkills(t)
 	root := initTestProject(t)
-	// confirm, harness, VM, skills, no-skill confirmation, storage, MCPs, GitHub.
+	// confirm, intro, harness, VM, skills, no-skill confirmation, storage, MCPs, GitHub.
 	// The offer collects the beginner answers only: the expert settings open
 	// with `just-code init --advanced` (#333), never from the launch path.
-	input := "\n\n\n\ny\n\nchrome-devtools\n\n"
+	input := "\n\n\n\n\ny\n\nchrome-devtools\n\n"
 	devNullLike := bufio.NewReader(strings.NewReader(input))
 
 	// Drive the offer with the same answers a user would give.

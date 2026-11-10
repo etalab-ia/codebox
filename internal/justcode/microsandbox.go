@@ -57,6 +57,14 @@ const (
 	// configuration cannot report the guest ready for the current one.
 	msbPiConfigMarker = "/var/lib/just-code/pi-config-ready"
 
+	// msbProjectSecretHostEnvPrefix namespaces the host-side transport
+	// variable of an approved project-secret binding. It is distinct from the
+	// built-in JUST_CODE_HOST_<var> prefix so the recovery path can tell a
+	// project-secret registration (which resolves back through the approved
+	// project-secret metadata) from a built-in one (which resolves from the
+	// binding registry).
+	msbProjectSecretHostEnvPrefix = "JUST_CODE_HOST_PROJECT_"
+
 	msbBrowserMCPIDsEnv         = "JUST_CODE_BROWSER_MCP_IDS"
 	msbBrowserMCPPackagesEnv    = "JUST_CODE_BROWSER_MCP_PACKAGES"
 	msbBrowserMCPBinariesEnv    = "JUST_CODE_BROWSER_MCP_BINARIES"
@@ -319,6 +327,14 @@ type msbClient interface {
 	// used only to detect a plaintext credential persisted by an earlier
 	// version; they are never copied into a new sandbox.
 	Env(ctx context.Context, name string) (map[string]string, error)
+	// PersistedSecretRefs returns the env-reference secret registrations the
+	// sandbox's persisted document carries (host transport variable plus the
+	// destination allowlist and placeholder fixed at creation). These are the
+	// bindings the sandbox was created with, which recovery republishes at boot
+	// even when the current provider configuration selects different platforms.
+	// An error means the persisted document could not be inspected, treated as a
+	// refusal rather than as an empty reference list.
+	PersistedSecretRefs(ctx context.Context, name string) ([]persistedSecretRef, error)
 	// Logs streams sandbox logs to the terminal until interrupted.
 	Logs(name string) error
 	// Shell opens an interactive shell in the sandbox.
@@ -547,7 +563,7 @@ func (m *MicrosandboxRuntime) resolveProjectSecretBindings(ctx context.Context) 
 				Kind:        CredentialKind(d.GuestEnv),
 				GuestEnv:    d.GuestEnv,
 				Placeholder: d.Marker,
-				HostEnv:     "JUST_CODE_HOST_PROJECT_" + d.GuestEnv,
+				HostEnv:     msbProjectSecretHostEnvPrefix + d.GuestEnv,
 				AllowHosts:  append([]string(nil), d.Destinations...),
 				// Required once approved: the approval is the opt-in, and an
 				// approved-but-unreadable value must be an error, not a skip.
@@ -1545,6 +1561,424 @@ func (m *MicrosandboxRuntime) rejectRecreationOnlyStates(ctx context.Context) er
 		}
 	}
 	return nil
+}
+
+// Recover boots a stopped, guest-owned sandbox that normal Start refuses
+// after a version upgrade, without weakening Start's own guards. An upgraded
+// sandbox can trip the creation-fixed refusals (a legacy start script lacking
+// the current harness, an isolation/port change the persisted config does not
+// carry) that end in ErrRecreateNeeded. Recreation is destructive, so this
+// path exists to bring such a sandbox back up long enough to deliver its
+// guest changes through 'just-code workspace apply' / 'workspace export'
+// first.
+//
+// It boots the instance with the start script persisted at creation, never
+// rewriting it and never applying the current configuration through
+// ModifyNextStart. It waits only until a guest shell is reachable, not for
+// the OpenCode backend, so the user can run a workspace command before any
+// destructive recreate.
+func (m *MicrosandboxRuntime) Recover(ctx context.Context) error {
+	sandbox, exists, err := m.Client.Lookup(ctx, m.InstanceName())
+	if err != nil {
+		return fmt.Errorf("cannot look up %s to recover it: %w", m.InstanceName(), err)
+	}
+	if !exists {
+		return fmt.Errorf("%s does not exist; there is nothing to recover. Run 'just-code start --microsandbox' to create it", m.InstanceName())
+	}
+	// The sealed-workspace and legacy-plaintext-key guards stay fail-closed:
+	// recovery exists to reach guest changes, never to weaken the boundary
+	// between the guest and the host checkout.
+	if err := m.requireSealedWorkspace(ctx); err != nil {
+		return err
+	}
+	if err := m.rejectLegacyRawKey(ctx); err != nil {
+		return err
+	}
+	if sandbox.Status != "running" {
+		m.say("Starting %s with its persisted start script...", m.InstanceName())
+		// Booting a stopped sandbox re-runs its persisted start script, whose
+		// env-reference secret registrations resolve from this process's
+		// environment at boot. Publish the resolved transport variables for
+		// the boot - the same contract as Start - so a credential-backed
+		// sandbox can actually be recovered. Unlike Start, no current guest
+		// configuration is applied (no ModifyNextStart): recovery exists only
+		// to reach the guest's persisted state for workspace delivery.
+		bindings, err := m.resolveRecoveryBindings(ctx)
+		if err != nil {
+			return fmt.Errorf("cannot resolve credentials to boot %s for recovery: %w", m.InstanceName(), err)
+		}
+		if err := withHostSecrets(bindings, func() error {
+			if err := m.Client.Start(ctx, m.InstanceName()); err != nil {
+				return fmt.Errorf("boot %s for recovery failed: %w", m.InstanceName(), err)
+			}
+			return nil
+		}); err != nil {
+			return err
+		}
+	}
+	m.say("Waiting for a usable guest shell in %s...", m.InstanceName())
+	if err := m.waitForGuestShell(ctx); err != nil {
+		return err
+	}
+	fmt.Fprintln(os.Stderr, "Recovered the sandbox guest state. Run 'just-code workspace apply' or 'just-code workspace export' to deliver the guest's changes to the host checkout before 'just-code recreate --microsandbox' (which deletes guest-only state).")
+	return nil
+}
+
+// resolveRecoveryBindings resolves the credentials the recovery boot will
+// publish. The persisted secret registrations on the stopped sandbox are the
+// authority: the sandbox's start script reads the host transport variables
+// that were fixed at creation, and the current provider configuration may now
+// select different platforms. When the sandbox persists no env-reference
+// secrets (for example an isolated plaintext sandbox with nothing to bind),
+// the current configuration is used as before.
+func (m *MicrosandboxRuntime) resolveRecoveryBindings(ctx context.Context) ([]resolvedBinding, error) {
+	refs, err := m.Client.PersistedSecretRefs(ctx, m.InstanceName())
+	if err != nil {
+		return nil, fmt.Errorf("cannot inspect the persisted credentials of %s to recover it: %w", m.InstanceName(), err)
+	}
+	if len(refs) == 0 {
+		return m.resolveBindings(ctx)
+	}
+	bindings, err := m.resolvePersistedBindings(ctx, refs)
+	if err != nil {
+		return nil, err
+	}
+	if len(bindings) != 0 {
+		return bindings, nil
+	}
+	// Unreachable while every persisted reference yields a binding, which it now
+	// does: a reference that cannot be resolved is satisfied with the inert
+	// sentinel rather than dropped, because the runtime resolves it at boot and
+	// an absent variable refuses the start. Kept as a guard so a future
+	// resolution path that can drop references still cannot boot with nothing
+	// published.
+	return m.resolveBindings(ctx)
+}
+
+// resolvePersistedBindings resolves the bindings whose host transport
+// variables the stopped sandbox's secret registrations actually reference,
+// mapped back through the binding registry to the platform each was created
+// for. Unlike resolveBindings it never consults the current provider
+// configuration, so a sandbox created with Albert is recovered with Albert's
+// transport variable even when the configuration now selects Mistral. A
+// provider binding that cannot resolve is a hard error, matching the start
+// path's contract; an optional binding (GitHub, Context7) whose credential is
+// gone is skipped with a warning rather than blocking recovery.
+func (m *MicrosandboxRuntime) resolvePersistedBindings(ctx context.Context, refs []persistedSecretRef) ([]resolvedBinding, error) {
+	read := m.credentialRead
+	if read == nil {
+		read = readStoredWith
+	}
+	out := make([]resolvedBinding, 0, len(refs))
+	for _, ref := range refs {
+		hostEnv := ref.HostEnv
+		// A project-secret registration persists the transport variable
+		// JUST_CODE_HOST_PROJECT_<GuestEnv>. It is not part of the static
+		// binding registry: the binding shape is fixed at creation by the
+		// approved project-secret metadata, so map it back through that
+		// metadata rather than the current provider or binding configuration.
+		if strings.HasPrefix(hostEnv, msbProjectSecretHostEnvPrefix) {
+			b, ok, err := m.resolvePersistedProjectBinding(ctx, ref)
+			if err != nil {
+				return nil, err
+			}
+			if ok {
+				out = append(out, b)
+			}
+			continue
+		}
+		b, ok := bindingForHostEnv(hostEnv)
+		if !ok {
+			// Unknown persisted variable: do not guess a credential shape, but
+			// do not leave it unset either. The registration is still in the
+			// sandbox and the runtime resolves it at boot, so an absent host
+			// variable refuses the start. Satisfy it with the inert sentinel:
+			// nothing is granted, and recovery can still reach the workspace.
+			m.warn("référence de secret persisté inconnue ; valeur inerte publiée pour le démarrage", "Warning: %s persisted an unrecognized host secret reference %q; booting it with an inert value so recovery can proceed", m.InstanceName(), hostEnv)
+			out = append(out, resolvedBinding{
+				msbSecretBinding: msbSecretBinding{HostEnv: hostEnv, Optional: true},
+				source:           bindingSourceInert,
+				value:            msbSecretBootstrapValue,
+			})
+			continue
+		}
+		if b.Provider {
+			// A configurable platform's credential kind is shared across
+			// platforms: every OpenAI-compatible endpoint stores its key under
+			// the same credential kind and guest variable. Recovery resolves
+			// the *current* configuration's value, while the persisted
+			// registration keeps the endpoint and allowlist it was created
+			// with, and recovery does not call ModifyNextStart to reconcile
+			// them. Publishing after the user re-pointed that variable at a
+			// different platform would therefore hand the new platform's key
+			// to the old, still-allowed host. Require the persisted allowlist
+			// to still be a destination of the currently configured platform
+			// before resolving its credential.
+			if err := validatePersistedProviderCompatibility(ref, b, m.cfg.Providers); err != nil {
+				return nil, fmt.Errorf("cannot recover %s: %w: the persisted %s registration %q no longer matches the configured platform; recreate the sandbox to apply the new platform's endpoint", m.InstanceName(), err, b.Kind, hostEnv)
+			}
+			v, src, store, entry, err := resolveProviderWith(read, ctx, m.cfg, b.Kind, b.GuestEnv, m.CredentialStore)
+			if err != nil {
+				return nil, fmt.Errorf("cannot resolve the persisted %s credential of %s: %w (store one with 'just-code auth add %s', or recreate the sandbox)", b.Kind, m.InstanceName(), err, b.Kind)
+			}
+			out = append(out, resolvedBinding{msbSecretBinding: b, source: src, value: v, store: store, entry: entry})
+			continue
+		}
+		v, store, err := read(ctx, b.Kind, m.CredentialStore)
+		if err != nil {
+			// The persisted registration is still there, and the runtime
+			// resolves an env-reference secret at boot: if its host variable is
+			// absent the sandbox refuses to start. Omitting the binding
+			// therefore does not disable it, it blocks recovery — including for
+			// a sandbox whose real credentials are all available. Publish the
+			// inert sentinel instead, which lets the boot succeed while
+			// granting nothing: the guest keeps an unusable value, which is
+			// exactly what an absent optional credential means. The user is
+			// still told, because the binding is genuinely missing.
+			//
+			// Start does not need this: it calls ModifyNextStart, whose patch
+			// semantics drop a registration that is absent from the desired
+			// set. Recovery deliberately does not touch the guest's persisted
+			// state, so the registration survives and must be satisfied.
+			if isNotFound(err) {
+				m.warn("identifiant facultatif absent ; valeur inerte publiée pour le démarrage ; détail : just-code bindings list", "Warning: the persisted %s binding on %s has no %q credential stored; booting it with an inert value so recovery can proceed (just-code auth add %s to restore it)", b.Kind, m.InstanceName(), b.Kind, b.Kind)
+			} else {
+				m.warn("identifiant facultatif illisible ; valeur inerte publiée pour le démarrage", "Warning: cannot read the persisted %s binding on %s (%v); booting it with an inert value so recovery can proceed", b.Kind, m.InstanceName(), err)
+			}
+			out = append(out, resolvedBinding{
+				msbSecretBinding: b,
+				source:           bindingSourceInert,
+				value:            msbSecretBootstrapValue,
+				entry:            string(b.Kind),
+			})
+			continue
+		}
+		out = append(out, resolvedBinding{msbSecretBinding: b, source: bindingSourceStore, value: v, store: store, entry: string(b.Kind)})
+	}
+	return out, nil
+}
+
+// resolvePersistedProjectBinding resolves a persisted project-secret transport
+// variable back to the approved project-secret delivery that created it. The
+// guest variable, placeholder and destinations were fixed when the binding was
+// approved, so the value is resolved from the imported credential the delivery
+// names — never from the current provider configuration. Before publishing the
+// value it proves the persisted registration is still compatible with the
+// current approval (destinations a subset, placeholder matching); recovery does
+// not call ModifyNextStart, so incompatibility or missing metadata fails closed
+// with guidance to recreate, rather than republishing against a stale allowlist.
+// A persisted registration whose approval has since been lifted or re-targeted
+// is stale and is skipped with a warning rather than blocking recovery; an
+// approved delivery whose backing value cannot be read fails closed, matching
+// the resolveProjectSecretBindings contract.
+func (m *MicrosandboxRuntime) resolvePersistedProjectBinding(ctx context.Context, ref persistedSecretRef) (resolvedBinding, bool, error) {
+	hostEnv := ref.HostEnv
+	record, err := m.projectSecretDeliveries(ctx)
+	if err != nil {
+		return resolvedBinding{}, false, err
+	}
+	var delivery *ProjectSecretDelivery
+	for i := range record.deliveries {
+		d := &record.deliveries[i]
+		// A guest-readable delivery has no env transport variable (its value
+		// is written into the guest as a file), so it cannot be what the
+		// persisted registration references.
+		if d.GuestReadable() {
+			continue
+		}
+		if msbProjectSecretHostEnvPrefix+d.GuestEnv == hostEnv {
+			delivery = d
+			break
+		}
+	}
+	if delivery == nil {
+		// No current delivery matches: the approval that created the
+		// registration was lifted or re-targeted since the sandbox was
+		// persisted. Its registration is still in the sandbox and the runtime
+		// resolves it at boot, so leaving the variable unset would refuse the
+		// start. Satisfy it with the inert sentinel instead: the guest keeps an
+		// unusable value, which is what "this approval is gone" means, and
+		// recovery can still reach the workspace.
+		m.warn("référence de secret de projet persisté sans approbation ; valeur inerte publiée pour le démarrage", "Warning: %s persisted a project-secret reference %q whose approval no longer exists; booting it with an inert value so recovery can proceed", m.InstanceName(), hostEnv)
+		return resolvedBinding{
+			msbSecretBinding: msbSecretBinding{HostEnv: hostEnv, Optional: true},
+			source:           bindingSourceInert,
+			value:            msbSecretBootstrapValue,
+		}, true, nil
+	}
+	// Recovery does not re-authorize destinations: it boots the guest start
+	// script unchanged, so the proxy retains the destination allowlist persisted
+	// at creation. Publishing a freshly rotated value against that allowlist is
+	// only safe when the persisted destinations are a subset of the currently
+	// approved destinations — otherwise a destination that was removed from the
+	// approval could still receive the new credential. The persisted placeholder
+	// must also still match the current marker, or the guest-facing reference
+	// would not resolve. Missing or ambiguous metadata (no allowlist, no
+	// placeholder) cannot prove compatibility, so recovery fails closed with
+	// guidance instead of guessing.
+	if err := validatePersistedProjectSecretCompatibility(ref, delivery); err != nil {
+		return resolvedBinding{}, false, fmt.Errorf("cannot recover %s: %w: the persisted project-secret registration %q is incompatible with the current approval for %s/%s/%s; recreate the sandbox to apply the changed secret metadata", m.InstanceName(), err, hostEnv, delivery.Profile, delivery.Component, delivery.Name)
+	}
+	store, err := m.projectSecretStore()
+	if err != nil {
+		return resolvedBinding{}, false, err
+	}
+	value, err := store.Get(ctx, delivery.Profile, delivery.Component, delivery.Name)
+	if err != nil {
+		if isNotFound(err) {
+			return resolvedBinding{}, false, fmt.Errorf("cannot read the approved project secret %s (%s): %w", delivery.Name, delivery.Component, ErrProjectSecretImportMissing)
+		}
+		return resolvedBinding{}, false, fmt.Errorf("cannot read the approved project secret %s (%s): %w", delivery.Name, delivery.Component, err)
+	}
+	return resolvedBinding{
+		msbSecretBinding: msbSecretBinding{
+			Kind:        CredentialKind(delivery.GuestEnv),
+			GuestEnv:    delivery.GuestEnv,
+			Placeholder: delivery.Marker,
+			HostEnv:     hostEnv,
+			AllowHosts:  append([]string(nil), delivery.Destinations...),
+			Optional:    false,
+			Project: &ProjectBindingRef{
+				Profile: delivery.Profile, Component: delivery.Component, Name: delivery.Name, Reference: delivery.Reference,
+			},
+		},
+		source: bindingSourceStore,
+		value:  value,
+		store:  store.Kind(),
+		entry:  delivery.Reference,
+	}, true, nil
+}
+
+// validatePersistedProjectSecretCompatibility checks that a persisted
+// env-reference project-secret registration can be safely republished against
+// the current approval. Both the persisted destination allowlist and the
+// persisted placeholder must be present and still match the approval: recovery
+// does not call ModifyNextStart, so an allowlist that outruns the approval would
+// let a removed destination receive the credential, and a placeholder mismatch
+// would break the guest reference. An empty allowlist or a missing placeholder
+// is ambiguous metadata and cannot be proven compatible.
+func validatePersistedProjectSecretCompatibility(ref persistedSecretRef, delivery *ProjectSecretDelivery) error {
+	if len(ref.AllowedHosts) == 0 {
+		return errors.New("the persisted registration carries no destination allowlist, so compatibility cannot be proven")
+	}
+	if ref.Placeholder == nil {
+		return errors.New("the persisted registration carries no placeholder, so compatibility cannot be proven")
+	}
+	if !stringSetIsSubset(ref.AllowedHosts, delivery.Destinations) {
+		return errors.New("the persisted destinations are not all still approved: recovery does not re-authorize destinations removed from the approval")
+	}
+	if *ref.Placeholder != delivery.Marker {
+		return errors.New("the persisted placeholder no longer matches the current approval marker")
+	}
+	return nil
+}
+
+// stringSetIsSubset reports whether every element of subset is present in set,
+// ignoring order and duplicates.
+func stringSetIsSubset(subset, set []string) bool {
+	have := make(map[string]struct{}, len(set))
+	for _, s := range set {
+		have[s] = struct{}{}
+	}
+	for _, s := range subset {
+		if _, ok := have[s]; !ok {
+			return false
+		}
+	}
+	return true
+}
+
+// validatePersistedProviderCompatibility rejects republishing a persisted
+// built-in provider credential when the current configuration has re-pointed its
+// credential kind at a different endpoint.
+//
+// A configurable platform shares one credential kind and one guest variable
+// across endpoints: every OpenAI-compatible platform stores its key under
+// CredentialOpenAICompatible and exposes it as OPENAI_COMPATIBLE_API_KEY.
+// Recovery resolves the *current* configuration's value for that kind, while the
+// persisted registration keeps the endpoint it was created with, and recovery
+// never calls ModifyNextStart, so the old destination allowlist stays in force.
+// Re-pointing that variable from platform A to platform B and then recovering
+// would publish B's key to A's still-allowed host.
+//
+// The check is deliberately narrow. It needs positive evidence of where the
+// registration pointed, which is the persisted allowlist, so a registration that
+// persisted none is left alone rather than guessed at. And it only applies when a
+// platform of that kind is currently configured: when the kind is not configured
+// at all, no value for it can be misrouted, and Albert-to-Mistral recovery — a
+// sandbox created with one platform recovered under another — must keep working,
+// since those kinds map to fixed endpoints one-to-one and each resolves from its
+// own store entry.
+func validatePersistedProviderCompatibility(ref persistedSecretRef, b msbSecretBinding, configured []InferenceProvider) error {
+	if len(ref.AllowedHosts) == 0 {
+		return nil
+	}
+	provider, ok := providerForKind(b.Kind, configured)
+	if !ok {
+		// No platform of this kind is configured now. The credential still
+		// resolves from the same kind's store entry, which is the platform the
+		// registration was created for, so there is nothing to misroute.
+		return nil
+	}
+	if !stringSetIsSubset([]string{provider.Host}, ref.AllowedHosts) {
+		return fmt.Errorf("the persisted destinations %v no longer include the configured platform's host %s", ref.AllowedHosts, provider.Host)
+	}
+	return nil
+}
+
+// providerForKind returns the configured platform that owns a credential kind.
+// It resolves the runtime's own provider set, so recovery compares against the
+// same endpoints the start path would use, including a configurable platform's
+// current base URL. An empty set falls back to the resolved defaults, exactly as
+// the binding registry does, so the comparison cannot disagree with the start
+// path about which platforms exist.
+func providerForKind(kind CredentialKind, configured []InferenceProvider) (InferenceProvider, bool) {
+	providers := configured
+	if len(providers) == 0 {
+		resolved, err := ResolveProviders(nil)
+		if err != nil {
+			return InferenceProvider{}, false
+		}
+		providers = resolved
+	}
+	for _, p := range providers {
+		if p.CredentialKind == kind {
+			return p, true
+		}
+	}
+	return InferenceProvider{}, false
+}
+
+// waitForGuestShell blocks until the guest answers an exec probe, bounded by
+// the same timeout as a normal start. It only asks for a shell, not for the
+// OpenCode backend: the workspace commands need execution, not a healthy
+// backend, and recovery must not relaunch OpenCode unnecessarily.
+func (m *MicrosandboxRuntime) waitForGuestShell(ctx context.Context) error {
+	timeout := m.cfg.StartTimeout
+	if timeout <= 0 {
+		timeout = DefaultStartTimeout
+	}
+	delay := m.toolchainPollDelay
+	if delay <= 0 {
+		delay = msbLaunchRetryDelay
+	}
+	ctx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+	for {
+		code, stderr, err := m.Client.Exec(ctx, m.InstanceName(), "echo ok")
+		if err == nil && code == 0 {
+			return nil
+		}
+		if err == nil {
+			err = fmt.Errorf("guest probe exited %d: %s", code, strings.TrimSpace(stderr))
+		}
+		select {
+		case <-time.After(delay):
+		case <-ctx.Done():
+			return fmt.Errorf("a guest shell in %s was not reachable within %s (last probe: %v); the start script may have failed. Run 'just-code logs --microsandbox' or check %s inside the guest, then recreate it: %w",
+				m.InstanceName(), timeout, err, msbGuestLog, ctx.Err())
+		}
+	}
 }
 
 // rejectResourceSizingChange refuses a restart when the applied state records

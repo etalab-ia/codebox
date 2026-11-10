@@ -918,6 +918,145 @@ func parseGuestEnv(configJSON string) (map[string]string, error) {
 	return env, nil
 }
 
+// persistedSecretSource is the part of a persisted secret registration the
+// recovery path needs: the host transport variable an env-reference secret
+// resolves from. The typed SandboxConfig does not decode secret registrations
+// (its Secrets field stays empty; see SecretEntry), so recovery reads the raw
+// persisted document instead, exactly as it does for the guest env.
+type persistedSecretSource struct {
+	Kind string `json:"kind"`
+	Var  string `json:"var"`
+}
+
+// persistedSecretRef is one env-reference secret registration read back from the
+// persisted sandbox document. Recovery needs the host transport variable plus the
+// destination allowlist and placeholder that were fixed at creation, so it can
+// prove the registration is still compatible with the current approval before
+// republishing a credential. The typed SandboxConfig does not decode secret
+// registrations (its Secrets field stays empty; see SecretEntry), so these are
+// read from the raw persisted document, exactly as for the guest env.
+type persistedSecretRef struct {
+	// HostEnv is the host transport variable (JUST_CODE_HOST_*) the env
+	// reference resolves from.
+	HostEnv string
+	// AllowedHosts is the destination allowlist fixed at creation. A project
+	// secret always persists a non-empty list; a nil/empty list on a registration
+	// that must have one is missing metadata and is treated conservatively.
+	AllowedHosts []string
+	// Placeholder is the guest-visible marker fixed at creation. A nil pointer
+	// distinguishes "no placeholder persisted" from an empty string, so recovery
+	// can fail closed when a registration that must carry one does not.
+	Placeholder *string
+}
+
+// parsePersistedEnvRefSecrets extracts the unique env-reference secret
+// registrations (source kind "env") from the sandbox's persisted document,
+// preserving the destination allowlist and placeholder that were fixed at
+// creation. These are the bindings the sandbox was created with, which is why
+// recovery republishes them even when the current provider configuration selects
+// different platforms. A document with no secrets, or none of kind "env", yields
+// an empty result (no error).
+//
+// Three shape details follow the runtime's own persisted format and are easy to
+// get wrong; all three are pinned by
+// TestParsePersistedEnvRefSecretsReadsTheRuntimeDocumentShape:
+//
+//   - Secret policy lives under network.secrets.secrets, not at the top level.
+//   - An allowlist entry is a tagged host pattern ({"exact":"api.example.com"},
+//     {"wildcard":"*.openai.com"}, or the bare string "any"), not a plain
+//     hostname. Reading them into []string fails the whole decode, which would
+//     turn every sandbox with a secret into a recovery refusal.
+//   - The placeholder is a required string in the persisted record, so its
+//     absence is missing metadata rather than an empty placeholder. It is read
+//     through a pointer to keep "absent" distinguishable from "".
+func parsePersistedEnvRefSecrets(configJSON string) ([]persistedSecretRef, error) {
+	var raw struct {
+		Network struct {
+			Secrets struct {
+				Secrets []struct {
+					EnvVar       string                 `json:"env_var"`
+					Source       persistedSecretSource  `json:"source"`
+					Placeholder  *string                `json:"placeholder"`
+					AllowedHosts []persistedHostPattern `json:"allowed_hosts"`
+				} `json:"secrets"`
+			} `json:"secrets"`
+		} `json:"network"`
+	}
+	if err := json.Unmarshal([]byte(configJSON), &raw); err != nil {
+		return nil, fmt.Errorf("decode persisted sandbox secrets: %w", err)
+	}
+	seen := make(map[string]struct{}, len(raw.Network.Secrets.Secrets))
+	var out []persistedSecretRef
+	for _, s := range raw.Network.Secrets.Secrets {
+		if s.Source.Kind != "env" || s.Source.Var == "" {
+			continue
+		}
+		if _, ok := seen[s.Source.Var]; ok {
+			continue
+		}
+		seen[s.Source.Var] = struct{}{}
+		allowed := make([]string, 0, len(s.AllowedHosts))
+		for _, p := range s.AllowedHosts {
+			if host := p.host(); host != "" {
+				allowed = append(allowed, host)
+			}
+		}
+		out = append(out, persistedSecretRef{
+			HostEnv:      s.Source.Var,
+			AllowedHosts: allowed,
+			Placeholder:  s.Placeholder,
+		})
+	}
+	return out, nil
+}
+
+// persistedHostPattern is one entry of a persisted destination allowlist. The
+// runtime serializes HostPattern as an externally tagged enum: an exact hostname
+// is {"exact":"api.example.com"}, a wildcard is {"wildcard":"*.openai.com"}, and
+// the catch-all unit variant is the bare string "any". All three must decode or
+// the whole registration is unreadable, so this accepts both the object and the
+// string spelling.
+//
+// The catch-all is reported as hostAny rather than dropped: it cannot be proven
+// compatible with a concrete approval, and silently discarding it would make an
+// unrestricted allowlist look like a narrow one.
+type persistedHostPattern struct {
+	Exact    string `json:"exact"`
+	Wildcard string `json:"wildcard"`
+}
+
+// hostAny is the sentinel reported for the runtime's catch-all host variant. It
+// never equals a concrete hostname, so a subset check against real destinations
+// refuses it instead of treating it as a match.
+const hostAny = "*"
+
+func (p *persistedHostPattern) UnmarshalJSON(data []byte) error {
+	var obj struct {
+		Exact    string `json:"exact"`
+		Wildcard string `json:"wildcard"`
+	}
+	if err := json.Unmarshal(data, &obj); err == nil {
+		p.Exact, p.Wildcard = obj.Exact, obj.Wildcard
+		return nil
+	}
+	var unit string
+	if err := json.Unmarshal(data, &unit); err != nil {
+		return fmt.Errorf("decode persisted host pattern: %w", err)
+	}
+	if unit == "any" {
+		p.Exact = hostAny
+		return nil
+	}
+	return fmt.Errorf("decode persisted host pattern: unrecognized variant %q", unit)
+}
+
+func (p persistedHostPattern) host() string {
+	if p.Exact != "" {
+		return p.Exact
+	}
+	return p.Wildcard
+}
+
 // persistedConfigReader is the part of an SDK sandbox handle the guest-env
 // reader needs. Naming it keeps the reader verifiable without a live sandbox:
 // the real handle's ConfigJSON carries the persisted document, whereas its
@@ -930,6 +1069,10 @@ func guestEnvFromHandle(h persistedConfigReader) (map[string]string, error) {
 	return parseGuestEnv(h.ConfigJSON())
 }
 
+func persistedSecretRefsFromHandle(h persistedConfigReader) ([]persistedSecretRef, error) {
+	return parsePersistedEnvRefSecrets(h.ConfigJSON())
+}
+
 // Env returns the persisted guest environment. Earlier versions stored the
 // real ALBERT_API_KEY here in isolation full, so it is read back to detect
 // sandboxes that must be recreated rather than booted with a plaintext key.
@@ -939,6 +1082,21 @@ func (sdkMSBClient) Env(ctx context.Context, name string) (map[string]string, er
 		return nil, err
 	}
 	return guestEnvFromHandle(h)
+}
+
+// PersistedSecretRefs returns the env-reference secret registrations the
+// sandbox's persisted document carries, with the destination allowlist and
+// placeholder fixed at creation. They are the bindings the sandbox was created
+// with, which recovery must republish at boot even when the current
+// configuration selects different providers. An error means the persisted
+// document could not be inspected, which the caller treats as a refusal rather
+// than as an empty reference list.
+func (sdkMSBClient) PersistedSecretRefs(ctx context.Context, name string) ([]persistedSecretRef, error) {
+	h, err := msb.GetSandbox(ctx, name)
+	if err != nil {
+		return nil, err
+	}
+	return persistedSecretRefsFromHandle(h)
 }
 
 func (sdkMSBClient) Logs(name string) error {

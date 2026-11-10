@@ -139,6 +139,27 @@ func bindingForKind(kind CredentialKind) (msbSecretBinding, bool) {
 	return msbSecretBinding{}, false
 }
 
+// bindingForHostEnv returns the registered binding whose host transport
+// variable matches hostEnv, covering every known kind. It is the recovery
+// path's inverse of JUST_CODE_HOST_ naming: a persisted sandbox records the
+// host variables it was created with, and recovery must resolve whichever
+// platform created them whether or not that platform is configured any
+// longer.
+func bindingForHostEnv(hostEnv string) (msbSecretBinding, bool) {
+	for _, b := range msbSecretBindings() {
+		if b.HostEnv == hostEnv {
+			return b, true
+		}
+	}
+	if b, ok := bindingForKind(CredentialMistral); ok && b.HostEnv == hostEnv {
+		return b, true
+	}
+	if b, ok := bindingForKind(CredentialOpenAICompatible); ok && b.HostEnv == hostEnv {
+		return b, true
+	}
+	return msbSecretBinding{}, false
+}
+
 // BindingInfo is the display form of a registered binding, for the CLI. It
 // carries no value, only the binding's metadata.
 type BindingInfo struct {
@@ -228,6 +249,12 @@ const (
 	// environment. Env-sourced credentials cannot be revoked through the
 	// store; the variable itself is the credential.
 	bindingSourceEnv bindingSource = "env"
+	// bindingSourceInert: no credential is available, so the inert sentinel is
+	// published for the boot. Recovery uses it for a persisted optional binding
+	// that must be satisfied to start the sandbox but whose credential is gone;
+	// nothing is granted. Start does not need it, because ModifyNextStart drops
+	// a registration absent from the desired set.
+	bindingSourceInert bindingSource = "inert"
 )
 
 // credentialReader reads a stored credential and reports which store
