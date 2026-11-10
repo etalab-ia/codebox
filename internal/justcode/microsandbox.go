@@ -57,6 +57,14 @@ const (
 	// configuration cannot report the guest ready for the current one.
 	msbPiConfigMarker = "/var/lib/just-code/pi-config-ready"
 
+	// msbProjectSecretHostEnvPrefix namespaces the host-side transport
+	// variable of an approved project-secret binding. It is distinct from the
+	// built-in JUST_CODE_HOST_<var> prefix so the recovery path can tell a
+	// project-secret registration (which resolves back through the approved
+	// project-secret metadata) from a built-in one (which resolves from the
+	// binding registry).
+	msbProjectSecretHostEnvPrefix = "JUST_CODE_HOST_PROJECT_"
+
 	msbBrowserMCPIDsEnv         = "JUST_CODE_BROWSER_MCP_IDS"
 	msbBrowserMCPPackagesEnv    = "JUST_CODE_BROWSER_MCP_PACKAGES"
 	msbBrowserMCPBinariesEnv    = "JUST_CODE_BROWSER_MCP_BINARIES"
@@ -554,7 +562,7 @@ func (m *MicrosandboxRuntime) resolveProjectSecretBindings(ctx context.Context) 
 				Kind:        CredentialKind(d.GuestEnv),
 				GuestEnv:    d.GuestEnv,
 				Placeholder: d.Marker,
-				HostEnv:     "JUST_CODE_HOST_PROJECT_" + d.GuestEnv,
+				HostEnv:     msbProjectSecretHostEnvPrefix + d.GuestEnv,
 				AllowHosts:  append([]string(nil), d.Destinations...),
 				// Required once approved: the approval is the opt-in, and an
 				// approved-but-unreadable value must be an error, not a skip.
@@ -1659,6 +1667,21 @@ func (m *MicrosandboxRuntime) resolvePersistedBindings(ctx context.Context, refs
 	}
 	out := make([]resolvedBinding, 0, len(refs))
 	for _, hostEnv := range refs {
+		// A project-secret registration persists the transport variable
+		// JUST_CODE_HOST_PROJECT_<GuestEnv>. It is not part of the static
+		// binding registry: the binding shape is fixed at creation by the
+		// approved project-secret metadata, so map it back through that
+		// metadata rather than the current provider or binding configuration.
+		if strings.HasPrefix(hostEnv, msbProjectSecretHostEnvPrefix) {
+			b, ok, err := m.resolvePersistedProjectBinding(ctx, hostEnv)
+			if err != nil {
+				return nil, err
+			}
+			if ok {
+				out = append(out, b)
+			}
+			continue
+		}
 		b, ok := bindingForHostEnv(hostEnv)
 		if !ok {
 			// Unknown persisted variable: do not guess a credential shape.
@@ -1687,6 +1710,72 @@ func (m *MicrosandboxRuntime) resolvePersistedBindings(ctx context.Context, refs
 		out = append(out, resolvedBinding{msbSecretBinding: b, source: bindingSourceStore, value: v, store: store, entry: string(b.Kind)})
 	}
 	return out, nil
+}
+
+// resolvePersistedProjectBinding resolves a persisted project-secret transport
+// variable back to the approved project-secret delivery that created it. The
+// guest variable, placeholder and destinations were fixed when the binding was
+// approved, so the value is resolved from the imported credential the delivery
+// names — never from the current provider configuration. A persisted
+// registration whose approval has since been lifted or re-targeted is stale and
+// is skipped with a warning rather than blocking recovery; an approved delivery
+// whose backing value cannot be read fails closed, matching the
+// resolveProjectSecretBindings contract.
+func (m *MicrosandboxRuntime) resolvePersistedProjectBinding(ctx context.Context, hostEnv string) (resolvedBinding, bool, error) {
+	record, err := m.projectSecretDeliveries(ctx)
+	if err != nil {
+		return resolvedBinding{}, false, err
+	}
+	var delivery *ProjectSecretDelivery
+	for i := range record.deliveries {
+		d := &record.deliveries[i]
+		// A guest-readable delivery has no env transport variable (its value
+		// is written into the guest as a file), so it cannot be what the
+		// persisted registration references.
+		if d.GuestReadable() {
+			continue
+		}
+		if msbProjectSecretHostEnvPrefix+d.GuestEnv == hostEnv {
+			delivery = d
+			break
+		}
+	}
+	if delivery == nil {
+		// No current delivery matches: the approval that created the
+		// registration was lifted or re-targeted since the sandbox was
+		// persisted. The registration is stale, so skip it rather than boot
+		// the sandbox with a half-resolved binding.
+		m.warn("référence de secret de projet persisté sans approbation, ignorée", "Warning: %s persisted a project-secret reference %q whose approval no longer exists; skipping it during recovery", m.InstanceName(), hostEnv)
+		return resolvedBinding{}, false, nil
+	}
+	store, err := m.projectSecretStore()
+	if err != nil {
+		return resolvedBinding{}, false, err
+	}
+	value, err := store.Get(ctx, delivery.Profile, delivery.Component, delivery.Name)
+	if err != nil {
+		if isNotFound(err) {
+			return resolvedBinding{}, false, fmt.Errorf("cannot read the approved project secret %s (%s): %w", delivery.Name, delivery.Component, ErrProjectSecretImportMissing)
+		}
+		return resolvedBinding{}, false, fmt.Errorf("cannot read the approved project secret %s (%s): %w", delivery.Name, delivery.Component, err)
+	}
+	return resolvedBinding{
+		msbSecretBinding: msbSecretBinding{
+			Kind:        CredentialKind(delivery.GuestEnv),
+			GuestEnv:    delivery.GuestEnv,
+			Placeholder: delivery.Marker,
+			HostEnv:     hostEnv,
+			AllowHosts:  append([]string(nil), delivery.Destinations...),
+			Optional:    false,
+			Project: &ProjectBindingRef{
+				Profile: delivery.Profile, Component: delivery.Component, Name: delivery.Name, Reference: delivery.Reference,
+			},
+		},
+		source: bindingSourceStore,
+		value:  value,
+		store:  store.Kind(),
+		entry:  delivery.Reference,
+	}, true, nil
 }
 
 // waitForGuestShell blocks until the guest answers an exec probe, bounded by

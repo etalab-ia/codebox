@@ -149,6 +149,7 @@ func (f *fakeMSBClient) Start(_ context.Context, name string) error {
 		"JUST_CODE_HOST_CONTEXT7_API_KEY",
 		"JUST_CODE_HOST_MISTRAL_API_KEY",
 		"JUST_CODE_HOST_OPENAI_COMPATIBLE_API_KEY",
+		"JUST_CODE_HOST_PROJECT_JC_API_KEY",
 	} {
 		f.startHostEnv[k] = os.Getenv(k)
 	}
@@ -2508,6 +2509,62 @@ func TestRecoverUsesPersistedBindingsWhenProviderDiffers(t *testing.T) {
 	}
 	if got := os.Getenv("JUST_CODE_HOST_ALBERT_API_KEY"); got != "" {
 		t.Fatalf("Recover must restore the host environment after boot, %q still set", got)
+	}
+}
+
+// Recover resolves a persisted project-secret registration through the approved
+// project-secret metadata, not the current provider configuration. A sandbox
+// that persisted both a built-in Albert transport variable and a project-secret
+// transport variable must boot with both published, even when the current
+// configuration selects a different provider, and the host environment must be
+// restored once recovery returns.
+func TestRecoverPublishesPersistedProjectSecretBinding(t *testing.T) {
+	client := sealedFakeMSB()
+	client.persistedSecretRefs = []string{
+		"JUST_CODE_HOST_ALBERT_API_KEY",
+		"JUST_CODE_HOST_PROJECT_JC_API_KEY",
+	}
+	m := newTestMicrosandbox(t, client)
+	// The current configuration selects Mistral only; the persisted sandbox
+	// was created with Albert plus an approved project secret, so both must be
+	// republished from what the sandbox actually persisted.
+	m.cfg.APIKey = ""
+	m.cfg.Providers = []InferenceProvider{{
+		Kind:           "mistral",
+		Name:           "Mistral AI",
+		CredentialKind: CredentialMistral,
+		APIKeyEnv:      MistralAPIKeyEnv,
+		Host:           "api.mistral.ai",
+	}}
+	m.credentialRead = func(context.Context, CredentialKind, string) (string, string, error) {
+		return "albert-persisted-secret", "native", nil
+	}
+	// Approved project-secret registration backing the persisted transport
+	// variable. The store value is what recovery must publish, independent of
+	// the current provider or binding configuration.
+	store := newProjectSecretFakeStore()
+	s := projectSecretFixture(t, m.cfg.WorkspaceDir, m.StateDir, store)
+	m.ProjectSecrets = s
+	importProjectSecrets(t, s, "development", ".env", map[string]string{"API_KEY": "project-persisted-secret"})
+	approveForTest(t, m, "API_KEY", "JC_API_KEY")
+
+	if err := m.Recover(context.Background()); err != nil {
+		t.Fatalf("Recover: %v", err)
+	}
+
+	if got := client.startHostEnv["JUST_CODE_HOST_ALBERT_API_KEY"]; got != "albert-persisted-secret" {
+		t.Fatalf("Recover must publish the persisted Albert transport variable, got %q", got)
+	}
+	if got := client.startHostEnv["JUST_CODE_HOST_PROJECT_JC_API_KEY"]; got != "project-persisted-secret" {
+		t.Fatalf("Recover must publish the persisted project-secret transport variable, got %q", got)
+	}
+	if got := client.startHostEnv["JUST_CODE_HOST_MISTRAL_API_KEY"]; got != "" {
+		t.Fatalf("Recover must not publish a Mistral transport variable the persisted sandbox did not reference, got %q", got)
+	}
+	for _, env := range []string{"JUST_CODE_HOST_ALBERT_API_KEY", "JUST_CODE_HOST_PROJECT_JC_API_KEY"} {
+		if got := os.Getenv(env); got != "" {
+			t.Fatalf("Recover must restore the host environment after boot, %s still set", env)
+		}
 	}
 }
 
