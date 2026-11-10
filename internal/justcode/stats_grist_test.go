@@ -202,9 +202,10 @@ func TestFlushStatsToGristPostsOneRecordPerEventWithoutACredential(t *testing.T)
 }
 
 // The documented duplicate guard (newRec.Count > 1) rejects the write through
-// access rules. Grist answers 403 with an ACL_DENY message, so this uses the
-// real response shape: a synthetic 409 would have passed without covering it.
-func TestFlushStatsToGristDropsAnEventTheAccessRulesReject(t *testing.T) {
+// access rules. Grist answers 403 with an ACL_DENY message and the rule's memo
+// in details.memos, so this uses the real response shape as expressWrap sends
+// it: a synthetic 409 would have passed without covering any of this.
+func TestFlushStatsToGristDropsAnEventTheDuplicateGuardRejects(t *testing.T) {
 	statsTestHome(t)
 	if err := WriteStatsConsent(DefaultFS, mustSettingsPath(t), true, true); err != nil {
 		t.Fatal(err)
@@ -215,7 +216,7 @@ func TestFlushStatsToGristDropsAnEventTheAccessRulesReject(t *testing.T) {
 	}
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusForbidden)
-		_, _ = w.Write([]byte(`{"error":"Blocked by table Create access rules","memos":{}}`))
+		_, _ = w.Write([]byte(`{"error":"Blocked by table Create access rules","details":{"memos":[{"kind":"memo","text":"Dupliqué"}]}}`))
 	}))
 	defer server.Close()
 	t.Setenv("JUST_CODE_STATS_URL", server.URL+gristTestPath)
@@ -228,9 +229,38 @@ func TestFlushStatsToGristDropsAnEventTheAccessRulesReject(t *testing.T) {
 	}
 }
 
-// A 403 that is not an access-rule rejection must stay queued: an operator who
-// fixes the rules should still see the backlog delivered.
-func TestFlushStatsToGristKeepsAnUnrelated403(t *testing.T) {
+// The case that matters most: an access rule temporarily denying Create is
+// NOT the duplicate guard. Its 403 has the same message, so dequeuing on the
+// message alone would silently discard every event while none was stored.
+func TestFlushStatsToGristKeepsEventsWhenACLRulesDenyWithoutTheDuplicateMemo(t *testing.T) {
+	statsTestHome(t)
+	if err := WriteStatsConsent(DefaultFS, mustSettingsPath(t), true, true); err != nil {
+		t.Fatal(err)
+	}
+	stateDir := t.TempDir()
+	for _, id := range []string{"e1", "e2"} {
+		if err := EnqueueStatsEvent(DefaultFS, stateDir, StatsEvent{SchemaVersion: 1, EventID: id, Kind: "setup"}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusForbidden)
+		// Same message Grist emits for any denial, but no duplicate memo.
+		_, _ = w.Write([]byte(`{"error":"Blocked by table Create access rules","details":{"memos":[{"kind":"memo","text":"Période de gel"}]}}`))
+	}))
+	defer server.Close()
+	t.Setenv("JUST_CODE_STATS_URL", server.URL+gristTestPath)
+
+	if err := FlushStats(context.Background(), DefaultFS, stateDir); err == nil {
+		t.Fatal("a denial without the duplicate memo must be reported")
+	}
+	if events, _ := PendingStatsEvents(DefaultFS, stateDir); len(events) != 2 {
+		t.Fatalf("a denial that is not the duplicate guard must keep every event: %v", events)
+	}
+}
+
+// A bare 403 (a proxy, an expired session) must also stay retryable.
+func TestFlushStatsToGristKeepsABare403(t *testing.T) {
 	statsTestHome(t)
 	if err := WriteStatsConsent(DefaultFS, mustSettingsPath(t), true, true); err != nil {
 		t.Fatal(err)
@@ -241,16 +271,16 @@ func TestFlushStatsToGristKeepsAnUnrelated403(t *testing.T) {
 	}
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusForbidden)
-		_, _ = w.Write([]byte(`{"error":"Unauthorized"}`))
+		_, _ = w.Write([]byte(`{"error":"Forbidden"}`))
 	}))
 	defer server.Close()
 	t.Setenv("JUST_CODE_STATS_URL", server.URL+gristTestPath)
 
 	if err := FlushStats(context.Background(), DefaultFS, stateDir); err == nil {
-		t.Fatal("an unrelated 403 must be reported")
+		t.Fatal("a bare 403 must be reported")
 	}
 	if events, _ := PendingStatsEvents(DefaultFS, stateDir); len(events) != 1 {
-		t.Fatalf("an unrelated 403 must keep the event: %v", events)
+		t.Fatalf("a bare 403 must keep the event: %v", events)
 	}
 }
 

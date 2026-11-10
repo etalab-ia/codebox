@@ -95,7 +95,10 @@ dont notre client suit le format.
    - dans les règles par défaut, ajouter la condition `user.Access != OWNER`
      avec toutes les permissions refusées (`R U C D`) ;
    - ajouter des règles de table pour `Events`, condition vide (« Everyone »),
-     et n'accorder que `C` (création).
+     et n'accorder que `C` (création) ;
+   - ajouter le garde-fou anti-doublon décrit plus bas, avec sa mémo
+     `Dupliqué` : c'est une seconde règle, placée **au-dessus** de celle qui
+     autorise `C`.
 4. Partager le document en accès public avec le rôle `Editor`. Les règles
    ci-dessus annulent tout ce que ce rôle permettrait d'autre.
 5. Vérifier depuis une fenêtre de navigation privée : le document s'ouvre mais
@@ -135,6 +138,14 @@ configuré, ce qui rend l'envoi observable, et `just-code stats off` l'arrête.
   la ligne proposée, pas sur celle qui existe déjà. **Sans cette règle, un
   réessai crée une ligne en double** : le client ne peut pas dédupliquer seul,
   faute de droit de lecture.
+
+  Cette règle doit porter une **mémo `Dupliqué`** (icône mémo à droite de la
+  condition). Grist renvoie le même message d'erreur pour tout refus
+  (`Blocked by … access rules`) ; sans la mémo, le client ne peut pas
+  distinguer « cet événement est déjà enregistré » de « le document n'est plus
+  ouvert en écriture ». Or cette distinction décide du sort de la file : le
+  premier cas retire l'événement, le second doit tout conserver pour un envoi
+  ultérieur. La mémo voyage dans `details.memos` de la réponse d'erreur.
 
 Le consentement est relu avant **chaque** écriture, pas une fois pour le lot :
 un `just-code stats off` lancé pendant un envoi arrête les suivants.

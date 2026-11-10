@@ -643,11 +643,10 @@ func flushStatsToGrist(ctx context.Context, endpoint string, fs FS, stateDir str
 		case status >= 200 && status < 300:
 		case status == http.StatusConflict || status == http.StatusBadRequest:
 			// Grist refused the record outright; it cannot be accepted later.
-		case status == http.StatusForbidden && statsGristAccessRuleRejection(respBody):
-			// An access rule refused the write. When that rule is the
-			// documented duplicate guard (newRec.Count > 1), the event is
-			// already stored and the response was merely lost, so retrying
-			// forever would keep it in the queue until eviction.
+		case status == http.StatusForbidden && statsGristDuplicateRejection(respBody):
+			// The duplicate guard refused the write, so the event is already
+			// stored and its response was merely lost. Retrying would keep it
+			// in the queue until eviction.
 		default:
 			if firstErr == nil {
 				firstErr = fmt.Errorf("statistics endpoint returned HTTP %d", status)
@@ -661,22 +660,49 @@ func flushStatsToGrist(ctx context.Context, endpoint string, fs FS, stateDir str
 	return firstErr
 }
 
-// statsGristAccessRuleRejection reports whether a response is Grist refusing a
-// write through access rules, which is what the duplicate guard produces. It
-// matches the shape GranularAccess emits rather than any 403: an unrelated
-// permission failure must stay retryable, because an operator who corrects the
-// rules should see the backlog delivered afterwards.
-func statsGristAccessRuleRejection(body []byte) bool {
+// statsGristDuplicateMemo marks the duplicate guard's access rule. Grist's
+// error message is the same for every denial ("Blocked by <type> <action>
+// access rules"), so the message alone cannot distinguish "this event is
+// already stored" from "this document is temporarily not writable" -- and
+// treating the second as the first would silently discard the whole queue.
+//
+// The memo is the operator-supplied hint attached to the denying rule
+// (support.getgrist.com/access-rules/ "Access rule memos"), carried in the
+// response's details.memos. The receiving rule must therefore carry this
+// exact text; see docs/stats.md.
+const statsGristDuplicateMemo = "Dupliqué"
+
+// statsGristDuplicateRejection reports whether a response is the duplicate
+// guard refusing a write, which means the event is already stored.
+func statsGristDuplicateRejection(body []byte) bool {
 	if len(body) == 0 {
 		return false
 	}
 	var parsed struct {
-		Error string `json:"error"`
+		Error   string `json:"error"`
+		Details *struct {
+			Memos []struct {
+				Text string `json:"text"`
+			} `json:"memos"`
+		} `json:"details"`
 	}
 	if err := json.Unmarshal(body, &parsed); err != nil {
 		return false
 	}
-	return strings.Contains(parsed.Error, "Blocked by") && strings.Contains(parsed.Error, "access rules")
+	// A non-denial first, so a server that returns this text for an unrelated
+	// reason cannot be mistaken for the guard.
+	if !strings.Contains(parsed.Error, "access rules") {
+		return false
+	}
+	if parsed.Details == nil {
+		return false
+	}
+	for _, memo := range parsed.Details.Memos {
+		if strings.TrimSpace(memo.Text) == statsGristDuplicateMemo {
+			return true
+		}
+	}
+	return false
 }
 
 // postStatsGristRecord sends one record and reports the status code and body.
