@@ -201,3 +201,14 @@ func TestWorkspaceAllowDenyTakeExactlyOnePath(t *testing.T) {
 		}
 	}
 }
+
+// TestWorkspaceRecoverRejectsOptions keeps a stray word from being silently
+// ignored: recovery has no flags, so any trailing token is a usage error.
+func TestWorkspaceRecoverRejectsOptions(t *testing.T) {
+	for _, args := range [][]string{{"recover", "--all"}, {"recover", "extra"}} {
+		code, err := workspaceCmd(args, justcode.Config{}, "jc-x")
+		if code != 2 || err == nil {
+			t.Fatalf("%v must be a usage error: code=%d err=%v", args, code, err)
+		}
+	}
+}
