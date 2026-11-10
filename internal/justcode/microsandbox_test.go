@@ -143,15 +143,15 @@ func (f *fakeMSBClient) Start(_ context.Context, name string) error {
 	if f.startHostEnv == nil {
 		f.startHostEnv = map[string]string{}
 	}
-	for _, k := range [...]string{
-		"JUST_CODE_HOST_ALBERT_API_KEY",
-		"JUST_CODE_HOST_GITHUB_TOKEN",
-		"JUST_CODE_HOST_CONTEXT7_API_KEY",
-		"JUST_CODE_HOST_MISTRAL_API_KEY",
-		"JUST_CODE_HOST_OPENAI_COMPATIBLE_API_KEY",
-		"JUST_CODE_HOST_PROJECT_JC_API_KEY",
-	} {
-		f.startHostEnv[k] = os.Getenv(k)
+	// Capture every published transport variable, not a fixed list. The point
+	// of these assertions is what was actually present for the boot, and a
+	// hardcoded list silently reports "" for any variable outside it — which
+	// reads as "not published" rather than "not observed".
+	for _, entry := range os.Environ() {
+		k, v, ok := strings.Cut(entry, "=")
+		if ok && strings.HasPrefix(k, "JUST_CODE_HOST_") {
+			f.startHostEnv[k] = v
+		}
 	}
 	return f.startErr
 }
