@@ -1580,8 +1580,24 @@ func (m *MicrosandboxRuntime) Recover(ctx context.Context) error {
 	}
 	if sandbox.Status != "running" {
 		m.say("Starting %s with its persisted start script...", m.InstanceName())
-		if err := m.Client.Start(ctx, m.InstanceName()); err != nil {
-			return fmt.Errorf("boot %s for recovery failed: %w", m.InstanceName(), err)
+		// Booting a stopped sandbox re-runs its persisted start script, whose
+		// env-reference secret registrations resolve from this process's
+		// environment at boot. Publish the resolved transport variables for
+		// the boot - the same contract as Start - so a credential-backed
+		// sandbox can actually be recovered. Unlike Start, no current guest
+		// configuration is applied (no ModifyNextStart): recovery exists only
+		// to reach the guest's persisted state for workspace delivery.
+		bindings, err := m.resolveBindings(ctx)
+		if err != nil {
+			return fmt.Errorf("cannot resolve credentials to boot %s for recovery: %w", m.InstanceName(), err)
+		}
+		if err := withHostSecrets(bindings, func() error {
+			if err := m.Client.Start(ctx, m.InstanceName()); err != nil {
+				return fmt.Errorf("boot %s for recovery failed: %w", m.InstanceName(), err)
+			}
+			return nil
+		}); err != nil {
+			return err
 		}
 	}
 	m.say("Waiting for a usable guest shell in %s...", m.InstanceName())

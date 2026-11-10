@@ -45,6 +45,9 @@ type fakeMSBClient struct {
 	attachErr    error
 
 	calls            []string
+	// startHostEnv captures the JUST_CODE_HOST_* transport variables that were
+	// published (via withHostSecrets) while Start ran, keyed by variable name.
+	startHostEnv     map[string]string
 	created          *msbSandboxSpec
 	modifiedEnv      map[string]string
 	modifiedBindings []msbSecretBinding
@@ -131,6 +134,18 @@ func (f *fakeMSBClient) AppliedPortMappings(_ context.Context, _ string) ([]Port
 
 func (f *fakeMSBClient) Start(_ context.Context, name string) error {
 	f.record("start " + name)
+	if f.startHostEnv == nil {
+		f.startHostEnv = map[string]string{}
+	}
+	for _, k := range [...]string{
+		"JUST_CODE_HOST_ALBERT_API_KEY",
+		"JUST_CODE_HOST_GITHUB_TOKEN",
+		"JUST_CODE_HOST_CONTEXT7_API_KEY",
+		"JUST_CODE_HOST_MISTRAL_API_KEY",
+		"JUST_CODE_HOST_OPENAI_COMPATIBLE_API_KEY",
+	} {
+		f.startHostEnv[k] = os.Getenv(k)
+	}
 	return f.startErr
 }
 
@@ -2364,6 +2379,32 @@ func TestRecoverRefusesLegacyRawKey(t *testing.T) {
 	}
 	if strings.Contains(strings.Join(client.calls, "\n"), "start ") {
 		t.Fatalf("Recover must not boot a legacy plaintext-key sandbox, got calls:\n%s", client.calls)
+	}
+}
+
+// Recover on a credential-backed stopped sandbox publishes the host transport
+// variable for the persisted credential reference during boot, matching the
+// Start contract. Without it the guest start script cannot resolve the
+// env-reference secret and the sandbox boots without its credential. The
+// variable is restored once recovery returns: the raw value never lingers in
+// the host environment.
+func TestRecoverBootsStoppedSandboxWithHostSecrets(t *testing.T) {
+	client := sealedFakeMSB()
+	m := newTestMicrosandbox(t, client)
+	m.cfg.APIKey = "" // force the stored-credential path
+	m.credentialRead = func(context.Context, CredentialKind, string) (string, string, error) {
+		return "stored-albert-secret", "native", nil
+	}
+
+	if err := m.Recover(context.Background()); err != nil {
+		t.Fatalf("Recover: %v", err)
+	}
+
+	if got := client.startHostEnv["JUST_CODE_HOST_ALBERT_API_KEY"]; got != "stored-albert-secret" {
+		t.Fatalf("Recover boot must publish the persisted credential transport variable, got %q", got)
+	}
+	if got := os.Getenv("JUST_CODE_HOST_ALBERT_API_KEY"); got != "" {
+		t.Fatalf("Recover must restore the host environment after boot, %q still set", got)
 	}
 }
 
