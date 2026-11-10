@@ -472,7 +472,7 @@ func TestTartRunAgentPushesSecretsOnStdinOnly(t *testing.T) {
 	// The model definitions travel as non-secret JSON argv alongside the
 	// default model; the credentials themselves remain on stdin.
 	gemmaJSON := `{"models":[{"id":"gemma-4","modelID":"google/gemma-4-31B-it","name":"Gemma 4","context":262144,"vision":true}]}`
-	if !r.hasCall("exec -i opencode-tahoe-base-latest " + guestLocalBinary + " " + GuestSecretsCommand + " opencode albert/qwen3-coder " + gemmaJSON) {
+	if !r.hasCall("exec -i opencode-tahoe-base-latest " + guestLocalBinary + " " + GuestSecretsCommand + " opencode " + defaultOpencodeModel + " " + gemmaJSON) {
 		t.Fatalf("secrets argv must include the selected models; calls: %v", r.calls)
 	}
 	for _, c := range r.calls {
