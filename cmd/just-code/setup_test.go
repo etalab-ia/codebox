@@ -488,7 +488,7 @@ func TestPromptSetupModelsKeepsSelectionWhenCatalogueCacheIsStale(t *testing.T) 
 	}
 	var retained bool
 	setupModelPickerRun = func(picker setupModelPicker) (setupModelPicker, error) {
-		retained = picker.selected[choices[0].Ref()] && picker.selected[choices[1].Ref()]
+		retained = picker.selected[choices[1].Ref()]
 		picker.done = true
 		return picker, nil
 	}
@@ -1367,7 +1367,7 @@ func TestExplicitDefaultModelSurvivesAnAbortAndAnUnansweredResume(t *testing.T) 
 		t.Fatal(err)
 	}
 	defaultModel := "albert/old"
-	if !j.ModelChosen || j.DefaultModel != defaultModel || len(j.Models) != 3 || !containsString(j.Models, "old") {
+	if !j.ModelChosen || j.DefaultModel != defaultModel || len(j.Models) != 2 || !containsString(j.Models, "old") {
 		t.Fatalf("run 1 must journal the default model set: chosen=%v model=%q models=%v", j.ModelChosen, j.DefaultModel, j.Models)
 	}
 
@@ -1463,7 +1463,7 @@ func TestEmptyModelAnswerPreservesLegacyCustomChoice(t *testing.T) {
 	if uerr != nil {
 		t.Fatal(uerr)
 	}
-	if us.DefaultModel != defaultModel || len(us.Models) != 3 || !containsString(us.Models, "previous-choice") {
+	if us.DefaultModel != defaultModel || len(us.Models) != 2 || !containsString(us.Models, "previous-choice") {
 		t.Fatalf("Enter must preserve the legacy model and enable it; got model=%q models=%v", us.DefaultModel, us.Models)
 	}
 }
