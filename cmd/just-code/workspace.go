@@ -19,13 +19,14 @@ import (
 //	workspace deny <path>     # drop a recorded re-inclusion
 //	workspace export [--out <file>]  # write the guest's diff to the host for review
 //	workspace apply [--all]   # apply the agent's changes to the host checkout
+//	workspace recover          # boot a stopped upgraded sandbox to deliver its guest changes
 //
 // The transfer source of status, allow and apply is the configured workspace
 // dir (WORKSPACE_DIR, or the discovered project root) — the same source
 // provisioning copies from, so the two sides of the boundary agree.
 func workspaceCmd(args []string, cfg justcode.Config, instance string) (int, error) {
 	if len(args) == 0 {
-		fmt.Fprintln(os.Stderr, "Usage: just-code workspace status | sync [--force] | allow <path> | deny <path> | export [--out <file>] | apply [--all]")
+		fmt.Fprintln(os.Stderr, "Usage: just-code workspace status | sync [--force] | allow <path> | deny <path> | export [--out <file>] | apply [--all] | recover")
 		return 2, nil
 	}
 	stateDir := justcode.DefaultStateDir()
@@ -115,8 +116,17 @@ func workspaceCmd(args []string, cfg justcode.Config, instance string) (int, err
 		}
 		rt := justcode.NewMicrosandboxRuntimeForInstance(cfg, instance)
 		return runWorkspaceApply(rt, cfg.WorkspaceDir, instance, applyAll)
+	case "recover":
+		if len(args) != 1 {
+			return 2, fmt.Errorf("workspace recover takes no options")
+		}
+		rt := justcode.NewMicrosandboxRuntimeForInstance(cfg, instance)
+		if err := rt.Recover(context.Background()); err != nil {
+			return 1, err
+		}
+		return 0, nil
 	default:
-		return 2, fmt.Errorf("Unknown workspace command: %s (expected status, sync, allow, deny, export or apply)", args[0])
+		return 2, fmt.Errorf("Unknown workspace command: %s (expected status, sync, allow, deny, export, apply or recover)", args[0])
 	}
 }
 

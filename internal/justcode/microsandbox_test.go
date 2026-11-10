@@ -2275,3 +2275,129 @@ func TestMSBInvalidSizingIsReported(t *testing.T) {
 		t.Fatal("an invalid guest sizing must be reported before any runtime work")
 	}
 }
+
+// Recover must boot a stopped, guest-owned sandbox with its persisted start
+// script and wait only for a usable guest shell - never applying the current
+// configuration (ModifyNextStart) and never relaunching the OpenCode backend.
+func TestRecoverBootsStoppedSealedSandbox(t *testing.T) {
+	client := sealedFakeMSB()
+	m := newTestMicrosandbox(t, client)
+
+	if err := m.Recover(context.Background()); err != nil {
+		t.Fatalf("Recover: %v", err)
+	}
+
+	joined := strings.Join(client.calls, "\n")
+	// Sealed-workspace provenance is verified, and the instance is booted.
+	if !strings.Contains(joined, "owned test-instance") {
+		t.Fatalf("Recover must verify sealed workspace provenance, got calls:\n%s", joined)
+	}
+	if !strings.Contains(joined, "start test-instance") {
+		t.Fatalf("Recover must boot the instance, got calls:\n%s", joined)
+	}
+	// It waits for a guest shell, not the backend: only the trivial probe runs.
+	if !strings.Contains(joined, "exec test-instance echo ok") {
+		t.Fatalf("Recover must probe for a guest shell, got calls:\n%s", joined)
+	}
+	if strings.Contains(joined, "modify test-instance") {
+		t.Fatalf("Recover must not apply the current configuration via ModifyNextStart, got calls:\n%s", joined)
+	}
+	if strings.Contains(joined, msbRelaunchCommand) {
+		t.Fatalf("Recover must never relaunch the OpenCode backend, got calls:\n%s", joined)
+	}
+}
+
+// Recover on a sandbox that is already running still verifies the guest shell
+// is reachable before reporting success.
+func TestRecoverRunningSealedSandboxWaitsForGuestShell(t *testing.T) {
+	client := sealedFakeMSB()
+	client.status = "running"
+	m := newTestMicrosandbox(t, client)
+
+	if err := m.Recover(context.Background()); err != nil {
+		t.Fatalf("Recover: %v", err)
+	}
+
+	joined := strings.Join(client.calls, "\n")
+	// A running sandbox is not started again, but the guest shell is still
+	// probed - the sandbox may be up while the guest is not yet reachable.
+	if strings.Contains(joined, "start test-instance") {
+		t.Fatalf("Recover must not restart an already-running sandbox, got calls:\n%s", joined)
+	}
+	if !strings.Contains(joined, "exec test-instance echo ok") {
+		t.Fatalf("Recover must still probe a running sandbox's guest shell, got calls:\n%s", joined)
+	}
+}
+
+// Recover keeps the sealed-workspace guard fail-closed: a sandbox whose
+// /workspace is a host bind mount is refused, not silently adopted.
+func TestRecoverRefusesBindMountedWorkspace(t *testing.T) {
+	client := &fakeMSBClient{exists: true, mount: "/host/checkout"}
+	m := newTestMicrosandbox(t, client)
+
+	err := m.Recover(context.Background())
+	if err == nil {
+		t.Fatal("Recover must refuse a bind-mounted workspace")
+	}
+	if !strings.Contains(err.Error(), "mounted from the host") {
+		t.Fatalf("Recover refusal should name the host mount, got: %v", err)
+	}
+	// The guard must refuse before any boot attempt.
+	if strings.Contains(strings.Join(client.calls, "\n"), "start ") {
+		t.Fatalf("Recover must not boot a non-sealed sandbox, got calls:\n%s", client.calls)
+	}
+}
+
+// Recover keeps the legacy-plaintext-key guard fail-closed: a sandbox whose
+// guest environment still stores the real credential is refused.
+func TestRecoverRefusesLegacyRawKey(t *testing.T) {
+	client := sealedFakeMSB()
+	client.env = map[string]string{msbAPISecretEnv: "an-exposed-value"}
+	m := newTestMicrosandbox(t, client)
+
+	err := m.Recover(context.Background())
+	if err == nil {
+		t.Fatal("Recover must refuse a sandbox storing a plaintext credential")
+	}
+	if !strings.Contains(err.Error(), "plaintext") {
+		t.Fatalf("Recover refusal should mention the plaintext credential, got: %v", err)
+	}
+	if strings.Contains(strings.Join(client.calls, "\n"), "start ") {
+		t.Fatalf("Recover must not boot a legacy plaintext-key sandbox, got calls:\n%s", client.calls)
+	}
+}
+
+// Recover refuses a sandbox that does not exist, telling the user to start it.
+func TestRecoverRefusesMissingSandbox(t *testing.T) {
+	client := &fakeMSBClient{}
+	m := newTestMicrosandbox(t, client)
+
+	err := m.Recover(context.Background())
+	if err == nil {
+		t.Fatal("Recover must refuse a nonexistent sandbox")
+	}
+	if !strings.Contains(err.Error(), "does not exist") {
+		t.Fatalf("Recover refusal should say the sandbox does not exist, got: %v", err)
+	}
+}
+
+// Recover fails with a bounded timeout when the guest shell never becomes
+// reachable, instead of launching the backend or hanging.
+func TestRecoverTimesOutWhenGuestShellUnreachable(t *testing.T) {
+	client := sealedFakeMSB()
+	client.execDefault = &fakeMSBExecResult{code: 127, stderr: "sh: not found"}
+	m := newTestMicrosandbox(t, client)
+	m.cfg.StartTimeout = 20 * time.Millisecond
+	m.toolchainPollDelay = time.Millisecond
+
+	err := m.Recover(context.Background())
+	if err == nil {
+		t.Fatal("Recover must fail when the guest shell never becomes reachable")
+	}
+	if !strings.Contains(err.Error(), "not reachable") {
+		t.Fatalf("Recover failure should state the guest shell was unreachable, got: %v", err)
+	}
+	if strings.Contains(strings.Join(client.calls, "\n"), msbRelaunchCommand) {
+		t.Fatalf("Recover must not relaunch the backend on a shell timeout, got calls:\n%s", client.calls)
+	}
+}

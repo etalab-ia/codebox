@@ -1547,6 +1547,83 @@ func (m *MicrosandboxRuntime) rejectRecreationOnlyStates(ctx context.Context) er
 	return nil
 }
 
+// Recover boots a stopped, guest-owned sandbox that normal Start refuses
+// after a version upgrade, without weakening Start's own guards. An upgraded
+// sandbox can trip the creation-fixed refusals (a legacy start script lacking
+// the current harness, an isolation/port change the persisted config does not
+// carry) that end in ErrRecreateNeeded. Recreation is destructive, so this
+// path exists to bring such a sandbox back up long enough to deliver its
+// guest changes through 'just-code workspace apply' / 'workspace export'
+// first.
+//
+// It boots the instance with the start script persisted at creation, never
+// rewriting it and never applying the current configuration through
+// ModifyNextStart. It waits only until a guest shell is reachable, not for
+// the OpenCode backend, so the user can run a workspace command before any
+// destructive recreate.
+func (m *MicrosandboxRuntime) Recover(ctx context.Context) error {
+	sandbox, exists, err := m.Client.Lookup(ctx, m.InstanceName())
+	if err != nil {
+		return fmt.Errorf("cannot look up %s to recover it: %w", m.InstanceName(), err)
+	}
+	if !exists {
+		return fmt.Errorf("%s does not exist; there is nothing to recover. Run 'just-code start --microsandbox' to create it", m.InstanceName())
+	}
+	// The sealed-workspace and legacy-plaintext-key guards stay fail-closed:
+	// recovery exists to reach guest changes, never to weaken the boundary
+	// between the guest and the host checkout.
+	if err := m.requireSealedWorkspace(ctx); err != nil {
+		return err
+	}
+	if err := m.rejectLegacyRawKey(ctx); err != nil {
+		return err
+	}
+	if sandbox.Status != "running" {
+		m.say("Starting %s with its persisted start script...", m.InstanceName())
+		if err := m.Client.Start(ctx, m.InstanceName()); err != nil {
+			return fmt.Errorf("boot %s for recovery failed: %w", m.InstanceName(), err)
+		}
+	}
+	m.say("Waiting for a usable guest shell in %s...", m.InstanceName())
+	if err := m.waitForGuestShell(ctx); err != nil {
+		return err
+	}
+	fmt.Fprintln(os.Stderr, "Recovered the sandbox guest state. Run 'just-code workspace apply' or 'just-code workspace export' to deliver the guest's changes to the host checkout before 'just-code recreate --microsandbox' (which deletes guest-only state).")
+	return nil
+}
+
+// waitForGuestShell blocks until the guest answers an exec probe, bounded by
+// the same timeout as a normal start. It only asks for a shell, not for the
+// OpenCode backend: the workspace commands need execution, not a healthy
+// backend, and recovery must not relaunch OpenCode unnecessarily.
+func (m *MicrosandboxRuntime) waitForGuestShell(ctx context.Context) error {
+	timeout := m.cfg.StartTimeout
+	if timeout <= 0 {
+		timeout = DefaultStartTimeout
+	}
+	delay := m.toolchainPollDelay
+	if delay <= 0 {
+		delay = msbLaunchRetryDelay
+	}
+	ctx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+	for {
+		code, stderr, err := m.Client.Exec(ctx, m.InstanceName(), "echo ok")
+		if err == nil && code == 0 {
+			return nil
+		}
+		if err == nil {
+			err = fmt.Errorf("guest probe exited %d: %s", code, strings.TrimSpace(stderr))
+		}
+		select {
+		case <-time.After(delay):
+		case <-ctx.Done():
+			return fmt.Errorf("a guest shell in %s was not reachable within %s (last probe: %v); the start script may have failed. Run 'just-code logs --microsandbox' or check %s inside the guest, then recreate it: %w",
+				m.InstanceName(), timeout, err, msbGuestLog, ctx.Err())
+		}
+	}
+}
+
 // rejectResourceSizingChange refuses a restart when the applied state records
 // a sizing different from the configured one. An unrecorded state (0) is not
 // a mismatch: it cannot be compared, and the sizing is not what the user
