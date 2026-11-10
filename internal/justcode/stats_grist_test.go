@@ -27,7 +27,6 @@ func TestStatsGristRecordsURLRecognisesOnlyARecordsCollection(t *testing.T) {
 		{"plain endpoint", "https://stats.example.fr/v1/events", false},
 		{"grist table, not records", "https://grist.example.fr/api/docs/DOC123/tables/Events", false},
 		{"missing table", "https://grist.example.fr/api/docs/DOC123/tables//records", false},
-		{"http is refused", "http://grist.example.fr" + gristTestPath, false},
 		{"no scheme", "grist.example.fr" + gristTestPath, false},
 		{"empty", "", false},
 	}
@@ -48,6 +47,62 @@ func TestStatsGristRecordsURLAcceptsLoopbackOverHTTP(t *testing.T) {
 	}
 	if _, ok := statsGristRecordsURL("http://localhost:8080" + gristTestPath); !ok {
 		t.Fatal("localhost must be treated as loopback")
+	}
+}
+
+// Transport security is a separate decision from wire format. Folding it into
+// format detection made an insecure Grist URL look like "not Grist", which sent
+// the events to that same plaintext URL with the wrong envelope.
+func TestStatsEndpointSecure(t *testing.T) {
+	cases := []struct {
+		endpoint string
+		want     bool
+	}{
+		{"https://grist.numerique.gouv.fr/o/albert/api/docs/D/tables/Events/records", true},
+		{"https://stats.example.fr/v1/events", true},
+		{"http://grist.example.fr/api/docs/D/tables/Events/records", false},
+		{"http://stats.example.fr/v1/events", false},
+		{"ftp://stats.example.fr/x", false},
+		{"stats.example.fr/x", false},
+		{"http://127.0.0.1:9" + gristTestPath, true},
+		{"http://localhost:9/x", true},
+	}
+	for _, tc := range cases {
+		if got := statsEndpointSecure(tc.endpoint); got != tc.want {
+			t.Fatalf("statsEndpointSecure(%q) = %v, want %v", tc.endpoint, got, tc.want)
+		}
+	}
+}
+
+// An insecure endpoint must stop the flush before either transport runs, even
+// though the URL is a well-formed Grist records collection.
+func TestFlushStatsRefusesAnInsecureEndpoint(t *testing.T) {
+	for _, endpoint := range []string{
+		"http://grist.example.fr" + gristTestPath,
+		"http://stats.example.fr/v1/events",
+	} {
+		t.Run(endpoint, func(t *testing.T) {
+			statsTestHome(t)
+			if err := WriteStatsConsent(DefaultFS, mustSettingsPath(t), true, true); err != nil {
+				t.Fatal(err)
+			}
+			stateDir := t.TempDir()
+			if err := EnqueueStatsEvent(DefaultFS, stateDir, StatsEvent{SchemaVersion: 1, EventID: "e", Kind: "setup"}); err != nil {
+				t.Fatal(err)
+			}
+			t.Setenv("JUST_CODE_STATS_URL", endpoint)
+
+			err := FlushStats(context.Background(), DefaultFS, stateDir)
+			if err == nil {
+				t.Fatal("an insecure endpoint must be refused")
+			}
+			if !strings.Contains(err.Error(), "not secure") {
+				t.Fatalf("the error must say why: %v", err)
+			}
+			if events, _ := PendingStatsEvents(DefaultFS, stateDir); len(events) != 1 {
+				t.Fatalf("the event must stay queued: %v", events)
+			}
+		})
 	}
 }
 

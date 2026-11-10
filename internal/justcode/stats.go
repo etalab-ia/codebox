@@ -80,13 +80,13 @@ func StatsEndpoint() string {
 //
 // statsGristRecordsURL reports whether the endpoint targets a Grist records
 // collection, accepting the optional `/o/<org>` prefix that Grist doc URLs
-// carry, and requires TLS so events cannot leave the host in the clear.
+// carry. Transport security is a separate question, checked once by
+// statsEndpointSecure: folding it in here made an insecure Grist URL look like
+// "not a Grist endpoint", which selected the batch sender and posted the
+// events to that same http:// URL with the wrong envelope.
 func statsGristRecordsURL(endpoint string) (string, bool) {
 	u, err := url.Parse(endpoint)
 	if err != nil || u.Host == "" {
-		return "", false
-	}
-	if u.Scheme != "https" && !isLoopbackStatsHost(u.Hostname()) {
 		return "", false
 	}
 	segments := strings.Split(strings.Trim(u.Path, "/"), "/")
@@ -105,6 +105,29 @@ func statsGristRecordsURL(endpoint string) (string, bool) {
 		return "", false
 	}
 	return endpoint, true
+}
+
+// statsEndpointSecure reports whether events may be sent to this endpoint at
+// all. Statistics are non-nominative but they are still deployment data, and a
+// plaintext POST would expose them on the path; loopback is exempt so the
+// tests can exercise the real transports over HTTP.
+//
+// This is checked separately from the wire format and BEFORE either transport
+// runs: an insecure endpoint must stop the flush, not fall through to the
+// other sender.
+func statsEndpointSecure(endpoint string) bool {
+	u, err := url.Parse(endpoint)
+	if err != nil || u.Host == "" {
+		return false
+	}
+	switch u.Scheme {
+	case "https":
+		return true
+	case "http":
+		return isLoopbackStatsHost(u.Hostname())
+	default:
+		return false
+	}
 }
 
 // isLoopbackStatsHost lets the tests drive the Grist path over plain HTTP
@@ -536,6 +559,12 @@ func FlushStats(ctx context.Context, fs FS, stateDir string) error {
 	endpoint := StatsEndpoint()
 	if endpoint == "" {
 		return nil
+	}
+	// Transport security is decided once, before the format: an insecure
+	// endpoint must stop the flush outright. Letting it fall through to the
+	// other transport would still send the events over the same plaintext URL.
+	if !statsEndpointSecure(endpoint) {
+		return fmt.Errorf("statistics endpoint is not secure: %s", endpoint)
 	}
 	events, err := PendingStatsEvents(fs, stateDir)
 	if err != nil || len(events) == 0 {
