@@ -30,11 +30,11 @@ type fakeMSBClient struct {
 	doctorErr    error
 	mount        string
 	mountErr     error
-	// persistedSecretRefs are the JUST_CODE_HOST_* transport variables the
-	// sandbox's persisted secret registrations reference. Recovery republishes
-	// them at boot even when the current provider configuration differs, so
-	// this is what drives the persisted-binding resolution path.
-	persistedSecretRefs    []string
+	// persistedSecretRefs are the env-reference secret registrations the
+	// sandbox's persisted document carries. Recovery republishes them at boot
+	// even when the current provider configuration differs, so this is what
+	// drives the persisted-binding resolution path.
+	persistedSecretRefs    []persistedSecretRef
 	persistedSecretRefsErr error
 	appliedPorts           []PortMapping
 	appliedErr             error
@@ -552,9 +552,9 @@ func (f *fakeMSBClient) Env(_ context.Context, name string) (map[string]string, 
 	return cloneStringMap(f.env), f.envErr
 }
 
-func (f *fakeMSBClient) PersistedSecretRefs(_ context.Context, name string) ([]string, error) {
+func (f *fakeMSBClient) PersistedSecretRefs(_ context.Context, name string) ([]persistedSecretRef, error) {
 	f.record("persistedsecretrefs " + name)
-	return append([]string(nil), f.persistedSecretRefs...), f.persistedSecretRefsErr
+	return append([]persistedSecretRef(nil), f.persistedSecretRefs...), f.persistedSecretRefsErr
 }
 
 func (f *fakeMSBClient) List(_ context.Context) ([]msbSandboxInfo, error) {
@@ -2028,7 +2028,7 @@ func TestParsePersistedEnvRefSecretsReadsThePersistedDocument(t *testing.T) {
 	if err != nil {
 		t.Fatalf("persistedSecretRefsFromHandle: %v", err)
 	}
-	if len(refs) != 1 || refs[0] != "JUST_CODE_HOST_ALBERT_API_KEY" {
+	if len(refs) != 1 || refs[0].HostEnv != "JUST_CODE_HOST_ALBERT_API_KEY" {
 		t.Fatalf("persisted secret refs = %v, want [JUST_CODE_HOST_ALBERT_API_KEY]", refs)
 	}
 }
@@ -2043,7 +2043,7 @@ func TestParsePersistedEnvRefSecretsSkipsNonEnvAndDedupes(t *testing.T) {
 	if err != nil {
 		t.Fatalf("parsePersistedEnvRefSecrets: %v", err)
 	}
-	if len(refs) != 1 || refs[0] != "JUST_CODE_HOST_ALBERT_API_KEY" {
+	if len(refs) != 1 || refs[0].HostEnv != "JUST_CODE_HOST_ALBERT_API_KEY" {
 		t.Fatalf("persisted secret refs = %v, want the env reference deduplicated once", refs)
 	}
 }
@@ -2058,6 +2058,78 @@ func TestParsePersistedEnvRefSecretsEmptyDocument(t *testing.T) {
 	}
 	if len(refs) != 0 {
 		t.Fatalf("persisted secret refs = %v, want empty", refs)
+	}
+}
+
+// TestParsePersistedEnvRefSecretsPreservesMetadata pins that recovery keeps the
+// destination allowlist and placeholder a project-secret registration persisted
+// at creation. These are what prove the registration is still compatible with
+// the current approval before recovery republishes the transport variable.
+func TestParsePersistedEnvRefSecretsPreservesMetadata(t *testing.T) {
+	config := persistedConfigWithSecrets(
+		`{"name":"JC_API_KEY","source":{"kind":"env","var":"JUST_CODE_HOST_PROJECT_JC_API_KEY"},"allowed_hosts":["api.example.com"],"placeholder":"__MKR__"}`,
+	)
+	refs, err := parsePersistedEnvRefSecrets(config)
+	if err != nil {
+		t.Fatalf("parsePersistedEnvRefSecrets: %v", err)
+	}
+	if len(refs) != 1 {
+		t.Fatalf("persisted secret refs = %v, want one project-secret registration", refs)
+	}
+	ref := refs[0]
+	if ref.HostEnv != "JUST_CODE_HOST_PROJECT_JC_API_KEY" {
+		t.Fatalf("HostEnv = %q, want the project transport variable", ref.HostEnv)
+	}
+	if len(ref.AllowedHosts) != 1 || ref.AllowedHosts[0] != "api.example.com" {
+		t.Fatalf("AllowedHosts = %v, want [api.example.com]", ref.AllowedHosts)
+	}
+	if ref.Placeholder == nil || *ref.Placeholder != "__MKR__" {
+		t.Fatalf("Placeholder = %v, want %q", ref.Placeholder, "__MKR__")
+	}
+}
+
+// TestParsePersistedEnvRefSecretsMissingMetadataFailsClosed pins that an
+// env-reference registration with no allowlist and no placeholder surface the
+// ambiguity directly: the allowlist is empty and the placeholder is nil, so the
+// recovery path can refuse rather than assume compatibility.
+func TestParsePersistedEnvRefSecretsMissingMetadataFailsClosed(t *testing.T) {
+	config := persistedConfigWithSecrets(
+		`{"name":"JC_API_KEY","source":{"kind":"env","var":"JUST_CODE_HOST_PROJECT_JC_API_KEY"}}`,
+	)
+	refs, err := parsePersistedEnvRefSecrets(config)
+	if err != nil {
+		t.Fatalf("parsePersistedEnvRefSecrets: %v", err)
+	}
+	if len(refs) != 1 {
+		t.Fatalf("persisted secret refs = %v, want one project-secret registration", refs)
+	}
+	ref := refs[0]
+	if len(ref.AllowedHosts) != 0 {
+		t.Fatalf("AllowedHosts = %v, want empty when the document omits it", ref.AllowedHosts)
+	}
+	if ref.Placeholder != nil {
+		t.Fatalf("Placeholder = %v, want nil when the document omits it", ref.Placeholder)
+	}
+}
+
+// TestParsePersistedEnvRefSecretsAcceptsAllowSpelling pins the second spelling
+// of the destination allowlist. The persisted document does not have one agreed
+// name for it, and the typed SandboxConfig cannot confirm either from Go, so a
+// parser that understood only one spelling would silently fail closed on real
+// sandboxes created through the other surface.
+func TestParsePersistedEnvRefSecretsAcceptsAllowSpelling(t *testing.T) {
+	config := persistedConfigWithSecrets(
+		`{"name":"JC_API_KEY","source":{"kind":"env","var":"JUST_CODE_HOST_PROJECT_JC_API_KEY"},"allow":["api.example.com"],"placeholder":"__MKR__"}`,
+	)
+	refs, err := parsePersistedEnvRefSecrets(config)
+	if err != nil {
+		t.Fatalf("parsePersistedEnvRefSecrets: %v", err)
+	}
+	if len(refs) != 1 {
+		t.Fatalf("persisted secret refs = %v, want one project-secret registration", refs)
+	}
+	if len(refs[0].AllowedHosts) != 1 || refs[0].AllowedHosts[0] != "api.example.com" {
+		t.Fatalf("AllowedHosts = %v, want [api.example.com] read from the allow field", refs[0].AllowedHosts)
 	}
 }
 
@@ -2481,7 +2553,7 @@ func TestRecoverBootsStoppedSandboxWithHostSecrets(t *testing.T) {
 // transport variable published and must not require a Mistral credential.
 func TestRecoverUsesPersistedBindingsWhenProviderDiffers(t *testing.T) {
 	client := sealedFakeMSB()
-	client.persistedSecretRefs = []string{"JUST_CODE_HOST_ALBERT_API_KEY"}
+	client.persistedSecretRefs = []persistedSecretRef{{HostEnv: "JUST_CODE_HOST_ALBERT_API_KEY"}}
 	m := newTestMicrosandbox(t, client)
 	// The current configuration selects Mistral only; the persisted sandbox
 	// was created with Albert, so only Albert must be republished.
@@ -2520,10 +2592,6 @@ func TestRecoverUsesPersistedBindingsWhenProviderDiffers(t *testing.T) {
 // restored once recovery returns.
 func TestRecoverPublishesPersistedProjectSecretBinding(t *testing.T) {
 	client := sealedFakeMSB()
-	client.persistedSecretRefs = []string{
-		"JUST_CODE_HOST_ALBERT_API_KEY",
-		"JUST_CODE_HOST_PROJECT_JC_API_KEY",
-	}
 	m := newTestMicrosandbox(t, client)
 	// The current configuration selects Mistral only; the persisted sandbox
 	// was created with Albert plus an approved project secret, so both must be
@@ -2547,6 +2615,17 @@ func TestRecoverPublishesPersistedProjectSecretBinding(t *testing.T) {
 	m.ProjectSecrets = s
 	importProjectSecrets(t, s, "development", ".env", map[string]string{"API_KEY": "project-persisted-secret"})
 	approveForTest(t, m, "API_KEY", "JC_API_KEY")
+	// The persisted registration carries the metadata fixed at creation: the
+	// destination allowlist and marker the approval produced. Recovery proves
+	// these still match the current approval before publishing the value.
+	client.persistedSecretRefs = []persistedSecretRef{
+		{HostEnv: "JUST_CODE_HOST_ALBERT_API_KEY"},
+		{
+			HostEnv:      "JUST_CODE_HOST_PROJECT_JC_API_KEY",
+			AllowedHosts: []string{"api.example.com"},
+			Placeholder:  strPtr(ProjectSecretPlaceholder(s.Namespace(), "development", ".env", "API_KEY")),
+		},
+	}
 
 	if err := m.Recover(context.Background()); err != nil {
 		t.Fatalf("Recover: %v", err)
@@ -2565,6 +2644,175 @@ func TestRecoverPublishesPersistedProjectSecretBinding(t *testing.T) {
 		if got := os.Getenv(env); got != "" {
 			t.Fatalf("Recover must restore the host environment after boot, %s still set", env)
 		}
+	}
+}
+
+// preparePersistedProjectSecretRecovery builds a sealed fake runtime holding an
+// approved proxy-protected project secret plus an imported value, and returns
+// the pieces a persisted-registration case needs to describe itself. The caller
+// sets client.persistedSecretRefs to express the registration metadata under
+// test.
+func preparePersistedProjectSecretRecovery(t *testing.T) (*fakeMSBClient, *MicrosandboxRuntime, *ProjectSecretStore, *projectSecretFakeStore) {
+	t.Helper()
+	client := sealedFakeMSB()
+	m := newTestMicrosandbox(t, client)
+	store := newProjectSecretFakeStore()
+	s := projectSecretFixture(t, m.cfg.WorkspaceDir, m.StateDir, store)
+	m.ProjectSecrets = s
+	importProjectSecrets(t, s, "development", ".env", map[string]string{"API_KEY": "project-persisted-secret"})
+	approveForTest(t, m, "API_KEY", "JC_API_KEY")
+	return client, m, s, store
+}
+
+// Recover republishes a persisted project-secret registration whose allowlist is
+// a strict subset of the current approval. The sandbox keeps the destinations it
+// persisted at creation, so a destination approved later is not reachable by the
+// booted guest and the operation stays safe.
+func TestRecoverAcceptsPersistedProjectSecretDestinationSubset(t *testing.T) {
+	client, m, s, _ := preparePersistedProjectSecretRecovery(t)
+	// The current approval also grants a destination the sandbox never persisted.
+	if err := ApproveProjectSecretBinding(DefaultFS, m.StateDir, s.Namespace(), ProjectSecretBinding{
+		Profile: "development", Component: ".env", Name: "API_KEY",
+		GuestEnv: "JC_API_KEY", Destinations: []string{"api.example.com", "api2.example.com"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	client.persistedSecretRefs = []persistedSecretRef{{
+		HostEnv:      "JUST_CODE_HOST_PROJECT_JC_API_KEY",
+		AllowedHosts: []string{"api.example.com"},
+		Placeholder:  strPtr(ProjectSecretPlaceholder(s.Namespace(), "development", ".env", "API_KEY")),
+	}}
+
+	if err := m.Recover(context.Background()); err != nil {
+		t.Fatalf("Recover must accept a persisted allowlist that is a subset of the approval: %v", err)
+	}
+	// The published value is observed by the boot: the transport variable is
+	// set while Start runs and restored afterwards, so assert the boot itself
+	// happened on a compatible registration.
+	if !hasCall(client, "start ") {
+		t.Fatalf("Recover must boot the sandbox on a compatible subset registration, got calls:\n%s", strings.Join(client.calls, "\n"))
+	}
+	if got := client.startHostEnv["JUST_CODE_HOST_PROJECT_JC_API_KEY"]; got == "" {
+		t.Fatalf("Recover must publish the persisted project-secret transport variable during boot, got %q", got)
+	}
+	if got := os.Getenv("JUST_CODE_HOST_PROJECT_JC_API_KEY"); got != "" {
+		t.Fatalf("Recover must restore the host environment after boot, JUST_CODE_HOST_PROJECT_JC_API_KEY still set")
+	}
+}
+
+// Recover refuses to republish a persisted project-secret registration whose
+// allowlist carries a destination the current approval no longer grants.
+// Recovery boots the persisted start script without ModifyNextStart, so the
+// proxy would keep the older, wider allowlist and hand the freshly published
+// value to a destination the user has since removed. The refusal must happen
+// before the secret is read, and must tell the user to recreate the sandbox.
+func TestRecoverRefusesPersistedProjectSecretWithRemovedDestination(t *testing.T) {
+	client, m, s, store := preparePersistedProjectSecretRecovery(t)
+	client.persistedSecretRefs = []persistedSecretRef{{
+		HostEnv:      "JUST_CODE_HOST_PROJECT_JC_API_KEY",
+		AllowedHosts: []string{"api.example.com", "revoked.example.com"},
+		Placeholder:  strPtr(ProjectSecretPlaceholder(s.Namespace(), "development", ".env", "API_KEY")),
+	}}
+	before := store.getCount()
+
+	err := m.Recover(context.Background())
+	if err == nil {
+		t.Fatal("Recover must refuse a persisted destination the current approval no longer grants")
+	}
+	if !strings.Contains(err.Error(), "not all still approved") {
+		t.Fatalf("refusal should name the destination mismatch, got: %v", err)
+	}
+	if !strings.Contains(err.Error(), "recreate the sandbox") {
+		t.Fatalf("refusal should tell the user to recreate the sandbox, got: %v", err)
+	}
+	if hasCall(client, "start ") {
+		t.Fatalf("Recover must not boot the sandbox on an incompatible registration, got calls:\n%s", strings.Join(client.calls, "\n"))
+	}
+	if got := store.getCount() - before; got != 0 {
+		t.Fatalf("Recover must not read the secret before proving compatibility, got %d reads", got)
+	}
+}
+
+// Recover refuses a persisted project-secret registration whose placeholder no
+// longer matches the marker the current approval derives: the guest-facing
+// reference would not resolve, so booting would hand the guest an unusable
+// value.
+func TestRecoverRefusesPersistedProjectSecretWithStalePlaceholder(t *testing.T) {
+	client, m, _, store := preparePersistedProjectSecretRecovery(t)
+	client.persistedSecretRefs = []persistedSecretRef{{
+		HostEnv:      "JUST_CODE_HOST_PROJECT_JC_API_KEY",
+		AllowedHosts: []string{"api.example.com"},
+		Placeholder:  strPtr("__JUST_CODE_SECRET_stale_marker__"),
+	}}
+	before := store.getCount()
+
+	err := m.Recover(context.Background())
+	if err == nil {
+		t.Fatal("Recover must refuse a persisted placeholder that no longer matches the approval marker")
+	}
+	if !strings.Contains(err.Error(), "placeholder no longer matches") {
+		t.Fatalf("refusal should name the placeholder mismatch, got: %v", err)
+	}
+	if hasCall(client, "start ") {
+		t.Fatalf("Recover must not boot the sandbox on a stale placeholder, got calls:\n%s", strings.Join(client.calls, "\n"))
+	}
+	if got := store.getCount() - before; got != 0 {
+		t.Fatalf("Recover must not read the secret before proving compatibility, got %d reads", got)
+	}
+}
+
+// Recover fails closed when the persisted registration lacks the metadata
+// needed to prove it still matches the approval. Absent metadata is ambiguous,
+// not permission: recovery cannot distinguish a safe republish from a widened
+// allowlist, so it refuses and points at recreation.
+func TestRecoverRefusesPersistedProjectSecretWithoutProvenance(t *testing.T) {
+	marker := func(t *testing.T, s *ProjectSecretStore) *string {
+		t.Helper()
+		return strPtr(ProjectSecretPlaceholder(s.Namespace(), "development", ".env", "API_KEY"))
+	}
+	cases := []struct {
+		name    string
+		ref     func(t *testing.T, s *ProjectSecretStore) persistedSecretRef
+		wantErr string
+	}{
+		{
+			name: "no destination allowlist",
+			ref: func(t *testing.T, s *ProjectSecretStore) persistedSecretRef {
+				return persistedSecretRef{HostEnv: "JUST_CODE_HOST_PROJECT_JC_API_KEY", Placeholder: marker(t, s)}
+			},
+			wantErr: "carries no destination allowlist",
+		},
+		{
+			name: "no placeholder",
+			ref: func(*testing.T, *ProjectSecretStore) persistedSecretRef {
+				return persistedSecretRef{
+					HostEnv:      "JUST_CODE_HOST_PROJECT_JC_API_KEY",
+					AllowedHosts: []string{"api.example.com"},
+				}
+			},
+			wantErr: "carries no placeholder",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			client, m, s, store := preparePersistedProjectSecretRecovery(t)
+			client.persistedSecretRefs = []persistedSecretRef{tc.ref(t, s)}
+			before := store.getCount()
+
+			err := m.Recover(context.Background())
+			if err == nil {
+				t.Fatalf("Recover must fail closed when the persisted registration cannot be proven compatible (%s)", tc.name)
+			}
+			if !strings.Contains(err.Error(), tc.wantErr) {
+				t.Fatalf("refusal should say %q, got: %v", tc.wantErr, err)
+			}
+			if hasCall(client, "start ") {
+				t.Fatalf("Recover must not boot the sandbox on ambiguous metadata, got calls:\n%s", strings.Join(client.calls, "\n"))
+			}
+			if got := store.getCount() - before; got != 0 {
+				t.Fatalf("Recover must not read the secret on ambiguous metadata, got %d reads", got)
+			}
+		})
 	}
 }
 

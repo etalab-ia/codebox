@@ -928,24 +928,57 @@ type persistedSecretSource struct {
 	Var  string `json:"var"`
 }
 
-// parsePersistedEnvRefSecrets extracts the unique host transport variables
-// (JUST_CODE_HOST_*) referenced by the sandbox's env-reference secret
-// registrations. These are the bindings the sandbox was created with, which is
-// why recovery republishes them even when the current provider configuration
-// selects different platforms. A document with no secrets, or none of kind
-// "env", yields an empty result (no error).
-func parsePersistedEnvRefSecrets(configJSON string) ([]string, error) {
+// persistedSecretRef is one env-reference secret registration read back from the
+// persisted sandbox document. Recovery needs the host transport variable plus the
+// destination allowlist and placeholder that were fixed at creation, so it can
+// prove the registration is still compatible with the current approval before
+// republishing a credential. The typed SandboxConfig does not decode secret
+// registrations (its Secrets field stays empty; see SecretEntry), so these are
+// read from the raw persisted document, exactly as for the guest env.
+type persistedSecretRef struct {
+	// HostEnv is the host transport variable (JUST_CODE_HOST_*) the env
+	// reference resolves from.
+	HostEnv string
+	// AllowedHosts is the destination allowlist fixed at creation. A project
+	// secret always persists a non-empty list; a nil/empty list on a registration
+	// that must have one is missing metadata and is treated conservatively.
+	AllowedHosts []string
+	// Placeholder is the guest-visible marker fixed at creation. A nil pointer
+	// distinguishes "no placeholder persisted" from an empty string, so recovery
+	// can fail closed when a registration that must carry one does not.
+	Placeholder *string
+}
+
+// parsePersistedEnvRefSecrets extracts the unique env-reference secret
+// registrations (source kind "env") from the sandbox's persisted document,
+// preserving the destination allowlist and placeholder that were fixed at
+// creation. These are the bindings the sandbox was created with, which is why
+// recovery republishes them even when the current provider configuration selects
+// different platforms. A document with no secrets, or none of kind "env", yields
+// an empty result (no error).
+func parsePersistedEnvRefSecrets(configJSON string) ([]persistedSecretRef, error) {
 	var raw struct {
 		Secrets []struct {
 			Name   string                `json:"name"`
 			Source persistedSecretSource `json:"source"`
+			// The persisted document does not have one agreed spelling for the
+			// destination allowlist: the create-time/YAML surface names it
+			// `allow`, while the modify patch and its core serde aliases use
+			// `allowed_hosts`. The SDK's typed SandboxConfig never decodes
+			// secret registrations, so neither spelling can be confirmed from
+			// Go alone. Read both and treat either as the same list: this only
+			// widens what recovery can prove, and an absent allowlist still
+			// fails closed.
+			AllowedHosts []string `json:"allowed_hosts"`
+			Allow        []string `json:"allow"`
+			Placeholder  *string  `json:"placeholder"`
 		} `json:"secrets"`
 	}
 	if err := json.Unmarshal([]byte(configJSON), &raw); err != nil {
 		return nil, fmt.Errorf("decode persisted sandbox secrets: %w", err)
 	}
 	seen := make(map[string]struct{}, len(raw.Secrets))
-	var out []string
+	var out []persistedSecretRef
 	for _, s := range raw.Secrets {
 		if s.Source.Kind != "env" || s.Source.Var == "" {
 			continue
@@ -954,7 +987,15 @@ func parsePersistedEnvRefSecrets(configJSON string) ([]string, error) {
 			continue
 		}
 		seen[s.Source.Var] = struct{}{}
-		out = append(out, s.Source.Var)
+		allowed := s.AllowedHosts
+		if len(allowed) == 0 {
+			allowed = s.Allow
+		}
+		out = append(out, persistedSecretRef{
+			HostEnv:      s.Source.Var,
+			AllowedHosts: append([]string(nil), allowed...),
+			Placeholder:  s.Placeholder,
+		})
 	}
 	return out, nil
 }
@@ -971,7 +1012,7 @@ func guestEnvFromHandle(h persistedConfigReader) (map[string]string, error) {
 	return parseGuestEnv(h.ConfigJSON())
 }
 
-func persistedSecretRefsFromHandle(h persistedConfigReader) ([]string, error) {
+func persistedSecretRefsFromHandle(h persistedConfigReader) ([]persistedSecretRef, error) {
 	return parsePersistedEnvRefSecrets(h.ConfigJSON())
 }
 
@@ -986,13 +1027,14 @@ func (sdkMSBClient) Env(ctx context.Context, name string) (map[string]string, er
 	return guestEnvFromHandle(h)
 }
 
-// PersistedSecretRefs returns the host transport variables the sandbox's
-// persisted secret registrations reference. They are the bindings the sandbox
-// was created with, which recovery must republish at boot even when the current
+// PersistedSecretRefs returns the env-reference secret registrations the
+// sandbox's persisted document carries, with the destination allowlist and
+// placeholder fixed at creation. They are the bindings the sandbox was created
+// with, which recovery must republish at boot even when the current
 // configuration selects different providers. An error means the persisted
 // document could not be inspected, which the caller treats as a refusal rather
 // than as an empty reference list.
-func (sdkMSBClient) PersistedSecretRefs(ctx context.Context, name string) ([]string, error) {
+func (sdkMSBClient) PersistedSecretRefs(ctx context.Context, name string) ([]persistedSecretRef, error) {
 	h, err := msb.GetSandbox(ctx, name)
 	if err != nil {
 		return nil, err

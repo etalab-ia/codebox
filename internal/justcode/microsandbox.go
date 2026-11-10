@@ -327,13 +327,14 @@ type msbClient interface {
 	// used only to detect a plaintext credential persisted by an earlier
 	// version; they are never copied into a new sandbox.
 	Env(ctx context.Context, name string) (map[string]string, error)
-	// PersistedSecretRefs returns the host transport variables (JUST_CODE_HOST_*)
-	// the sandbox's persisted secret registrations reference. These are the
+	// PersistedSecretRefs returns the env-reference secret registrations the
+	// sandbox's persisted document carries (host transport variable plus the
+	// destination allowlist and placeholder fixed at creation). These are the
 	// bindings the sandbox was created with, which recovery republishes at boot
 	// even when the current provider configuration selects different platforms.
 	// An error means the persisted document could not be inspected, treated as a
 	// refusal rather than as an empty reference list.
-	PersistedSecretRefs(ctx context.Context, name string) ([]string, error)
+	PersistedSecretRefs(ctx context.Context, name string) ([]persistedSecretRef, error)
 	// Logs streams sandbox logs to the terminal until interrupted.
 	Logs(name string) error
 	// Shell opens an interactive shell in the sandbox.
@@ -1660,20 +1661,21 @@ func (m *MicrosandboxRuntime) resolveRecoveryBindings(ctx context.Context) ([]re
 // provider binding that cannot resolve is a hard error, matching the start
 // path's contract; an optional binding (GitHub, Context7) whose credential is
 // gone is skipped with a warning rather than blocking recovery.
-func (m *MicrosandboxRuntime) resolvePersistedBindings(ctx context.Context, refs []string) ([]resolvedBinding, error) {
+func (m *MicrosandboxRuntime) resolvePersistedBindings(ctx context.Context, refs []persistedSecretRef) ([]resolvedBinding, error) {
 	read := m.credentialRead
 	if read == nil {
 		read = readStoredWith
 	}
 	out := make([]resolvedBinding, 0, len(refs))
-	for _, hostEnv := range refs {
+	for _, ref := range refs {
+		hostEnv := ref.HostEnv
 		// A project-secret registration persists the transport variable
 		// JUST_CODE_HOST_PROJECT_<GuestEnv>. It is not part of the static
 		// binding registry: the binding shape is fixed at creation by the
 		// approved project-secret metadata, so map it back through that
 		// metadata rather than the current provider or binding configuration.
 		if strings.HasPrefix(hostEnv, msbProjectSecretHostEnvPrefix) {
-			b, ok, err := m.resolvePersistedProjectBinding(ctx, hostEnv)
+			b, ok, err := m.resolvePersistedProjectBinding(ctx, ref)
 			if err != nil {
 				return nil, err
 			}
@@ -1716,12 +1718,17 @@ func (m *MicrosandboxRuntime) resolvePersistedBindings(ctx context.Context, refs
 // variable back to the approved project-secret delivery that created it. The
 // guest variable, placeholder and destinations were fixed when the binding was
 // approved, so the value is resolved from the imported credential the delivery
-// names — never from the current provider configuration. A persisted
-// registration whose approval has since been lifted or re-targeted is stale and
-// is skipped with a warning rather than blocking recovery; an approved delivery
-// whose backing value cannot be read fails closed, matching the
-// resolveProjectSecretBindings contract.
-func (m *MicrosandboxRuntime) resolvePersistedProjectBinding(ctx context.Context, hostEnv string) (resolvedBinding, bool, error) {
+// names — never from the current provider configuration. Before publishing the
+// value it proves the persisted registration is still compatible with the
+// current approval (destinations a subset, placeholder matching); recovery does
+// not call ModifyNextStart, so incompatibility or missing metadata fails closed
+// with guidance to recreate, rather than republishing against a stale allowlist.
+// A persisted registration whose approval has since been lifted or re-targeted
+// is stale and is skipped with a warning rather than blocking recovery; an
+// approved delivery whose backing value cannot be read fails closed, matching
+// the resolveProjectSecretBindings contract.
+func (m *MicrosandboxRuntime) resolvePersistedProjectBinding(ctx context.Context, ref persistedSecretRef) (resolvedBinding, bool, error) {
+	hostEnv := ref.HostEnv
 	record, err := m.projectSecretDeliveries(ctx)
 	if err != nil {
 		return resolvedBinding{}, false, err
@@ -1747,6 +1754,19 @@ func (m *MicrosandboxRuntime) resolvePersistedProjectBinding(ctx context.Context
 		// the sandbox with a half-resolved binding.
 		m.warn("référence de secret de projet persisté sans approbation, ignorée", "Warning: %s persisted a project-secret reference %q whose approval no longer exists; skipping it during recovery", m.InstanceName(), hostEnv)
 		return resolvedBinding{}, false, nil
+	}
+	// Recovery does not re-authorize destinations: it boots the guest start
+	// script unchanged, so the proxy retains the destination allowlist persisted
+	// at creation. Publishing a freshly rotated value against that allowlist is
+	// only safe when the persisted destinations are a subset of the currently
+	// approved destinations — otherwise a destination that was removed from the
+	// approval could still receive the new credential. The persisted placeholder
+	// must also still match the current marker, or the guest-facing reference
+	// would not resolve. Missing or ambiguous metadata (no allowlist, no
+	// placeholder) cannot prove compatibility, so recovery fails closed with
+	// guidance instead of guessing.
+	if err := validatePersistedProjectSecretCompatibility(ref, delivery); err != nil {
+		return resolvedBinding{}, false, fmt.Errorf("cannot recover %s: %w: the persisted project-secret registration %q is incompatible with the current approval for %s/%s/%s; recreate the sandbox to apply the changed secret metadata", m.InstanceName(), err, hostEnv, delivery.Profile, delivery.Component, delivery.Name)
 	}
 	store, err := m.projectSecretStore()
 	if err != nil {
@@ -1776,6 +1796,45 @@ func (m *MicrosandboxRuntime) resolvePersistedProjectBinding(ctx context.Context
 		store:  store.Kind(),
 		entry:  delivery.Reference,
 	}, true, nil
+}
+
+// validatePersistedProjectSecretCompatibility checks that a persisted
+// env-reference project-secret registration can be safely republished against
+// the current approval. Both the persisted destination allowlist and the
+// persisted placeholder must be present and still match the approval: recovery
+// does not call ModifyNextStart, so an allowlist that outruns the approval would
+// let a removed destination receive the credential, and a placeholder mismatch
+// would break the guest reference. An empty allowlist or a missing placeholder
+// is ambiguous metadata and cannot be proven compatible.
+func validatePersistedProjectSecretCompatibility(ref persistedSecretRef, delivery *ProjectSecretDelivery) error {
+	if len(ref.AllowedHosts) == 0 {
+		return errors.New("the persisted registration carries no destination allowlist, so compatibility cannot be proven")
+	}
+	if ref.Placeholder == nil {
+		return errors.New("the persisted registration carries no placeholder, so compatibility cannot be proven")
+	}
+	if !stringSetIsSubset(ref.AllowedHosts, delivery.Destinations) {
+		return errors.New("the persisted destinations are not all still approved: recovery does not re-authorize destinations removed from the approval")
+	}
+	if *ref.Placeholder != delivery.Marker {
+		return errors.New("the persisted placeholder no longer matches the current approval marker")
+	}
+	return nil
+}
+
+// stringSetIsSubset reports whether every element of subset is present in set,
+// ignoring order and duplicates.
+func stringSetIsSubset(subset, set []string) bool {
+	have := make(map[string]struct{}, len(set))
+	for _, s := range set {
+		have[s] = struct{}{}
+	}
+	for _, s := range subset {
+		if _, ok := have[s]; !ok {
+			return false
+		}
+	}
+	return true
 }
 
 // waitForGuestShell blocks until the guest answers an exec probe, bounded by

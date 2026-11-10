@@ -20,6 +20,7 @@ type projectSecretFakeStore struct {
 	mu          sync.Mutex
 	values      map[CredentialKind]string
 	puts        int
+	gets        int
 	failPut     int
 	failRemove  bool
 	verifyError error
@@ -50,11 +51,20 @@ func (f *projectSecretFakeStore) Put(_ context.Context, k CredentialKind, v stri
 func (f *projectSecretFakeStore) Get(_ context.Context, k CredentialKind) (string, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	f.gets++
 	v, ok := f.values[k]
 	if !ok {
 		return "", ErrCredentialNotFound
 	}
 	return v, nil
+}
+
+// getCount reports how many times a stored value was read, so a test can prove
+// a fail-closed path never touched the credential.
+func (f *projectSecretFakeStore) getCount() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.gets
 }
 func (f *projectSecretFakeStore) Remove(_ context.Context, k CredentialKind) error {
 	f.mu.Lock()
