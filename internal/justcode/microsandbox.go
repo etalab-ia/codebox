@@ -1646,9 +1646,12 @@ func (m *MicrosandboxRuntime) resolveRecoveryBindings(ctx context.Context) ([]re
 	if len(bindings) != 0 {
 		return bindings, nil
 	}
-	// No persisted binding survived resolution (for example optional bindings
-	// whose credentials are now gone). Fall back to the current configuration
-	// rather than publishing nothing and booting without any credential.
+	// Unreachable while every persisted reference yields a binding, which it now
+	// does: a reference that cannot be resolved is satisfied with the inert
+	// sentinel rather than dropped, because the runtime resolves it at boot and
+	// an absent variable refuses the start. Kept as a guard so a future
+	// resolution path that can drop references still cannot boot with nothing
+	// published.
 	return m.resolveBindings(ctx)
 }
 
@@ -1686,10 +1689,17 @@ func (m *MicrosandboxRuntime) resolvePersistedBindings(ctx context.Context, refs
 		}
 		b, ok := bindingForHostEnv(hostEnv)
 		if !ok {
-			// Unknown persisted variable: do not guess a credential shape.
-			// Skip it so a tolerated extra registration does not block
-			// reaching the guest state.
-			m.warn("référence de secret persisté inconnue, ignorée", "Warning: %s persisted an unrecognized host secret reference %q; skipping it during recovery", m.InstanceName(), hostEnv)
+			// Unknown persisted variable: do not guess a credential shape, but
+			// do not leave it unset either. The registration is still in the
+			// sandbox and the runtime resolves it at boot, so an absent host
+			// variable refuses the start. Satisfy it with the inert sentinel:
+			// nothing is granted, and recovery can still reach the workspace.
+			m.warn("référence de secret persisté inconnue ; valeur inerte publiée pour le démarrage", "Warning: %s persisted an unrecognized host secret reference %q; booting it with an inert value so recovery can proceed", m.InstanceName(), hostEnv)
+			out = append(out, resolvedBinding{
+				msbSecretBinding: msbSecretBinding{HostEnv: hostEnv, Optional: true},
+				source:           bindingSourceInert,
+				value:            msbSecretBootstrapValue,
+			})
 			continue
 		}
 		if b.Provider {
@@ -1716,11 +1726,31 @@ func (m *MicrosandboxRuntime) resolvePersistedBindings(ctx context.Context, refs
 		}
 		v, store, err := read(ctx, b.Kind, m.CredentialStore)
 		if err != nil {
+			// The persisted registration is still there, and the runtime
+			// resolves an env-reference secret at boot: if its host variable is
+			// absent the sandbox refuses to start. Omitting the binding
+			// therefore does not disable it, it blocks recovery — including for
+			// a sandbox whose real credentials are all available. Publish the
+			// inert sentinel instead, which lets the boot succeed while
+			// granting nothing: the guest keeps an unusable value, which is
+			// exactly what an absent optional credential means. The user is
+			// still told, because the binding is genuinely missing.
+			//
+			// Start does not need this: it calls ModifyNextStart, whose patch
+			// semantics drop a registration that is absent from the desired
+			// set. Recovery deliberately does not touch the guest's persisted
+			// state, so the registration survives and must be satisfied.
 			if isNotFound(err) {
-				m.warn("identifiant facultatif absent ; détail : just-code bindings list", "Warning: the persisted %s binding on %s has no %q credential stored; skipping it during recovery (just-code auth add %s)", b.Kind, m.InstanceName(), b.Kind, b.Kind)
-				continue
+				m.warn("identifiant facultatif absent ; valeur inerte publiée pour le démarrage ; détail : just-code bindings list", "Warning: the persisted %s binding on %s has no %q credential stored; booting it with an inert value so recovery can proceed (just-code auth add %s to restore it)", b.Kind, m.InstanceName(), b.Kind, b.Kind)
+			} else {
+				m.warn("identifiant facultatif illisible ; valeur inerte publiée pour le démarrage", "Warning: cannot read the persisted %s binding on %s (%v); booting it with an inert value so recovery can proceed", b.Kind, m.InstanceName(), err)
 			}
-			m.warn("identifiant facultatif illisible, ignoré", "Warning: cannot read the persisted %s binding on %s (%v); skipping it during recovery", b.Kind, m.InstanceName(), err)
+			out = append(out, resolvedBinding{
+				msbSecretBinding: b,
+				source:           bindingSourceInert,
+				value:            msbSecretBootstrapValue,
+				entry:            string(b.Kind),
+			})
 			continue
 		}
 		out = append(out, resolvedBinding{msbSecretBinding: b, source: bindingSourceStore, value: v, store: store, entry: string(b.Kind)})
@@ -1764,10 +1794,17 @@ func (m *MicrosandboxRuntime) resolvePersistedProjectBinding(ctx context.Context
 	if delivery == nil {
 		// No current delivery matches: the approval that created the
 		// registration was lifted or re-targeted since the sandbox was
-		// persisted. The registration is stale, so skip it rather than boot
-		// the sandbox with a half-resolved binding.
-		m.warn("référence de secret de projet persisté sans approbation, ignorée", "Warning: %s persisted a project-secret reference %q whose approval no longer exists; skipping it during recovery", m.InstanceName(), hostEnv)
-		return resolvedBinding{}, false, nil
+		// persisted. Its registration is still in the sandbox and the runtime
+		// resolves it at boot, so leaving the variable unset would refuse the
+		// start. Satisfy it with the inert sentinel instead: the guest keeps an
+		// unusable value, which is what "this approval is gone" means, and
+		// recovery can still reach the workspace.
+		m.warn("référence de secret de projet persisté sans approbation ; valeur inerte publiée pour le démarrage", "Warning: %s persisted a project-secret reference %q whose approval no longer exists; booting it with an inert value so recovery can proceed", m.InstanceName(), hostEnv)
+		return resolvedBinding{
+			msbSecretBinding: msbSecretBinding{HostEnv: hostEnv, Optional: true},
+			source:           bindingSourceInert,
+			value:            msbSecretBootstrapValue,
+		}, true, nil
 	}
 	// Recovery does not re-authorize destinations: it boots the guest start
 	// script unchanged, so the proxy retains the destination allowlist persisted

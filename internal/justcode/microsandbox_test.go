@@ -2931,6 +2931,69 @@ func TestRecoverAcceptsPersistedProviderWhoseEndpointStillMatches(t *testing.T) 
 	}
 }
 
+// Recover must satisfy every persisted registration at boot, including the ones
+// it cannot resolve. An env-reference secret is resolved from the host
+// environment when the sandbox starts, so leaving its variable unset refuses the
+// start rather than disabling the secret (see
+// docs/decisions/2026-09-24-microsandbox-credential-transport.md). Recovery never
+// removes a persisted registration, so an optional binding whose credential is
+// gone must still publish something: the inert sentinel, which grants nothing.
+// Omitting it would block workspace recovery for the sake of a credential the
+// sandbox can run without.
+func TestRecoverBootsWithInertValueForUnavailableOptionalBinding(t *testing.T) {
+	client := sealedFakeMSB()
+	m := newTestMicrosandbox(t, client)
+	m.cfg.APIKey = ""
+	m.credentialRead = func(_ context.Context, kind CredentialKind, _ string) (string, string, error) {
+		if kind == CredentialAlbert {
+			return "stored-albert-secret", "native", nil
+		}
+		return "", "", ErrCredentialNotFound
+	}
+	client.persistedSecretRefs = []persistedSecretRef{
+		{HostEnv: "JUST_CODE_HOST_ALBERT_API_KEY"},
+		{HostEnv: "JUST_CODE_HOST_GITHUB_TOKEN"},
+	}
+
+	if err := m.Recover(context.Background()); err != nil {
+		t.Fatalf("Recover must proceed when an optional persisted credential is unavailable: %v", err)
+	}
+
+	if got := client.startHostEnv["JUST_CODE_HOST_GITHUB_TOKEN"]; got != msbSecretBootstrapValue {
+		t.Fatalf("the unavailable optional registration must be booted with the inert sentinel, got %q", got)
+	}
+	if got := client.startHostEnv["JUST_CODE_HOST_ALBERT_API_KEY"]; got != "stored-albert-secret" {
+		t.Fatalf("the available provider credential must still be published, got %q", got)
+	}
+	if got := os.Getenv("JUST_CODE_HOST_GITHUB_TOKEN"); got != "" {
+		t.Fatalf("Recover must restore the host environment after boot, got %q", got)
+	}
+}
+
+// Recover must also satisfy a persisted registration it cannot map back to a
+// known binding. Guessing a credential shape would be wrong, but leaving the
+// variable unset refuses the boot just the same, so the inert sentinel is
+// published and nothing is granted.
+func TestRecoverBootsWithInertValueForUnrecognizedRegistration(t *testing.T) {
+	client := sealedFakeMSB()
+	m := newTestMicrosandbox(t, client)
+	m.cfg.APIKey = ""
+	m.credentialRead = func(context.Context, CredentialKind, string) (string, string, error) {
+		return "stored-albert-secret", "native", nil
+	}
+	client.persistedSecretRefs = []persistedSecretRef{
+		{HostEnv: "JUST_CODE_HOST_ALBERT_API_KEY"},
+		{HostEnv: "JUST_CODE_HOST_SOMETHING_RETIRED"},
+	}
+
+	if err := m.Recover(context.Background()); err != nil {
+		t.Fatalf("Recover must proceed past an unrecognized persisted registration: %v", err)
+	}
+	if got := client.startHostEnv["JUST_CODE_HOST_SOMETHING_RETIRED"]; got != msbSecretBootstrapValue {
+		t.Fatalf("the unrecognized registration must be booted with the inert sentinel, got %q", got)
+	}
+}
+
 // Recover refuses a sandbox that does not exist, telling the user to start it.
 func TestRecoverRefusesMissingSandbox(t *testing.T) {
 	client := &fakeMSBClient{}

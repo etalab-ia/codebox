@@ -249,6 +249,12 @@ const (
 	// environment. Env-sourced credentials cannot be revoked through the
 	// store; the variable itself is the credential.
 	bindingSourceEnv bindingSource = "env"
+	// bindingSourceInert: no credential is available, so the inert sentinel is
+	// published for the boot. Recovery uses it for a persisted optional binding
+	// that must be satisfied to start the sandbox but whose credential is gone;
+	// nothing is granted. Start does not need it, because ModifyNextStart drops
+	// a registration absent from the desired set.
+	bindingSourceInert bindingSource = "inert"
 )
 
 // credentialReader reads a stored credential and reports which store
