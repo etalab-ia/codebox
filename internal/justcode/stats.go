@@ -9,7 +9,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
+	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -63,6 +66,128 @@ func StatsEndpoint() string {
 		return v
 	}
 	return strings.TrimSpace(StatsEndpointDefault)
+}
+
+// Two wire shapes reach the same endpoint setting, and the endpoint URL itself
+// says which one applies. That keeps a single source of truth: a build cannot
+// pair a Grist URL with a JSON body by setting two variables inconsistently.
+//
+//   - a Grist table's records collection posts ONE record per event and needs
+//     no credential, because the document is public and its access rules grant
+//     Create on that single table;
+//   - anything else receives the batched JSON envelope below, which is the
+//     contract a team-run relay implements when it exists.
+//
+// statsGristRecordsURL reports whether the endpoint targets a Grist records
+// collection, accepting the optional `/o/<org>` prefix that Grist doc URLs
+// carry. Transport security is a separate question, checked once by
+// statsEndpointSecure: folding it in here made an insecure Grist URL look like
+// "not a Grist endpoint", which selected the batch sender and posted the
+// events to that same http:// URL with the wrong envelope.
+func statsGristRecordsURL(endpoint string) (string, bool) {
+	u, err := url.Parse(endpoint)
+	if err != nil || u.Host == "" {
+		return "", false
+	}
+	segments := strings.Split(strings.Trim(u.Path, "/"), "/")
+	// [/o/<org>]/api/docs/<docId>/tables/<tableId>/records
+	// Strip the optional organization prefix only when what follows it can
+	// still be a records path: an endpoint ending in "/o" or "/o/" would
+	// otherwise slice past the end and panic in the detached flusher.
+	if len(segments) > 2 && segments[0] == "o" {
+		segments = segments[2:]
+	}
+	if len(segments) != 6 || segments[0] != "api" || segments[1] != "docs" ||
+		segments[3] != "tables" || segments[5] != "records" {
+		return "", false
+	}
+	if segments[2] == "" || segments[4] == "" {
+		return "", false
+	}
+	return endpoint, true
+}
+
+// statsEndpointSecure reports whether events may be sent to this endpoint at
+// all. Statistics are non-nominative but they are still deployment data, and a
+// plaintext POST would expose them on the path; loopback is exempt so the
+// tests can exercise the real transports over HTTP.
+//
+// This is checked separately from the wire format and BEFORE either transport
+// runs: an insecure endpoint must stop the flush, not fall through to the
+// other sender.
+func statsEndpointSecure(endpoint string) bool {
+	u, err := url.Parse(endpoint)
+	if err != nil || u.Host == "" {
+		return false
+	}
+	switch u.Scheme {
+	case "https":
+		return true
+	case "http":
+		return isLoopbackStatsHost(u.Hostname())
+	default:
+		return false
+	}
+}
+
+// isLoopbackStatsHost lets the tests drive the Grist path over plain HTTP
+// without weakening the TLS requirement for a real deployment.
+func isLoopbackStatsHost(host string) bool {
+	if strings.EqualFold(host, "localhost") {
+		return true
+	}
+	parsed := net.ParseIP(host)
+	return parsed != nil && parsed.IsLoopback()
+}
+
+// statsHTTPClient is the client both transports use. It enforces the same
+// transport rule on every redirect that statsEndpointSecure enforces on the
+// configured endpoint: an HTTPS endpoint that answers 307/308 pointing at a
+// plaintext non-loopback host would otherwise have http.DefaultClient replay
+// the whole event body in the clear, so the check would cover only the first
+// hop.
+//
+// The default redirect budget is kept (Go stops after 10), and any resolution
+// error is caught so a redirect to an unparseable URL fails the flush instead
+// of writing to an unintended destination.
+func statsHTTPClient() *http.Client {
+	return &http.Client{
+		CheckRedirect: func(req *http.Request, via []*http.Request) error {
+			if len(via) >= 10 {
+				return fmt.Errorf("stopped after 10 redirects")
+			}
+			if !statsEndpointSecure(req.URL.String()) {
+				return fmt.Errorf("refusing redirect to an insecure endpoint: %s", req.URL.Redacted())
+			}
+			return nil
+		},
+	}
+}
+
+// statsGristFields maps one event onto the Grist row. Column IDs are part of
+// the receiving document's contract, so they are spelled here once. `version`,
+// `os` and `arch` are duplicated out of the payload so indicators can be built
+// from ordinary Grist formula columns.
+func statsGristFields(event StatsEvent) (map[string]any, error) {
+	payload, err := json.Marshal(event.Payload)
+	if err != nil {
+		return nil, err
+	}
+	fields := map[string]any{
+		"eventId":       event.EventID,
+		"at":            event.At,
+		"kind":          event.Kind,
+		"machineId":     event.MachineID,
+		"schemaVersion": event.SchemaVersion,
+		"version":       event.Payload.Version,
+		"os":            event.Payload.OS,
+		"arch":          event.Payload.Arch,
+		"payload":       string(payload),
+	}
+	if event.ProjectID != "" {
+		fields["projectId"] = event.ProjectID
+	}
+	return fields, nil
 }
 
 // ReadStatsMachineID returns the local identifier when it exists.
@@ -459,18 +584,27 @@ func FlushStats(ctx context.Context, fs FS, stateDir string) error {
 	if endpoint == "" {
 		return nil
 	}
+	// Transport security is decided once, before the format: an insecure
+	// endpoint must stop the flush outright. Letting it fall through to the
+	// other transport would still send the events over the same plaintext URL.
+	if !statsEndpointSecure(endpoint) {
+		return fmt.Errorf("statistics endpoint is not secure: %s", endpoint)
+	}
 	events, err := PendingStatsEvents(fs, stateDir)
 	if err != nil || len(events) == 0 {
-		return err
-	}
-	body, err := json.Marshal(map[string]any{"schemaVersion": StatsSchemaVersion, "events": events})
-	if err != nil {
 		return err
 	}
 	// Re-check immediately before the request: `stats off` must stop an
 	// in-flight flush as early as the process boundary allows.
 	if !statsConsentForFlush(fs, stateDir, settingsPath) {
 		return nil
+	}
+	if _, ok := statsGristRecordsURL(endpoint); ok {
+		return flushStatsToGrist(ctx, endpoint, fs, stateDir, events)
+	}
+	body, err := json.Marshal(map[string]any{"schemaVersion": StatsSchemaVersion, "events": events})
+	if err != nil {
+		return err
 	}
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
@@ -479,7 +613,7 @@ func FlushStats(ctx context.Context, fs FS, stateDir string) error {
 		return err
 	}
 	req.Header.Set("Content-Type", "application/json")
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := statsHTTPClient().Do(req)
 	if err != nil {
 		return err
 	}
@@ -492,6 +626,172 @@ func FlushStats(ctx context.Context, fs FS, stateDir string) error {
 		sent[event.EventID] = true
 	}
 	return removeFlushedStatsEvents(fs, stateDir, sent)
+}
+
+// statsGristMaxPayload bounds the JSON text stored in a single Grist row. The
+// largest real event is an init with every skill and MCP flagged, far below
+// this; the limit exists so a malformed event cannot post an unbounded cell.
+const statsGristMaxPayload = 8 << 10
+
+// statsGristTimeout is per event: Grist answers a single-record create quickly,
+// and a stuck write must not hold the detached flusher open.
+const statsGristTimeout = 5 * time.Second
+
+// flushStatsToGrist posts each event as one record. An event leaves the queue
+// only once Grist has acknowledged it, so an interrupted run retries exactly
+// what is still missing.
+//
+// The receiving table must be reachable without a credential: the document is
+// public and its access rules grant Create on that table alone. Because the key
+// belongs to no user, it cannot be scoped or leaked, and it is not sent at all.
+//
+// Retries are not deduplicated server-side. Grist's own recipe for that is an
+// access rule on a formula column that counts records sharing the eventId and
+// denies Create when the count exceeds one, which rejects the duplicate rather
+// than merging it. Grist reports that refusal as 403 with an ACL_DENY message,
+// so the flusher treats exactly that response as "already recorded" and leaves
+// every other 403 retryable.
+func flushStatsToGrist(ctx context.Context, endpoint string, fs FS, stateDir string, events []StatsEvent) error {
+	settingsPath, err := UserSettingsPath()
+	if err != nil {
+		return err
+	}
+	var firstErr error
+	for _, event := range events {
+		// Consent is re-read before EVERY request, not once for the batch.
+		// `stats off` persists the refusal and clears the queue, but neither
+		// action reaches this in-memory snapshot; without this check a
+		// withdrawal mid-flush would still send up to every queued event.
+		if !statsConsentForFlush(fs, stateDir, settingsPath) {
+			return firstErr
+		}
+		fields, err := statsGristFields(event)
+		if err != nil {
+			// An event that cannot be encoded will never encode; keeping it
+			// would block every later event behind it.
+			if err := removeFlushedStatsEvents(fs, stateDir, map[string]bool{event.EventID: true}); err != nil && firstErr == nil {
+				firstErr = err
+			}
+			continue
+		}
+		if payload, ok := fields["payload"].(string); ok && len(payload) > statsGristMaxPayload {
+			if err := removeFlushedStatsEvents(fs, stateDir, map[string]bool{event.EventID: true}); err != nil && firstErr == nil {
+				firstErr = err
+			}
+			continue
+		}
+		body, err := json.Marshal(map[string]any{"records": []any{map[string]any{"fields": fields}}})
+		if err != nil {
+			if firstErr == nil {
+				firstErr = err
+			}
+			continue
+		}
+		status, respBody, err := postStatsGristRecord(ctx, endpoint, body)
+		switch {
+		case err != nil:
+			// The endpoint is unreachable or the request failed: stop, keep
+			// everything, and retry the same set on the next flush.
+			return err
+		case status >= 200 && status < 300:
+		case status == http.StatusForbidden && statsGristDuplicateRejection(respBody):
+			// The duplicate guard refused the write, so the event is already
+			// stored and its response was merely lost. Retrying would keep it
+			// in the queue until eviction.
+		default:
+			// Everything else keeps the event and is reported. In particular a
+			// 400 is NOT an event-level rejection: Grist returns it when the
+			// request does not match the table ("Invalid column", "Can't save
+			// value to formula column"), which is a configuration error that
+			// affects every event equally. Discarding on it would destroy the
+			// whole dataset while reporting nothing, and the events become
+			// deliverable again as soon as the table is corrected.
+			if firstErr == nil {
+				firstErr = fmt.Errorf("statistics endpoint returned HTTP %d: %s", status, statsGristErrorSummary(respBody))
+			}
+			continue
+		}
+		if err := removeFlushedStatsEvents(fs, stateDir, map[string]bool{event.EventID: true}); err != nil && firstErr == nil {
+			firstErr = err
+		}
+	}
+	return firstErr
+}
+
+// statsGristDuplicateRejection reports whether a response is the duplicate
+// guard refusing a write, which means the event is already stored.
+//
+// Grist names the rule type that denied the action in its error message, which
+// is what separates "already stored" from "not writable right now":
+//
+//	Blocked by row create access rules    <- a row-level rule (newRec.Count > 1)
+//	Blocked by table create access rules  <- a table-wide or default rule
+//
+// The duplicate guard is necessarily row-level, because it inspects newRec,
+// while a misconfigured or temporarily withdrawn permission is table-level.
+// Verified against grist.numerique.gouv.fr: the guard returns the first form
+// and every configuration denial the second.
+//
+// Deliberately NOT keyed on details.memos: Grist documents a memo on a rule
+// condition, but this server returns an empty memos array for every denial, so
+// requiring one would make the duplicate path dead code.
+func statsGristDuplicateRejection(body []byte) bool {
+	if len(body) == 0 {
+		return false
+	}
+	var parsed struct {
+		Error string `json:"error"`
+	}
+	if err := json.Unmarshal(body, &parsed); err != nil {
+		return false
+	}
+	return strings.Contains(parsed.Error, "Blocked by row ") &&
+		strings.Contains(parsed.Error, "access rules")
+}
+
+// postStatsGristRecord sends one record and reports the status code and body.
+// The body is read (and therefore drained) so a keep-alive connection can be
+// reused; the caller needs the tail of it to classify a rejection.
+func postStatsGristRecord(ctx context.Context, endpoint string, body []byte) (int, []byte, error) {
+	ctx, cancel := context.WithTimeout(ctx, statsGristTimeout)
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(body))
+	if err != nil {
+		return 0, nil, err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := statsHTTPClient().Do(req)
+	if err != nil {
+		return 0, nil, err
+	}
+	defer resp.Body.Close()
+	respBody, _ := io.ReadAll(io.LimitReader(resp.Body, statsGristMaxErrorBody))
+	_, _ = io.Copy(io.Discard, resp.Body)
+	return resp.StatusCode, respBody, nil
+}
+
+// statsGristMaxErrorBody bounds how much of an error response is inspected.
+const statsGristMaxErrorBody = 4 << 10
+
+// statsGristErrorSummary extracts Grist's own error text so a failed flush says
+// what to fix ("Invalid column \"x\"") instead of only the status code.
+func statsGristErrorSummary(body []byte) string {
+	if len(body) == 0 {
+		return "no response body"
+	}
+	var parsed struct {
+		Error string `json:"error"`
+	}
+	if err := json.Unmarshal(body, &parsed); err == nil && parsed.Error != "" {
+		// Grist prefixes engine errors; keep the whole message but bound it, as
+		// it can embed a traceback.
+		message := parsed.Error
+		if len(message) > 200 {
+			message = message[:200] + "…"
+		}
+		return message
+	}
+	return string(body)
 }
 
 // SpawnStatsFlush starts the detached flusher and returns immediately. The
