@@ -1,5 +1,62 @@
 # Changelog
 
+## [0.17.0](https://github.com/etalab-ia/codebox/compare/codebox-v0.16.0...codebox-v0.17.0) (2026-11-11)
+
+
+### ⚠ BREAKING CHANGES
+
+* rename just-code to codebox across module, CLI, paths and releases
+
+### Features
+
+* add recovery path for upgraded stopped Microsandbox instances ([7f9a41e](https://github.com/etalab-ia/codebox/commit/7f9a41e2b68689248d404b2ccafc020cbaee866e))
+* add recovery path for upgraded stopped Microsandbox instances ([2ed179c](https://github.com/etalab-ia/codebox/commit/2ed179c780f01e0ff60f6d0b6a65263d5e0d62c1))
+* **harness:** support Pi as a second agent harness ([#176](https://github.com/etalab-ia/codebox/issues/176)) ([3c8e4eb](https://github.com/etalab-ia/codebox/commit/3c8e4eb23c94b2147e79e08e6a0ce18d51894cc8))
+* **harness:** support Pi as a second agent harness ([#176](https://github.com/etalab-ia/codebox/issues/176)) ([9db5b28](https://github.com/etalab-ia/codebox/commit/9db5b285f74654a5b5ecbbd00773beae661a7a96))
+* **init:** drop the models Pi cannot run reliably ([b24173f](https://github.com/etalab-ia/codebox/commit/b24173fd33d7a1ad268a8292bc03353cac707962))
+* rename just-code to codebox across module, CLI, paths and releases ([1390083](https://github.com/etalab-ia/codebox/commit/13900837c55f089b0db7bfe87777fb4f63883db6))
+* **stats:** post usage events to a Grist table without a credential ([a753acd](https://github.com/etalab-ia/codebox/commit/a753acde641705205fbaca8eaea78210bc65b56b))
+* **stats:** post usage events to a Grist table without a credential ([5d6cff5](https://github.com/etalab-ia/codebox/commit/5d6cff58ebcc8b93173602ce1ac499f4b324bd72))
+
+
+### Bug Fixes
+
+* align phase-3 temp-file probe with the frozen publisher and allowlist the new header digest ([9b3cf7f](https://github.com/etalab-ia/codebox/commit/9b3cf7f7dc804742603349272f8516e6fe2e01fe))
+* gofmt microsandbox_test.go fakeMSBClient struct alignment ([6b8cc4d](https://github.com/etalab-ia/codebox/commit/6b8cc4dba89e77e9ea5594d0d648386d24ea3fa3))
+* **harness:** classify the agent harness as creation-fixed ([7af02a7](https://github.com/etalab-ia/codebox/commit/7af02a742697bd1033eefa3048940dd019db981a)), closes [#176](https://github.com/etalab-ia/codebox/issues/176)
+* **harness:** correct the Pi model wiring, the browser profile gate and the harness guard ([20a2f84](https://github.com/etalab-ia/codebox/commit/20a2f84f6317ecb53749c0313b98e94f15f3832a))
+* **init:** correct the obsolete init intro and launch-time flow ([5c271f5](https://github.com/etalab-ia/codebox/commit/5c271f568ca9ef4d7c0af5187dc4eecc43ec392b))
+* **init:** correct the obsolete init intro and launch-time flow ([a4034cd](https://github.com/etalab-ia/codebox/commit/a4034cd44cad2b498e86009d07d5a4f6071439e9))
+* **microsandbox:** read secrets from where the runtime stores them, and check provider endpoints ([222fb8d](https://github.com/etalab-ia/codebox/commit/222fb8d7f4e6ea18278d0b2dd82bd38f83286030))
+* **microsandbox:** recover the bindings persisted on the stopped sandbox ([f733409](https://github.com/etalab-ia/codebox/commit/f733409305db5c1b4f5094e69780681523bbba63))
+* **microsandbox:** resolve persisted project-secret bindings during recovery ([32b7df0](https://github.com/etalab-ia/codebox/commit/32b7df0dcf6ea1615a32e76c8045f584a4b721a4))
+* **microsandbox:** satisfy every persisted registration at recovery boot ([3c571b3](https://github.com/etalab-ia/codebox/commit/3c571b371c1663d822791a8482677f627c6cf259))
+* **microsandbox:** validate persisted project-secret metadata before publishing ([c0a4ed1](https://github.com/etalab-ia/codebox/commit/c0a4ed1109ff01c48908a2577b8df35ec2b3a6c1))
+* **opencode:** default fresh projects to DeepSeek V4 Flash ([9c7759c](https://github.com/etalab-ia/codebox/commit/9c7759c561517cfd288fd142fdd8602ff691e456))
+* **opencode:** default fresh projects to DeepSeek V4 Flash ([9547317](https://github.com/etalab-ia/codebox/commit/95473170c663ce51a4ad525f2eb6688a670e8b56))
+* **pi:** install into a user-owned prefix and gate readiness on the configuration ([e7d7985](https://github.com/etalab-ia/codebox/commit/e7d7985918b0a0875a27315216d2c9b21188d012))
+* **pi:** pin declared packages by content and write the model Pi launches ([4935284](https://github.com/etalab-ia/codebox/commit/49352842097fb27d5b658f7b121e63a9e8d745f5))
+* **pi:** refuse a start whose managed configuration cannot be composed ([5a3817e](https://github.com/etalab-ia/codebox/commit/5a3817efc1e39060b185c83db19e704c882b96a0))
+* **reconcile:** restart a Pi guest prepared from an older configuration ([e49a292](https://github.com/etalab-ia/codebox/commit/e49a2927fb5dca36751bbca4bbb89c78ce69014e))
+* **recover:** publish host secrets when booting a stopped sandbox ([0ed4d33](https://github.com/etalab-ia/codebox/commit/0ed4d337413e6dea561d267e9b49b81609884a6e))
+* **skills:** retry transient-empty OpenCode skill discovery ([466deb4](https://github.com/etalab-ia/codebox/commit/466deb4043ee20f5fa0358d0bf32268d9977b334))
+* **skills:** retry transient-empty OpenCode skill discovery ([dc6fdd7](https://github.com/etalab-ia/codebox/commit/dc6fdd71cbfbc66062cfd025084bc86672ded3d3))
+* **stats:** identify the duplicate guard by Grist's rule type, not a memo ([b86583d](https://github.com/etalab-ia/codebox/commit/b86583da0d8e54ced7da812737d133a9de9fa8ed))
+* **stats:** keep events when Grist rejects the request shape ([2e73ac4](https://github.com/etalab-ia/codebox/commit/2e73ac4e495ba58a1fe81d37a24835d179d33fcd))
+* **stats:** read consent per request, match Grist's real rejection ([f33c1db](https://github.com/etalab-ia/codebox/commit/f33c1db4c8a9ea82418950f1f013d5a80b12227d))
+* **stats:** refuse a redirect that leaves a secure endpoint ([3c41abe](https://github.com/etalab-ia/codebox/commit/3c41abe5a6793b197f55f7f927a1adcf9da8b57e))
+* **stats:** refuse an insecure endpoint instead of falling back ([38a7d3a](https://github.com/etalab-ia/codebox/commit/38a7d3abf6aac1b84cd8b3e4682fd59b6653fece))
+* **stats:** require the duplicate memo to treat a 403 as already stored ([710694e](https://github.com/etalab-ia/codebox/commit/710694e81a0e6843a0ec065879a2e9f0e015ff7c))
+* **test:** assert Recover via the runtime instance name ([af95bd9](https://github.com/etalab-ia/codebox/commit/af95bd9a5edea877af481717f94ab8b6c1b8093d))
+* **trust:** approve the files Pi settings declare as extensions ([2a9a66f](https://github.com/etalab-ia/codebox/commit/2a9a66fb68b23bdfdcce69baa629ca0e22ce32ed))
+* **trust:** gate Pi project extensions and settings before launch ([efe5a5c](https://github.com/etalab-ia/codebox/commit/efe5a5c05087ce71744b6883a6b7d807b36968cd))
+* **ui:** align choice-screen wording in setup and init ([11592f0](https://github.com/etalab-ia/codebox/commit/11592f08ccf83cfae4d62e90201ccd312998ab12))
+* **ui:** align choice-screen wording in setup and init ([4d0d19f](https://github.com/etalab-ia/codebox/commit/4d0d19fa5ee964f496e357c453ca10a4a6a3161a))
+* **ui:** French wording for confirmations, seconds and setup intro ([d64fe3f](https://github.com/etalab-ia/codebox/commit/d64fe3f2159e4b45bd0d585a174f2b3a71879e85))
+* **ui:** French wording for confirmations, seconds and setup intro ([cce771c](https://github.com/etalab-ia/codebox/commit/cce771c507332a31e5badfa4871964fd744d91b8))
+* **ui:** keep the models-screen marker on the user-selected default ([c94e33e](https://github.com/etalab-ia/codebox/commit/c94e33e3403cf7c88343e2db8a7c094003c85e74))
+* update guest-secret header pin and phase-3 kit marker assertion for the rename ([80e00df](https://github.com/etalab-ia/codebox/commit/80e00df7bfb10e25ddd4f12c47b16e913db83dab))
+
 ## [0.16.0](https://github.com/etalab-ia/codebox/compare/codebox-v0.15.0...codebox-v0.16.0) (2026-11-06)
 
 
