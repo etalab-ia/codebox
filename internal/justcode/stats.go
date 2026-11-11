@@ -140,6 +140,30 @@ func isLoopbackStatsHost(host string) bool {
 	return parsed != nil && parsed.IsLoopback()
 }
 
+// statsHTTPClient is the client both transports use. It enforces the same
+// transport rule on every redirect that statsEndpointSecure enforces on the
+// configured endpoint: an HTTPS endpoint that answers 307/308 pointing at a
+// plaintext non-loopback host would otherwise have http.DefaultClient replay
+// the whole event body in the clear, so the check would cover only the first
+// hop.
+//
+// The default redirect budget is kept (Go stops after 10), and any resolution
+// error is caught so a redirect to an unparseable URL fails the flush instead
+// of writing to an unintended destination.
+func statsHTTPClient() *http.Client {
+	return &http.Client{
+		CheckRedirect: func(req *http.Request, via []*http.Request) error {
+			if len(via) >= 10 {
+				return fmt.Errorf("stopped after 10 redirects")
+			}
+			if !statsEndpointSecure(req.URL.String()) {
+				return fmt.Errorf("refusing redirect to an insecure endpoint: %s", req.URL.Redacted())
+			}
+			return nil
+		},
+	}
+}
+
 // statsGristFields maps one event onto the Grist row. Column IDs are part of
 // the receiving document's contract, so they are spelled here once. `version`,
 // `os` and `arch` are duplicated out of the payload so indicators can be built
@@ -589,7 +613,7 @@ func FlushStats(ctx context.Context, fs FS, stateDir string) error {
 		return err
 	}
 	req.Header.Set("Content-Type", "application/json")
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := statsHTTPClient().Do(req)
 	if err != nil {
 		return err
 	}
@@ -736,7 +760,7 @@ func postStatsGristRecord(ctx context.Context, endpoint string, body []byte) (in
 		return 0, nil, err
 	}
 	req.Header.Set("Content-Type", "application/json")
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := statsHTTPClient().Do(req)
 	if err != nil {
 		return 0, nil, err
 	}

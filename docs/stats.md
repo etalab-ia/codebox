@@ -93,7 +93,11 @@ s'applique — les deux valeurs ne peuvent donc pas se contredire :
 - toute autre URL reçoit l'enveloppe JSON groupée `{"schemaVersion", "events"}`
   décrite plus haut, qui est le contrat d'un relais géré par l'équipe.
 
-Les deux exigent TLS (sauf boucle locale, pour les tests).
+Les deux exigent TLS (sauf boucle locale, pour les tests), et cette exigence
+vaut pour toute la requête : une redirection vers une adresse non chiffrée est
+refusée au lieu d'être suivie. Sans cela, un endpoint HTTPS pourrait renvoyer
+une redirection `307` vers un `http://` et l'événement complet repartirait en
+clair.
 
 ## Recevoir les statistiques dans Grist
 

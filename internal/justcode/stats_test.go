@@ -2,14 +2,17 @@ package justcode
 
 import (
 	"context"
+	"crypto/tls"
 	"encoding/json"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -464,4 +467,184 @@ func mustSettingsPath(t *testing.T) string {
 		t.Fatal(err)
 	}
 	return path
+}
+
+// statsNonLoopbackAddr returns a listener address that is NOT loopback, or
+// skips the test. The downgrade rule exempts loopback (the tests need plain
+// HTTP there), so a redirect has to point at a non-loopback host for the rule
+// to be the thing under test. Binding this host's own routable address makes
+// that reproducible without touching the network.
+func statsNonLoopbackAddr(t *testing.T) string {
+	t.Helper()
+	addrs, err := net.InterfaceAddrs()
+	if err != nil {
+		t.Skipf("cannot enumerate interfaces: %v", err)
+	}
+	for _, addr := range addrs {
+		ipnet, ok := addr.(*net.IPNet)
+		if !ok || ipnet.IP.IsLoopback() || ipnet.IP.To4() == nil {
+			continue
+		}
+		return ipnet.IP.String() + ":0"
+	}
+	t.Skip("no non-loopback IPv4 address on this host")
+	return ""
+}
+
+// trustStatsTLSServer lets the flush trust an httptest TLS server's
+// self-signed certificate. The stats client leaves Transport unset so it keeps
+// the shared default (connection reuse), which is therefore what the tests
+// replace — the client and its redirect policy stay exactly as shipped.
+func trustStatsTLSServer(t *testing.T) {
+	t.Helper()
+	previous := http.DefaultTransport
+	http.DefaultTransport = &http.Transport{TLSClientConfig: &tls.Config{InsecureSkipVerify: true}}
+	t.Cleanup(func() { http.DefaultTransport = previous })
+}
+
+// TestFlushRefusesARedirectDowngradeToPlaintext covers the hop the endpoint
+// check cannot see. With default redirect handling, an HTTPS endpoint that
+// answers 307 to an http:// non-loopback URL has the entire event body replayed
+// in the clear; checking only the configured URL made the TLS requirement true
+// of the first request and nothing else.
+func TestFlushRefusesARedirectDowngradeToPlaintext(t *testing.T) {
+	addr := statsNonLoopbackAddr(t)
+	statsTestHome(t)
+	if err := WriteStatsConsent(DefaultFS, mustSettingsPath(t), true, true); err != nil {
+		t.Fatal(err)
+	}
+	stateDir := t.TempDir()
+	if err := EnqueueStatsEvent(DefaultFS, stateDir, StatsEvent{SchemaVersion: 1, EventID: "e", Kind: "setup"}); err != nil {
+		t.Fatal(err)
+	}
+
+	var mu sync.Mutex
+	var replayed []string
+	plaintext := &http.Server{
+		Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			body, _ := io.ReadAll(r.Body)
+			mu.Lock()
+			replayed = append(replayed, string(body))
+			mu.Unlock()
+			w.WriteHeader(http.StatusOK)
+		}),
+	}
+	listener, err := net.Listen("tcp", addr)
+	if err != nil {
+		t.Skipf("cannot bind %s: %v", addr, err)
+	}
+	go func() { _ = plaintext.Serve(listener) }()
+	t.Cleanup(func() { _ = plaintext.Close() })
+
+	target := "http://" + listener.Addr().String() + gristTestPath
+	tlsServer := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, target, http.StatusTemporaryRedirect)
+	}))
+	defer tlsServer.Close()
+	trustStatsTLSServer(t)
+
+	t.Setenv("JUST_CODE_STATS_URL", tlsServer.URL+gristTestPath)
+	err = FlushStats(context.Background(), DefaultFS, stateDir)
+	mu.Lock()
+	replayedCount := len(replayed)
+	mu.Unlock()
+	// Assert the disclosure first: that is the property, and the error alone
+	// would also be produced by a failed request that never leaked anything.
+	if replayedCount != 0 {
+		t.Fatalf("%d event body/bodies were replayed in plaintext: %v", replayedCount, replayed)
+	}
+	if err == nil {
+		t.Fatal("a redirect to a plaintext non-loopback endpoint must fail the flush")
+	}
+	if events, _ := PendingStatsEvents(DefaultFS, stateDir); len(events) != 1 {
+		t.Fatalf("the refused event must stay queued: %v", events)
+	}
+}
+
+// A redirect that stays secure must still be followed: the rule is about the
+// destination's transport, not about redirects.
+func TestFlushFollowsARedirectToASecureEndpoint(t *testing.T) {
+	statsTestHome(t)
+	if err := WriteStatsConsent(DefaultFS, mustSettingsPath(t), true, true); err != nil {
+		t.Fatal(err)
+	}
+	stateDir := t.TempDir()
+	if err := EnqueueStatsEvent(DefaultFS, stateDir, StatsEvent{SchemaVersion: 1, EventID: "e", Kind: "setup"}); err != nil {
+		t.Fatal(err)
+	}
+
+	var accepted int32
+	final := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		atomic.AddInt32(&accepted, 1)
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer final.Close()
+	redirecting := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, final.URL+r.URL.Path, http.StatusTemporaryRedirect)
+	}))
+	defer redirecting.Close()
+	trustStatsTLSServer(t)
+
+	t.Setenv("JUST_CODE_STATS_URL", redirecting.URL+gristTestPath)
+	if err := FlushStats(context.Background(), DefaultFS, stateDir); err != nil {
+		t.Fatalf("an HTTPS redirect target must be followed: %v", err)
+	}
+	if atomic.LoadInt32(&accepted) != 1 {
+		t.Fatalf("the redirect target received %d requests, want 1", accepted)
+	}
+	if events, _ := PendingStatsEvents(DefaultFS, stateDir); len(events) != 0 {
+		t.Fatalf("a delivered event must be dequeued: %v", events)
+	}
+}
+
+// The batched transport is a separate call site: it posts a different envelope
+// to a non-Grist endpoint, so it needs its own guard against the same replay.
+func TestFlushRefusesABatchedRedirectDowngradeToPlaintext(t *testing.T) {
+	addr := statsNonLoopbackAddr(t)
+	statsTestHome(t)
+	if err := WriteStatsConsent(DefaultFS, mustSettingsPath(t), true, true); err != nil {
+		t.Fatal(err)
+	}
+	stateDir := t.TempDir()
+	if err := EnqueueStatsEvent(DefaultFS, stateDir, StatsEvent{SchemaVersion: 1, EventID: "e", Kind: "setup"}); err != nil {
+		t.Fatal(err)
+	}
+
+	var mu sync.Mutex
+	var replayed int
+	plaintext := &http.Server{
+		Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			mu.Lock()
+			replayed++
+			mu.Unlock()
+			w.WriteHeader(http.StatusOK)
+		}),
+	}
+	listener, err := net.Listen("tcp", addr)
+	if err != nil {
+		t.Skipf("cannot bind %s: %v", addr, err)
+	}
+	go func() { _ = plaintext.Serve(listener) }()
+	t.Cleanup(func() { _ = plaintext.Close() })
+
+	tlsServer := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, "http://"+listener.Addr().String()+"/v1/events", http.StatusTemporaryRedirect)
+	}))
+	defer tlsServer.Close()
+	trustStatsTLSServer(t)
+
+	t.Setenv("JUST_CODE_STATS_URL", tlsServer.URL+"/v1/events")
+	err = FlushStats(context.Background(), DefaultFS, stateDir)
+	mu.Lock()
+	replayedCount := replayed
+	mu.Unlock()
+	if replayedCount != 0 {
+		t.Fatalf("the batched body was replayed in plaintext %d time(s)", replayedCount)
+	}
+	if err == nil {
+		t.Fatal("a redirect to a plaintext non-loopback endpoint must fail the batched flush")
+	}
+	if events, _ := PendingStatsEvents(DefaultFS, stateDir); len(events) != 1 {
+		t.Fatalf("the refused event must stay queued: %v", events)
+	}
 }
