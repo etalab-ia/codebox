@@ -67,7 +67,12 @@ jobs:
             asset: linux-arm64
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 45
-    container: ubuntu:20.04
+    container:
+      image: ubuntu:20.04
+      # Explicit resolvers: the runner's embedded container DNS intermittently
+      # fails to resolve archive.ubuntu.com (observed 2026-11-11 across several
+      # runners), which kills the apt step before any code runs.
+      options: --dns 1.1.1.1 --dns 8.8.8.8
     steps:
       - name: Install build tools
         run: apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y ca-certificates gcc git
