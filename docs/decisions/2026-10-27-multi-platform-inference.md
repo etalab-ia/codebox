@@ -6,7 +6,7 @@ Suivi : #180 (épic #160)
 
 ## Contexte
 
-Jusqu'ici, just-code ne connaissait qu'Albert API : une clé, un catalogue
+Jusqu'ici, codebox ne connaissait qu'Albert API : une clé, un catalogue
 curated, un provider OpenCode `albert`, un seul hôte autorisé dans le proxy de
 secrets. L'épic #160 demande de connecter au moins une plateforme parmi Albert
 API, Mistral AI et une plateforme compatible OpenAI, avec un écran de clé par
@@ -48,9 +48,9 @@ un simple champ de configuration.
    contient un provider `albert`. Quand Albert n'est pas connectée mais qu'une
    autre plateforme l'est, ce bloc est retiré de la configuration composée :
    afficher des modèles dont la clé n'est pas liée produirait des choix cassés.
-8. **Import.** `just-code import albert-code` reprend une configuration
+8. **Import.** `codebox import albert-code` reprend une configuration
    OpenRouter existante comme plateforme compatible OpenAI (URL et modèles),
-   et rappelle que la clé se stocke avec `just-code auth add
+   et rappelle que la clé se stocke avec `codebox auth add
    openai-compatible`. Aucune valeur n'est lue dans le fichier importé.
 
 ## Conséquences
@@ -62,7 +62,7 @@ un simple champ de configuration.
   injoignable, réponse qui n'est pas un catalogue de modèles.
 - Le catalogue Albert reste curated et mis en cache ; les autres plateformes
   sont lues à l'exécution, sans liste figée.
-- `just-code models` liste les modèles de chaque plateforme connectée et
+- `codebox models` liste les modèles de chaque plateforme connectée et
   marque ceux qui sont cochés.
-- Un hôte libre reste une décision explicite de l'utilisateur : just-code
+- Un hôte libre reste une décision explicite de l'utilisateur : codebox
   n'ouvre que cet hôte, jamais un domaine générique.

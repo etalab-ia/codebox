@@ -1,26 +1,26 @@
 # Statistiques d'usage (avec consentement)
 
-just-code peut partager avec l'équipe des informations **non nominatives** sur
+codebox peut partager avec l'équipe des informations **non nominatives** sur
 les choix faits dans l'assistant, pour orienter le produit. Le partage est
 **désactivé par défaut** : rien n'est construit, mis en file ni envoyé sans un
 « o » explicite.
 
 ## Consentement
 
-La question est posée une seule fois, à la fin de `just-code setup`, juste
+La question est posée une seule fois, à la fin de `codebox setup`, juste
 avant le récapitulatif. Elle vaut aussi pour les `init` suivants. Le
 récapitulatif indique `Statistiques d'usage : partagées` ou `non partagées`.
 
 En mode non interactif (entrée piped), la question n'est pas posée — la
 prochaine ligne appartient à un autre écran — et le partage reste désactivé.
-Utiliser `just-code stats on` pour l'activer explicitement.
+Utiliser `codebox stats on` pour l'activer explicitement.
 
 ## Commandes
 
 ```bash
-just-code stats on      # accepte le partage
-just-code stats off     # arrête tout envoi et vide la file locale
-just-code stats show    # affiche exactement ce qui est (ou serait) envoyé
+codebox stats on      # accepte le partage
+codebox stats off     # arrête tout envoi et vide la file locale
+codebox stats show    # affiche exactement ce qui est (ou serait) envoyé
 ```
 
 `stats show` affiche l'état du consentement, la configuration de l'endpoint,
@@ -30,7 +30,7 @@ les identifiants locaux et le contenu de la file d'envoi, événement par
 ## Données envoyées
 
 Chaque événement porte un identifiant aléatoire d'événement, la version de
-just-code, le système et l'architecture, un identifiant aléatoire de poste et,
+codebox, le système et l'architecture, un identifiant aléatoire de poste et,
 pour un `init`, un identifiant aléatoire de projet. Ces identifiants sont
 générés localement ; ils ne sont dérivés ni d'un nom, ni d'un chemin, ni d'une
 identité.
@@ -61,14 +61,14 @@ Les événements sont mis en file dans l'état local du poste
 un endpoint injoignable ne ralentit ni ne bloque l'assistant, et un échec
 laisse la file intacte pour une tentative ultérieure.
 
-L'endpoint est géré par l'équipe just-code. Cette version n'en configure aucun
+L'endpoint est géré par l'équipe codebox. Cette version n'en configure aucun
 par défaut : sans endpoint, les événements restent locaux. Une construction de
 release peut le fixer avec
-`-ldflags "-X github.com/etalab-ia/just-code/internal/justcode.StatsEndpointDefault=<url>"`,
-et `JUST_CODE_STATS_URL` le remplace pour les tests et le développement.
+`-ldflags "-X github.com/etalab-ia/codebox/internal/codebox.StatsEndpointDefault=<url>"`,
+et `CODEBOX_STATS_URL` le remplace pour les tests et le développement.
 
 La valeur de release est lue dans la variable de dépôt GitHub
-`JUST_CODE_STATS_URL` (Settings → Secrets and variables → Actions → Variables).
+`CODEBOX_STATS_URL` (Settings → Secrets and variables → Actions → Variables).
 La modifier change la destination des prochaines releases sans toucher au code ;
 variable absente (fork, dépôt tiers), aucune URL n'est intégrée et rien n'est
 envoyé.
@@ -126,7 +126,7 @@ dont notre client suit le format.
    modification et la suppression échouent.
 
 Le point 5 est la vérification qui compte. `stats show` affiche l'endpoint
-configuré, ce qui rend l'envoi observable, et `just-code stats off` l'arrête.
+configuré, ce qui rend l'envoi observable, et `codebox stats off` l'arrête.
 
 ### Ce que ce montage implique
 
@@ -134,7 +134,7 @@ configuré, ce qui rend l'envoi observable, et `just-code stats off` l'arrête.
   n'a aucune permission de lecture sur `Events` : il peut ajouter un
   enregistrement, pas en lire un seul. Les statistiques ne sont visibles que des
   membres du document.
-- **Rien ne garantit qu'une écriture vienne de just-code.** N'importe qui peut
+- **Rien ne garantit qu'une écriture vienne de codebox.** N'importe qui peut
   ajouter un enregistrement à la table, y compris des valeurs inventées. Les
   événements doivent donc être traités comme des données non fiables à
   l'analyse, et l'absence de limitation de débit sur un service public est
@@ -173,7 +173,7 @@ configuré, ce qui rend l'envoi observable, et `just-code stats off` l'arrête.
   le conserve sur le second. C'est vérifié sur l'instance réelle.
 
 Le consentement est relu avant **chaque** écriture, pas une fois pour le lot :
-un `just-code stats off` lancé pendant un envoi arrête les suivants.
+un `codebox stats off` lancé pendant un envoi arrête les suivants.
 
 ### Ce que le client fait des réponses en erreur
 

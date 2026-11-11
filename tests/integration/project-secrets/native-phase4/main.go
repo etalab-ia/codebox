@@ -4,7 +4,7 @@ package main
 //
 // Qualifies, on native macOS arm64 with the pinned Microsandbox 0.7.6
 // runtime and Go SDK, whether a channel exists for handing a guest a
-// plaintext value it must consume LOCALLY (just-code Phase 4, issue #151)
+// plaintext value it must consume LOCALLY (codebox Phase 4, issue #151)
 // while satisfying all of:
 //
 //  1. the value never appears in host or guest argv (/proc/*/cmdline, ps);
@@ -376,13 +376,13 @@ func run() {
 	ctx, cancel := context.WithTimeout(ctx, 20*time.Minute)
 	defer cancel()
 
-	name := "jc-p4-" + random()[:16]
+	name := "cb-p4-" + random()[:16]
 	if e := os.WriteFile(filepath.Join(*dir, "vm-name"), []byte(name), 0600); e != nil {
 		diagnostic("ownership-file", e, "")
 		result("ownership-file", false)
 		return
 	}
-	restoredName := "jc-p4-r-" + random()[:14]
+	restoredName := "cb-p4-r-" + random()[:14]
 	// Written BEFORE the restore is attempted so a signal mid-restore still
 	// cleans up the partially created sibling VM.
 	if e := os.WriteFile(filepath.Join(*dir, "vm-name-restored"), []byte(restoredName), 0600); e != nil {
@@ -890,7 +890,7 @@ func run() {
 	diagnostic("stop-for-snapshot", stopErr, "")
 	_ = s.Close()
 
-	snapName := "jcp4snap-" + random()[:10]
+	snapName := "cbp4snap-" + random()[:10]
 	selector := name + ":" + snapName
 	_ = os.WriteFile(filepath.Join(*dir, "snapshot-name"), []byte(selector), 0600)
 	var artifact *msb.SnapshotArtifact
@@ -1017,8 +1017,8 @@ func hits3For(canary string, hits []hostHit) []hostHit {
 // kit's ownership prefix. Returns false on a real error; a missing sandbox
 // is success.
 func removeIfOurs(ctx context.Context, name string) bool {
-	if !strings.HasPrefix(name, "jc-p4-") {
-		diagnostic("cleanup-ownership", nil, "refusing name without jc-p4- prefix")
+	if !strings.HasPrefix(name, "cb-p4-") {
+		diagnostic("cleanup-ownership", nil, "refusing name without cb-p4- prefix")
 		return false
 	}
 	h, e := msb.GetSandbox(ctx, name)
@@ -1046,7 +1046,7 @@ func removeSnapshotIfOurs(ctx context.Context, dir, mainName string) {
 		return
 	}
 	selector := strings.TrimSpace(string(b))
-	if !strings.HasPrefix(selector, mainName+":jcp4snap-") {
+	if !strings.HasPrefix(selector, mainName+":cbp4snap-") {
 		diagnostic("cleanup-snapshot-ownership", nil, "refusing unexpected snapshot selector")
 		return
 	}
@@ -1075,7 +1075,7 @@ func cleanupOwned(dir string) {
 			continue
 		}
 		name := strings.TrimSpace(string(b))
-		if !strings.HasPrefix(name, "jc-p4-") {
+		if !strings.HasPrefix(name, "cb-p4-") {
 			result("cleanup-ownership", false)
 			continue
 		}
@@ -1092,7 +1092,7 @@ func cleanupOwned(dir string) {
 	if e == nil {
 		selector := strings.TrimSpace(string(b))
 		parts := strings.SplitN(selector, ":", 2)
-		if len(parts) == 2 && strings.HasPrefix(parts[0], "jc-p4-") && strings.HasPrefix(parts[1], "jcp4snap-") {
+		if len(parts) == 2 && strings.HasPrefix(parts[0], "cb-p4-") && strings.HasPrefix(parts[1], "cbp4snap-") {
 			if err := msb.Snapshot.Remove(ctx, selector, true); err != nil && !msb.IsKind(err, msb.ErrSnapshotNotFound) {
 				diagnostic("cleanup-snapshot", err, "")
 			}

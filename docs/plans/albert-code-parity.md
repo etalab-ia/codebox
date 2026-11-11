@@ -1,4 +1,4 @@
-# just-code: plan d'implémentation PR par PR (parité Albert Code)
+# codebox: plan d'implémentation PR par PR (parité Albert Code)
 
 Brouillon de revue | 22 septembre 2026
 
@@ -8,13 +8,13 @@ Atteindre la parité Albert Code via **22 PR revoyables**, organisées en preuve
 
 Ce document transforme l'[analyse architecturale acceptée](https://gist.github.com/kaaloo/daad9511fdd645712d617e8632e9aebc) en backlog de livraison proposé. Les identifiants **P01-P22 sont des identifiants de planification, pas des numéros de PR GitHub existants**. Aucune PR d'implémentation ni nouvelle issue n'a été ouverte pour ce plan.
 
-Référentiel source revérifié le 22 septembre : just-code main `6d231654633aa409ca373f89b1073f68e92ca619` (v0.4.2), Go 1.22, SDK Microsandbox 0.7.2. Main est inchangé depuis l'analyse. L'[issue #29](https://github.com/etalab-ia/just-code/issues/29) est la seule issue ouverte ; il n'y a pas de PR ouverte. La comparaison Albert Code reste fondée sur `46569c7`.
+Référentiel source revérifié le 22 septembre : codebox main `6d231654633aa409ca373f89b1073f68e92ca619` (v0.4.2), Go 1.22, SDK Microsandbox 0.7.2. Main est inchangé depuis l'analyse. L'[issue #29](https://github.com/etalab-ia/codebox/issues/29) est la seule issue ouverte ; il n'y a pas de PR ouverte. La comparaison Albert Code reste fondée sur `46569c7`.
 
 **Approbation demandée :** le périmètre, la séquence, la politique de compatibilité et les critères d'acceptation ci-dessous. L'approbation de ce document n'est pas une permission d'affaiblir la protection des identifiants si une expérience technique échoue.
 
 ### Révision du 22 septembre 2026 : modèle d'espace de travail scellé
 
-Le plan initial conservait le montage inscriptible du checkout hôte par défaut, avec le clone invité comme alternative rejetée. Cette décision est **inversée** : just-code adopte le **modèle scellé** — le checkout hôte n'est plus monté dans l'invité ; l'invité possède son propre clone et les changements reviennent par branche/PR ou par diff revu. Le montage partagé n'est **pas** conservé comme option d'échappement.
+Le plan initial conservait le montage inscriptible du checkout hôte par défaut, avec le clone invité comme alternative rejetée. Cette décision est **inversée** : codebox adopte le **modèle scellé** — le checkout hôte n'est plus monté dans l'invité ; l'invité possède son propre clone et les changements reviennent par branche/PR ou par diff revu. Le montage partagé n'est **pas** conservé comme option d'échappement.
 
 Motif : un scan au démarrage ne peut pas fermer la fuite d'identifiants dans un montage inscriptible. `ScanWorkspace` refuse déjà les fichiers `.env` et les détections gitleaks, mais tout secret ajouté après le démarrage, dans un format non détecté, ou écrit par l'agent lui-même reste lisible. Une surveillance continue réduirait la fenêtre sans jamais la fermer. La seule frontière réelle est l'absence de montage. Le scan ne disparaît pas pour autant : il est déplacé à la frontière de transfert hôte→invité, où il devient un filtre refusant par défaut (voir P22).
 
@@ -26,7 +26,7 @@ Luis a accepté l'analyse et ses recommandations. Utiliser ce qui suit comme hyp
 
 | Topic | Implementation baseline |
 |---|---|
-| Normal launch | `just-code` uses Microsandbox and full isolation without flags or environment variables. Explicit supported overrides remain. |
+| Normal launch | `codebox` uses Microsandbox and full isolation without flags or environment variables. Explicit supported overrides remain. |
 | Workspace boundary | Sealed model: the host checkout is not mounted into the guest. The guest owns its clone and returns changes through a branch/PR or a reviewed diff. No writable host-workspace mount, and no shared-mount escape hatch. No home, host Docker socket, SSH agent or browser-profile mount either. |
 | Project configuration | Secret-free manifest and lockfile intended for version control; explicit local-only storage option. Setup writes files but never stages or commits them. |
 | Credentials | Native credential store when usable; an explicitly accepted protected-file fallback for headless systems. No silent storage downgrade. |
@@ -38,8 +38,8 @@ Luis a accepté l'analyse et ses recommandations. Utiliser ce qui suit comme hyp
 
 Three clarifications sharpen the previous discussion:
 
-- **Tool installation is not authorization.** Absence of `gh` does not block HTTP calls, public GitHub access, or installation of another client. The managed grant controls whether just-code supplies credentials. Network policy and PAT permissions determine what authorized requests can do.
-- **A native keyring is not a universal same-user process barrier.** Encryption, unlock behavior and application access controls vary. Probe availability and lock state; do not assume every desktop has a usable Secret Service or that only just-code can retrieve an item. Audit the runtime's own persistence too.
+- **Tool installation is not authorization.** Absence of `gh` does not block HTTP calls, public GitHub access, or installation of another client. The managed grant controls whether codebox supplies credentials. Network policy and PAT permissions determine what authorized requests can do.
+- **A native keyring is not a universal same-user process barrier.** Encryption, unlock behavior and application access controls vary. Probe availability and lock state; do not assume every desktop has a usable Secret Service or that only codebox can retrieve an item. Audit the runtime's own persistence too.
 - **A lockfile improves reproducibility but does not make environments identical.** Host architecture, remote APIs/models and mutable OS package repositories remain variables. Record exact artifacts and verify integrity where supported; distinguish pinned from externally controlled components.
 
 ## 2. Règles de livraison et de revue
@@ -137,7 +137,7 @@ P22 was added in the 22 September revision (sealed workspace); its identifier pr
 
 **Scope:** global user config, project manifest, initial lock schema, platform directories and pure field-by-field resolution. Retain a compatibility adapter around existing `Config` callers. Define explicit flags > namespaced environment > project > user > built-ins for non-secret settings; track whether a value was unset or explicitly empty. Credential lookup remains separate. Provide redacted configuration explanation and a bounded parser for explicit legacy `.env` import.
 
-**Likely files:** `config.go`, `config_test.go`, `paths.go`, `cmd/just-code/main.go`; proposed schema/resolver files and versioned JSON schemas. Logical credential requirements map to local credentials through host-local bindings; no machine-specific keyring IDs in shared files.
+**Likely files:** `config.go`, `config_test.go`, `paths.go`, `cmd/codebox/main.go`; proposed schema/resolver files and versioned JSON schemas. Logical credential requirements map to local credentials through host-local bindings; no machine-specific keyring IDs in shared files.
 
 **Acceptance:** table-driven precedence tests, explicit-empty behavior, malformed/unknown schema versions, platform directory tests and secret redaction. Reading configuration has no process-environment mutation. Secret literals and arbitrary env maps are not supported by the managed schema; reject unsupported fields. No config migration executes shell files.
 
@@ -173,7 +173,7 @@ P22 was added in the 22 September revision (sealed workspace); its identifier pr
 
 **Scope:** a small typed plan with operations for no-op, config write, guest process restart, VM restart and recreation. Persist desired/applied configuration revisions and capability completion markers without credential values. Hash only non-secret config; use opaque credential generations, not hashes of credentials. Implement resumable, atomic writes and a per-project mutation lock. Make restart non-destructive; expose explicit recreation with a named loss summary.
 
-**Likely files:** `microsandbox.go`, adapter lifecycle methods, `assets/guest-prep.sh`, `cmd/just-code/main.go`; proposed plan/reconcile helpers.
+**Likely files:** `microsandbox.go`, adapter lifecycle methods, `assets/guest-prep.sh`, `cmd/codebox/main.go`; proposed plan/reconcile helpers.
 
 **Acceptance:** identical desired state performs no writes; interruption resumes at the unfinished operation; config failure leaves the prior configuration usable; resource/mount/isolation changes are classified correctly. Unknown persisted state does not trigger deletion. Existing readiness/recovery and SDK detach/close regressions remain covered.
 
@@ -187,7 +187,7 @@ P22 was added in the 22 September revision (sealed workspace); its identifier pr
 
 **Likely files:** `microsandbox.go`, `microsandbox_sdk.go` (mount removal, clone lifecycle), `workspace.go` (gate repurposing), P05 project registry (clone location metadata), guest bootstrap assets; new workspace-sync and change-delivery helpers.
 
-**Acceptance:** no bind mount of the host checkout exists in any supported path; prove it from the real persisted sandbox configuration, not only from just-code's own spec. A secret planted in the host checkout (a `.env` with a canary value) is unreadable from inside the guest — file access, `cat`, and agent-tool access all fail.
+**Acceptance:** no bind mount of the host checkout exists in any supported path; prove it from the real persisted sandbox configuration, not only from codebox's own spec. A secret planted in the host checkout (a `.env` with a canary value) is unreadable from inside the guest — file access, `cat`, and agent-tool access all fail.
 
 *Host→guest transfer is filtered, default-deny.* The existing `ScanWorkspace` logic does not disappear; it moves to the transfer boundary, where it can actually enforce. Every sync — initial clone/snapshot and each refresh — resolves a concrete, reviewable file set before any byte crosses into the guest. Dotenv-named files (beyond the safe `.example`/`.sample` suffixes) and gitleaks-detected secrets are **excluded by default**, not merely warned about. The user sees the filtered set and any exclusions, and may opt a specific file back in only through an explicit, per-file, recorded decision — never a blanket "include everything". A secret added to the host checkout *after* the last sync must not appear in the guest on the next refresh; prove this with a canary planted post-initial-sync. The filter applies to untracked and ignored files too, since those are exactly where local `.env` files live and a clone-only transfer would miss them.
 
@@ -231,7 +231,7 @@ P22 was added in the 22 September revision (sealed workspace); its identifier pr
 
 **Acceptance:** effective real OpenCode config matches approved intent after create and restart; field conflicts show a clear diff rather than an invisible override. A pulled MCP/plugin or endpoint change cannot use credentials before approval. Trust decisions are tied to the canonical project and approved content; recheck before execution to avoid applying changed files. Network errors do not erase the working model; catalogue IDs do not fabricate token limits.
 
-**Boundary/compatibility:** local trust records never travel in the repository. They govern just-code-managed activation, not every action a fully privileged guest process could take. Existing project configuration needs an initial review/import path; do not treat a cloned repository as trusted merely because it contains a lockfile.
+**Boundary/compatibility:** local trust records never travel in the repository. They govern codebox-managed activation, not every action a fully privileged guest process could take. Existing project configuration needs an initial review/import path; do not treat a cloned repository as trusted merely because it contains a lockfile.
 
 ### P11. Global setup wizard
 
@@ -239,7 +239,7 @@ P22 was added in the 22 September revision (sealed workspace); its identifier pr
 
 **Scope:** implement `setup`: platform/virtualization/disk preflight -> Albert endpoint and masked credential -> optional GitHub credential and editable identity -> review/apply. Use the real domain operations from preceding PRs. Separate read-only diagnosis from installation. Prototype then select a maintained terminal renderer; retain a plain terminal and noninteractive path. Prepare the minimal guest capability, not browser tools by default.
 
-**Likely files:** `cmd/just-code/main.go`, new command/rendering files; setup operations in `internal/justcode`; runtime installer hooks and docs.
+**Likely files:** `cmd/codebox/main.go`, new command/rendering files; setup operations in `internal/codebox`; runtime installer hooks and docs.
 
 **Acceptance:** clean host with no Node/OpenCode reaches a configured global state; unavailable Secret Service produces a clear choice; no credential prompt precedes a fatal virtualization blocker. Back/cancel/retry, narrow terminals, paste, no-color and non-TTY paths work. Interrupted installation resumes; failed credential validation distinguishes rejection from unavailable network. Skip GitHub without penalty.
 
@@ -299,7 +299,7 @@ P22 was added in the 22 September revision (sealed workspace); its identifier pr
 2. Create a disposable guest and select only `data-gouv` and `context7`. Do not use or modify the existing user sandbox. Use Context7 anonymously; no API key is required by the verified contract.
 3. From inside that guest, inspect OpenCode's MCP status and record the tools returned for both server names. Confirm the configured endpoints match the curated catalogue.
 4. Through OpenCode in the guest, ask Gemini to use one read-only tool from each server. Choose the tool after inspecting `tools/list`; record the tool name, sanitized arguments, and result. Do not invoke tools that mutate or publish remote data.
-5. Confirm both calls completed through the guest's OpenCode process, then remove only the disposable guest and test files. Record the OpenCode/MSB versions, outcome, and any endpoint or auth error. Do not count the host-side `just-code mcp status` handshake as a substitute.
+5. Confirm both calls completed through the guest's OpenCode process, then remove only the disposable guest and test files. Record the OpenCode/MSB versions, outcome, and any endpoint or auth error. Do not count the host-side `codebox mcp status` handshake as a substitute.
 
 ### P16. Browser capability and browser MCPs
 

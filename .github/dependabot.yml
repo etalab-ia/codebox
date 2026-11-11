@@ -15,7 +15,7 @@ updates:
       default-days: 7
     open-pull-requests-limit: 5
     # The Microsandbox SDK is pinned to the hosted runtime: msbRuntimeVersion and
-    # the five archive digests in internal/justcode/msb_runtime_install.go have to
+    # the five archive digests in internal/codebox/msb_runtime_install.go have to
     # move with go.mod, and TestMSBRuntimeVersionMatchesSDK fails CI whenever SDK
     # version and runtime version drift apart, so an isolated Dependabot bump is
     # always red. Upstream releases are detected and turned into a tracked issue by

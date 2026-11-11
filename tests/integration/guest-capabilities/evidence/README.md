@@ -3,7 +3,7 @@
 Ces transcripts documentent la matrice P03 sur MSB 0.7.8, le runtime livré par
 `main`. Ils couvrent les capacités de base d'un invité Microsandbox, pilotées
 par le CLI `msb`. Ils ne qualifient ni le transport des identifiants P02, ni
-les parcours intégrés à just-code, ni l'exécution du SDK Go.
+les parcours intégrés à codebox, ni l'exécution du SDK Go.
 
 ## Résultats du 27 octobre 2026
 
@@ -54,7 +54,7 @@ republier les blocs de version de la même session.
 
 Le runtime 0.7.8 installé pour la qualification courante a le SHA-256
 `5dbe0d921c6b6f807d2c59f87e0a3c3a648424871b6bee513b837a8c600a2493`, identique
-à celui gravé dans just-code ; l'historique 0.7.6 porte `a4f1722f…`. Dans les
+à celui gravé dans codebox ; l'historique 0.7.6 porte `a4f1722f…`. Dans les
 deux cas `msb doctor` confirme libkrunfw et Apple Silicon.
 
 La sortie brute `go list -m` déclare le SDK Go de la révision testée (v0.7.8

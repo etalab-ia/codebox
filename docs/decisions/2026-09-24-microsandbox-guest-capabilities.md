@@ -101,13 +101,13 @@ des garanties de performance.
 
 ### Clone invité (entrée de conception P22)
 
-- **Origine distante** : `git clone --depth 1` de `etalab-ia/just-code`
+- **Origine distante** : `git clone --depth 1` de `etalab-ia/codebox`
   (public) → **853 ms**, `.git` = 360 Ko, arbre de travail 1.1 Mo, HEAD
-  = `2cf7adc`. just-code n'a pas de sous-modules (`git submodule status`
+  = `2cf7adc`. codebox n'a pas de sous-modules (`git submodule status`
   vide, aucune entrée `160000` dans l'index).
 - **Chemin local** (proxy du clone depuis l'hôte) : clone depuis un clone
   invité en **29 ms**, mais **l'origine est le chemin source**
-  (`/tmp/jc-remote`), pas l'URL distante — P22 doit réécrire
+  (`/tmp/cb-remote`), pas l'URL distante — P22 doit réécrire
   `remote.origin.url` après clone, ou toujours cloner depuis l'origine
   distante.
 - **Worktree lié invité** : `git worktree add` dans un clone invité
@@ -115,7 +115,7 @@ des garanties de performance.
   `<clone>/.git/worktrees/<nom>`) ; `status` propre. Compatible avec le
   workflow Letta Code (worktrees `.letta/worktrees/`) à l'intérieur d'un
   clone possédé par l'invité.
-- **Sous-modules** : non rejoués (just-code n'en a pas) ; un dépôt avec
+- **Sous-modules** : non rejoués (codebox n'en a pas) ; un dépôt avec
   sous-modules exigerait `git submodule update --init --recursive` après
   le clone scellé, ce que P22 devra tester sur un dépôt réel en ayant.
 
@@ -189,10 +189,10 @@ Microsandbox v0.7.3. Le runtime passe la matrice complète.
 ## Requalification v0.7.6 (#235, 2026-10-27)
 
 Le harnais P03 est aligné sur le runtime CLI 0.7.6 et le SDK Go v0.7.6 livrés
-par just-code. La matrice CLI a été rejouée sur MacBook-Pro-Luis.local, sous
+par codebox. La matrice CLI a été rejouée sur MacBook-Pro-Luis.local, sous
 macOS 27.0.1 (arm64), avec libkrun. Elle n'exécute pas le SDK Go : la sortie
 `go list -m` conserve sa version déclarée dans la révision `7f8b3de`. Le
-runtime temporaire a été vérifié par le SHA-256 gravé dans just-code. Le
+runtime temporaire a été vérifié par le SHA-256 gravé dans codebox. Le
 `~/.microsandbox` du poste n'a pas été modifié.
 
 **Résultats observés :**
@@ -219,7 +219,7 @@ conservés dans `tests/integration/guest-capabilities/evidence/`, avec la
 commande complète, les versions et la sortie brute finale de `msb list`.
 
 Cette qualification concerne les capacités invité P03. Elle ne requalifie ni
-le transport des identifiants P02, ni les parcours intégrés à just-code. Le
+le transport des identifiants P02, ni les parcours intégrés à codebox. Le
 profil navigateur P16 et les autres limites déjà documentées restent hors de
 cette matrice.
 
@@ -238,7 +238,7 @@ version livrée à l'ouverture de l'issue.
 - Sans checkout Git : sortie 2 au prévol T10, avant l'arrêt de la sandbox.
 - `msb list` final vide après chacun des trois runs.
 
-Le runtime temporaire a été vérifié par le SHA-256 gravé dans just-code
+Le runtime temporaire a été vérifié par le SHA-256 gravé dans codebox
 (`5dbe0d92…`) et `msb doctor` confirme libkrunfw et Apple Silicon. Les
 transcripts de `e1484a7` sont dans
 `tests/integration/guest-capabilities/evidence/`.
@@ -292,6 +292,6 @@ P18 remplace la référence flottante `ghcr.io/anomalyco/opencode:latest` par
 l'index OCI multi-architecture immuable
 `ghcr.io/anomalyco/opencode@sha256:b34342987ca889fc2cc19cbc046eefc2418e5980a3d696e209fbb401a288f631`.
 Le digest a été lu dans `Docker-Content-Digest` sur le registre GHCR pour le
-manifest accepté OCI. Une mise à niveau depuis just-code 0.7.0 peut donc
+manifest accepté OCI. Une mise à niveau depuis codebox 0.7.0 peut donc
 classer un invité existant comme nécessitant une recréation ; celle-ci reste
 explicite et détruit les sessions, outils et fichiers propres à l'invité.

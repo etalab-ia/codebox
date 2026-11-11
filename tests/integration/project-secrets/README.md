@@ -12,7 +12,7 @@ From the repository root:
 npm ci --prefix tests/integration/project-secrets --ignore-scripts
 npm test --prefix tests/integration/project-secrets
 uv run --no-project --with python-dotenv==1.2.4 python tests/integration/project-secrets/test_python_loaders.py -v
-go test ./internal/justcode -run 'TestOpaqueProjectSecretMarkers|TestDollarProjectSecretMarker' -count=1
+go test ./internal/codebox -run 'TestOpaqueProjectSecretMarkers|TestDollarProjectSecretMarker' -count=1
 ```
 
 Node dependencies are isolated here, pinned in `package-lock.json`; Python is
@@ -51,13 +51,13 @@ weekly: an `@dependabot ignore` comment is a no-op on a PR built from a group
 rule (see #271), which is why the refusal kept returning. Versions below 1000
 remain eligible; 13.0.0 keeps `$(...)` verbatim.
 
-The reach of that hazard into just-code's own delivery is narrow, and the
+The reach of that hazard into codebox's own delivery is narrow, and the
 reason is worth keeping straight. `dotenvLiteral` refuses `$` in *both* the
 quoted and the unquoted form, so a guest-readable value containing `$(...)`
 cannot be written into a generated guest file at all — the approval refuses it
 while the user is still present (`CheckGuestReadableValue`). The other thing
 these files carry is the opaque placeholder for secrets the guest may not read,
-`__JUST_CODE_SECRET_<16 hex>__`, which contains no dollar sign. The
+`__CODEBOX_SECRET_<16 hex>__`, which contains no dollar sign. The
 exposure this pin guards is the other side of the same file format: a
 guest-authored project `.env`, read by an application that has adopted an
 expanding loader, where an unquoted `$(...)` becomes code execution. That is a
@@ -84,7 +84,7 @@ re-run (#348), which qualifies that pin end to end.
 ## Design Consequence and Remaining Gate
 
 Project bindings should use a stable opaque marker with no dollar references,
-for example `__JUST_CODE_SECRET_<opaque-id>__`. Quote selection alone is not a
+for example `__CODEBOX_SECRET_<opaque-id>__`. Quote selection alone is not a
 portable solution. This is a proposal, not a newly enabled runtime binding.
 
 The current Microsandbox runtime/SDK v0.7.14 passed the native canary matrix
@@ -99,5 +99,5 @@ network matrix was requalified 16/16 on macOS (see #205). That result covers
 P02 transport only; it does not qualify this project-secrets loader matrix or
 these new cases. Do not call Phase 0 complete from loader tests alone. This
 loader matrix ran in Cloud; the native matrix ran separately on an explicitly
-connected Mac. Neither matrix alone proves the later Phase 2/3 just-code
+connected Mac. Neither matrix alone proves the later Phase 2/3 codebox
 application integration.

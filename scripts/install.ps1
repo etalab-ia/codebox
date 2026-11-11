@@ -5,18 +5,18 @@ param()
 $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'
 
-$script:JustCodeRepository = 'etalab-ia/just-code'
-$script:JustCodeReleasePage = "https://github.com/$script:JustCodeRepository/releases/latest"
-$script:JustCodeDownload = "https://github.com/$script:JustCodeRepository/releases/download"
+$script:CodeboxRepository = 'etalab-ia/codebox'
+$script:CodeboxReleasePage = "https://github.com/$script:CodeboxRepository/releases/latest"
+$script:CodeboxDownload = "https://github.com/$script:CodeboxRepository/releases/download"
 
 if ([System.Environment]::OSVersion.Platform -eq [System.PlatformID]::Win32NT) {
 	[System.Net.ServicePointManager]::SecurityProtocol = [System.Net.ServicePointManager]::SecurityProtocol -bor [System.Net.SecurityProtocolType]::Tls12
 }
 
-function Get-JustCodeReleaseMetadataFromUri {
+function Get-CodeboxReleaseMetadataFromUri {
 	param([Parameter(Mandatory = $true)][System.Uri]$Uri)
 
-	$tagPrefix = "/$script:JustCodeRepository/releases/tag/"
+	$tagPrefix = "/$script:CodeboxRepository/releases/tag/"
 	if ($Uri.Scheme -ne 'https' -or $Uri.Host -ine 'github.com' -or -not $Uri.AbsolutePath.StartsWith($tagPrefix, [System.StringComparison]::Ordinal)) {
 		throw "Unexpected GitHub release URL '$Uri'."
 	}
@@ -27,8 +27,8 @@ function Get-JustCodeReleaseMetadataFromUri {
 	[pscustomobject]@{ tag_name = $tag }
 }
 
-function Get-JustCodeLatestRelease {
-	$response = Invoke-WebRequest -Uri $script:JustCodeReleasePage -Method Head -UserAgent 'just-code-installer' -MaximumRedirection 10 -TimeoutSec 30 -UseBasicParsing -ErrorAction Stop
+function Get-CodeboxLatestRelease {
+	$response = Invoke-WebRequest -Uri $script:CodeboxReleasePage -Method Head -UserAgent 'codebox-installer' -MaximumRedirection 10 -TimeoutSec 30 -UseBasicParsing -ErrorAction Stop
 	$baseResponse = $response.BaseResponse
 	$resolvedUri = $null
 	if ($baseResponse -and $baseResponse.PSObject.Properties['ResponseUri']) {
@@ -39,43 +39,43 @@ function Get-JustCodeLatestRelease {
 	if (-not $resolvedUri) {
 		throw 'GitHub did not return a resolved release URL.'
 	}
-	Get-JustCodeReleaseMetadataFromUri -Uri $resolvedUri
+	Get-CodeboxReleaseMetadataFromUri -Uri $resolvedUri
 }
 
-function Get-JustCodeAssetName {
+function Get-CodeboxAssetName {
 	param([Parameter(Mandatory = $true)][string]$Architecture)
 
 	switch ($Architecture.ToUpperInvariant()) {
-		{ $_ -in @('AMD64', 'X64') } { return 'just-code-windows-x64.exe' }
-		'ARM64' { return 'just-code-windows-arm64.exe' }
+		{ $_ -in @('AMD64', 'X64') } { return 'codebox-windows-x64.exe' }
+		'ARM64' { return 'codebox-windows-arm64.exe' }
 		default { throw "Unsupported Windows architecture '$Architecture'; supported targets are x64 and arm64." }
 	}
 }
 
-function Test-JustCodeWindows {
+function Test-CodeboxWindows {
 	[System.Environment]::OSVersion.Platform -eq [System.PlatformID]::Win32NT
 }
 
-function Save-JustCodeReleaseAsset {
+function Save-CodeboxReleaseAsset {
 	param(
 		[Parameter(Mandatory = $true)][string]$Uri,
 		[Parameter(Mandatory = $true)][string]$Path
 	)
 
-	Invoke-WebRequest -Uri $Uri -OutFile $Path -UserAgent 'just-code-installer' -MaximumRedirection 10 -TimeoutSec 300 -UseBasicParsing -ErrorAction Stop
+	Invoke-WebRequest -Uri $Uri -OutFile $Path -UserAgent 'codebox-installer' -MaximumRedirection 10 -TimeoutSec 300 -UseBasicParsing -ErrorAction Stop
 	if (-not (Test-Path -LiteralPath $Path -PathType Leaf) -or (Get-Item -LiteralPath $Path).Length -eq 0) {
 		throw "Download was empty: $Uri"
 	}
 }
 
-function Invoke-JustCodeSetup {
+function Invoke-CodeboxSetup {
 	param([Parameter(Mandatory = $true)][string]$Path)
 
 	& $Path setup | Out-Host
 	$LASTEXITCODE
 }
 
-function Replace-JustCodeBinary {
+function Replace-CodeboxBinary {
 	param(
 		[Parameter(Mandatory = $true)][string]$StagedPath,
 		[Parameter(Mandatory = $true)][string]$TargetPath,
@@ -89,21 +89,21 @@ function Replace-JustCodeBinary {
 		try {
 			[System.IO.File]::Replace($StagedPath, $TargetPath, $BackupPath)
 		} catch {
-			throw "Could not atomically replace $TargetPath. Close any running just-code processes, check write access, and retry. The current executable was not replaced. Details: $($_.Exception.Message)"
+			throw "Could not atomically replace $TargetPath. Close any running codebox processes, check write access, and retry. The current executable was not replaced. Details: $($_.Exception.Message)"
 		}
 	} else {
 		[System.IO.File]::Move($StagedPath, $TargetPath)
 	}
 }
 
-function Install-JustCode {
+function Install-Codebox {
 	[CmdletBinding()]
 	param(
 		[string]$InstallDirectory,
 		[string]$Architecture
 	)
 
-	if (-not (Test-JustCodeWindows)) {
+	if (-not (Test-CodeboxWindows)) {
 		throw 'This installer supports Windows only; use install.sh on macOS or Linux.'
 	}
 
@@ -111,13 +111,13 @@ function Install-JustCode {
 		$Architecture = $env:PROCESSOR_ARCHITEW6432
 		if (-not $Architecture) { $Architecture = $env:PROCESSOR_ARCHITECTURE }
 	}
-	$asset = Get-JustCodeAssetName -Architecture $Architecture
+	$asset = Get-CodeboxAssetName -Architecture $Architecture
 
 	if (-not $InstallDirectory) {
 		if (-not $env:LOCALAPPDATA) {
 			throw 'LOCALAPPDATA is not set; cannot choose a user-owned installation directory.'
 		}
-		$InstallDirectory = Join-Path $env:LOCALAPPDATA 'Programs/just-code'
+		$InstallDirectory = Join-Path $env:LOCALAPPDATA 'Programs/codebox'
 	}
 
 	$InstallDirectory = [System.IO.Path]::GetFullPath($InstallDirectory)
@@ -129,8 +129,8 @@ function Install-JustCode {
 	} else {
 		$null = New-Item -ItemType Directory -Path $InstallDirectory -Force
 	}
-	$target = Join-Path $InstallDirectory 'just-code.exe'
-	$backup = Join-Path $InstallDirectory 'just-code.previous.exe'
+	$target = Join-Path $InstallDirectory 'codebox.exe'
+	$backup = Join-Path $InstallDirectory 'codebox.previous.exe'
 	if (Test-Path -LiteralPath $target) {
 		$current = Get-Item -LiteralPath $target -Force
 		if ($current.PSIsContainer -or ($current.Attributes -band [System.IO.FileAttributes]::ReparsePoint)) {
@@ -138,21 +138,21 @@ function Install-JustCode {
 		}
 	}
 
-	$tempDirectory = Join-Path $InstallDirectory ".just-code-install-$([guid]::NewGuid().ToString('N'))"
+	$tempDirectory = Join-Path $InstallDirectory ".codebox-install-$([guid]::NewGuid().ToString('N'))"
 	$null = New-Item -ItemType Directory -Path $tempDirectory
 	try {
-		$release = Get-JustCodeLatestRelease
+		$release = Get-CodeboxLatestRelease
 		$tag = [string]$release.tag_name
-		if ($tag -notmatch '^just-code-v?\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$') {
+		if ($tag -notmatch '^codebox-v?\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$') {
 			throw "Unexpected GitHub release tag '$tag'."
 		}
 
 		$binaryPath = Join-Path $tempDirectory $asset
 		$checksumPath = Join-Path $tempDirectory 'SHA256SUMS'
-		$binaryUri = "$script:JustCodeDownload/$tag/$asset"
-		$checksumUri = "$script:JustCodeDownload/$tag/SHA256SUMS"
-		Save-JustCodeReleaseAsset -Uri $binaryUri -Path $binaryPath
-		Save-JustCodeReleaseAsset -Uri $checksumUri -Path $checksumPath
+		$binaryUri = "$script:CodeboxDownload/$tag/$asset"
+		$checksumUri = "$script:CodeboxDownload/$tag/SHA256SUMS"
+		Save-CodeboxReleaseAsset -Uri $binaryUri -Path $binaryPath
+		Save-CodeboxReleaseAsset -Uri $checksumUri -Path $checksumPath
 
 		$checksumText = [System.IO.File]::ReadAllText($checksumPath, [System.Text.Encoding]::ASCII)
 		$rows = @([regex]::Matches($checksumText, '(?m)^(?<hash>[0-9a-fA-F]{64})\s+\*?(?<name>\S+)\s*$') | Where-Object {
@@ -167,16 +167,16 @@ function Install-JustCode {
 			throw "Checksum mismatch for $asset; the existing installation was not changed."
 		}
 
-		Replace-JustCodeBinary -StagedPath $binaryPath -TargetPath $target -BackupPath $backup
+		Replace-CodeboxBinary -StagedPath $binaryPath -TargetPath $target -BackupPath $backup
 
-		$setupExitCode = Invoke-JustCodeSetup -Path $target
+		$setupExitCode = Invoke-CodeboxSetup -Path $target
 		if ($setupExitCode -ne 0) {
 			$recovery = if (Test-Path -LiteralPath $backup) {
-				' Previous binary retained at just-code.previous.exe for rollback.'
+				' Previous binary retained at codebox.previous.exe for rollback.'
 			} else {
 				''
 			}
-			throw "just-code was installed, but setup exited with status $setupExitCode.$recovery"
+			throw "codebox was installed, but setup exited with status $setupExitCode.$recovery"
 		}
 
 		Write-Host "Installed $asset from release $tag at $target"
@@ -196,9 +196,9 @@ function Install-JustCode {
 
 if ($MyInvocation.InvocationName -ne '.') {
 	try {
-		Install-JustCode
+		Install-Codebox
 	} catch {
-		[Console]::Error.WriteLine("just-code installer: {0}", $_.Exception.Message)
+		[Console]::Error.WriteLine("codebox installer: {0}", $_.Exception.Message)
 		exit 1
 	}
 }

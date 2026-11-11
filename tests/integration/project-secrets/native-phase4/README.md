@@ -1,8 +1,8 @@
-# just-code Phase 4 — native Microsandbox channel probe (TEST ARTIFACT ONLY)
+# codebox Phase 4 — native Microsandbox channel probe (TEST ARTIFACT ONLY)
 
-This kit is the **evidence-gathering step** for just-code issue #151 (Phase 4:
+This kit is the **evidence-gathering step** for codebox issue #151 (Phase 4:
 "deliver a guest-readable value with separate, explicit consent"). It does not
-touch the just-code codebase and implements no product behavior. It answers
+touch the codebox codebase and implements no product behavior. It answers
 one question on a real native macOS arm64 machine, with the pinned official
 Microsandbox 0.7.6 runtime and Go SDK:
 
@@ -156,8 +156,8 @@ Ownership and hygiene (same contract as the Phase 3 kit):
 ## How to run (on the native Mac)
 
 ```sh
-tar -xzf just-code-native-phase4-channel-probe.tar.gz
-cd just-code-native-phase4-channel-probe
+tar -xzf codebox-native-phase4-channel-probe.tar.gz
+cd codebox-native-phase4-channel-probe
 python3 run.py
 ```
 
@@ -170,8 +170,8 @@ give locations and measurements.
 
 The probe never touches `~/.microsandbox`, an installed `msb`, the trust
 store, DNS, or interfaces; it uses only synthetic canaries; it creates at
-most two VMs (`jc-p4-*` main, `jc-p4-r-*` restored) and one snapshot
-(`jcp4snap-*`), all removed on success, failure, and signals (emergency:
+most two VMs (`cb-p4-*` main, `cb-p4-r-*` restored) and one snapshot
+(`cbp4snap-*`), all removed on success, failure, and signals (emergency:
 `probe -cleanup -dir <run-dir>`; the run directory itself is deleted by the
 runner).
 

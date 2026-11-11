@@ -114,7 +114,7 @@ def main():
     home = pathlib.Path.home() / '.microsandbox'
     before = host_state_fingerprint(home)
 
-    # The vendored just-code sources must match the pinned commit byte for
+    # The vendored codebox sources must match the pinned commit byte for
     # byte (package clause aside) or the run qualifies nothing.
     v = subprocess.run([sys.executable, str(HERE / 'verify_vendored.py')], capture_output=True, text=True)
     if v.returncode != 0:
@@ -182,7 +182,7 @@ def main():
         def ossl(*args):
             subprocess.run([openssl] + list(args), check=True, capture_output=True, timeout=30)
         ossl('req', '-x509', '-newkey', 'rsa:2048', '-nodes', '-days', '1',
-             '-subj', '/CN=Just Code Phase3 Temporary CA', '-keyout', str(ca_key), '-out', str(ca_crt))
+             '-subj', '/CN=Codebox Phase3 Temporary CA', '-keyout', str(ca_key), '-out', str(ca_crt))
         ossl('req', '-newkey', 'rsa:2048', '-nodes', '-subj', '/CN=p3lab.test',
              '-keyout', str(srv_key), '-out', str(srv_csr))
         ossl('x509', '-req', '-in', str(srv_csr), '-CA', str(ca_crt), '-CAkey', str(ca_key),

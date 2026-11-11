@@ -1,12 +1,12 @@
 #!/bin/sh
-# agentvm-base-prep: provisions the just-code agent-vm base template.
+# agentvm-base-prep: provisions the codebox agent-vm base template.
 #
 # Runs inside the base VM as the regular user (piped in by
 # `limactl shell <template> sh -s`), invoking sudo for system-level changes.
 # Running as the user matters: OpenCode installs under $HOME, which is root's
 # home if the script itself runs as root.
 #
-# just-code builds this template itself so it never has to execute a
+# codebox builds this template itself so it never has to execute a
 # third-party provisioning script that cannot be pinned to a release.
 #
 # Scope is deliberately minimal: base packages plus the toolchain the backend
@@ -30,7 +30,7 @@ NRCONF
 # comes from NodeSource rather than apt.
 NODE_MAJOR=24
 
-echo "just-code: installing base packages..."
+echo "codebox: installing base packages..."
 # unzip and tar are required by the OpenCode installer; ca-certificates and
 # curl by NodeSource and by the installer's own downloads.
 $SUDO apt-get update
@@ -49,8 +49,8 @@ $SUDO apt-get install -y --no-install-recommends \
 # this block only keeps the private install directories visible in a shell a
 # user opens themselves, and mirrors what the OpenCode installer would have
 # written had we let it touch the shell rc files.
-$SUDO tee /etc/profile.d/just-code.sh > /dev/null <<'PROFILE'
-# Managed by just-code. Keeps the per-user toolchain directories on PATH.
+$SUDO tee /etc/profile.d/codebox.sh > /dev/null <<'PROFILE'
+# Managed by codebox. Keeps the per-user toolchain directories on PATH.
 if [ -d "$HOME/.opencode/bin" ]; then
   PATH="$HOME/.opencode/bin:$PATH"
 fi
@@ -59,15 +59,15 @@ if [ -d "$HOME/.local/bin" ]; then
 fi
 export PATH
 PROFILE
-$SUDO chmod 0644 /etc/profile.d/just-code.sh
+$SUDO chmod 0644 /etc/profile.d/codebox.sh
 
-echo "just-code: installing Node.js ${NODE_MAJOR}..."
+echo "codebox: installing Node.js ${NODE_MAJOR}..."
 # `sudo -E` keeps DEBIAN_FRONTEND set for the setup script's apt calls.
 curl -fsSL "https://deb.nodesource.com/setup_${NODE_MAJOR}.x" | $SUDO -E bash -
 $SUDO apt-get install -y --no-install-recommends nodejs
 
-echo "just-code: installing OpenCode..."
-# --no-modify-path: just-code owns PATH below. Letting the installer edit shell
+echo "codebox: installing OpenCode..."
+# --no-modify-path: codebox owns PATH below. Letting the installer edit shell
 # rc files would tie the install to the installer's shell detection.
 curl -fsSL https://opencode.ai/v2/install | bash -s -- --version 2.2.5 --no-modify-path
 
@@ -75,7 +75,7 @@ curl -fsSL https://opencode.ai/v2/install | bash -s -- --version 2.2.5 --no-modi
 # OpenCode is unusable, and the failure would otherwise surface much later as
 # an opaque health timeout.
 if [ ! -x "$HOME/.opencode/bin/opencode" ]; then
-  echo "just-code: OpenCode did not install to \$HOME/.opencode/bin/opencode" >&2
+  echo "codebox: OpenCode did not install to \$HOME/.opencode/bin/opencode" >&2
   exit 1
 fi
 
@@ -89,8 +89,8 @@ $SUDO ln -sf "$HOME/.opencode/bin/opencode" /usr/local/bin/opencode
 # Verify the system-wide path resolves, not just the private one: this is the
 # one the backend actually uses.
 if ! command -v opencode > /dev/null 2>&1; then
-  echo "just-code: opencode is not resolvable on the system PATH after install" >&2
+  echo "codebox: opencode is not resolvable on the system PATH after install" >&2
   exit 1
 fi
 
-echo "just-code: base template provisioning complete."
+echo "codebox: base template provisioning complete."

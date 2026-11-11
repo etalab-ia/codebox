@@ -11,8 +11,8 @@ from dotenv import dotenv_values
 class ProjectSecretLoaderTests(unittest.TestCase):
     def test_opaque_markers_survive_all_quote_modes(self):
         markers = [
-            "__JUST_CODE_SECRET_COMPONENT_A_API_KEY__",
-            "__JUST_CODE_SECRET_COMPONENT_B_API_KEY__",
+            "__CODEBOX_SECRET_COMPONENT_A_API_KEY__",
+            "__CODEBOX_SECRET_COMPONENT_B_API_KEY__",
         ]
         with patch.dict(os.environ, {}, clear=True):
             for marker in markers:
@@ -27,9 +27,9 @@ class ProjectSecretLoaderTests(unittest.TestCase):
 
     def test_dollar_behavior_depends_on_bracing(self):
         with patch.dict(os.environ, {}, clear=True):
-            literal = dotenv_values(stream=io.StringIO("API_KEY=$MSB_JUST_CODE_SECRET_A\n"))
-            expanded = dotenv_values(stream=io.StringIO("API_KEY=${MSB_JUST_CODE_SECRET_A}\n"))
-        self.assertEqual(literal["API_KEY"], "$MSB_JUST_CODE_SECRET_A")
+            literal = dotenv_values(stream=io.StringIO("API_KEY=$MSB_CODEBOX_SECRET_A\n"))
+            expanded = dotenv_values(stream=io.StringIO("API_KEY=${MSB_CODEBOX_SECRET_A}\n"))
+        self.assertEqual(literal["API_KEY"], "$MSB_CODEBOX_SECRET_A")
         self.assertEqual(expanded["API_KEY"], "")
 
 
@@ -37,7 +37,7 @@ class GuestReadableEncodingTests(unittest.TestCase):
     """The single-quoted literal is the guest-readable delivery encoding.
 
     The Go encoder emits this form (see
-    internal/justcode/project_secret_encoding_loaders_test.go); these cases
+    internal/codebox/project_secret_encoding_loaders_test.go); these cases
     prove python-dotenv reads it back exactly, with and without interpolation.
     """
 
@@ -102,7 +102,7 @@ class RawFallbackEncodingTests(unittest.TestCase):
 
     The Go encoder writes a value unquoted when the single-quoted form cannot
     represent it and the raw form can (see dotenvRawObstacle in
-    internal/justcode/project_secret_guest_files.go); an apostrophe also forces
+    internal/codebox/project_secret_guest_files.go); an apostrophe also forces
     the raw form. These cases prove the backslash shapes, and the raw literals
     real values take, read back exactly. The value sits between quoted values,
     which is the shape a generated file actually has.

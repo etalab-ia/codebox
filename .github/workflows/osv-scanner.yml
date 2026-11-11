@@ -2,7 +2,7 @@
 # - Scheduled scan: weekly + on push to main, uploads SARIF to Code Scanning.
 #   Reports all known vulnerabilities; does not block.
 # - PR scan: fails only on vulnerabilities newly introduced by the PR.
-# See https://github.com/etalab-ia/just-code/issues/111
+# See https://github.com/etalab-ia/codebox/issues/111
 
 name: OSV-Scanner
 

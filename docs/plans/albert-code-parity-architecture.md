@@ -1,15 +1,15 @@
-# just-code: Albert Code parity implementation plan
+# codebox: Albert Code parity implementation plan
 
 **Decision draft | 22 September 2026**
 
 ## Recommendation
 
-Keep the Go CLI and the existing runtime adapters. Evolve just-code from a runtime launcher into a **project environment manager**, with two explicit setup scopes:
+Keep the Go CLI and the existing runtime adapters. Evolve codebox from a runtime launcher into a **project environment manager**, with two explicit setup scopes:
 
 - **Global setup:** managed runtime installation, credentials, identity, trusted endpoints and machine defaults.
 - **Project setup:** selected skills, MCP servers, agent instructions, model, toolchain requirements and permission grants.
 
-The normal path becomes `just-code` from a project directory. Microsandbox and full isolation are built-in defaults, not wizard questions, required flags or required environment variables. Existing runtime flags and `--isolation backend` remain explicit escape hatches. No automatic fallback to a weaker isolation boundary when Microsandbox is unavailable.
+The normal path becomes `codebox` from a project directory. Microsandbox and full isolation are built-in defaults, not wizard questions, required flags or required environment variables. Existing runtime flags and `--isolation backend` remain explicit escape hatches. No automatic fallback to a weaker isolation boundary when Microsandbox is unavailable.
 
 This is a staged extension, not a rewrite. The necessary refactors concern configuration resolution, project identity, credential transport, OpenCode configuration and lifecycle reconciliation. A polished wizard should be the front end to those tested operations, not the place where they are implemented.
 
@@ -17,15 +17,15 @@ This is a staged extension, not a rewrite. The necessary refactors concern confi
 
 Source snapshots reviewed:
 
-- [just-code `6d23165`](https://github.com/etalab-ia/just-code/tree/6d231654633aa409ca373f89b1073f68e92ca619), current main when inspected.
+- [codebox `6d23165`](https://github.com/etalab-ia/codebox/tree/6d231654633aa409ca373f89b1073f68e92ca619), current main when inspected.
 - [albert-code `46569c7`](https://github.com/etalab-ia/albert-code/tree/46569c70653ee8e987ee4e4b57d3d9153c505700), current main when inspected.
-- [just-code issue #29](https://github.com/etalab-ia/just-code/issues/29), the existing configuration-model issue. Use it as the configuration workstream, not as an unrelated duplicate.
+- [codebox issue #29](https://github.com/etalab-ia/codebox/issues/29), the existing configuration-model issue. Use it as the configuration workstream, not as an unrelated duplicate.
 
 This is a source-based assessment. No runtime, PTY, browser or secret-proxy tests were executed for this report. Proposed commands and file formats below are designs, not currently implemented CLI features. The backlog is not yet published as GitHub issues.
 
 ### What “full isolation” means here
 
-The existing `full` mode means **the entire OpenCode process, including its TUI, runs in the guest**. In just-code as it stands today, it does not mean an air gap or an immutable host workspace: the checkout is writable through a bind mount and public-network access is configured. The Albert credential is substituted at the Microsandbox network boundary; other runtimes expose it inside the guest.
+The existing `full` mode means **the entire OpenCode process, including its TUI, runs in the guest**. In codebox as it stands today, it does not mean an air gap or an immutable host workspace: the checkout is writable through a bind mount and public-network access is configured. The Albert credential is substituted at the Microsandbox network boundary; other runtimes expose it inside the guest.
 
 > **Revised 22 September 2026 (sealed model).** Luis decided to **remove the writable host-checkout mount entirely** and adopt a sealed guest workspace: the guest owns its own clone and returns changes through a branch/PR or a reviewed diff. The shared-mount model is no longer the default and is not kept as an escape hatch. Rationale: a startup secret scan cannot close the leakage window in a writable mount — a secret added after startup, in an undetected format, or written by the agent itself stays readable. The absence of a mount is the only real boundary. The consequences (loss of live host editing as the default path, a mandatory change-delivery flow, upward re-estimation) are detailed in P22 of the PR-by-PR plan. The passages below that still describe the old shared-mount default are retained as the historical analysis and are superseded by this note and by the plan.
 >
@@ -37,7 +37,7 @@ The plan no longer retains the writable-mount workspace model: no home-directory
 
 ## 1. Parity inventory
 
-| Capability | Albert Code today | just-code today | Target |
+| Capability | Albert Code today | codebox today | Target |
 |---|---|---|---|
 | First-run installation | Host bootstrap, interactive credentials, VM preparation | Release binary, managed verified Microsandbox runtime download | Verified installer plus resumable global setup; retain download verification |
 | Default launch | Full guest execution through agent-vm | Explicit runtime on macOS/Linux; backend isolation | Microsandbox + full, zero flags |
@@ -62,7 +62,7 @@ Albert Code itself has documentation drift: its README describes newly selected 
 
 ### A. Replace ambient configuration with explicit resolution
 
-**Evidence:** [`config.go`](https://github.com/etalab-ia/just-code/blob/6d231654633aa409ca373f89b1073f68e92ca619/internal/justcode/config.go#L97) reads `.env` from the working directory and executable directory, mutates process environment and mixes secrets, runtime settings and project paths. `main.go` separately reads `RUNTIME` from the environment. The workspace default is `./workspace`.
+**Evidence:** [`config.go`](https://github.com/etalab-ia/codebox/blob/6d231654633aa409ca373f89b1073f68e92ca619/internal/codebox/config.go#L97) reads `.env` from the working directory and executable directory, mutates process environment and mixes secrets, runtime settings and project paths. `main.go` separately reads `RUNTIME` from the environment. The workspace default is `./workspace`.
 
 **Impact:** introduce a pure resolver that takes explicit sources and returns a typed configuration plus field provenance. Keep a compatibility adapter for legacy environment settings. Do not have adapters discover configuration independently.
 
@@ -74,7 +74,7 @@ Stop loading arbitrary application `.env` files in the new model. Provide explic
 
 ### B. Introduce project-scoped sandbox identity
 
-**Evidence:** [`microsandbox.go`](https://github.com/etalab-ia/just-code/blob/6d231654633aa409ca373f89b1073f68e92ca619/internal/justcode/microsandbox.go) uses a fixed sandbox name. SDK creation, shell, logs and attach also hardcode that identity. [`dispatcher.go`](https://github.com/etalab-ia/just-code/blob/6d231654633aa409ca373f89b1073f68e92ca619/internal/justcode/dispatcher.go#L14) maps runtime types to single backends and assumes only one active runtime. A workspace mismatch currently warns and continues.
+**Evidence:** [`microsandbox.go`](https://github.com/etalab-ia/codebox/blob/6d231654633aa409ca373f89b1073f68e92ca619/internal/codebox/microsandbox.go) uses a fixed sandbox name. SDK creation, shell, logs and attach also hardcode that identity. [`dispatcher.go`](https://github.com/etalab-ia/codebox/blob/6d231654633aa409ca373f89b1073f68e92ca619/internal/codebox/dispatcher.go#L14) maps runtime types to single backends and assumes only one active runtime. A workspace mismatch currently warns and continues.
 
 **Impact:** add `ProjectContext` and `InstanceRef`; pass the instance through all adapter operations, including logs and PTY attach. Identify a project from its canonical worktree root, not just repository name or remote URL. Generate a readable name with a short path-derived suffix and store metadata outside the workspace. Two worktrees must not share one guest accidentally.
 
@@ -84,7 +84,7 @@ Make normal `stop`, `check`, `logs`, `shell` and `clean` project-scoped; add exp
 
 ### C. Separate preparation, configuration and running
 
-**Evidence:** [`microsandbox.go:Start`](https://github.com/etalab-ia/just-code/blob/6d231654633aa409ca373f89b1073f68e92ca619/internal/justcode/microsandbox.go#L207) combines validation, workspace scanning, installation, creation, boot, readiness and recovery. Existing running guests return before configuration refresh. `nextStartEnv` refreshes HTTP credentials but deliberately retains creation-time OpenCode configuration. The bootstrap script is immutable and isolation is inferred from its text.
+**Evidence:** [`microsandbox.go:Start`](https://github.com/etalab-ia/codebox/blob/6d231654633aa409ca373f89b1073f68e92ca619/internal/codebox/microsandbox.go#L207) combines validation, workspace scanning, installation, creation, boot, readiness and recovery. Existing running guests return before configuration refresh. `nextStartEnv` refreshes HTTP credentials but deliberately retains creation-time OpenCode configuration. The bootstrap script is immutable and isolation is inferred from its text.
 
 **Impact:** introduce a small reconciliation plan, not a general workflow framework:
 
@@ -98,7 +98,7 @@ Separate ordinary restart from recreation in the new CLI. Today's `restart` dest
 
 ### D. Generalize secret transport without weakening it
 
-**Evidence:** `Config.APIKey`, `msbSandboxSpec.APIKey`, `ModifyNextStart(..., apiKey)` and [`msbNextStartOptions`](https://github.com/etalab-ia/just-code/blob/6d231654633aa409ca373f89b1073f68e92ca619/internal/justcode/microsandbox_sdk.go#L169) are Albert-specific, with a single fixed allowed hostname.
+**Evidence:** `Config.APIKey`, `msbSandboxSpec.APIKey`, `ModifyNextStart(..., apiKey)` and [`msbNextStartOptions`](https://github.com/etalab-ia/codebox/blob/6d231654633aa409ca373f89b1073f68e92ca619/internal/codebox/microsandbox_sdk.go#L169) are Albert-specific, with a single fixed allowed hostname.
 
 **Impact:** represent named credential bindings with a credential reference, guest placeholder, approved destination and transport requirements. A credential-store interface needs only get/put/delete/metadata operations; runtime adapters receive the minimum resolved bindings.
 
@@ -112,17 +112,17 @@ Use dedicated, short-lived, repository-scoped fine-grained PATs. Account validat
 
 ### E. Make OpenCode configuration composable
 
-**Evidence:** [`assets/opencode-config.json`](https://github.com/etalab-ia/just-code/blob/6d231654633aa409ca373f89b1073f68e92ca619/assets/opencode-config.json) is embedded and sent through `OPENCODE_CONFIG_CONTENT` at guest creation. It fixes the provider, model and permission policy. Adding an `opencode.json` wizard without addressing that second source risks conflicts and invisible overrides.
+**Evidence:** [`assets/opencode-config.json`](https://github.com/etalab-ia/codebox/blob/6d231654633aa409ca373f89b1073f68e92ca619/assets/opencode-config.json) is embedded and sent through `OPENCODE_CONFIG_CONTENT` at guest creation. It fixes the provider, model and permission policy. Adding an `opencode.json` wizard without addressing that second source risks conflicts and invisible overrides.
 
 **Impact:** one configuration builder owns generated provider/MCP settings. Keep user OpenCode configuration authoritative for unrelated fields. Before choosing file layout, test the pinned OpenCode version's actual merge precedence for project JSON/JSONC, inline content, global files and explicit config paths. Assert the effective result, not merely the generated JSON.
 
-Recommended ownership: `.just-code/project.json` declares project intent; a generated guest-local OpenCode overlay supplies managed fields. Do not overwrite the user's `opencode.json`. Reject conflicting managed fields with a precise diff and a choice. Keep generated keys out of a stale persisted environment value. Preserve user JSONC comments by avoiding rewrites; any optional import requires a real JSONC parser.
+Recommended ownership: `.codebox/project.json` declares project intent; a generated guest-local OpenCode overlay supplies managed fields. Do not overwrite the user's `opencode.json`. Reject conflicting managed fields with a precise diff and a choice. Keep generated keys out of a stale persisted environment value. Preserve user JSONC comments by avoiding rewrites; any optional import requires a real JSONC parser.
 
 Model catalogue checks validate IDs, not context/output capabilities unless the API actually reports them. Cache last-known-good results, distinguish invalid keys from network failures, and never erase a working model because the catalogue is temporarily unavailable. Custom endpoints require explicit host-side trust before sending any credential; validate TLS and redirect handling.
 
 ### F. Treat guest capabilities as real dependencies
 
-**Evidence:** [`guest-prep.sh`](https://github.com/etalab-ia/just-code/blob/6d231654633aa409ca373f89b1073f68e92ca619/assets/guest-prep.sh) uses Alpine `apk`, has no explicit `gh` or Chromium provisioning, and reapplies a fixed Git identity. Microsandbox uses 2 CPU, 4096 MiB RAM and an 8 GiB root disk in [`msbCreateOptions`](https://github.com/etalab-ia/just-code/blob/6d231654633aa409ca373f89b1073f68e92ca619/internal/justcode/microsandbox_sdk.go#L113).
+**Evidence:** [`guest-prep.sh`](https://github.com/etalab-ia/codebox/blob/6d231654633aa409ca373f89b1073f68e92ca619/assets/guest-prep.sh) uses Alpine `apk`, has no explicit `gh` or Chromium provisioning, and reapplies a fixed Git identity. Microsandbox uses 2 CPU, 4096 MiB RAM and an 8 GiB root disk in [`msbCreateOptions`](https://github.com/etalab-ia/codebox/blob/6d231654633aa409ca373f89b1073f68e92ca619/internal/codebox/microsandbox_sdk.go#L113).
 
 **Impact:** define a minimal base capability and an optional browser capability. Provision `gh` when GitHub is enabled and set the selected Git identity without overwriting it every launch. Use a workspace-specific Git safe-directory entry rather than `safe.directory '*'`. Do not forward a host signing key; verified signing is a separate opt-in design, not PAT parity.
 
@@ -142,12 +142,12 @@ Albert Code's broader Docker/other-agent installations are not automatically req
 
 | Data | Proposed home | Ownership |
 |---|---|---|
-| User defaults and endpoint profiles | Platform user config directory / `just-code/config.json` | User; contains references, not secrets |
+| User defaults and endpoint profiles | Platform user config directory / `codebox/config.json` | User; contains references, not secrets |
 | Credential values | OS credential store, or explicitly accepted protected fallback | Host only; never workspace-mounted |
-| Project intent | `.just-code/project.json` | Reviewable, shareable, no absolute host paths or secrets |
-| Pinned skills/MCP/image versions | `.just-code/lock.json` | Shareable lock data |
+| Project intent | `.codebox/project.json` | Reviewable, shareable, no absolute host paths or secrets |
+| Pinned skills/MCP/image versions | `.codebox/lock.json` | Shareable lock data |
 | Project rules | Managed zone in `AGENTS.md` | Reviewable; preserve everything outside the zone |
-| Trust grants, canonical paths, instance IDs | Platform state directory / `just-code/projects/<id>/` | Host-local; not repository-controlled |
+| Trust grants, canonical paths, instance IDs | Platform state directory / `codebox/projects/<id>/` | Host-local; not repository-controlled |
 | Effective OpenCode config and installed skills | Guest-local managed directory | Generated from approved intent |
 | Downloaded packages/catalogues | Platform cache directory | Disposable; integrity verified |
 
@@ -162,16 +162,16 @@ Project trust is local and keyed to the approved execution-relevant config. Chan
 ### Proposed command surface
 
 ```text
-just-code                         First-use setup when needed, then guest OpenCode
-just-code setup                   Global machine and credential setup
-just-code init                    Project setup / edit selection
-just-code auth add|status|remove   Credential management, redacted output
-just-code update                  Preview and apply project dependency/policy updates
-just-code config explain          Effective settings with source provenance
-just-code doctor                  Read-only diagnostics
-just-code stop                    Stop this project's guest
-just-code stop --all              Explicitly stop all managed guests
-just-code recreate                Explicit destructive rebuild
+codebox                         First-use setup when needed, then guest OpenCode
+codebox setup                   Global machine and credential setup
+codebox init                    Project setup / edit selection
+codebox auth add|status|remove   Credential management, redacted output
+codebox update                  Preview and apply project dependency/policy updates
+codebox config explain          Effective settings with source provenance
+codebox doctor                  Read-only diagnostics
+codebox stop                    Stop this project's guest
+codebox stop --all              Explicitly stop all managed guests
+codebox recreate                Explicit destructive rebuild
 ```
 
 Keep `--microsandbox`, `--tart`, `--agent-vm`, and `--isolation backend|full`. Add deliberate workspace and resource flags; avoid a proliferation of feature-selection flags before there is a demonstrated automation need. Wizard commands support `--dry-run`, `--non-interactive` and structured output. Noninteractive consent must name grants; generic `--yes` must not approve arbitrary endpoints or destructive migration.
@@ -192,7 +192,7 @@ Retain the current pinned Microsandbox artifact verification. Checksums provide 
 ### Project setup: a compact selection screen
 
 ```text
-just-code / assistant-rh
+codebox / assistant-rh
 
 Environment   Microsandbox / full isolation
 Workspace     ~/Code/etalab-ia/assistant-rh
@@ -241,7 +241,7 @@ Build a thin wizard prototype alongside phase 1, but keep decorative polish out 
 
 ### Suggested internal boundaries
 
-Keep the current `internal/justcode` package initially and add focused files/modules around `ProjectContext`, configuration resolution, credentials, setup planning, OpenCode configuration, skills and MCP catalogue. Extract packages only when dependencies justify it. Keep `cmd/just-code` responsible for parsing/rendering, not filesystem reconciliation or credential policy.
+Keep the current `internal/codebox` package initially and add focused files/modules around `ProjectContext`, configuration resolution, credentials, setup planning, OpenCode configuration, skills and MCP catalogue. Extract packages only when dependencies justify it. Keep `cmd/codebox` responsible for parsing/rendering, not filesystem reconciliation or credential policy.
 
 Replace runtime-type-as-instance assumptions in `Backend` with project-bound instances and explicit capability reporting. Avoid building a plugin framework or a generic orchestration engine. Reuse existing SDK wrappers, integrity checks, workspace gates and boot-recovery tests.
 
@@ -293,4 +293,4 @@ Use existing `go test ./...`, race testing where supported and `go vet ./...`, p
 4. **Browser guest:** keep Alpine if real MCP tests pass, otherwise adopt a pinned Debian-based image. Decide from the phase-0 test, not familiarity.
 5. **Concurrency:** require simultaneous projects in the first parity release? Recommendation: distinct persistent guests first, one active guest initially; dynamic preview ports later.
 
-**Bottom line:** the wizards are worthwhile, but they depend on project identity and deterministic configuration. Build those foundations first, preserve Microsandbox's stronger credential boundary, and make the default path genuinely `just-code`, not a shorter spelling of today's manual environment setup.
+**Bottom line:** the wizards are worthwhile, but they depend on project identity and deterministic configuration. Build those foundations first, preserve Microsandbox's stronger credential boundary, and make the default path genuinely `codebox`, not a shorter spelling of today's manual environment setup.

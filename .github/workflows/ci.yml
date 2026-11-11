@@ -49,7 +49,7 @@ jobs:
   # modules with no go.work, so `go test ./...` at the root never reaches them.
   # Dependabot opens PRs against their manifests anyway, and without this job
   # those PRs land green while the recorded pins and loader contracts drift.
-  # See https://github.com/etalab-ia/just-code/issues/246.
+  # See https://github.com/etalab-ia/codebox/issues/246.
   fixture-contracts:
     runs-on: ubuntu-latest
     timeout-minutes: 30
@@ -120,7 +120,12 @@ jobs:
             arch: arm64
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 45
-    container: ubuntu:20.04
+    container:
+      image: ubuntu:20.04
+      # Explicit resolvers: the runner's embedded container DNS intermittently
+      # fails to resolve archive.ubuntu.com (observed 2026-11-11 across several
+      # runners), which kills the apt step before any code runs.
+      options: --dns 1.1.1.1 --dns 8.8.8.8
     steps:
       - name: Install build tools
         run: apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y ca-certificates gcc git
@@ -139,7 +144,7 @@ jobs:
           test "$(go env GOOS)" = "linux"
           test "$(go env GOARCH)" = "${{ matrix.arch }}"
       - run: go test ./...
-      - run: go build ./cmd/just-code
+      - run: go build ./cmd/codebox
 
   # The SDK embeds a platform-specific FFI library and uses CGO, so macOS and
   # Windows are built and tested on native runners. These jobs do not boot a
@@ -207,7 +212,7 @@ jobs:
             go env CC | grep -q aarch64-w64-mingw32-clang
           fi
       - run: go test ./...
-      - run: go build ./cmd/just-code
+      - run: go build ./cmd/codebox
 
   # The release jobs in release-please.yml only run when a release is created,
   # so PR CI never exercises the artifact actions. Those actions are how a
@@ -232,25 +237,25 @@ jobs:
           set -eu
           mkdir -p dist
           # Three distinct names, matching the per-platform asset matrix.
-          printf 'linux-x64\n'  > "dist/just-code-linux-x64"
-          printf 'linux-arm64\n' > "dist/just-code-linux-arm64"
-          printf 'darwin-arm64\n' > "dist/just-code-darwin-arm64"
+          printf 'linux-x64\n'  > "dist/codebox-linux-x64"
+          printf 'linux-arm64\n' > "dist/codebox-linux-arm64"
+          printf 'darwin-arm64\n' > "dist/codebox-darwin-arm64"
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: linux-x64
-          path: dist/just-code-linux-x64
+          path: dist/codebox-linux-x64
           if-no-files-found: error
           retention-days: 1
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: linux-arm64
-          path: dist/just-code-linux-arm64
+          path: dist/codebox-linux-arm64
           if-no-files-found: error
           retention-days: 1
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: darwin-arm64
-          path: dist/just-code-darwin-arm64
+          path: dist/codebox-darwin-arm64
           if-no-files-found: error
           retention-days: 1
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
@@ -263,9 +268,9 @@ jobs:
           cd downloaded
           ls -la
           # merge-multiple flattens the per-artifact subdirectories, so the
-          # publish job's `sha256sum just-code-*` glob must still match all
+          # publish job's `sha256sum codebox-*` glob must still match all
           # three files here.
-          test "$(find . -maxdepth 1 -type f -name 'just-code-*' | wc -l)" -eq 3
-          test "$(cat just-code-linux-x64)"   = "linux-x64"
-          test "$(cat just-code-linux-arm64)" = "linux-arm64"
-          test "$(cat just-code-darwin-arm64)" = "darwin-arm64"
+          test "$(find . -maxdepth 1 -type f -name 'codebox-*' | wc -l)" -eq 3
+          test "$(cat codebox-linux-x64)"   = "linux-x64"
+          test "$(cat codebox-linux-arm64)" = "linux-arm64"
+          test "$(cat codebox-darwin-arm64)" = "darwin-arm64"

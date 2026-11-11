@@ -1,4 +1,4 @@
-module just-code-native-phase4-channel-probe
+module codebox-native-phase4-channel-probe
 
 go 1.25.0
 

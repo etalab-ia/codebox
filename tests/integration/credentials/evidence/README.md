@@ -11,7 +11,7 @@ Issue #205's P02 network matrix was run on a Scaleway Mac mini M4
 (macOS 26.7.1, arm64) against both the bundled runtime and the current
 upstream candidate:
 
-- `darwin-arm64-msb-0.7.6.txt`: 16/16 assertions on the just-code runtime.
+- `darwin-arm64-msb-0.7.6.txt`: 16/16 assertions on the codebox runtime.
 - `darwin-arm64-msb-0.7.8.txt`: 16/16 assertions on the newer upstream
   runtime, tested separately without changing the app's bundled version.
 
@@ -75,7 +75,7 @@ transcript to a source revision through its `META` line.
 On a machine where the platform's store service actually answers:
 
 ```sh
-go test ./internal/justcode/ -run TestRealStore -v -count=1 2>&1 | tee tests/integration/credentials/evidence/$(go env GOOS)-$(go env GOARCH)-run-1.txt
+go test ./internal/codebox/ -run TestRealStore -v -count=1 2>&1 | tee tests/integration/credentials/evidence/$(go env GOOS)-$(go env GOARCH)-run-1.txt
 ```
 
 The command is the same on each platform — macOS needs `security`, Linux

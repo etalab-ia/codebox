@@ -23,13 +23,13 @@ Sur Tart et agent-vm, les secrets ne passent jamais par la ligne de commande : e
 
 ## Stockage global des identifiants (`auth`)
 
-`just-code auth` stocke les identifiants globaux dans le magasin natif de l'OS — Keychain macOS, Gestionnaire d'identifiants Windows, Secret Service Linux — jamais dans un fichier projet ni un profil shell. Les commandes :
+`codebox auth` stocke les identifiants globaux dans le magasin natif de l'OS — Keychain macOS, Gestionnaire d'identifiants Windows, Secret Service Linux — jamais dans un fichier projet ni un profil shell. Les commandes :
 
 ```bash
-just-code auth add [albert|mistral|openai-compatible|github|context7]   # saisie masquée interactive (ou --stdin pour un pipe)
-just-code auth status                         # état du magasin, jamais les valeurs
-just-code auth remove [albert|mistral|openai-compatible|github|context7] # révocation puis suppression
-just-code auth use-fallback [albert|mistral|openai-compatible|github|context7] # enregistre qu'une valeur déjà stockée vit dans le fichier
+codebox auth add [albert|mistral|openai-compatible|github|context7]   # saisie masquée interactive (ou --stdin pour un pipe)
+codebox auth status                         # état du magasin, jamais les valeurs
+codebox auth remove [albert|mistral|openai-compatible|github|context7] # révocation puis suppression
+codebox auth use-fallback [albert|mistral|openai-compatible|github|context7] # enregistre qu'une valeur déjà stockée vit dans le fichier
 ```
 
 Le secret ne passe jamais par la ligne de commande (argv) : la saisie interactive est masquée, `--stdin` lit une ligne sur l'entrée standard. Sur les hôtes sans magasin natif (Linux headless sans Secret Service), le repli `--fallback` écrit un fichier JSON `0600` dans le répertoire de configuration — **jamais créé implicitement** : sans consentement explicite (`auth add --fallback`), toute écriture échoue.
@@ -47,7 +47,7 @@ La rotation est détectée sans jamais toucher la valeur : `auth add` incrément
 
 Au démarrage d'un runtime, la clé Albert est résolue dans l'ordre :
 
-1. `credentialRef` : `JUST_CODE_CREDENTIAL_REF` > `credentialRef` du
+1. `credentialRef` : `CODEBOX_CREDENTIAL_REF` > `credentialRef` du
    manifeste projet > celui des réglages utilisateur. Une référence qui ne
    nomme rien dans le magasin est une erreur explicite, jamais un repli
    silencieux.
@@ -58,7 +58,7 @@ Sur Microsandbox, la valeur n'est jamais persistée : la liaison est une
 référence à une variable d'environnement hôte re-résolue à chaque démarrage
 (voir [le document de décision dédié](decisions/2026-09-24-microsandbox-credential-transport.md)).
 Les liaisons optionnelles (`github`, `context7`) exigent une
-approbation par projet (`just-code bindings approve`), enregistrée dans
+approbation par projet (`codebox bindings approve`), enregistrée dans
 l'état local de l'hôte — jamais dans le dépôt.
 
 
@@ -67,12 +67,12 @@ l'état local de l'hôte — jamais dans le dépôt.
 Sur Microsandbox, les identifiants sont injectés par le proxy de secrets : la valeur brute n'est jamais persistée (ni dans la base du runtime, ni dans l'environnement invité) — la liaison est une référence à une variable d'environnement hôte, re-résolue à chaque application et à chaque démarrage. Chaque plateforme connectée a une liaison obligatoire, limitée à son propre hôte : `ALBERT_API_KEY` vers `albert.api.etalab.gouv.fr`, `MISTRAL_API_KEY` vers `api.mistral.ai`, `OPENAI_COMPATIBLE_API_KEY` vers l'hôte de l'URL de base saisie. Ces hôtes sont disjoints : une clé ne peut jamais être substituée vers la destination d'une autre plateforme. `github` et `context7` restent **optionnelles et approuvées projet par projet** :
 
 ```bash
-just-code bindings list              # liaisons connues, approbations, état du magasin
-just-code bindings approve github    # autorise la liaison github pour ce projet
-just-code bindings revoke github     # retire l'approbation et révoque l'instance du projet
+codebox bindings list              # liaisons connues, approbations, état du magasin
+codebox bindings approve github    # autorise la liaison github pour ce projet
+codebox bindings revoke github     # retire l'approbation et révoque l'instance du projet
 ```
 
-L'approbation est un enregistrement local à l'hôte (`~/.local/state/just-code/instances/<instance>/bindings.json`) : elle n'est jamais versionnée et ne voyage pas avec un clone. Les hôtes autorisés sont disjoints entre liaisons, donc une liaison ne peut pas être substituée vers la destination d'une autre.
+L'approbation est un enregistrement local à l'hôte (`~/.local/state/codebox/instances/<instance>/bindings.json`) : elle n'est jamais versionnée et ne voyage pas avec un clone. Les hôtes autorisés sont disjoints entre liaisons, donc une liaison ne peut pas être substituée vers la destination d'une autre.
 
 ## GitHub dans l'invité
 
@@ -80,15 +80,15 @@ Le workflow est optionnel et limité à Microsandbox. Stocke d'abord le jeton,
 puis active le workflow pendant l'initialisation du projet :
 
 ```bash
-just-code auth add github
-just-code init --github
+codebox auth add github
+codebox init --github
 ```
 
 L'approbation reste locale à l'hôte ; elle n'apparaît ni dans le manifeste ni
 dans le dépôt. Pour un projet déjà initialisé, utilise
-`just-code bindings approve github` après avoir stocké le jeton. Sans
-approbation locale, `gh` n'est pas installé par just-code. Pour désactiver un
-accès déjà approuvé : `just-code bindings revoke github`.
+`codebox bindings approve github` après avoir stocké le jeton. Sans
+approbation locale, `gh` n'est pas installé par codebox. Pour désactiver un
+accès déjà approuvé : `codebox bindings revoke github`.
 
 L'étape GitHub de `init` vérifie sur son propre écran et affiche un écran
 distinct par situation :
@@ -101,7 +101,7 @@ distinct par situation :
   lui seul : un jeton peut pousser sur le dépôt sans pouvoir ouvrir de pull
   request ;
 - **projet non relié à GitHub** : l'écran explique que les modifications se
-  récupèrent avec `just-code workspace apply`, et propose de continuer ou de
+  récupèrent avec `codebox workspace apply`, et propose de continuer ou de
   quitter pour relier le projet ;
 - **dépôt détecté mais aucun jeton enregistré** : l'écran propose d'ajouter un
   jeton maintenant (même écran qu'au `setup`) ou de le faire plus tard ;
@@ -119,7 +119,7 @@ donnée n'est perdue. `--github` applique la même vérification avant d'écrire
 quoi que ce soit : sans `origin`, sans jeton, ou avec des droits insuffisants,
 la commande échoue en nommant la cause.
 
-Au premier lancement approuvé, just-code installe GitHub CLI 2.100.0 dans la
+Au premier lancement approuvé, codebox installe GitHub CLI 2.100.0 dans la
 microVM uniquement, vérifie son empreinte, puis teste l'authentification,
 l'accès au dépôt et le rôle d'écriture du compte. Le checkout hôte n'est jamais monté :
 la branche invitée est basée sur la branche par défaut du dépôt. **La préparation
@@ -127,7 +127,7 @@ refuse tout fichier nouveau ou modifié de la copie filtrée par rapport à cett
 branche distante.** Elle liste les chemins concernés et ne crée ni commit
 automatique ni branche publiable. Copier un fichier dans la machine isolée
 n'autorise pas sa publication sur GitHub, même si le filtre de secrets l'accepte.
-Cela vaut aussi pour `.just-code/project.json`, `.just-code/lock.json` et
+Cela vaut aussi pour `.codebox/project.json`, `.codebox/lock.json` et
 `AGENTS.md` créés par `init`, et pour le contenu de commits locaux non poussés.
 
 Relis les fichiers sur ton poste et décide séparément de leur publication.
@@ -135,7 +135,7 @@ La préparation GitHub exige actuellement une copie sans ajout ni modification
 par rapport à la branche distante par défaut : elle ne reprend pas une branche
 de fonctionnalité divergente et ne regroupe plus les changements locaux dans un
 commit. Pour continuer à travailler sans publication GitHub, retire l'autorisation
-avec `just-code bindings revoke github`, puis relance `just-code`. Les fichiers et
+avec `codebox bindings revoke github`, puis relance `codebox`. Les fichiers et
 l'historique de l'invité sont conservés lors du refus.
 
 **Rafraîchissement d’un environnement déjà préparé :** `workspace sync` transfère
@@ -163,12 +163,12 @@ de recréer l'environnement.
 
 **Environnements préparés par une ancienne version :** la présence de l'ancien
 marqueur GitHub ne suffit pas à reprendre. Sans le nouveau marqueur de contrôle,
-just-code refuse la préparation et conserve les références et les fichiers ; il
+codebox refuse la préparation et conserve les références et les fichiers ; il
 ne réécrit pas l'historique pour retirer un éventuel commit d'instantané. Retire
-l'accès GitHub avec `just-code bindings revoke github` pour reprendre sans
-publication. `just-code workspace apply` récupère les modifications non commitées,
+l'accès GitHub avec `codebox bindings revoke github` pour reprendre sans
+publication. `codebox workspace apply` récupère les modifications non commitées,
 mais ni `apply` ni `export` ne récupèrent les changements déjà commités dans
-l'invité ([suivi de cette limite : #313](https://github.com/etalab-ia/just-code/issues/313)).
+l'invité ([suivi de cette limite : #313](https://github.com/etalab-ia/codebox/issues/313)).
 Sauvegarde et relis aussi ces commits avant toute recréation. Cette
 protection ne retire pas les fichiers qui auraient déjà été poussés sur GitHub.
 
@@ -191,8 +191,8 @@ la création de PR. Le GitHub CLI de l'hôte n'est pas utilisé.
 L'import commence par une prévisualisation :
 
 ```bash
-just-code secrets import --profile development --file .env --file apps/api/.env.local
-just-code secrets import --profile development --file .env --apply
+codebox secrets import --profile development --file .env --file apps/api/.env.local
+codebox secrets import --profile development --file .env --apply
 ```
 
 Dans un terminal, l'assistant peut proposer les fichiers dotenv du projet et
@@ -230,7 +230,7 @@ en UTF-16 par Windows Credential Manager, reste dans sa limite de 2 560 octets.
 L'import stocke uniquement les valeurs : il n'approuve aucune destination,
 n'active pas de liaison proxy et ne livre aucun fichier au guest. `--fallback`
 choisit explicitement le magasin JSON local propriétaire (`0600`), qui n'est
-pas chiffré par just-code.
+pas chiffré par codebox.
 
 ## Exposer un secret importé au guest (`secrets bindings`)
 
@@ -238,10 +238,10 @@ Importer ne donne aucun accès. L'étape séparée qui autorise le proxy à expo
 une valeur est l'approbation de liaison, enregistrée localement à l'hôte :
 
 ```bash
-just-code secrets profile development
-just-code secrets bindings approve development .env API_KEY --destination api.example.com
-just-code secrets bindings list
-just-code secrets bindings revoke development .env API_KEY
+codebox secrets profile development
+codebox secrets bindings approve development .env API_KEY --destination api.example.com
+codebox secrets bindings list
+codebox secrets bindings revoke development .env API_KEY
 ```
 
 `--destination` est répétable. Approuver une destination **est** la décision de
@@ -258,7 +258,7 @@ explicite. Les noms réservés aux liaisons système (`ALBERT_API_KEY`,
 jamais se disputer une variable.
 
 Dans le guest, la variable contient un marqueur opaque sans dollar
-(`__JUST_CODE_SECRET_…__`), jamais la valeur. Le choix de ce marqueur est
+(`__CODEBOX_SECRET_…__`), jamais la valeur. Le choix de ce marqueur est
 qualifié : les chargeurs dotenv usuels suppriment une référence `$MSB_…` non
 définie, y compris entre guillemets, alors qu'un marqueur opaque survit aux
 modes testés (voir `tests/integration/project-secrets/`).
@@ -283,7 +283,7 @@ valeur réelle doit exister dans l'invité. C'est un mode **distinct**, approuv�
 séparément :
 
 ```bash
-just-code secrets bindings approve development .env DB_PASSWORD --delivery guest
+codebox secrets bindings approve development .env DB_PASSWORD --delivery guest
 ```
 
 Ce mode n'est pas le mode protégé, et l'approbation affiche l'avertissement
@@ -357,7 +357,7 @@ Le fichier livré est écrit en `0600`, et la restriction est appliquée au fich
 temporaire **avant** le renommage : le runtime crée les fichiers en `0644`, donc
 restreindre après coup laisserait une fenêtre pendant laquelle le secret serait
 lisible par tous les comptes de l'invité. Un fichier qui contient une valeur
-réelle porte un avertissement en tête, et `just-code secrets bindings list`
+réelle porte un avertissement en tête, et `codebox secrets bindings list`
 distingue les deux modes.
 
 ## Fichiers dotenv générés dans le guest
@@ -371,13 +371,13 @@ workspace du guest, à l'emplacement de leur composant :
 ```
 
 Chaque fichier ne contient que les marqueurs opaques des variables approuvées
-pour ce composant, précédés d'un en-tête `# just-code managed: do not edit`.
+pour ce composant, précédés d'un en-tête `# codebox managed: do not edit`.
 Les composants gardent des fichiers distincts : l'ordre de chargement du
 framework est donc préservé, et deux sous-projets qui définissent la même
 variable ne se mélangent pas. Un composant sans liaison approuvée ne produit
 aucun fichier, pour ne pas masquer un fichier fourni par le projet.
 
-just-code n'écrase jamais un fichier qu'il n'a pas écrit. Si un `.env` fourni
+codebox n'écrase jamais un fichier qu'il n'a pas écrit. Si un `.env` fourni
 par le projet occupe la cible, la publication est **refusée** avec le chemin
 concerné, au lieu de détruire votre contenu. Les écritures passent par un
 fichier temporaire puis un renommage, et un fichier géré dont l'approbation est
@@ -387,7 +387,7 @@ place.
 
 L'inventaire de ce que le sandbox contient réellement (variables invitées et
 fichiers gérés) est conservé localement à l'hôte, à côté des approbations
-(`~/.local/state/just-code/project-secrets/<projet>/applied.json`). Il est relu
+(`~/.local/state/codebox/project-secrets/<projet>/applied.json`). Il est relu
 à chaque application : c'est ce qui permet à une révocation de désinscrire
 effectivement la liaison, y compris après un `restart`.
 
@@ -398,7 +398,7 @@ approuvées. Un client qui signe localement le marqueur reste hors périmètre.
 
 ## Révocation
 
-`just-code auth remove` révoque l'accès avant de supprimer l'entrée du magasin : sur les instances Microsandbox en cours d'exécution, la liaison proxy est supprimée à chaud (l'invité garde un placeholder inerte jusqu'au prochain redémarrage — un avertissement le signale) ; sur les instances arrêtées, la référence persistée est retirée pour le prochain démarrage. La révocation raisonne par **entrée de magasin**, pas par nom de liaison : un `credentialRef` peut alimenter la liaison Albert depuis une entrée nommée autrement, et c'est la liaison invitée effectivement alimentée qui est retirée (l'instantané le consigne sous la forme `entrée@magasin#liaison`). Supprimer l'entrée d'un magasin ne touche pas les instances liées à l'autre magasin ; une instance dont la clé venait de l'environnement (variable `ALBERT_API_KEY`) est ignorée, cette variable n'appartenant pas à just-code ; une source non confirmable est révoquée puis signalée. Sur Tart et agent-vm, la clé est lisible en clair dans l'invité : la suppression est **refusée** tant qu'une telle instance tourne — y compris lorsque l'entrée supprimée n'est pas nommée `albert` mais alimente la liaison Albert — car retirer la copie du magasin ne révoquerait rien.
+`codebox auth remove` révoque l'accès avant de supprimer l'entrée du magasin : sur les instances Microsandbox en cours d'exécution, la liaison proxy est supprimée à chaud (l'invité garde un placeholder inerte jusqu'au prochain redémarrage — un avertissement le signale) ; sur les instances arrêtées, la référence persistée est retirée pour le prochain démarrage. La révocation raisonne par **entrée de magasin**, pas par nom de liaison : un `credentialRef` peut alimenter la liaison Albert depuis une entrée nommée autrement, et c'est la liaison invitée effectivement alimentée qui est retirée (l'instantané le consigne sous la forme `entrée@magasin#liaison`). Supprimer l'entrée d'un magasin ne touche pas les instances liées à l'autre magasin ; une instance dont la clé venait de l'environnement (variable `ALBERT_API_KEY`) est ignorée, cette variable n'appartenant pas à codebox ; une source non confirmable est révoquée puis signalée. Sur Tart et agent-vm, la clé est lisible en clair dans l'invité : la suppression est **refusée** tant qu'une telle instance tourne — y compris lorsque l'entrée supprimée n'est pas nommée `albert` mais alimente la liaison Albert — car retirer la copie du magasin ne révoquerait rien.
 
 ## Profils
 
@@ -408,7 +408,7 @@ Un profil nomme un jeu de valeurs pour un même projet : `development`,
 même variable restent distincts, et un même nom de variable dans deux
 composants aussi.
 
-Un seul profil est actif à la fois (`just-code secrets profile <nom>`), et il
+Un seul profil est actif à la fois (`codebox secrets profile <nom>`), et il
 n'est jamais deviné : `--clear` est refusé tant que des liaisons restent
 approuvées, parce que cet état ferait échouer chaque démarrage. `development` et
 `production` ne sont jamais combinés implicitement : une liaison enregistrée
@@ -432,18 +432,18 @@ capture : révoquer ensuite ne nettoie pas cet instantané. Ce mode existe pour
 les valeurs qu'une application consomme localement ; pour tout ce qui passe par
 le réseau, le mode proxy est le bon.
 
-**Sources conservées.** just-code ne modifie ni ne supprime les fichiers `.env`
+**Sources conservées.** codebox ne modifie ni ne supprime les fichiers `.env`
 d'origine : ils restent sur l'hôte, et dans l'historique Git s'ils sont
 versionnés. L'espace de travail scellé empêche leur transfert vers l'invité,
 mais rien ne les retire du poste. Les nettoyer relève de l'utilisateur.
 
 **Magasin.** Les valeurs sont confiées au magasin natif de la plateforme
-(Trousseau, Secret Service, Credential Manager) ; just-code n'ajoute aucun
+(Trousseau, Secret Service, Credential Manager) ; codebox n'ajoute aucun
 chiffrement de son côté. Le magasin de repli (`--fallback`) est un fichier JSON
 en clair, lisible par le seul propriétaire (`0600`), **non chiffré** : il
 demande un consentement explicite et son état est rappelé à chaque affichage.
 
-**Affichage.** Aucune commande just-code n'affiche une valeur : ni l'aperçu
+**Affichage.** Aucune commande codebox n'affiche une valeur : ni l'aperçu
 d'import, ni la liste des liaisons, ni `config explain`.
 
 ## Différence avec `config import-env`
@@ -453,7 +453,7 @@ rapproche :
 
 | | `config import-env` | `secrets import` |
 | --- | --- | --- |
-| Objet | la configuration **de just-code** | les secrets **de l'application** |
+| Objet | la configuration **de codebox** | les secrets **de l'application** |
 | Destination | les champs de configuration gérés | le magasin d'identifiants |
 | Suite | rien n'est écrit : prévisualisation seule | stockage, puis approbation séparée pour la livraison |
 | Clés d'identifiants | jamais copiées ; signalées vers le magasin | c'est précisément ce qui est importé |

@@ -1,22 +1,21 @@
 ```
-       _            __                    __
-      (_)_  _______/ /_   _________  ____/ /__
-     / / / / / ___/ __/  / ___/ __ \/ __  / _ \
-    / / /_/ (__  ) /_   / /__/ /_/ / /_/ /  __/
- __/ /\__,_/____/\__/   \___/\____/\__,_/\___/
-/___/
+               _      _
+  ___ ___   __| | ___| |__   _____  __
+ / __/ _ \ / _` |/ _ \ '_ \ / _ \ \/ /
+| (_| (_) | (_| |  __/ |_) | (_) >  <
+ \___\___/ \__,_|\___|_.__/ \___/_/\_\
 ```
 
-[![CI](https://github.com/etalab-ia/just-code/actions/workflows/ci.yml/badge.svg)](https://github.com/etalab-ia/just-code/actions/workflows/ci.yml)
-[![version](https://img.shields.io/github/v/release/etalab-ia/just-code?label=version&sort=semver)](https://github.com/etalab-ia/just-code/releases/latest)
-[![go](https://img.shields.io/github/go-mod/go-version/etalab-ia/just-code?label=go)](https://go.dev/dl/)
-[![licence](https://img.shields.io/github/license/etalab-ia/just-code?label=licence)](LICENSE)
+[![CI](https://github.com/etalab-ia/codebox/actions/workflows/ci.yml/badge.svg)](https://github.com/etalab-ia/codebox/actions/workflows/ci.yml)
+[![version](https://img.shields.io/github/v/release/etalab-ia/codebox?label=version&sort=semver)](https://github.com/etalab-ia/codebox/releases/latest)
+[![go](https://img.shields.io/github/go-mod/go-version/etalab-ia/codebox?label=go)](https://go.dev/dl/)
+[![licence](https://img.shields.io/github/license/etalab-ia/codebox?label=licence)](LICENSE)
 ![statut](https://img.shields.io/badge/statut-exp%C3%A9rimental-orange)
 ![plateformes](https://img.shields.io/badge/plateformes-darwin%20%7C%20linux%20%7C%20windows-blue)
 
 ⚠️ **PROJET EXPÉRIMENTAL : bac à sable de R&D pour évaluer l'exécution distante d'agents de code avec Albert API. Rien de stable, tout peut changer.** ⚠️
 
-# just code
+# codebox
 
 **Un environnement OpenCode isolé dans une microVM Microsandbox, piloté par le TUI dans l'invité par défaut ou par le TUI hôte en mode backend explicite.**
 
@@ -38,18 +37,18 @@ Ce n'est **pas un produit** : c'est un terrain de jeu pour mesurer l'UX (latence
 Sur macOS ou Linux :
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/etalab-ia/just-code/main/scripts/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/etalab-ia/codebox/main/scripts/install.sh | sh
 ```
 
 Dans PowerShell sous Windows :
 
 ```powershell
-irm https://raw.githubusercontent.com/etalab-ia/just-code/main/scripts/install.ps1 | iex
+irm https://raw.githubusercontent.com/etalab-ia/codebox/main/scripts/install.ps1 | iex
 ```
 
-L'installateur choisit une seule release stable, télécharge le binaire et `SHA256SUMS` depuis cette même release, puis compare l'empreinte avant de remplacer l'installation. Il annonce le résultat, traite `PATH` (en demandant l'autorisation avant de modifier un fichier de shell) puis lance l'assistant `just-code setup`.
+L'installateur choisit une seule release stable, télécharge le binaire et `SHA256SUMS` depuis cette même release, puis compare l'empreinte avant de remplacer l'installation. Il annonce le résultat, traite `PATH` (en demandant l'autorisation avant de modifier un fichier de shell) puis lance l'assistant `codebox setup`.
 
-Prérequis : une **clé d'au moins une plateforme d'inférence** — Albert API par défaut, Mistral AI ou une plateforme compatible OpenAI au choix (`just-code setup`). Le runtime Microsandbox est téléchargé et vérifié automatiquement au premier démarrage. En isolation complète (le défaut), OpenCode est installé dans l'invité : aucune installation sur l'hôte n'est nécessaire. En isolation partielle, l'hôte doit fournir l'OpenCode CLI (`npm uninstall -g opencode-ai && npm install -g @opencode/cli@2.2.5`).
+Prérequis : une **clé d'au moins une plateforme d'inférence** — Albert API par défaut, Mistral AI ou une plateforme compatible OpenAI au choix (`codebox setup`). Le runtime Microsandbox est téléchargé et vérifié automatiquement au premier démarrage. En isolation complète (le défaut), OpenCode est installé dans l'invité : aucune installation sur l'hôte n'est nécessaire. En isolation partielle, l'hôte doit fournir l'OpenCode CLI (`npm uninstall -g opencode-ai && npm install -g @opencode/cli@2.2.5`).
 
 Binaires par plateforme, installation manuelle, vérification, compilation depuis les sources : [docs/installation.md](docs/installation.md).
 
@@ -61,17 +60,17 @@ macOS / Linux :
 
 ```bash
 export ALBERT_API_KEY="ta-clé"
-just-code
+codebox
 ```
 
 Windows (PowerShell) :
 
 ```powershell
 $env:ALBERT_API_KEY = "ta-clé"
-just-code
+codebox
 ```
 
-`just-code` sans argument utilise **Microsandbox en isolation `full`** : l'agent, sa TUI et ses identifiants tournent dans la microVM, dont l'espace de travail est scellé (aucun fichier de l'hôte n'y est monté). `--tart` et `--agent-vm` restent disponibles explicitement, par flag ou via `RUNTIME`.
+`codebox` sans argument utilise **Microsandbox en isolation `full`** : l'agent, sa TUI et ses identifiants tournent dans la microVM, dont l'espace de travail est scellé (aucun fichier de l'hôte n'y est monté). `--tart` et `--agent-vm` restent disponibles explicitement, par flag ou via `RUNTIME`.
 
 La commande prépare l'espace de travail de l'invité, démarre l'agent et attache la TUI OpenCode native. Le premier démarrage d'un sandbox Microsandbox installe ~384 Mio de paquets dans la microVM et peut dépasser largement une minute ; les démarrages suivants sont rapides.
 
@@ -111,4 +110,4 @@ L'architecture du portage Go, les hooks pre-commit (gitleaks) et le pipeline d'i
 
 ---
 
-just code · département IA dans l'État (IAE), DINUM · Licence MIT
+codebox · département IA dans l'État (IAE), DINUM · Licence MIT

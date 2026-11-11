@@ -53,7 +53,7 @@ the value, and one such use is a real leak: the runtime persists the stdout of
 guest executions in its own log (`logs/exec.log` under `MSB_HOME`), so a
 command that *prints* a guest-readable value — a plain `cat .env` — copies it
 into a persisted host log. The property is therefore "delivery writes no log",
-not "the value can never reach a log", and just-code itself must not read a
+not "the value can never reach a log", and codebox itself must not read a
 managed file back through guest stdout. Comparing content without exposing it
 means comparing a digest the guest computes, not reading the file.
 
@@ -76,19 +76,19 @@ enough to test guesses offline, and keeping it off argv costs nothing.
 The ownership header is compared by a digest over its exact bytes — the header
 line and its newline — and that choice came from three rounds of review, each
 finding a way to forge a comparison that normalised something. A shell variable
-drops NUL bytes (bash and dash alike), so `# just-code mana\0ged: do not edit`
+drops NUL bytes (bash and dash alike), so `# codebox mana\0ged: do not edit`
 came back as the marker. `tr -d '\r'` stripped an interior carriage return, so
-`# just-code mana\rged: do not edit` did too. And `grep -qxF` matches a marker
+`# codebox mana\rged: do not edit` did too. And `grep -qxF` matches a marker
 followed by a NUL, because GNU grep and the guest's busybox both treat such a
 line as binary and match on the readable prefix — busybox does it even with
 `-a`, which is what the obvious advice suggests and what was measured not to
 work in the shipping image. A digest over a fixed byte count cannot match a
 line differing by one byte anywhere, and needs only `head -c` and `sha256sum`,
 both already present in the guest. In each case the failure was that a foreign
-file read as just-code's own, which lets a synchronization overwrite it.
+file read as codebox's own, which lets a synchronization overwrite it.
 
 One limit is deliberate and stated rather than papered over: this proves the
-file's content is the one just-code wanted, not who wrote it. If a sandbox is
+file's content is the one codebox wanted, not who wrote it. If a sandbox is
 rebuilt and a file at the same path happens to hold the same bytes, the plan
 reads it as unchanged. The forgeable case is narrow — rebuilding a sandbox and
 writing the exact expected bytes there is strictly more work than writing the
@@ -115,7 +115,7 @@ only after the file exists with the restrictive mode.
 that form carries it, and unquoted whenever quoting cannot carry it and the raw
 form safely can. This is not cosmetic: dotenv has no escaping that every loader
 agrees on, and the failure is not confined to the variable. Measured against the
-loaders just-code pins (Node `dotenv` 16.4.7 with and without `dotenv-expand`
+loaders codebox pins (Node `dotenv` 16.4.7 with and without `dotenv-expand`
 12.0.2, `python-dotenv` 1.2.2, `godotenv` 1.5.1):
 
 - **Single quotes** carry newlines, whitespace, `#`, double quotes, the
@@ -234,7 +234,7 @@ value, `$`, `#`, LF, CR and the edge-trimmed characters listed above. A value
 like `a\\b#c` is therefore refused by both forms, and for two different reasons:
 quoting cannot carry its backslash pair, and the raw form cannot carry its `#`.
 The round-trip is now checked against real loaders rather than asserted:
-`godotenv` in `internal/justcode/project_secret_encoding_loaders_test.go`, and
+`godotenv` in `internal/codebox/project_secret_encoding_loaders_test.go`, and
 Node and Python in `tests/integration/project-secrets/`.
 
 **Snapshot lifecycle.** A snapshot taken while a guest-readable value is

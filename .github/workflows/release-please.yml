@@ -67,7 +67,12 @@ jobs:
             asset: linux-arm64
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 45
-    container: ubuntu:20.04
+    container:
+      image: ubuntu:20.04
+      # Explicit resolvers: the runner's embedded container DNS intermittently
+      # fails to resolve archive.ubuntu.com (observed 2026-11-11 across several
+      # runners), which kills the apt step before any code runs.
+      options: --dns 1.1.1.1 --dns 8.8.8.8
     steps:
       - name: Install build tools
         run: apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y ca-certificates gcc git
@@ -93,20 +98,20 @@ jobs:
       - name: Build release binary
         env:
           VERSION: ${{ needs.release-please.outputs.tag_name }}
-          # Where usage statistics are sent. Kept in the JUST_CODE_STATS_URL
+          # Where usage statistics are sent. Kept in the CODEBOX_STATS_URL
           # repository variable so changing the receiving document is a
           # settings change, not a code change. Empty (unset variable, forks)
           # means no endpoint, and nothing is ever sent.
-          STATS_URL: ${{ vars.JUST_CODE_STATS_URL }}
+          STATS_URL: ${{ vars.CODEBOX_STATS_URL }}
         run: |
-          VERSION="${VERSION#just-code-}"
+          VERSION="${VERSION#codebox-}"
           mkdir -p dist
           LDFLAGS="-s -w -X main.version=$VERSION"
           if [ -n "$STATS_URL" ]; then
-            LDFLAGS="$LDFLAGS -X github.com/etalab-ia/just-code/internal/justcode.StatsEndpointDefault=$STATS_URL"
+            LDFLAGS="$LDFLAGS -X github.com/etalab-ia/codebox/internal/codebox.StatsEndpointDefault=$STATS_URL"
           fi
           go build -trimpath -ldflags="$LDFLAGS" \
-            -o "dist/just-code-${{ matrix.asset }}" ./cmd/just-code
+            -o "dist/codebox-${{ matrix.asset }}" ./cmd/codebox
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: ${{ matrix.asset }}
@@ -186,16 +191,16 @@ jobs:
         shell: bash
         env:
           VERSION: ${{ needs.release-please.outputs.tag_name }}
-          STATS_URL: ${{ vars.JUST_CODE_STATS_URL }}
+          STATS_URL: ${{ vars.CODEBOX_STATS_URL }}
         run: |
-          VERSION="${VERSION#just-code-}"
+          VERSION="${VERSION#codebox-}"
           mkdir -p dist
           LDFLAGS="-s -w -X main.version=$VERSION"
           if [ -n "$STATS_URL" ]; then
-            LDFLAGS="$LDFLAGS -X github.com/etalab-ia/just-code/internal/justcode.StatsEndpointDefault=$STATS_URL"
+            LDFLAGS="$LDFLAGS -X github.com/etalab-ia/codebox/internal/codebox.StatsEndpointDefault=$STATS_URL"
           fi
           go build -trimpath -ldflags="$LDFLAGS" \
-            -o "dist/just-code-${{ matrix.asset }}${{ matrix.ext }}" ./cmd/just-code
+            -o "dist/codebox-${{ matrix.asset }}${{ matrix.ext }}" ./cmd/codebox
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: ${{ matrix.asset }}
@@ -215,7 +220,7 @@ jobs:
           merge-multiple: true
       - name: Generate checksums
         working-directory: dist
-        run: sha256sum just-code-* > SHA256SUMS
+        run: sha256sum codebox-* > SHA256SUMS
       - name: Remove retired assets
         # --clobber only replaces same-named assets, so a manual rebuild of a
         # release published before a platform change would keep the retired
@@ -226,12 +231,12 @@ jobs:
           GH_REPO: ${{ github.repository }}
           TAG: ${{ needs.release-please.outputs.tag_name }}
         run: |
-          if gh release view "$TAG" --json assets --jq '.[].name' | grep -qx 'just-code-darwin-x64'; then
-            gh release delete-asset "$TAG" just-code-darwin-x64 --yes
+          if gh release view "$TAG" --json assets --jq '.[].name' | grep -qx 'codebox-darwin-x64'; then
+            gh release delete-asset "$TAG" codebox-darwin-x64 --yes
           fi
       - name: Upload release assets
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
           TAG: ${{ needs.release-please.outputs.tag_name }}
-        run: gh release upload "$TAG" dist/just-code-* dist/SHA256SUMS --clobber
+        run: gh release upload "$TAG" dist/codebox-* dist/SHA256SUMS --clobber

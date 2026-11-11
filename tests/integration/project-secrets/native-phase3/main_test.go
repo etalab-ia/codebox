@@ -14,6 +14,10 @@ func TestFixtureDerivationsAndDestinations(t *testing.T) {
 		t.Fatal("the same variable name in two components must still yield distinct markers")
 	}
 	for _, m := range []string{markerRoot, markerAPI} {
+		// The vendored renderer is pinned byte-identical to the pre-rename
+		// commit f483a800 (verify_vendored.py), so its markers keep the
+		// historical __JUST_CODE_SECRET_ prefix. The shape, not the product
+		// name, is what this fixture asserts.
 		if strings.Contains(m, "$") || !strings.HasPrefix(m, "__JUST_CODE_SECRET_") || !strings.HasSuffix(m, "__") {
 			t.Fatalf("marker %q is not an opaque dollar-free placeholder", m)
 		}
@@ -21,7 +25,7 @@ func TestFixtureDerivationsAndDestinations(t *testing.T) {
 	if guestEnvRoot != "JC_API_KEY" || guestEnvAPI != "JC_APPS_API_API_KEY" {
 		t.Fatalf("guest env derivation drifted: %q %q", guestEnvRoot, guestEnvAPI)
 	}
-	if hostEnvRoot != "JUST_CODE_HOST_PROJECT_JC_API_KEY" || hostEnvAPI != "JUST_CODE_HOST_PROJECT_JC_APPS_API_API_KEY" {
+	if hostEnvRoot != "CODEBOX_HOST_PROJECT_JC_API_KEY" || hostEnvAPI != "CODEBOX_HOST_PROJECT_JC_APPS_API_API_KEY" {
 		t.Fatalf("host transport names drifted: %q %q", hostEnvRoot, hostEnvAPI)
 	}
 	ds := deliveries()

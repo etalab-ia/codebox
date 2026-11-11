@@ -31,8 +31,8 @@ def main():
     try:
         subprocess.run([sys.executable,str(HERE/'runtime-download.py'),str(directory/'runtime')],check=True,timeout=220,env=env)
         # Temp CA, never security add-trusted-cert or host trust mutation.
-        (directory/'ca.cnf').write_text('[req]\ndistinguished_name=dn\nx509_extensions=ca_ext\n[dn]\nCN=Just Code Phase0 Temporary CA\n[ca_ext]\nbasicConstraints=critical,CA:TRUE\nkeyUsage=critical,keyCertSign,cRLSign\nsubjectKeyIdentifier=hash\n')
-        subprocess.run(['openssl','req','-x509','-newkey','rsa:2048','-nodes','-keyout',str(directory/'ca.key'),'-out',str(directory/'ca.crt'),'-subj','/CN=Just Code Phase0 Temporary CA','-days','1','-config',str(directory/'ca.cnf')],check=True,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,timeout=30)
+        (directory/'ca.cnf').write_text('[req]\ndistinguished_name=dn\nx509_extensions=ca_ext\n[dn]\nCN=Codebox Phase0 Temporary CA\n[ca_ext]\nbasicConstraints=critical,CA:TRUE\nkeyUsage=critical,keyCertSign,cRLSign\nsubjectKeyIdentifier=hash\n')
+        subprocess.run(['openssl','req','-x509','-newkey','rsa:2048','-nodes','-keyout',str(directory/'ca.key'),'-out',str(directory/'ca.crt'),'-subj','/CN=Codebox Phase0 Temporary CA','-days','1','-config',str(directory/'ca.cnf')],check=True,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,timeout=30)
         subprocess.run(['openssl','req','-newkey','rsa:2048','-nodes','-keyout',str(directory/'srv.key'),'-out',str(directory/'srv.csr'),'-subj','/CN=p02lab.test'],check=True,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,timeout=30)
         (directory/'srv.ext').write_text('basicConstraints=critical,CA:FALSE\nkeyUsage=critical,digitalSignature,keyEncipherment\nextendedKeyUsage=serverAuth\nsubjectAltName=DNS:p02lab.test,DNS:evil.test,IP:'+a.ip+'\n')
         subprocess.run(['openssl','x509','-req','-in',str(directory/'srv.csr'),'-CA',str(directory/'ca.crt'),'-CAkey',str(directory/'ca.key'),'-CAcreateserial','-out',str(directory/'srv.crt'),'-days','1','-extfile',str(directory/'srv.ext')],check=True,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,timeout=30)

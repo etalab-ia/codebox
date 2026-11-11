@@ -7,7 +7,7 @@ Suivi : #74 (chantier identifiants), #72 (preuves de compatibilité), #29 (contr
 
 ## Contexte
 
-Le plan de parité Albert Code suppose que le mode `full` de just-code peut
+Le plan de parité Albert Code suppose que le mode `full` de codebox peut
 provisionner des identifiants (Albert Bearer, GitHub `gh`/Git HTTPS,
 Context7) dans un invité Microsandbox sans exposer la valeur brute à
 l'invité. Le mécanisme supposé est le proxy réseau du runtime : l'invité ne
@@ -90,7 +90,7 @@ ici sans être automatisés.
   local) et `msb inspect --format json` imprime la valeur.
 - Conséquence : le contrat « la valeur ne franchit jamais la FFI vers
   l'invité » (doc SDK) est respecté côté invité, mais le chemin SDK
-  **persiste la valeur côté hôte**. just-code utilise aujourd'hui le chemin
+  **persiste la valeur côté hôte**. codebox utilise aujourd'hui le chemin
   SDK Value (`msbCreateOptions`/`msbNextStartOptions` passent
   `spec.APIKey`/`apiKey` en valeur) : c'est l'écart à corriger en P09.
 
@@ -138,7 +138,7 @@ ici sans être automatisés.
    en-tête) sont protégeables par le proxy. P13 peut provisionner `gh` et
    Git HTTPS via secret proxy ; les liaisons GitHub/Context7 de P09
    peuvent s'exposer.
-2. **P09 doit migrer just-code du chemin SDK Value vers le chemin
+2. **P09 doit migrer codebox du chemin SDK Value vers le chemin
    référence** (`SecretModifySpec{Env: ...}` / source `kind: env`, ou
    `Store` quand un backend existera) : la persistance hôte de la valeur
    brute en base 0644 contredit l'objectif du chantier identifiants. Tant
@@ -182,7 +182,7 @@ ici sans être automatisés.
 
 ## Addendum P09 (2026-09-24) : migration effective vers le chemin référence
 
-P09 a appliqué la décision 2 : plus aucun chemin just-code n'utilise la
+P09 a appliqué la décision 2 : plus aucun chemin codebox n'utilise la
 source `Value` du SDK.
 
 - **Création.** La surface create du SDK n'accepte que des valeurs en ligne
@@ -194,11 +194,11 @@ source `Value` du SDK.
   supprime le sandbox incomplet plutôt que de laisser la sentinelle.
 - **Rafraîchissement (next_start).** `ModifyNextStart` ré-enregistre chaque
   liaison comme référence `{"kind":"env","var":...}` ; la valeur est résolue
-  depuis l'environnement du processus just-code au moment de l'application
+  depuis l'environnement du processus codebox au moment de l'application
   et du démarrage, jamais persistée.
 - **Résolution à l'instant de l'opération.** La valeur (credentialRef >
   environnement legacy > magasin P08) n'existe que dans une variable de
-  transport dédiée (`JUST_CODE_HOST_*`), publiée le temps de l'appel SDK
+  transport dédiée (`CODEBOX_HOST_*`), publiée le temps de l'appel SDK
   puis retirée (la valeur préexistante est restaurée). La spec SDK ne porte
   que des métadonnées : aucune erreur SDK ne peut contenir de secret.
 - **Liaisons multiples.** Le registre (albert requis ; github, context7
@@ -274,7 +274,7 @@ Le transport des identifiants est qualifié sur v0.7.3.
 
 ## Requalification transport des identifiants (#205, 2026-10-22)
 
-Le harnais épinglait encore `msb` v0.7.3 alors que just-code embarque
+Le harnais épinglait encore `msb` v0.7.3 alors que codebox embarque
 v0.7.6. Il répondait aussi REFUSED aux requêtes AAAA pour les deux noms
 du laboratoire, ce qui faisait abandonner les requêtes par le `wget`
 BusyBox de l'invité Alpine.
