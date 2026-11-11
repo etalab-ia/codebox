@@ -113,7 +113,18 @@ var browserMPCCatalogue = map[string]BrowserMCP{
 		ID: "chrome-devtools", Name: "chrome-devtools",
 		Description: "navigateur dans la machine isolée, pour tester une application web : console, réseau, performances",
 		Package:     "chrome-devtools-mcp", Version: "1.10.1", Command: "chrome-devtools-mcp",
-		Args: []string{"--browserUrl", "http://127.0.0.1:9222"},
+		// Both opt-outs are mandatory, not tuning (#370). Upstream enables
+		// them by default: usage statistics go to Google's Clearcut endpoint,
+		// and the performance tools send URLs taken from the recorded traces
+		// to the CrUX API. Those URLs describe the project under test, so the
+		// default contradicts the sealed-guest promise. They are passed as
+		// flags rather than left to the guest environment so the composed
+		// OpenCode config carries them and a test can assert them.
+		Args: []string{
+			"--browserUrl", "http://127.0.0.1:9222",
+			"--no-usage-statistics",
+			"--no-performance-crux",
+		},
 	},
 }
 

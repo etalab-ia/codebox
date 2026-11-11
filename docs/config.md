@@ -537,6 +537,29 @@ l'hôte. Chrome DevTools se connecte au serveur de débogage lié à
 `127.0.0.1:9222` dans ce même guest. Le statut MCP sur l'hôte ne sonde pas ce
 processus.
 
+### Ce que l'outil envoie hors du guest
+
+Chrome DevTools MCP active par défaut deux envois vers Google, que codebox
+désactive explicitement (#370) :
+
+- des statistiques d'usage (taux de réussite des appels d'outils, latences,
+  informations d'environnement), désactivées par `--no-usage-statistics` ;
+- les **URL relevées dans les traces de performance**, envoyées à l'API CrUX
+  pour obtenir des données de terrain, désactivées par `--no-performance-crux`.
+  Ces URL décrivent le projet testé : noms d'hôte internes, chemins de recette
+  ou paramètres de requête peuvent s'y trouver.
+
+Les deux options sont passées en arguments de la commande composée, visibles
+dans la configuration OpenCode du guest, et non laissées à une variable
+d'environnement. La vérification de mise à jour auprès du registre npm est
+également désactivée (`CHROME_DEVTOOLS_MCP_NO_UPDATE_CHECKS=1`) : le paquet est
+épinglé, donc un avis de nouvelle version ne pourrait qu'inviter à une version
+non épinglée.
+
+Ces réglages concernent la télémétrie de l'outil lui-même. Ils ne restreignent
+pas le réseau du guest : la navigation demandée par l'agent sort du guest comme
+avant, et le profil réseau reste public.
+
 Le profil navigateur est séparé du guest léger : Debian bookworm-slim est
 épinglé par digest, avec Chromium `154.0.8037.92` (amd64) / `154.0.8037.57`
 (arm64), `fonts-liberation` `1:1.07.4-11`, Node.js

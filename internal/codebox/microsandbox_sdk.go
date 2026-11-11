@@ -122,6 +122,10 @@ func browserGuestEnv(ids []string) map[string]string {
 		msbBrowserMCPPackagesEnv:                 strings.Join(browserMCPInstallPackages(browserIDs), " "),
 		msbBrowserMCPBinariesEnv:                 strings.Join(browserMCPBinaries(browserIDs), " "),
 		msbBrowserMCPFingerprintEnv:              browserMCPFingerprint(browserIDs),
+		// The MCP package is version-pinned, so an update notice can only
+		// invite an unpinned upgrade. The check is also an outbound request
+		// to the npm registry on every server start (#370).
+		msbBrowserMCPNoUpdateChecksEnv: "1",
 	}
 }
 
