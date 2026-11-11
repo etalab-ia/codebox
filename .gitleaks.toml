@@ -20,11 +20,13 @@ regexes = [
   '''(?i)source=[0-9a-f]{40}''',
 ]
 
-# This exact digest is documented in the source as a public constant.
+# These exact digests are documented in the source as public constants: the
+# current header digest and the pre-rename one, which the full-history scan
+# still sees in older commits.
 [[rules.allowlists]]
 regexTarget = "match"
 regexes = [
-  '''(?i)^guestSecretHeaderLineDigest\s*=\s*"bc7625348f136cc1f93c91b6c14fc89fd57550b5a85278b2216a01a201075f7b"''',
+  '''(?i)^guestSecretHeaderLineDigest\s*=\s*"(bc7625348f136cc1f93c91b6c14fc89fd57550b5a85278b2216a01a201075f7b|84c8aa89b837ae7ba21441e923ba4f4e7aa27c2f45fc4b47e8aa1199b237db31)"''',
 ]
 
 # This historical shell operation reads a value from stdin; no value is present.

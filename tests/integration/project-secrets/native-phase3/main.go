@@ -420,7 +420,10 @@ func run() {
 		!strings.Contains(apiContent, rootCanary) && !strings.Contains(apiContent, apiCanary) &&
 		!strings.Contains(apiContent, "project-env-"))
 	out, e = exec(20*time.Second, "ls", "-la", "/workspace", "/workspace/apps/api")
-	result("no-temp-file-left", e == nil && out != nil && out.Success() && !strings.Contains(out.Stdout(), ".cb-tmp"))
+	// The vendored publisher is pinned to the pre-rename commit f483a800 and
+	// still creates .jc-tmp temporary files; probing for .cb-tmp would report
+	// cleanup success while a temp file is actually left behind.
+	result("no-temp-file-left", e == nil && out != nil && out.Success() && !strings.Contains(out.Stdout(), ".jc-tmp"))
 
 	// Push the embedded guest fixtures and install the pinned loaders inside
 	// the disposable guest. The packages are fetched by the guest itself from
