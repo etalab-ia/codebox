@@ -6,17 +6,17 @@ macOS / Linux :
 
 ```bash
 export ALBERT_API_KEY="ta-clé"
-just-code
+codebox
 ```
 
 Windows (PowerShell) :
 
 ```powershell
 $env:ALBERT_API_KEY = "ta-clé"
-just-code
+codebox
 ```
 
-`just-code` sans argument utilise **Microsandbox en isolation `full`** : l'agent, sa TUI et ses identifiants tournent dans la microVM, dont l'espace de travail est scellé (aucun fichier de l'hôte n'y est monté). `--tart` et `--agent-vm` restent disponibles explicitement, par flag ou via `RUNTIME`.
+`codebox` sans argument utilise **Microsandbox en isolation `full`** : l'agent, sa TUI et ses identifiants tournent dans la microVM, dont l'espace de travail est scellé (aucun fichier de l'hôte n'y est monté). `--tart` et `--agent-vm` restent disponibles explicitement, par flag ou via `RUNTIME`.
 
 La commande prépare l'espace de travail de l'invité, démarre l'agent et attache la TUI OpenCode native.
 
@@ -33,7 +33,7 @@ Une fois attaché, ces prompts exercent les dimensions clés de l'expérience :
 3. **« Code un petit jeu snake servi par un serveur Node sur le port 3000, puis lance-le. »** — écriture de fichiers + serveur de dev ; ouvre `http://localhost:3000` pour vérifier la preview.
 4. **« Écris un script python qui affiche la suite de Fibonacci et exécute-le. »** — toolchain polyglotte dans le sandbox.
 5. **« Modifie un fichier, puis annule ta modification. »** — outils d'édition et revue de diff.
-6. **Détache-toi (Ctrl+C / quitte), conserve le runtime, puis relance `just-code --microsandbox` ou `just-code --tart`** — continuité de session et reconnexion.
+6. **Détache-toi (Ctrl+C / quitte), conserve le runtime, puis relance `codebox --microsandbox` ou `codebox --tart`** — continuité de session et reconnexion.
 7. **« Envoie les logs de ton serveur de dev dans /tmp/server.log et montre-moi les dernières lignes. »** — comportement du scratch space hors du répertoire projet.
 
 ## Aller plus loin

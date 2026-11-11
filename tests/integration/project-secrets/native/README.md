@@ -2,20 +2,20 @@
 
 v3 adds an independently authorized third binding and removed-binding re-add/next-boot lifecycle gates. The parent reported all v1 native assertions PASS with `TMPDIR=/tmp`, and all v2 native assertions PASS with the built-in short root. No v3 native pass is claimed here. The established v1 fixture defect was the long default macOS temp path: runtime Unix socket derivation exceeded its <104-byte limit. The runner explicitly creates `/tmp/jcp0-*` with mode 0700 and a conservative MSB_HOME length preflight, ignoring host TMPDIR. Results metadata includes `kit=v3` alongside pinned source, SDK, runtime, and archive hash. v2 diagnostics and isolation remain intact; no earlier assertion has been removed or weakened.
 
-Pinned just-code source: `684ea414de08a30e2456d3aab24b453b2eec1641` (Microsandbox v0.7.14 pin update).
+Pinned codebox source: `684ea414de08a30e2456d3aab24b453b2eec1641` (Microsandbox v0.7.14 pin update).
 Go SDK: `github.com/superradcompany/microsandbox/sdk/go v0.7.14`.
-Runtime source is the pinned commit's `internal/justcode/msb_runtime_install.go`, darwin/arm64:
+Runtime source is the pinned commit's `internal/codebox/msb_runtime_install.go`, darwin/arm64:
 
 - URL: https://github.com/superradcompany/microsandbox/releases/download/v0.7.14/microsandbox-darwin-aarch64.tar.gz
 - SHA256: `9cc2bd2874cc1aa98cb139429a9482830b1e64b48255aa9f40a25b8979a23a9f`
 
-Nothing here changes just-code, upgrades the user's msb 0.7.0, installs global tools, imports credentials, changes host DNS, or installs a CA into host trust. Do not run against a user MSB_HOME. No native pass is claimed from Cloud.
+Nothing here changes codebox, upgrades the user's msb 0.7.0, installs global tools, imports credentials, changes host DNS, or installs a CA into host trust. Do not run against a user MSB_HOME. No native pass is claimed from Cloud.
 
 ## Preflight / dependencies
 
 Use native macOS arm64 with working Hypervisor.framework, network to GitHub/Go module proxy/Docker Hub, Go 1.25+, Python3, curl, and OpenSSL (LibreSSL config-based certificate generation is supported). Do not install anything globally for this kit. Existing tools are sufficient. At least 2 CPUs/768 MiB for this one VM. Docker image `python:3.12-alpine` is intentionally disposable and uncredentialed, but its tag is not digest-pinned.
 
-Extract in a standalone temporary directory, NOT the just-code repository. Check:
+Extract in a standalone temporary directory, NOT the codebox repository. Check:
 
 ```sh
 uname -sm
@@ -56,7 +56,7 @@ User `~/.microsandbox` is never used. The VM name is cryptographically unique, w
 
 ## Qualification assertions
 
-Two distinct guest variables `JC_A`, `JC_B` share the same sole authorized host `p02lab.test`, with custom opaque dollar-free markers `__JUST_CODE_SECRET_a01__`, `__JUST_CODE_SECRET_b02__`. A third variable `JC_C`, with marker `__JUST_CODE_SECRET_c03__`, authorizes ONLY `evil.test` (which is evil/disallowed for A/B, not for C). Create registers just-code's inert `$MSB_BOOTSTRAP_UNSET` sentinel, then all three are rotated via `SecretModifySpec.Env` + `ModificationPolicyNoRestart` before requests. Only synthetic random 192-bit canaries are used; no keychain, password manager, dotenv, or real credential is read.
+Two distinct guest variables `JC_A`, `JC_B` share the same sole authorized host `p02lab.test`, with custom opaque dollar-free markers `__CODEBOX_SECRET_a01__`, `__CODEBOX_SECRET_b02__`. A third variable `JC_C`, with marker `__CODEBOX_SECRET_c03__`, authorizes ONLY `evil.test` (which is evil/disallowed for A/B, not for C). Create registers codebox's inert `$MSB_BOOTSTRAP_UNSET` sentinel, then all three are rotated via `SecretModifySpec.Env` + `ModificationPolicyNoRestart` before requests. Only synthetic random 192-bit canaries are used; no keychain, password manager, dotenv, or real credential is read.
 
 Checks: exact guest markers (no raw canary), both header substitutions to the shared host, Basic base64 substitution, direct evil.test refusal, allowed-to-evil redirect refusal with proof the allowed first leg reached the lab, one-binding live rotation preserving the other, persisted ConfigJSON containing all three host env refs and no old/new raw canary, Config.Volumes empty (no configured host mounts), removal preventing old/new secret transmission, remaining binding still working, and own-VM cleanup.
 
@@ -66,7 +66,7 @@ Additional v3 lifecycle gates: after removing A, actual NoRestart re-add must fa
 
 DNS is configured explicitly per VM to LAN-IP:DNS-port. TLS interception is configured explicitly for the selected TLS port, with the temporary CA as upstream trust. Host CA shipping is disabled. DNS rebind protection is disabled only on this isolated lab VM to permit the RFC1918 LAN IP. Guest Python disables client certificate verification to avoid depending on Python CA store integration; the proxy retains its default upstream verification and secret TLS identity requirement, using the temporary CA. This is a network-secret substitution qualification, not a qualification of guest OS CA installation or public-network profiles.
 
-The lab persists only SHA256 digests of received header values, plus fixed probe path/host. No raw request headers are echoed or persisted. Removal permits either blocked transport or an unchanged marker reaching the allowed endpoint, but FAILs any old/new canary transmission. Live removal does not promise environment removal until restart (matching just-code semantics).
+The lab persists only SHA256 digests of received header values, plus fixed probe path/host. No raw request headers are echoed or persisted. Removal permits either blocked transport or an unchanged marker reaching the allowed endpoint, but FAILs any old/new canary transmission. Live removal does not promise environment removal until restart (matching codebox semantics).
 
 ## Evidence / cleanup
 
@@ -81,7 +81,7 @@ MSB_LIBKRUNFW_PATH="$RUN_DIR/runtime/libkrunfw.5.dylib" \
 go run . --dir "$RUN_DIR" --cleanup
 ```
 
-Cleanup is idempotent for a missing VM and checks the `jc-p0-` ownership prefix. After PASS cleanup and copying only sanitized results, remove only this exact private directory:
+Cleanup is idempotent for a missing VM and checks the `cb-p0-` ownership prefix. After PASS cleanup and copying only sanitized results, remove only this exact private directory:
 
 ```sh
 case "$RUN_DIR" in /tmp/jcp0-*) test -f "$RUN_DIR/vm-name" && rm -rf -- "$RUN_DIR" ;; *) exit 1 ;; esac

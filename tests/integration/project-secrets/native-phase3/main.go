@@ -2,7 +2,7 @@ package main
 
 // Phase 3 native probe (TEST ARTIFACT ONLY).
 //
-// Qualifies the just-code project-secrets Phase 3 end-to-end path against one
+// Qualifies the codebox project-secrets Phase 3 end-to-end path against one
 // real Microsandbox 0.7.6 VM on native macOS arm64:
 //
 //  1. the REAL vendored BuildGuestSecretFiles renders two deliveries that
@@ -12,7 +12,7 @@ package main
 //     registered as inert sentinels at create and rotated to host env
 //     references, exactly as the pinned runtime does;
 //  3. the REAL vendored syncGuestSecretFiles publishes both files into the
-//     guest atomically (temp file + mv) over the same SDK calls just-code's
+//     guest atomically (temp file + mv) over the same SDK calls codebox's
 //     sdkMSBClient makes;
 //  4. REAL guest applications (Node dotenv@18.0.9 + dotenv-expand@13.0.0,
 //     Python python-dotenv==1.2.4) read those files and carry the value in an
@@ -26,6 +26,7 @@ package main
 // interfaces.
 
 import (
+	jcvendor "codebox-native-phase3-kit/jcvendor"
 	"context"
 	"crypto/rand"
 	"crypto/sha256"
@@ -37,7 +38,6 @@ import (
 	"flag"
 	"fmt"
 	msb "github.com/superradcompany/microsandbox/sdk/go"
-	jcvendor "just-code-native-phase3-kit/jcvendor"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -55,7 +55,7 @@ const kitRev = "p3v2"
 // The fixture project: one variable name, API_KEY, defined in two dotenv
 // components. The synthetic namespace scopes the derived markers; no real
 // project or credential is involved.
-const namespace = "jc-p3-qual"
+const namespace = "cb-p3-qual"
 const profile = "development"
 const secretName = "API_KEY"
 const rootComponent = ".env"
@@ -64,7 +64,7 @@ const labHost = "p3lab.test"
 const evilHost = "evil.test"
 
 // Markers and guest variables come from the REAL vendored derivations — the
-// same functions just-code uses — so the environment, the proxy registration
+// same functions codebox uses — so the environment, the proxy registration
 // and the published file can never disagree about the placeholder.
 var markerRoot = jcvendor.ProjectSecretPlaceholder(namespace, profile, rootComponent, secretName)
 var markerAPI = jcvendor.ProjectSecretPlaceholder(namespace, profile, apiComponent, secretName)
@@ -72,9 +72,9 @@ var guestEnvRoot = jcvendor.ProjectSecretGuestEnv(rootComponent, secretName)
 var guestEnvAPI = jcvendor.ProjectSecretGuestEnv(apiComponent, secretName)
 
 // The host transport variables mirror resolveProjectSecretBindings:
-// "JUST_CODE_HOST_PROJECT_" + guest variable, existing only for the run.
-var hostEnvRoot = "JUST_CODE_HOST_PROJECT_" + guestEnvRoot
-var hostEnvAPI = "JUST_CODE_HOST_PROJECT_" + guestEnvAPI
+// "CODEBOX_HOST_PROJECT_" + guest variable, existing only for the run.
+var hostEnvRoot = "CODEBOX_HOST_PROJECT_" + guestEnvRoot
+var hostEnvAPI = "CODEBOX_HOST_PROJECT_" + guestEnvAPI
 
 // deliveries is the exact resolved-binding set the runtime would produce for
 // this fixture: per-binding destination lists, the derived marker, and an
@@ -189,7 +189,7 @@ func find(dir, path string) *record {
 }
 
 // sdkGuestClient implements jcvendor.GuestClient over the real SDK exactly
-// the way just-code's sdkMSBClient does at the pinned commit: connect to the
+// the way codebox's sdkMSBClient does at the pinned commit: connect to the
 // named sandbox, then Shell for commands and FS().Write for payloads.
 type sdkGuestClient struct{}
 
@@ -255,7 +255,7 @@ func run() {
 			return
 		}
 		name := strings.TrimSpace(string(b))
-		if !strings.HasPrefix(name, "jc-p3-") {
+		if !strings.HasPrefix(name, "cb-p3-") {
 			result("cleanup-ownership", false)
 			return
 		}
@@ -281,7 +281,7 @@ func run() {
 	defer stop()
 	ctx, cancel := context.WithTimeout(ctx, 14*time.Minute)
 	defer cancel()
-	name := "jc-p3-" + random()[:16]
+	name := "cb-p3-" + random()[:16]
 	if e := os.WriteFile(nameFile, []byte(name), 0600); e != nil {
 		diagnostic("ownership-file", e, "")
 		result("ownership-file", false)
@@ -376,7 +376,7 @@ func run() {
 
 	// Publish through the REAL vendored pipeline: BuildGuestSecretFiles,
 	// readGuestSecretFiles, PlanGuestSecretPublish, publishGuestSecretFiles —
-	// with the SDK calls just-code's own client makes.
+	// with the SDK calls codebox's own client makes.
 	rt := jcvendor.NewGuestRuntimeForTest(sdkGuestClient{}, name)
 	publishCtx, publishDone := context.WithTimeout(ctx, 60*time.Second)
 	managed, e := rt.SyncGuestSecretFilesForTest(publishCtx, deliveries(), nil)
@@ -420,7 +420,7 @@ func run() {
 		!strings.Contains(apiContent, rootCanary) && !strings.Contains(apiContent, apiCanary) &&
 		!strings.Contains(apiContent, "project-env-"))
 	out, e = exec(20*time.Second, "ls", "-la", "/workspace", "/workspace/apps/api")
-	result("no-temp-file-left", e == nil && out != nil && out.Success() && !strings.Contains(out.Stdout(), ".jc-tmp"))
+	result("no-temp-file-left", e == nil && out != nil && out.Success() && !strings.Contains(out.Stdout(), ".cb-tmp"))
 
 	// Push the embedded guest fixtures and install the pinned loaders inside
 	// the disposable guest. The packages are fetched by the guest itself from

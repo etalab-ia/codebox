@@ -99,10 +99,10 @@ func TestCaseNameContract(t *testing.T) {
 
 func TestClassify(t *testing.T) {
 	cases := map[string]string{
-		"msb-home/sandboxes/jc-p4-x/upper/ext4.img":   "disk-image",
-		"msb-home/snapshots/jcp4snap-y/disk.img":      "snapshot",
-		"msb-home/snapshots/jcp4snap-y/manifest.json": "snapshot",
-		"msb-home/logs/jc-p4-x/stdout.log":            "log",
+		"msb-home/sandboxes/cb-p4-x/upper/ext4.img":   "disk-image",
+		"msb-home/snapshots/cbp4snap-y/disk.img":      "snapshot",
+		"msb-home/snapshots/cbp4snap-y/manifest.json": "snapshot",
+		"msb-home/logs/cb-p4-x/stdout.log":            "log",
 		"msb-home/journal/session-1.bin":              "log",
 		"msb-home/msb.db":                             "store",
 		"msb-home/registry/config.json":               "store",

@@ -23,9 +23,9 @@ import (
 
 const source = "684ea414de08a30e2456d3aab24b453b2eec1641"
 const archiveSHA = "9cc2bd2874cc1aa98cb139429a9482830b1e64b48255aa9f40a25b8979a23a9f"
-const markerA = "__JUST_CODE_SECRET_a01__"
-const markerB = "__JUST_CODE_SECRET_b02__"
-const markerC = "__JUST_CODE_SECRET_c03__"
+const markerA = "__CODEBOX_SECRET_a01__"
+const markerB = "__CODEBOX_SECRET_b02__"
+const markerC = "__CODEBOX_SECRET_c03__"
 
 var failed bool
 var sensitive []string
@@ -134,7 +134,7 @@ func run() {
 			return
 		}
 		name := strings.TrimSpace(string(b))
-		if !strings.HasPrefix(name, "jc-p0-") {
+		if !strings.HasPrefix(name, "cb-p0-") {
 			result("cleanup-ownership", false)
 			return
 		}
@@ -160,7 +160,7 @@ func run() {
 	defer stop()
 	ctx, cancel := context.WithTimeout(ctx, 8*time.Minute)
 	defer cancel()
-	name := "jc-p0-" + random()[:16]
+	name := "cb-p0-" + random()[:16]
 	if e := os.WriteFile(nameFile, []byte(name), 0600); e != nil {
 		diagnostic("ownership-file", e, "")
 		result("ownership-file", false)

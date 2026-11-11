@@ -11,8 +11,8 @@ de démarrage d'une microVM sur l'hyperviseur natif.
 - Utiliser une machine physique ou un hôte de virtualisation dédié, pas une
   VM imbriquée non qualifiée.
 - Installer OpenCode conformément au README. Microsandbox n'a pas besoin d'être
-  installé : `just-code start --microsandbox` télécharge et vérifie le runtime
-  géré si nécessaire ; `just-code doctor --microsandbox` est en lecture seule
+  installé : `codebox start --microsandbox` télécharge et vérifie le runtime
+  géré si nécessaire ; `codebox doctor --microsandbox` est en lecture seule
   et ne l'installe pas.
 - Pour un test réel de transport Albert, utiliser une clé de test révocable.
   Ne jamais mettre une clé dans le rapport ou les artefacts de CI.
@@ -22,14 +22,14 @@ de démarrage d'une microVM sur l'hyperviseur natif.
 ## Parcours sur chaque hôte
 
 1. Noter OS, architecture, matériel ou hyperviseur natif, version du CLI,
-   version du runtime et date. Lancer `just-code version`.
+   version du runtime et date. Lancer `codebox version`.
 2. Vérifier le diagnostic sans effet de bord : définir `$MSB_HOME` vers un
    répertoire temporaire vide et retirer `MSB_PATH` et
    `MSB_LIBKRUNFW_PATH`, puis lancer
-   `just-code doctor --microsandbox`. La commande doit échouer en indiquant
+   `codebox doctor --microsandbox`. La commande doit échouer en indiquant
    que le runtime manque, sans créer de fichier. Répéter après installation
    et confirmer que le runtime est diagnostiqué. Lancer aussi
-   `just-code setup doctor` et `just-code setup doctor --json`; les deux
+   `codebox setup doctor` et `codebox setup doctor --json`; les deux
    rapports doivent être cohérents et ne contenir aucune valeur secrète.
    Conserver localement le JSON comme pièce d'évidence; le relire et le
    redacter avant de le joindre à un ticket ou à un compte rendu.
@@ -38,28 +38,28 @@ de démarrage d'une microVM sur l'hyperviseur natif.
    checkout contributeur avec Go et les outils C requis; son absence sur un
    poste d'atelier ne bloque pas le test du binaire installé.
 4. Avec un projet Git jetable, tester le parcours utilisateur vide :
-   `just-code init`, puis lancer `just-code --microsandbox --isolation full`.
-   Après démarrage, exécuter `just-code check --isolation full`. Vérifier que
+   `codebox init`, puis lancer `codebox --microsandbox --isolation full`.
+   Après démarrage, exécuter `codebox check --isolation full`. Vérifier que
    le TUI tourne dans l'invité et que `/workspace` est invité, pas un montage
    du checkout hôte.
 5. Créer un fichier-canari non secret dans le checkout hôte et un fichier
    `.env` factice contenant `ALBERT_API_KEY=host-canary-not-a-secret`. Après
    synchronisation ou actualisation, vérifier depuis l'invité que le canari
    filtré n'est pas lisible. Ne pas utiliser une vraie valeur de secret.
-6. Modifier un fichier dans l'invité, lancer `just-code workspace export` pour
+6. Modifier un fichier dans l'invité, lancer `codebox workspace export` pour
    produire un diff, revoir ce diff, puis appliquer uniquement les changements
    retenus. Confirmer qu'aucune écriture directe n'a touché le checkout avant
    l'application explicite.
-7. Tester `just-code stop`, le redémarrage non destructif et la reconnexion.
+7. Tester `codebox stop`, le redémarrage non destructif et la reconnexion.
    Confirmer que l'état annoncé comme persistant l'est, sans recréation
    implicite.
 8. Répéter dans un projet existant avec des fichiers de configuration et du
    texte utilisateur préexistants. Pour le parcours importé, utiliser
-   `just-code import albert-code` d'abord en aperçu, puis appliquer seulement
+   `codebox import albert-code` d'abord en aperçu, puis appliquer seulement
    après revue. Vérifier que l'import répété est stable et que les réglages
    inconnus/non gérés restent intacts.
 9. Cloner un dépôt d'équipe jetable qui contient une configuration
-   just-code versionnée. Vérifier `just-code check`, un `just-code update`
+   codebox versionnée. Vérifier `codebox check`, un `codebox update`
    sans changement attendu, puis le démarrage et l'export de changements dans
    une branche de test. Ne pas utiliser un dépôt contenant des secrets ou du
    contenu de production.
@@ -79,37 +79,37 @@ de démarrage d'une microVM sur l'hyperviseur natif.
 Exécuter les étapes communes 1 à 11 sur chaque hôte, puis les contrôles
 spécifiques ci-dessous. Une cible sans runtime disponible ou avec un
 prérequis d'hyperviseur absent est « non qualifiée », pas un échec de
-just-code : noter l'écart dans la matrice.
+codebox : noter l'écart dans la matrice.
 
 ### macOS arm64
 
-Prérequis : Apple Silicon, Hypervisor.framework, OpenCode, just-code.
+Prérequis : Apple Silicon, Hypervisor.framework, OpenCode, codebox.
 
-1. Microsandbox : installer par `just-code start --microsandbox`, vérifier
-   `just-code doctor --microsandbox`, lancer le parcours en isolation `full`,
-   puis `just-code stop`.
-2. Tart : installer Tart explicitement, vérifier `just-code doctor --tart`,
-   lancer `just-code start --tart --isolation backend`, vérifier la connexion
-   du TUI hôte et l'accès au endpoint local, puis `just-code stop --tart`.
-3. agent-vm : installer Lima, vérifier `just-code doctor --agent-vm`, lancer
-   `just-code start --agent-vm --isolation backend`, vérifier que le template
+1. Microsandbox : installer par `codebox start --microsandbox`, vérifier
+   `codebox doctor --microsandbox`, lancer le parcours en isolation `full`,
+   puis `codebox stop`.
+2. Tart : installer Tart explicitement, vérifier `codebox doctor --tart`,
+   lancer `codebox start --tart --isolation backend`, vérifier la connexion
+   du TUI hôte et l'accès au endpoint local, puis `codebox stop --tart`.
+3. agent-vm : installer Lima, vérifier `codebox doctor --agent-vm`, lancer
+   `codebox start --agent-vm --isolation backend`, vérifier que le template
    est construit une seule fois et que le redémarrage conserve l'état, puis
-   `just-code stop --agent-vm`.
+   `codebox stop --agent-vm`.
 4. Noter si l'hôte est une machine de l'utilisateur, une machine CI dédiée,
    ou un Mac distant géré, car la confiance n'est pas équivalente.
 
 ### Linux amd64
 
-Prérequis : `/dev/kvm` ouvert par l'utilisateur, OpenCode, just-code.
+Prérequis : `/dev/kvm` ouvert par l'utilisateur, OpenCode, codebox.
 
 1. Vérifier `test -r /dev/kvm -a -w /dev/kvm` ; le résultat et la commande
    doivent apparaître dans le rapport.
-2. Microsandbox : installer par `just-code start --microsandbox`, vérifier
-   `just-code doctor --microsandbox`, lancer le parcours en isolation `full`,
-   puis `just-code stop`.
-3. agent-vm : installer Lima explicitement, vérifier `just-code doctor
-   --agent-vm`, lancer `just-code start --agent-vm --isolation backend`, puis
-   `just-code stop --agent-vm`. Ne pas déduire le succès Microsandbox du
+2. Microsandbox : installer par `codebox start --microsandbox`, vérifier
+   `codebox doctor --microsandbox`, lancer le parcours en isolation `full`,
+   puis `codebox stop`.
+3. agent-vm : installer Lima explicitement, vérifier `codebox doctor
+   --agent-vm`, lancer `codebox start --agent-vm --isolation backend`, puis
+   `codebox stop --agent-vm`. Ne pas déduire le succès Microsandbox du
    succès Lima.
 4. Si l'hôte est une VM cloud, ne qualifier Microsandbox que lorsque KVM est
    réellement disponible dans l'invité ; sinon la preuve est invalide.
@@ -123,27 +123,27 @@ doit être confirmée (`uname -m` = `aarch64`). Ne pas accepter un test amd64
 ### Windows amd64
 
 Prérequis : Windows 10 ou 11 x64, Windows Hypervisor Platform activée,
-OpenCode, just-code.
+OpenCode, codebox.
 
 1. Vérifier la fonctionnalité WHP dans les fonctionnalités Windows, puis
    redémarrer si elle vient d'être activée.
 2. Exécuter le protocole commun dans PowerShell, y compris le parcours
    d'installation avec `install.ps1`.
-3. Microsandbox : installer par `just-code start --microsandbox`, vérifier
-   `just-code doctor --microsandbox`, lancer le parcours en isolation `full`,
-   puis `just-code stop`.
+3. Microsandbox : installer par `codebox start --microsandbox`, vérifier
+   `codebox doctor --microsandbox`, lancer le parcours en isolation `full`,
+   puis `codebox stop`.
 4. Ne pas remplacer WHP par WSL2 ou Hyper-V embarqué sans preuve : le backend
    annoncé est WHP.
 
 ### Windows arm64
 
-Prérequis : Windows 10 ou 11 arm64, WHP, OpenCode, just-code.
+Prérequis : Windows 10 ou 11 arm64, WHP, OpenCode, codebox.
 
 1. Confirmer l'architecture native (`$env:PROCESSOR_ARCHITECTURE` = `ARM64`).
 2. Exécuter le protocole commun dans PowerShell, y compris `install.ps1`.
-3. Microsandbox : installer par `just-code start --microsandbox`, vérifier
-   `just-code doctor --microsandbox`, lancer le parcours en isolation `full`,
-   puis `just-code stop`.
+3. Microsandbox : installer par `codebox start --microsandbox`, vérifier
+   `codebox doctor --microsandbox`, lancer le parcours en isolation `full`,
+   puis `codebox stop`.
 4. Les runtimes Tart et agent-vm ne sont pas qualifiés sur Windows arm64 ;
    ne pas marquer cette combinaison comme supportée.
 

@@ -1,4 +1,4 @@
-module github.com/etalab-ia/just-code
+module github.com/etalab-ia/codebox
 
 go 1.26.0
 

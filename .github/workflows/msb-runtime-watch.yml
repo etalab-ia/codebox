@@ -1,9 +1,9 @@
 # Detects newer upstream Microsandbox runtime releases than the SDK embedded in
-# just-code and opens a tracking issue with the digests needed for the reviewed
+# codebox and opens a tracking issue with the digests needed for the reviewed
 # update PR. It never publishes anything and never touches the code.
 #
-# The runtime is downloaded by just-code directly from the upstream immutable
-# release (see msbRuntimeReleaseURL in internal/justcode/msb_runtime_install.go).
+# The runtime is downloaded by codebox directly from the upstream immutable
+# release (see msbRuntimeReleaseURL in internal/codebox/msb_runtime_install.go).
 # No local mirror is kept: the archive is verified against a digest baked in
 # the binary before extraction, so hosting the bytes ourselves would not add
 # any guarantee, and upstream retains a complete release history (64 releases
@@ -17,7 +17,7 @@
 # digests reported in the issue from the verified subjects, not from the
 # upstream checksums file (which is uploaded alongside the archives and could
 # be swapped together with them). Baked digests in
-# internal/justcode/msb_runtime_install.go are only updated by a reviewed code
+# internal/codebox/msb_runtime_install.go are only updated by a reviewed code
 # PR that bumps the SDK version, release URL, and the five digests together.
 
 name: msb-runtime-watch
@@ -39,7 +39,7 @@ concurrency:
 env:
   UPSTREAM_REPO: superradcompany/microsandbox
   # Must stay in sync with the platform set of msbRuntimeArtifactFor() in
-  # internal/justcode/msb_runtime_install.go.
+  # internal/codebox/msb_runtime_install.go.
   EXPECTED_ASSETS: >-
     microsandbox-darwin-aarch64.tar.gz
     microsandbox-linux-aarch64.tar.gz
@@ -65,7 +65,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          sdk_version="$(go run ./cmd/just-code -print-msb-sdk-version)"
+          sdk_version="$(go run ./cmd/codebox -print-msb-sdk-version)"
           upstream="$(gh api "repos/${UPSTREAM_REPO}/releases/latest" --jq .tag_name)"
           upstream_version="${upstream#v}"
           echo "sdk_version=$sdk_version" >> "$GITHUB_OUTPUT"
@@ -120,7 +120,7 @@ jobs:
             echo ""
             echo "Procédure :"
             echo "1. Bump du SDK \`github.com/superradcompany/microsandbox/sdk/go\` vers \`v$UPSTREAM_VERSION\` dans \`go.mod\`."
-            echo "2. PR de code mettant à jour ensemble \`msbRuntimeVersion\`, \`msbRuntimeReleaseURL\` et les cinq empreintes dans \`internal/justcode/msb_runtime_install.go\` (\`TestMSBRuntimeVersionMatchesSDK\` bloque un décalage). \`msbRuntimeReleaseURL\` pointe vers la release amont : \`https://github.com/$UPSTREAM_REPO/releases/download/v$UPSTREAM_VERSION\`."
+            echo "2. PR de code mettant à jour ensemble \`msbRuntimeVersion\`, \`msbRuntimeReleaseURL\` et les cinq empreintes dans \`internal/codebox/msb_runtime_install.go\` (\`TestMSBRuntimeVersionMatchesSDK\` bloque un décalage). \`msbRuntimeReleaseURL\` pointe vers la release amont : \`https://github.com/$UPSTREAM_REPO/releases/download/v$UPSTREAM_VERSION\`."
             echo ""
             echo "👾 Generated with [Letta Code](https://letta.com)"
           } > issue-body.md

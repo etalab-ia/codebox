@@ -3,8 +3,8 @@ workspace/
 .DS_Store
 
 # Go build artifacts
-/just-code
-/just-code-*
+/codebox
+/codebox-*
 
 # Python
 __pycache__/

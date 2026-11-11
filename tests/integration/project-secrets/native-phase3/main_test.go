@@ -14,14 +14,14 @@ func TestFixtureDerivationsAndDestinations(t *testing.T) {
 		t.Fatal("the same variable name in two components must still yield distinct markers")
 	}
 	for _, m := range []string{markerRoot, markerAPI} {
-		if strings.Contains(m, "$") || !strings.HasPrefix(m, "__JUST_CODE_SECRET_") || !strings.HasSuffix(m, "__") {
+		if strings.Contains(m, "$") || !strings.HasPrefix(m, "__CODEBOX_SECRET_") || !strings.HasSuffix(m, "__") {
 			t.Fatalf("marker %q is not an opaque dollar-free placeholder", m)
 		}
 	}
 	if guestEnvRoot != "JC_API_KEY" || guestEnvAPI != "JC_APPS_API_API_KEY" {
 		t.Fatalf("guest env derivation drifted: %q %q", guestEnvRoot, guestEnvAPI)
 	}
-	if hostEnvRoot != "JUST_CODE_HOST_PROJECT_JC_API_KEY" || hostEnvAPI != "JUST_CODE_HOST_PROJECT_JC_APPS_API_API_KEY" {
+	if hostEnvRoot != "CODEBOX_HOST_PROJECT_JC_API_KEY" || hostEnvAPI != "CODEBOX_HOST_PROJECT_JC_APPS_API_API_KEY" {
 		t.Fatalf("host transport names drifted: %q %q", hostEnvRoot, hostEnvAPI)
 	}
 	ds := deliveries()

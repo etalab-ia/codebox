@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Phase 3 qualification guest application (TEST FIXTURE ONLY).
 
-Reads a just-code-managed dotenv file with the REAL python-dotenv==1.2.4 and
+Reads a codebox-managed dotenv file with the REAL python-dotenv==1.2.4 and
 issues one HTTPS request to the test lab carrying the parsed value in a
 header. The file holds an opaque marker; the sandbox proxy — not this app —
 substitutes the real value at the network boundary, and only toward the

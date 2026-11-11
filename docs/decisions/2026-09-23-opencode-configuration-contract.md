@@ -7,7 +7,7 @@ Suivi : #72 (preuves de compatibilité), #29 (contrat de configuration)
 
 ## Contexte
 
-just-code fournit aujourd'hui la configuration OpenCode par deux mécanismes :
+codebox fournit aujourd'hui la configuration OpenCode par deux mécanismes :
 l'asset embarqué `assets/opencode-config.json` injecté comme variable
 d'environnement invité `OPENCODE_CONFIG_CONTENT`, et la config projet
 éventuellement présente dans le checkout monté. P10 doit composer une
@@ -49,9 +49,9 @@ champs qu'elle définit, les autres champs des sources plus faibles survivent
 (vérifié : `permission.bash` globale survit à un `model` posé par
 `OPENCODE_CONFIG_CONTENT` ; `small_model` globale survit à un `model` projet).
 
-Conséquence directe pour just-code : **`OPENCODE_CONFIG_CONTENT` est un
+Conséquence directe pour codebox : **`OPENCODE_CONFIG_CONTENT` est un
 mécanisme de fusion finale officiel d'OpenCode, pas un hack** — le mécanisme
-actuel de just-code est valide, mais il écrase tout champ qu'il définit, donc
+actuel de codebox est valide, mais il écrase tout champ qu'il définit, donc
 le compositeur de P10 ne doit y mettre que les champs gérés, et doit rendre
 les conflits détectables avant d'écraser un réglage utilisateur.
 
@@ -104,7 +104,7 @@ silencieusement dans la sortie fusionnée (testé : `totally_unknown_key_xyz`
 absent du `debug config`). La validation stricte documentée ne s'observe pas
 sur ce chemin en 1.18.32 : ne pas compter sur un rejet pour détecter les
 champs gérés en conflit ; la détection doit être faite par le compositeur
-just-code lui-même.
+codebox lui-même.
 
 ### Exécution de code (contrat de confiance)
 
@@ -139,25 +139,25 @@ utilisera après création/redémarrage de l'invité.
 
 ## Décisions pour P10
 
-1. **Overlay invité = contenu inline.** just-code compose sa couche gérée
+1. **Overlay invité = contenu inline.** codebox compose sa couche gérée
    dans `OPENCODE_CONFIG_CONTENT` (mécanisme de fusion finale officiel). La
    config projet et la config globale de l'utilisateur fusionnent en dessous
    et survivent champ par champ.
-2. **Détection de conflit côté just-code.** OpenCode n'expose pas de diff de
+2. **Détection de conflit côté codebox.** OpenCode n'expose pas de diff de
    fusion ; avant d'écraser un champ géré, le compositeur lit la config
    projet (JSONC parsé en lecture seule) et signale les conflits champ par
    champ à l'utilisateur.
 3. **Jamais de réécriture de JSONC utilisateur.** Les fichiers projet
    restent intouchés ; la couche gérée vit dans l'overlay inline, les
    fichiers gérés distincts (skills, agents) vivent dans des chemins que
-   just-code possède.
+   codebox possède.
 4. **Plugins projet = signal d'approbation.** La présence de
    `.opencode/plugin/*.js|ts` ou d'une entrée `plugin` dans la config projet
    est signalée dans la revue de confiance de P10 comme exécution de code
    potentielle, avant le premier démarrage sur ce projet.
-5. **Pas de parser JSONC maintenu à importer.** Les besoins de just-code
+5. **Pas de parser JSONC maintenu à importer.** Les besoins de codebox
    sont couverts par : lecture (tolérante aux commentaires, harnais de test
-   embarqué) et écriture uniquement de fichiers que just-code possède au
+   embarqué) et écriture uniquement de fichiers que codebox possède au
    format JSON strict. Aucun import de dépendance JSONC dans ce PR.
 
 ## Limites
@@ -179,7 +179,7 @@ P10 applique les décisions de ce document :
   document JSON — pas de dépendance envers l'analyse de documents JSON
   multiples par OpenCode. La fusion finale d'OpenCode (contenu inline en
   dernier) reste le mécanisme : la config projet et utilisateur survivent
-  champ par champ en dessous. La sélection suit `JUST_CODE_MODEL` >
+  champ par champ en dessous. La sélection suit `CODEBOX_MODEL` >
   manifeste > réglages utilisateur > défaut intégré ; le contenu composé est
   rafraîchi au prochain démarrage d'une instance arrêtée comme à la création.
 - **Conflits.** `DetectOverlayConflicts` compare la couche managée à la
@@ -194,7 +194,7 @@ P10 applique les décisions de ce document :
   ne quitte jamais l'état hôte. `start`/`attach`/`restart`/`recreate`
   refusent tant qu'une entrée est non approuvée — les commandes en lecture
   seule (`stop`, `check`, `logs`, `shell`) ne sont pas bloquées.
-- **Catalogue.** `just-code models` valide contre
+- **Catalogue.** `codebox models` valide contre
   `https://albert.api.etalab.gouv.fr/v1/models` (les `text-generation` et les
   modèles de chat multimodaux connus sont listables, sans les modèles OCR) ; un échec réseau retombe sur le dernier-known-good
   (`catalogue.json` en état hôte). Les limites viennent de l'entrée du

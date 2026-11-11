@@ -1,5 +1,5 @@
 {
-  "name": "just-code-phase3-guest-node-app",
+  "name": "codebox-phase3-guest-node-app",
   "private": true,
   "type": "module",
   "dependencies": {

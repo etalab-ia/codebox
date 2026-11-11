@@ -1,4 +1,4 @@
-module just-code-native-secret-kit
+module codebox-native-secret-kit
 
 go 1.25.0
 

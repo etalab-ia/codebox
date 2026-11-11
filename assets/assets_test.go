@@ -25,13 +25,13 @@ func TestManagedGuestOpenCodeUsesPrivateNPMPrefix(t *testing.T) {
 		}
 		script := string(data)
 		for _, want := range []string{
-			`npm install --global --prefix /opt/just-code/opencode "@opencode/cli@${JUST_CODE_OPENCODE_VERSION}"`,
-			`ln -sf /opt/just-code/opencode/bin/opencode /usr/local/bin/opencode`,
-			`test "$(opencode --version)" = "opencode v${JUST_CODE_OPENCODE_VERSION}"`,
+			`npm install --global --prefix /opt/codebox/opencode "@opencode/cli@${CODEBOX_OPENCODE_VERSION}"`,
+			`ln -sf /opt/codebox/opencode/bin/opencode /usr/local/bin/opencode`,
+			`test "$(opencode --version)" = "opencode v${CODEBOX_OPENCODE_VERSION}"`,
 		} {
 			// The browser script uses the same expansion without braces at this assertion.
 			if strings.Contains(want, `test `) && name == "browser-guest-prep.sh" {
-				want = `test "$(opencode --version)" = "opencode v$JUST_CODE_OPENCODE_VERSION"`
+				want = `test "$(opencode --version)" = "opencode v$CODEBOX_OPENCODE_VERSION"`
 			}
 			if !strings.Contains(script, want) {
 				t.Errorf("%s missing namespace-safe pinned v2 install: %s", name, want)

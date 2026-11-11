@@ -166,13 +166,13 @@ fi
 # pas le message de commit (instable).
 START=$(now_ms)
 "$MSB" exec "$SB_PREFIX-debian" -- sh -c \
-  'git clone --depth 1 https://github.com/etalab-ia/just-code.git /tmp/jc-remote >/dev/null 2>&1' >/dev/null 2>&1
+  'git clone --depth 1 https://github.com/etalab-ia/codebox.git /tmp/cb-remote >/dev/null 2>&1' >/dev/null 2>&1
 END=$(now_ms)
 CLONE_MS=$(( END-START ))
 CLONE_HEAD="$("$MSB" exec "$SB_PREFIX-debian" -- sh -c \
-  'git -C /tmp/jc-remote rev-parse HEAD 2>/dev/null; test -f /tmp/jc-remote/README.md && echo wt-ok' 2>/dev/null | tail -1)"
+  'git -C /tmp/cb-remote rev-parse HEAD 2>/dev/null; test -f /tmp/cb-remote/README.md && echo wt-ok' 2>/dev/null | tail -1)"
 check "T9a clone origine distante valide (${CLONE_MS}ms)" "wt-ok" "$CLONE_HEAD"
-CLONE_SIZE="$("$MSB" exec "$SB_PREFIX-debian" -- sh -c 'du -sm /tmp/jc-remote/.git | cut -f1' 2>/dev/null)"
+CLONE_SIZE="$("$MSB" exec "$SB_PREFIX-debian" -- sh -c 'du -sm /tmp/cb-remote/.git | cut -f1' 2>/dev/null)"
 ok "T9b empreinte .git clone profondeur 1 (${CLONE_SIZE} Mo)"
 
 # T10: clone depuis un vrai chemin hôte monté + worktree lié invité.
@@ -196,11 +196,11 @@ if [ "$HOST_MOUNT_OK" = "mounted" ]; then
   "$MSB" exec "$SB_PREFIX-debian" -- sh -c \
     'apt-get update >/dev/null 2>&1; apt-get install -y --no-install-recommends git ca-certificates >/dev/null 2>&1' >/dev/null 2>&1
   START=$(now_ms)
-  "$MSB" exec "$SB_PREFIX-debian" -- sh -c 'git clone /hostrepo /tmp/jc-local >/dev/null 2>&1' >/dev/null 2>&1
+  "$MSB" exec "$SB_PREFIX-debian" -- sh -c 'git clone /hostrepo /tmp/cb-local >/dev/null 2>&1' >/dev/null 2>&1
   END=$(now_ms)
   LOCAL_CLONE_MS=$(( END-START ))
   LOCAL_ORIGIN="$("$MSB" exec "$SB_PREFIX-debian" -- sh -c \
-    'git -C /tmp/jc-local remote get-url origin' 2>/dev/null)"
+    'git -C /tmp/cb-local remote get-url origin' 2>/dev/null)"
   check "T10a origine d'un clone host-path = chemin monté" "/hostrepo" "$LOCAL_ORIGIN"
   ok "T10b clone host-path (${LOCAL_CLONE_MS}ms, réécriture d'origine requise)"
 else
@@ -208,10 +208,10 @@ else
 fi
 
 "$MSB" exec "$SB_PREFIX-debian" -- sh -c \
-  'git -C /tmp/jc-local worktree add /tmp/jc-linked HEAD >/dev/null 2>&1; true' \
+  'git -C /tmp/cb-local worktree add /tmp/cb-linked HEAD >/dev/null 2>&1; true' \
   >/dev/null 2>&1 || true
 LINKED_OK="$("$MSB" exec "$SB_PREFIX-debian" -- sh -c \
-  'git -C /tmp/jc-linked status >/dev/null 2>&1 && echo linked-ok' 2>/dev/null || true)"
+  'git -C /tmp/cb-linked status >/dev/null 2>&1 && echo linked-ok' 2>/dev/null || true)"
 check "T10c worktree lié fonctionnel dans un clone invité" "linked-ok" "$LINKED_OK"
 
 echo

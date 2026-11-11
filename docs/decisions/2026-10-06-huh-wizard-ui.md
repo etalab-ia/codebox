@@ -34,6 +34,6 @@ and stdout must be terminals); tests stub it to false, the same pattern as
 - `huh` v2 becomes a direct dependency (bubbletea, lipgloss, and their
   transitive requirements follow).
 - A terminal with stdin piped but stdout attached keeps the line path, so
-  `just-code init < answers.txt` in a real terminal still works.
+  `codebox init < answers.txt` in a real terminal still works.
 - The non-TTY contract is untouched: with no terminal, `init` still fails
   naming the missing flags rather than waiting.

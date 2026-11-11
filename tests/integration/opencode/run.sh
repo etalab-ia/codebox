@@ -211,14 +211,14 @@ try {
   const skill = name => `---\nname: ${name}\ndescription: Integration discovery fixture.\n---\nIntegration skill body.\n`;
   write(path.join(project,'.opencode/skills/project-fixture/SKILL.md'),skill('project-fixture'));
   write(path.join(globalDir,'skills/global-fixture/SKILL.md'),skill('global-fixture'));
-  if (env.JUST_CODE_TEST_SKILL_ARCHIVE || env.JUST_CODE_TEST_SKILL_NAME) {
-    assert.ok(env.JUST_CODE_TEST_SKILL_ARCHIVE && /^[a-z0-9-]+$/.test(env.JUST_CODE_TEST_SKILL_NAME || ''),'P14 requires archive and valid skill name');
-    const dir = path.join(globalDir,'skills',env.JUST_CODE_TEST_SKILL_NAME); fs.mkdirSync(dir,{recursive:true});
-    const r = spawnSync('tar',['-xzf',env.JUST_CODE_TEST_SKILL_ARCHIVE,'-C',dir],{encoding:'utf8'}); assert.equal(r.status,0,r.stderr);
+  if (env.CODEBOX_TEST_SKILL_ARCHIVE || env.CODEBOX_TEST_SKILL_NAME) {
+    assert.ok(env.CODEBOX_TEST_SKILL_ARCHIVE && /^[a-z0-9-]+$/.test(env.CODEBOX_TEST_SKILL_NAME || ''),'P14 requires archive and valid skill name');
+    const dir = path.join(globalDir,'skills',env.CODEBOX_TEST_SKILL_NAME); fs.mkdirSync(dir,{recursive:true});
+    const r = spawnSync('tar',['-xzf',env.CODEBOX_TEST_SKILL_ARCHIVE,'-C',dir],{encoding:'utf8'}); assert.equal(r.status,0,r.stderr);
   }
   await test('C10 project and global skills via /api/skill (including optional P14 archive)', async () => {
     await server({}, async ({json}) => {
-      const names = ['global-fixture','project-fixture',env.JUST_CODE_TEST_SKILL_NAME].filter(Boolean);
+      const names = ['global-fixture','project-fixture',env.CODEBOX_TEST_SKILL_NAME].filter(Boolean);
       let response;
       for (let n=0;n<100;n++) {
         response = await json('/api/skill');

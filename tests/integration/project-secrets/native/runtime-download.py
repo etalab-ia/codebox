@@ -9,7 +9,7 @@ def install(directory):
     subprocess.run(['curl','--fail','--location','--silent','--show-error','--max-time','180',URL,'-o',str(archive)],check=True,timeout=190)
     if hashlib.sha256(archive.read_bytes()).hexdigest()!=SHA: raise RuntimeError('runtime archive SHA256 mismatch')
     with tarfile.open(archive) as tf:
-        # Release layout inspected by pinned just-code installer: archive has
+        # Release layout inspected by pinned codebox installer: archive has
         # top-level msb and libkrunfw.5.dylib. Extract only these regular files.
         for name in ('msb','libkrunfw.5.dylib'):
             members=[m for m in tf.getmembers() if pathlib.PurePosixPath(m.name).name==name and m.isfile()]

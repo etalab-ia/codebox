@@ -1,6 +1,6 @@
 # Pi comme second harnais (#176)
 
-Date : 2026-11-09. Issue : [#176](https://github.com/etalab-ia/just-code/issues/176).
+Date : 2026-11-09. Issue : [#176](https://github.com/etalab-ia/codebox/issues/176).
 
 ## Ce qui a changé depuis le report du 27 octobre
 
@@ -9,7 +9,7 @@ Pi 0.73.1 n'envoie jamais `tool_choice`, sans quoi l'API Albert renvoyait
 `tool_calls: []` et le modèle écrivait l'appel d'outil en texte ; Pi n'a pas de
 MCP intégré ; on attendait qu'OpenCode 2.0 soit disponible.
 
-OpenCode v2 est arrivé et just-code l'épingle déjà (`@opencode/cli@2.2.5`,
+OpenCode v2 est arrivé et codebox l'épingle déjà (`@opencode/cli@2.2.5`,
 `OpenCodeVersion`). Pi, lui, n'a **pas bougé** : la dernière version publiée de
 `@mariozechner/pi-coding-agent` reste 0.73.1 (7 mai 2026), elle ne contient
 toujours aucune occurrence de `tool_choice`, et sa documentation continue
@@ -40,7 +40,7 @@ déclaratif, aucun intermédiaire) : `gpt-oss-120b` exécute réellement l'outil
 `<function=bash>…` en texte.
 
 **Avec OpenCode lui-même** : une exécution `opencode run` configurée comme
-just-code (`qwen3-coder`, 12 outils, aucun `tool_choice`, en flux) échoue de la
+codebox (`qwen3-coder`, 12 outils, aucun `tool_choice`, en flux) échoue de la
 même façon — l'appel d'outil arrive en texte et rien ne s'exécute. Le même
 essai avec `deepseek-v4-flash` exécute l'outil.
 
@@ -52,7 +52,7 @@ y compris pour l'exécution d'outils.
 ## Ce que ce lot implémente
 
 - `harness` dans le manifeste projet (`opencode` par défaut, `pi`), relu au
-  lancement ; `JUST_CODE_HARNESS` prioritaire. Le champ change de sens pour un
+  lancement ; `CODEBOX_HARNESS` prioritaire. Le champ change de sens pour un
   binaire antérieur, donc le manifeste passe en `schemaVersion` 6 : un binaire
   qui ne connaît pas le harnais refuse le projet au lieu d'exécuter OpenCode.
 - Pi exige l'isolation complète (pas de mode serveur) : l'assistant et le

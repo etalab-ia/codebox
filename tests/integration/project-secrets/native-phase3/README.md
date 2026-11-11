@@ -1,13 +1,13 @@
-# just-code Phase 3 native qualification kit
+# codebox Phase 3 native qualification kit
 
 Qualifies the **project-secrets Phase 3 end-to-end path** of
-[`etalab-ia/just-code`](https://github.com/etalab-ia/just-code) at commit
+[`etalab-ia/codebox`](https://github.com/etalab-ia/codebox) at commit
 `f483a8003d7745dfe3cdea7363d5f366af51eebc` (branch
 `letta/project-secret-guest-files-46ccf2e8`) on **native macOS arm64** with
 the pinned **Microsandbox 0.7.6** runtime and Go SDK.
 
 Everything this kit uses is synthetic: two random canaries per run, a throwaway
-VM named `jc-p3-<random>`, a one-day temporary CA that is never installed into
+VM named `cb-p3-<random>`, a one-day temporary CA that is never installed into
 any trust store, and an own-port DNS/TLS lab. It never touches
 `~/.microsandbox`, an installed `msb`, the host trust store, host DNS, or host
 interfaces, and it refuses to start if its ports are occupied (it never kills
@@ -28,7 +28,7 @@ another owner).
    (`readGuestSecretFiles` → `PlanGuestSecretPublish` →
    `publishGuestSecretFiles`) writes both files into the guest at their
    `GuestPath` (`/workspace/.env`, `/workspace/apps/api/.env`) via temp file +
-   `mv`, over the same SDK calls just-code's `sdkMSBClient` makes
+   `mv`, over the same SDK calls codebox's `sdkMSBClient` makes
    (`Shell` / `FS().Write`). The probe asserts byte-exact content, marker-only
    values, no canary on disk, and no leftover temp files.
 4. **Real guest apps, real loaders, real substitution.** Inside the guest,
@@ -42,7 +42,7 @@ another owner).
    values are all distinct and correctly paired; a request to a destination no
    binding approved (`evil.test`) fails closed with no lab record.
 6. **Unit-level safety (cloud-runnable, `go test`).**
-   - A target file just-code did not write is refused by
+   - A target file codebox did not write is refused by
      `PlanGuestSecretPublish` (conflict, no write) and
      `publishGuestSecretFiles` refuses to apply the plan — the foreign file
      survives.
@@ -55,20 +55,20 @@ another owner).
 
 ## Vendoring — what "real code" means here
 
-Importing `internal/justcode` directly is not possible from a standalone kit
+Importing `internal/codebox` directly is not possible from a standalone kit
 (Go's `internal/` rule), and the Phase 3 functions are unexported. So the kit
 carries the two source files **verbatim**:
 
 - `jcvendor/project_secret_guest_files.go`
 - `jcvendor/project_secret_bindings.go`
 
-Each is byte-identical to `internal/justcode/<name>` at the pinned commit
-except the first line (`package justcode` → `package jcvendor`).
+Each is byte-identical to `internal/codebox/<name>` at the pinned commit
+except the first line (`package codebox` → `package jcvendor`).
 `verify_vendored.py` re-fetches both upstream files from GitHub at the pinned
 commit and **aborts the run on any drift**; it is a hard preflight in
 `run.py`.
 
-The vendored files reference symbols from elsewhere in just-code. Those are
+The vendored files reference symbols from elsewhere in codebox. Those are
 supplied by `jcvendor/support.go`, whose header documents every entry. In
 short:
 
@@ -103,7 +103,7 @@ lab.py                  own-port DNS/TLS lab; persists SHA256 digests only
 test_lab.py             lab DNS unit tests (cloud-runnable)
 main.go                 native probe (VM lifecycle, publish, guest apps, assertions)
 main_test.go            probe unit tests (cloud-runnable)
-jcvendor/               vendored just-code sources + support.go + unit tests
+jcvendor/               vendored codebox sources + support.go + unit tests
 guest/node-app/         Node fixture app + pinned package.json/package-lock.json
 guest/python-app/       Python fixture app + pinned requirements.txt
 go.mod / go.sum         module pinned to microsandbox SDK v0.7.6
@@ -129,7 +129,7 @@ go.mod / go.sum         module pinned to microsandbox SDK v0.7.6
 ## Run
 
 ```sh
-cd just-code-native-phase3-kit
+cd codebox-native-phase3-kit
 go test ./...                       # unit-level qualification (runs anywhere)
 python3 test_lab.py                 # lab DNS unit tests (runs anywhere)
 python3 verify_vendored.py          # vendored sources match the pinned commit
@@ -252,7 +252,7 @@ transcripts themselves do not name one (see #349).
 Everything is bounded and self-cleaning: the runner has a 15-minute wall
 clock, the probe a 14-minute context, the VM a 12-minute `MaxDuration`, and
 each guest call its own timeout. On completion, failure, or SIGINT/SIGTERM
-the runner stops the lab, removes only its own `jc-p3-*` VM (identified by a
+the runner stops the lab, removes only its own `cb-p3-*` VM (identified by a
 name file in the run directory; `--cleanup` refuses any other name), and
 deletes the run directory (`/tmp/jcp3-*`). If the machine died mid-run, a
 later run's leftover VM can be removed with
@@ -264,7 +264,7 @@ later run's leftover VM can be removed with
   is no Linux or Intel qualification here.
 - **Guest apps are fixtures.** They are minimal real apps (one file, pinned
   loaders, one request) that prove the marker→value path; they are not
-  just-code's own guest tooling. The dotenv files, loaders and network path
+  codebox's own guest tooling. The dotenv files, loaders and network path
   are real; the "app" is a stand-in for whatever the project runs.
 - **Not covered:** installing the temporary CA into the *guest* trust store
   (the fixtures disable client verification, like the Phase 0 guest, because

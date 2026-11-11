@@ -1,4 +1,4 @@
-// Package assets holds guest resources embedded into the just-code binary.
+// Package assets holds guest resources embedded into the codebox binary.
 package assets
 
 import "embed"

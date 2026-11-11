@@ -1,14 +1,14 @@
 #!/bin/sh
 set -eu
 
-REPOSITORY='etalab-ia/just-code'
+REPOSITORY='etalab-ia/codebox'
 RELEASE_PAGE="https://github.com/$REPOSITORY/releases/latest"
 RELEASE_PREFIX="https://github.com/$REPOSITORY/releases/tag/"
 DOWNLOAD_PREFIX="https://github.com/$REPOSITORY/releases/download"
 SUPPORTED_HOSTS='macOS Apple Silicon, Linux arm64 et Linux x64 (Windows : utilisez install.ps1)'
 
 die() {
-	printf 'just-code : %s\n' "$1" >&2
+	printf 'codebox : %s\n' "$1" >&2
 	exit 1
 }
 
@@ -16,27 +16,27 @@ system=$(uname -s) || die 'système d'"'"'exploitation indétectable'
 machine=$(uname -m) || die 'architecture machine indétectable'
 case "$system:$machine" in
 	Darwin:arm64|Darwin:aarch64)
-		asset='just-code-darwin-arm64'
+		asset='codebox-darwin-arm64'
 		platform='macOS, Apple Silicon'
 		;;
 	Darwin:*)
-		die "just-code ne fonctionne pas sur ce poste (macOS Intel).
+		die "codebox ne fonctionne pas sur ce poste (macOS Intel).
 Postes pris en charge : $SUPPORTED_HOSTS."
 		;;
 	Linux:x86_64|Linux:amd64)
-		asset='just-code-linux-x64'
+		asset='codebox-linux-x64'
 		platform='Linux x64'
 		;;
 	Linux:arm64|Linux:aarch64)
-		asset='just-code-linux-arm64'
+		asset='codebox-linux-arm64'
 		platform='Linux arm64'
 		;;
 	Linux:*)
-		die "just-code ne fonctionne pas sur ce poste ($system/$machine).
+		die "codebox ne fonctionne pas sur ce poste ($system/$machine).
 Postes pris en charge : $SUPPORTED_HOSTS."
 		;;
 	*)
-		die "just-code ne fonctionne pas sur ce poste ($system).
+		die "codebox ne fonctionne pas sur ce poste ($system).
 Postes pris en charge : $SUPPORTED_HOSTS."
 		;;
 esac
@@ -50,7 +50,7 @@ install_dir="$HOME/.local/bin"
 # metacharacters, which an interpolated absolute path would not.
 install_dir_rel="${install_dir#"$HOME"/}"
 mkdir -p "$install_dir" || die "création impossible de $install_dir ; choisissez un répertoire accessible en écriture."
-tmp_dir=$(mktemp -d "$install_dir/.just-code-install.XXXXXX") || die "création impossible d'un répertoire temporaire sous $install_dir"
+tmp_dir=$(mktemp -d "$install_dir/.codebox-install.XXXXXX") || die "création impossible d'un répertoire temporaire sous $install_dir"
 trap 'rm -rf "$tmp_dir"' 0
 # Une interruption (Ctrl-C) doit passer par le même bloc de reprise qu'un échec
 # de l'assistant : sortir directement sur le signal priverait l'utilisateur de
@@ -58,15 +58,15 @@ trap 'rm -rf "$tmp_dir"' 0
 interrupted=0
 trap 'interrupted=1' HUP INT TERM
 
-target="$install_dir/just-code"
-backup="$install_dir/just-code.previous"
+target="$install_dir/codebox"
+backup="$install_dir/codebox.previous"
 if [ -L "$target" ]; then
 	die "$target est un lien symbolique ; remplacement refusé."
 fi
 if [ -e "$target" ] && [ ! -f "$target" ]; then
 	die "$target n'est pas un fichier ordinaire ; remplacement refusé."
 fi
-# Le même garde-fou pour le retour arrière : un `just-code.previous` qui serait
+# Le même garde-fou pour le retour arrière : un `codebox.previous` qui serait
 # un répertoire ferait déplacer la sauvegarde À L'INTÉRIEUR de lui, et le
 # binaire précédent deviendrait introuvable sans aucun signalement.
 if [ -e "$backup" ] && [ ! -f "$backup" ]; then
@@ -79,11 +79,11 @@ case "$release_url" in
 	"$RELEASE_PREFIX"*) tag=${release_url#"$RELEASE_PREFIX"} ;;
 	*) die "URL de release inattendue : $release_url" ;;
 esac
-printf '%s\n' "$tag" | grep -Eq '^just-code-v?[0-9]+\.[0-9]+\.[0-9]+([.-][A-Za-z0-9.-]+)?$' || die "étiquette de release inattendue : $tag"
-version=${tag#just-code-}
+printf '%s\n' "$tag" | grep -Eq '^codebox-v?[0-9]+\.[0-9]+\.[0-9]+([.-][A-Za-z0-9.-]+)?$' || die "étiquette de release inattendue : $tag"
+version=${tag#codebox-}
 version=${version#v}
 
-printf 'Installation de just-code\n\n'
+printf 'Installation de codebox\n\n'
 
 download() {
 	url=$1
@@ -125,18 +125,18 @@ fi
 actual=$(printf '%s\n' "$hash_output" | awk '{print $1}' | tr '[:upper:]' '[:lower:]')
 expected=$(printf '%s' "$expected" | tr '[:upper:]' '[:lower:]')
 if [ "$actual" != "$expected" ]; then
-	printf 'just-code : somme de contrôle non concordante pour %s ; installation existante inchangée.\n' "$asset" >&2
+	printf 'codebox : somme de contrôle non concordante pour %s ; installation existante inchangée.\n' "$asset" >&2
 	exit 1
 fi
 printf '  ✓ Intégrité vérifiée\n'
 
 chmod 0755 "$tmp_dir/$asset" || die 'impossible de rendre le binaire vérifié exécutable'
 if [ -e "$target" ]; then
-	cp -p "$target" "$tmp_dir/just-code.previous" || die 'impossible de conserver le binaire actuel pour un retour arrière'
-	mv -f "$tmp_dir/just-code.previous" "$backup" || die 'impossible d'"'"'enregistrer le binaire de retour arrière ; installation inchangée'
+	cp -p "$target" "$tmp_dir/codebox.previous" || die 'impossible de conserver le binaire actuel pour un retour arrière'
+	mv -f "$tmp_dir/codebox.previous" "$backup" || die 'impossible d'"'"'enregistrer le binaire de retour arrière ; installation inchangée'
 fi
 mv -f "$tmp_dir/$asset" "$target" || die "impossible de remplacer $target ; le binaire précédent reste disponible"
-printf '  ✓ Installé dans ~/.local/bin/just-code\n\n'
+printf '  ✓ Installé dans ~/.local/bin/codebox\n\n'
 
 # PATH avant le setup : sinon le message de fin de l'assistant renvoie vers une
 # commande introuvable dans un nouveau terminal.
@@ -213,7 +213,7 @@ case ":${PATH:-}:" in
 			can_prompt=0
 		fi
 		if [ "$can_prompt" -eq 1 ]; then
-			printf 'Le dossier ~/.local/bin n'"'"'est pas dans votre PATH : la commande just-code\n'
+			printf 'Le dossier ~/.local/bin n'"'"'est pas dans votre PATH : la commande codebox\n'
 			printf 'ne serait pas trouvée dans un nouveau terminal.\n'
 			printf 'Ajouter la ligne suivante à %s ? (O/n)\n' "$path_file"
 			printf '  %s\n\n' "$path_line"
@@ -232,7 +232,7 @@ case ":${PATH:-}:" in
 			fi
 			case "$answer" in
 				''|o|O|y|Y)
-					# Comparer la ligne EXACTE, pas le mot « just-code » : un alias
+					# Comparer la ligne EXACTE, pas le mot « codebox » : un alias
 					# ou un commentaire qui le mentionne donnerait un faux positif
 					# et la ligne ne serait jamais ajoutée.
 					if [ -f "$path_target" ] && grep -qxF "$path_line" "$path_target" 2>/dev/null; then
@@ -248,7 +248,7 @@ case ":${PATH:-}:" in
 						# le message « ligne non ajoutée », qui donne la commande
 						# à exécuter dans la session courante.
 						if {
-							printf '\n# just-code\n'
+							printf '\n# codebox\n'
 							printf '%s\n' "$path_line"
 						} >> "$path_target" 2>/dev/null; then
 							printf 'La ligne a été ajoutée à %s.\n\n' "$path_file"
@@ -263,7 +263,7 @@ case ":${PATH:-}:" in
 					;;
 			esac
 		else
-			printf 'Le dossier ~/.local/bin n'"'"'est pas dans votre PATH : la commande just-code\n'
+			printf 'Le dossier ~/.local/bin n'"'"'est pas dans votre PATH : la commande codebox\n'
 			printf 'ne serait pas trouvée dans un nouveau terminal.\n'
 			printf 'Pour ce terminal, lancez :\n  %s\n\n' "$path_line"
 		fi
@@ -280,7 +280,7 @@ else
 	"$target" setup || setup_status=$?
 fi
 if [ "$setup_status" -ne 0 ]; then
-	printf 'just-code est installé, mais la configuration n'"'"'est pas terminée.\n' >&2
+	printf 'codebox est installé, mais la configuration n'"'"'est pas terminée.\n' >&2
 	if [ "$interrupted" -eq 1 ]; then
 		printf 'La configuration a été interrompue.\n' >&2
 	fi
@@ -292,10 +292,10 @@ if [ "$setup_status" -ne 0 ]; then
 	# commande collée. "$HOME" entre guillemets est sûr et se développe à
 	# l'exécution.
 	# shellcheck disable=SC2016  # literal "$HOME" is what the user should copy
-	printf 'Reprenez-la quand vous voulez : "$HOME/%s/just-code" setup\n' "$install_dir_rel" >&2
+	printf 'Reprenez-la quand vous voulez : "$HOME/%s/codebox" setup\n' "$install_dir_rel" >&2
 	if [ -f "$backup" ]; then
 		# shellcheck disable=SC2016
-		printf 'Pour revenir à la version précédente : mv "$HOME/%s/just-code.previous" "$HOME/%s/just-code"\n' "$install_dir_rel" "$install_dir_rel" >&2
+		printf 'Pour revenir à la version précédente : mv "$HOME/%s/codebox.previous" "$HOME/%s/codebox"\n' "$install_dir_rel" "$install_dir_rel" >&2
 	fi
 	exit "$setup_status"
 fi

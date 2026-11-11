@@ -12,7 +12,7 @@ func TestMarkersAndDistinctSharedDestination(t *testing.T) {
 		t.Fatal("markers must differ")
 	}
 	for _, m := range []string{markerA, markerB, markerC} {
-		if strings.Contains(m, "$") || !strings.HasPrefix(m, "__JUST_CODE_SECRET_") || !strings.HasSuffix(m, "__") {
+		if strings.Contains(m, "$") || !strings.HasPrefix(m, "__CODEBOX_SECRET_") || !strings.HasSuffix(m, "__") {
 			t.Fatal("invalid opaque marker")
 		}
 	}

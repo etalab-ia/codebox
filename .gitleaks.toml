@@ -1,4 +1,4 @@
-title = "just-code Gitleaks configuration"
+title = "codebox Gitleaks configuration"
 
 [extend]
 useDefault = true

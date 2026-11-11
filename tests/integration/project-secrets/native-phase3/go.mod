@@ -1,4 +1,4 @@
-module just-code-native-phase3-kit
+module codebox-native-phase3-kit
 
 go 1.25.0
 

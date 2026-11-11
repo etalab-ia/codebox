@@ -2,7 +2,7 @@
 
 Ce document distingue deux choses qu'il est tentant de confondre :
 
-- **pris en charge** : le runtime existe pour cette plateforme, just-code sait le
+- **pris en charge** : le runtime existe pour cette plateforme, codebox sait le
   télécharger et le vérifier, et la compilation comme les tests passent en
   intégration continue ;
 - **qualifié** : une microVM a réellement démarré sur cette plateforme, avec une
@@ -27,18 +27,18 @@ tâches.
 
 macOS Intel n'est pas une plateforme prise en charge, et ne doit pas être
 annoncée comme telle : la version épinglée du runtime ne publie aucun artefact
-`darwin-x86_64`, ni binaire `msb`, ni bibliothèque FFI `darwin-amd64`. just-code
+`darwin-x86_64`, ni binaire `msb`, ni bibliothèque FFI `darwin-amd64`. codebox
 refuse donc explicitement cette combinaison plutôt que d'échouer plus tard, et
 un test le vérifie (`msbRuntimeArtifactFor`).
 
 Les cinq combinaisons prises en charge ont une empreinte SHA256 épinglée dans
-`internal/justcode/msb_runtime_install.go` : le runtime téléchargé est vérifié
+`internal/codebox/msb_runtime_install.go` : le runtime téléchargé est vérifié
 avant d'être extrait, et une version publiée différente n'est pas adoptée
 silencieusement.
 
 Le 2026-10-28, un spike sur un hôte dédié Scaleway Elastic Metal sous Windows
 Server 2025 amd64 a démarré une microVM Alpine réelle via WHP avec le runtime
-0.7.11 vérifié. Le parcours just-code a aussi créé le workspace invité scellé,
+0.7.11 vérifié. Le parcours codebox a aussi créé le workspace invité scellé,
 exclu le fichier dotenv factice et conservé les fichiers après arrêt/redémarrage.
 Ce spike n'est **pas** une qualification complète de #77 : l'édition testée
 diffère des cibles Windows 10/11 du protocole actuel, et le lancement OpenCode
@@ -84,7 +84,7 @@ sonde de disponibilité est en lecture seule et déclare le magasin
 ainsi n'est pas une régression du produit mais il n'est pas une preuve non
 plus : seule une exécution passante sur un magasin réellement utilisable
 qualifie la ligne. Sur un poste avec une session ouverte, la commande de
-preuve reste `go test ./internal/justcode/ -run TestRealStore -v` ; un test
+preuve reste `go test ./internal/codebox/ -run TestRealStore -v` ; un test
 ignoré n'est pas une preuve.
 
 La qualification microVM de Linux arm64 a été obtenue sur un hôte KVM réel

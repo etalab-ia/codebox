@@ -140,7 +140,7 @@ binding names (`ALBERT_API_KEY`, `GITHUB_TOKEN`, `CONTEXT7_API_KEY`) are
 reserved: two registrations for one variable would shadow a system credential.
 
 The guest sees an opaque dollar-free marker
-(`__JUST_CODE_SECRET_<digest>__`), not the proxy default `$MSB_<VAR>`. This is
+(`__CODEBOX_SECRET_<digest>__`), not the proxy default `$MSB_<VAR>`. This is
 not cosmetic. Real-loader tests show the default form is erased by ordinary
 application loaders — Node `dotenv-expand` removes an undefined `$MSB_...`
 reference in every quote mode tested, Go `godotenv` removes it unquoted, and
@@ -152,7 +152,7 @@ share a destination, and is denied toward an unauthorized host.
 The two failure modes are deliberately fatal rather than degrading:
 
 - an approved binding whose imported entry is gone, or whose profile is not
-  active, blocks the start (the user asked for a delivery just-code cannot
+  active, blocks the start (the user asked for a delivery codebox cannot
   perform);
 - an unreadable or locked credential store blocks it too. Dropping the binding
   would make the omission the desired set, and the runtime's secret
@@ -191,7 +191,7 @@ expands the braced form. Plain Node `dotenv` 16.4.7 preserves the reference.
 
 Dollar-free opaque markers survive every quote/interpolation mode exercised by
 these tests. Phase 2 should therefore use a stable marker such as
-`__JUST_CODE_SECRET_<opaque-id>__`, not the default dollar-form placeholder.
+`__CODEBOX_SECRET_<opaque-id>__`, not the default dollar-form placeholder.
 The native canary/proxy tests now pass as well; no new production binding policy
 is enabled by the test harness. See the reproducible
 [loader matrix](../../tests/integration/project-secrets/README.md) and

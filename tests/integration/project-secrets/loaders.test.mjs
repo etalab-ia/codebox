@@ -6,8 +6,8 @@ import { expand } from "dotenv-expand";
 // These are proposed guest-visible markers, not credential values. Exercise
 // the real loaders rather than mocking their interpolation behavior.
 const markers = [
-  "__JUST_CODE_SECRET_COMPONENT_A_API_KEY__",
-  "__JUST_CODE_SECRET_COMPONENT_B_API_KEY__",
+  "__CODEBOX_SECRET_COMPONENT_A_API_KEY__",
+  "__CODEBOX_SECRET_COMPONENT_B_API_KEY__",
 ];
 
 for (const marker of markers) {
@@ -37,7 +37,7 @@ test("same variable in two components retains distinct markers", () => {
 
 test("default dollar placeholders are not safe through interpolation", () => {
   for (const quote of ["", "'", '"']) {
-    const placeholder = "$MSB_JUST_CODE_SECRET_A";
+    const placeholder = "$MSB_CODEBOX_SECRET_A";
     const parsed = dotenv.parse(`API_KEY=${quote}${placeholder}${quote}\n`);
     assert.equal(parsed.API_KEY, placeholder);
     const result = expand({ parsed, processEnv: {} });
@@ -47,7 +47,7 @@ test("default dollar placeholders are not safe through interpolation", () => {
 
 // The guest-readable delivery encoding: a value is written as a single-quoted
 // literal, and these are the value classes that form must carry exactly. The
-// Go side (internal/justcode/project_secret_encoding_loaders_test.go) proves
+// Go side (internal/codebox/project_secret_encoding_loaders_test.go) proves
 // the encoder emits this form; these tests prove the loaders read it back.
 const guestReadableValues = {
   PLAIN: "plainvalue",
@@ -92,7 +92,7 @@ test("single quotes cannot carry an apostrophe, and a dollar is loader-dependent
   // takes the last quote on the line), but godotenv refuses the whole file and
   // python-dotenv misparses it, so the quoted form cannot be emitted. That is
   // why the encoder routes a value holding an apostrophe to the raw form; see
-  // dotenvQuotedObstacle in internal/justcode/project_secret_guest_files.go.
+  // dotenvQuotedObstacle in internal/codebox/project_secret_guest_files.go.
   assert.equal(dotenv.parse(`K='${apostrophe}'\n`).K, apostrophe);
 
   // The dollar case is a genuine conflict between loaders rather than a
@@ -271,7 +271,7 @@ test("single-quoted interior quotes and backticks round-trip through dotenv", ()
 // is the evidence behind the refusal: Node strips a wrapping backtick pair from
 // an unquoted value, while python-dotenv and godotenv keep it, so raw is wrong
 // for Node and quoted is wrong for Python; see
-// internal/justcode/project_secret_encoding_loaders_test.go.
+// internal/codebox/project_secret_encoding_loaders_test.go.
 test("Node strips a wrapping backtick pair the encoder refuses", () => {
   assert.equal(dotenv.parse("K=`a'b`\n").K, "a'b");
   assert.equal(dotenv.parse("K=`a\\\\b`\n").K, "a\\\\b");
@@ -302,7 +302,7 @@ test("Node trims a raw edge but keeps an interior whitespace character", () => {
 // while `1000.0.0` imports `child_process` (`execSync`) and returns the command
 // output in all three, so a project `.env` becomes code execution for any
 // application that has adopted an expanding loader. That is why the
-// `1000.0.0` major is refused. Just-code's own generated guest files cannot
+// `1000.0.0` major is refused. Codebox's own generated guest files cannot
 // carry the syntax anyway — `dotenvLiteral` refuses `$` in the quoted and the
 // unquoted form alike — so these tests pin the dependency property, not a
 // delivery path. The marker tests above cannot see the difference, because a
