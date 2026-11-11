@@ -14,7 +14,11 @@ func TestFixtureDerivationsAndDestinations(t *testing.T) {
 		t.Fatal("the same variable name in two components must still yield distinct markers")
 	}
 	for _, m := range []string{markerRoot, markerAPI} {
-		if strings.Contains(m, "$") || !strings.HasPrefix(m, "__CODEBOX_SECRET_") || !strings.HasSuffix(m, "__") {
+		// The vendored renderer is pinned byte-identical to the pre-rename
+		// commit f483a800 (verify_vendored.py), so its markers keep the
+		// historical __JUST_CODE_SECRET_ prefix. The shape, not the product
+		// name, is what this fixture asserts.
+		if strings.Contains(m, "$") || !strings.HasPrefix(m, "__JUST_CODE_SECRET_") || !strings.HasSuffix(m, "__") {
 			t.Fatalf("marker %q is not an opaque dollar-free placeholder", m)
 		}
 	}

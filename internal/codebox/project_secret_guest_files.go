@@ -39,7 +39,7 @@ func init() {
 // guestSecretHeaderPrefix marks a file codebox owns. The second line names
 // the component so a human reading the guest can tell where it came from.
 //
-// The ownership check compares the digest of these 32 bytes plus the newline
+// The ownership check compares the digest of these 30 bytes plus the newline
 // (guestSecretHeaderLineDigest), so changing this constant silently disables
 // the check unless its digest is updated with it. assertGuestSecretHeaderDigest
 // fails loudly on a mismatch, and a test pins it.
@@ -47,7 +47,7 @@ const guestSecretHeaderPrefix = "# codebox managed: do not edit"
 
 // guestSecretHeaderLineBytes is the byte length the ownership check reads: the
 // header plus the newline that ends its line.
-const guestSecretHeaderLineBytes = 33
+const guestSecretHeaderLineBytes = 31
 
 // assertGuestSecretHeaderDigest is evaluated at startup and panics if the
 // header constant and the byte length disagree with the pinned digest. Without
@@ -678,7 +678,7 @@ const guestSecretDigestToken = "codebox-digest-ok"
 // even one byte anywhere, including a byte after the marker.
 //
 // The value is a digest of a public constant, not of any secret.
-const guestSecretHeaderLineDigest = "bc7625348f136cc1f93c91b6c14fc89fd57550b5a85278b2216a01a201075f7b"
+const guestSecretHeaderLineDigest = "84c8aa89b837ae7ba21441e923ba4f4e7aa27c2f45fc4b47e8aa1199b237db31"
 
 // observeGuestSecretFile reports the three facts a publish decision needs about
 // one guest path, without reading the file's content.
