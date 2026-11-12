@@ -3,6 +3,7 @@ package codebox
 import (
 	"context"
 	"encoding/json"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -23,7 +24,12 @@ func TestBrowserMCPOverlayUsesPinnedGuestLocalCommands(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := map[string][]string{
-		"chrome-devtools": {"chrome-devtools-mcp", "--browserUrl", "http://127.0.0.1:9222"},
+		"chrome-devtools": {
+			"chrome-devtools-mcp",
+			"--browserUrl", "http://127.0.0.1:9222",
+			"--no-usage-statistics",
+			"--no-performance-crux",
+		},
 	}
 	for name, command := range want {
 		got, ok := config.MCP[name]
@@ -77,6 +83,47 @@ func TestBrowserMCPsHavePinnedPackageVersions(t *testing.T) {
 		if connector.Package == "" || connector.Version == "" || strings.Contains(connector.Version, "latest") {
 			t.Errorf("browser MCP is not version-pinned: %+v", connector)
 		}
+	}
+}
+
+// The browser MCP server ships with Google usage statistics and CrUX trace-URL
+// reporting enabled by default, and checks the npm registry for updates on
+// start. Each opt-out is asserted separately so dropping one fails for its own
+// reason rather than under a shared "command changed" message (#370).
+func TestBrowserMCPDisablesUpstreamTelemetryAndUpdateChecks(t *testing.T) {
+	content, err := ComposeConfigContent(ManagedOverlay{MCPConnectors: []string{"chrome-devtools"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var config struct {
+		MCP map[string]struct {
+			Command []string `json:"command"`
+		} `json:"mcp"`
+	}
+	if err := json.Unmarshal([]byte(content), &config); err != nil {
+		t.Fatal(err)
+	}
+	command := config.MCP["chrome-devtools"].Command
+	if len(command) == 0 {
+		t.Fatal("chrome-devtools has no composed command")
+	}
+	for _, flag := range []string{"--no-usage-statistics", "--no-performance-crux"} {
+		if !slices.Contains(command, flag) {
+			t.Errorf("chrome-devtools command %v must carry %s: upstream enables it by default", command, flag)
+		}
+	}
+
+	m := newTestMicrosandbox(t, &fakeMSBClient{})
+	m.OpenCodeOverlay.MCPConnectors = []string{"chrome-devtools"}
+	spec := m.sandboxSpec(nil)
+	if spec.Env[msbBrowserMCPNoUpdateChecksEnv] != "1" {
+		t.Errorf("guest env %s = %q, want \"1\"", msbBrowserMCPNoUpdateChecksEnv, spec.Env[msbBrowserMCPNoUpdateChecksEnv])
+	}
+	// A guest without the browser tool must not carry the browser env at all,
+	// so the opt-out cannot silently become an unconditional guest setting.
+	plain := newTestMicrosandbox(t, &fakeMSBClient{})
+	if _, present := plain.sandboxSpec(nil).Env[msbBrowserMCPNoUpdateChecksEnv]; present {
+		t.Error("a project without the browser MCP must not receive the browser telemetry env")
 	}
 }
 

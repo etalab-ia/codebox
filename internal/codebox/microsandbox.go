@@ -70,6 +70,10 @@ const (
 	msbBrowserMCPBinariesEnv    = "CODEBOX_BROWSER_MCP_BINARIES"
 	msbBrowserMCPFingerprintEnv = "CODEBOX_BROWSER_MCP_FINGERPRINT"
 
+	// Upstream's own variable name, not a CODEBOX_ one: the MCP server reads
+	// it directly to skip its npm registry update check (#370).
+	msbBrowserMCPNoUpdateChecksEnv = "CHROME_DEVTOOLS_MCP_NO_UPDATE_CHECKS"
+
 	// The probe's exit codes: ready, preparing, or idle with nothing running.
 	msbPrepareReady    = 0
 	msbPrepareProgress = 2
