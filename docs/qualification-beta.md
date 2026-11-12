@@ -243,6 +243,75 @@ Un magasin absent ou non fonctionnel donne « non qualifié », jamais « réuss
 les tests du magasin réel sont conditionnés à sa disponibilité et s'ignorent
 ailleurs, y compris dans les conteneurs d'intégration continue.
 
+### Credential Manager Windows : protocole avec le binaire installé
+
+Ce protocole qualifie le vrai magasin Windows sans toolchain Go : les
+commandes `codebox auth` appellent le même chemin que les tests
+`TestRealStore…` (PowerShell, P/Invoke `advapi32` : `CredWriteW`,
+`CredReadW`, `CredDeleteW` sur la cible `codebox/<type>`). Il répond à
+l'incident #293 : sur Windows Server 2025, une lecture a échoué
+(`credential not found`) immédiatement après une écriture acceptée, une
+seule fois sur deux exécutions. La cause n'est pas établie ; ce protocole
+est l'instrument pour la trancher sur des postes Windows 10/11 réels.
+
+Prérequis : le binaire `codebox` installé, PowerShell, un poste Windows 10
+ou 11 (amd64 ou arm64 natif). Aucune microVM n'est nécessaire : le magasin
+vit sur l'hôte.
+
+**Valeur de test uniquement.** Utiliser un marqueur synthétique, par
+exemple `qa-wincred-marker-1`. Ne jamais utiliser une vraie clé : les
+sorties conservées ne doivent contenir aucun secret. Si une vraie clé
+Albert est déjà stockée, ne pas lancer ce protocole sur ce poste : il
+écrase et supprime l'entrée `albert`.
+
+1. Noter avant de commencer : édition et version de Windows, architecture
+   (`$env:PROCESSOR_ARCHITECTURE`), type de session (console interactive,
+   RDP ou SSH), session élevée ou non, version du CLI (`codebox version`).
+2. État initial : `codebox auth status`. Noter la ligne `Native store:` et
+   l'état du magasin. Un état `denied` ou `unavailable` arrête le
+   protocole : c'est un échec de préparation, pas un résultat sur le
+   cycle écriture/lecture.
+3. Écriture : `"qa-wincred-marker-1" | codebox auth add albert --stdin`.
+   Attendu : message `Stored credential "albert" in the credential-manager
+   store`, code de sortie 0. Noter l'horodatage.
+4. Relecture immédiate : `codebox auth status`. Attendu : la ligne
+   `albert: stored` sous `Native store:`. Noter l'horodatage et le délai
+   écoulé depuis l'écriture.
+5. Suppression : `codebox auth remove albert`. Attendu : `Removed
+   credential "albert" from the credential-manager store`. Puis
+   `codebox auth status` doit montrer `albert: not stored`.
+6. Répéter les étapes 3 à 5 une seconde fois, consécutivement, avec le
+   marqueur `qa-wincred-marker-2`. Les deux cycles complets doivent
+   passer dans la même session.
+7. Valeur absente de `argv` : les commandes ci-dessus passent la valeur
+   par stdin, jamais en argument. Vérifier qu'aucune valeur n'apparaît
+   dans l'historique PowerShell ni dans les sorties conservées.
+
+**Signatures d'échec à distinguer** (les noter telles quelles, avec
+l'horodatage) :
+
+- `albert: not stored` immédiatement après une écriture acceptée : c'est
+  la signature #293. La lecture a répondu « entrée absente » juste après
+  une écriture acceptée ; l'adaptateur ne distingue pas ce cas d'une
+  entrée réellement absente (le script mappe ERROR_NOT_FOUND, code Win32
+  1168, vers cette réponse). Dans les tests Go du spike, la même
+  condition apparaissait sous la forme `Get: credential not found`.
+  Noter le délai entre les deux commandes et le type de session.
+- `denied: exit 2` : le magasin refuse l'opération. C'est un refus
+  d'accès, pas une entrée absente ; ne pas le confondre avec la signature
+  ci-dessus.
+- `unreadable (...)` : toute autre erreur de lecture. Conserver le
+  message complet.
+- Un test ignoré ou une sonde sans réponse n'est jamais un passage.
+
+**Règle de qualification** : la ligne Windows de la matrice ci-dessus
+n'est marquée qualifiée qu'après deux cycles complets consécutifs
+passants, sur une édition Windows 10/11, avec les horodatages et le type
+de session consignés. Un résultat sur Windows Server ne qualifie pas les
+cibles Windows 10/11 ; il est consigné séparément. Reporter le résultat
+réel dans `docs/plateformes.md` et joindre les sorties (sans valeur) au
+ticket de qualification.
+
 ## Interprétation
 
 - CI verte prouve les cas exécutés par ses jobs, pas la disponibilité d'un
