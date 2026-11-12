@@ -50,7 +50,10 @@ import (
 
 const source = "f483a8003d7745dfe3cdea7363d5f366af51eebc"
 const archiveSHA = "a4f1722fee6460d4e2813e62b60dae4c092021d8120b7aaa9c2f4b5679d97d89"
-const kitRev = "p3v2"
+
+// p3v3 adds manifest_sha256 to the META line (#349); p3v2 transcripts remain
+// valid historical artifacts of the format in force when they were recorded.
+const kitRev = "p3v3"
 
 // The fixture project: one variable name, API_KEY, defined in two dotenv
 // components. The synthetic namespace scopes the derived markers; no real
@@ -104,6 +107,35 @@ func deliveries() []jcvendor.ProjectSecretDelivery {
 //
 //go:embed guest
 var guestFixtures embed.FS
+
+// guestManifestPaths are the three files that decide which loader set a run
+// installs inside the guest. The META line hashes their embedded bytes so a
+// transcript is bound to the pins it actually qualified (#349): `source=` is
+// the vendoring pin verify_vendored.py checks, a different fact that stays
+// constant while these manifests move.
+var guestManifestPaths = []string{
+	"guest/node-app/package.json",
+	"guest/node-app/package-lock.json",
+	"guest/python-app/requirements.txt",
+}
+
+// manifestSHA256 hashes the guest manifests in a fixed order, each as its
+// path, a NUL separator and the raw embedded bytes. It needs no git and no
+// network: the bytes are the ones the probe pushes into the guest.
+func manifestSHA256() (string, error) {
+	h := sha256.New()
+	for _, path := range guestManifestPaths {
+		data, err := guestFixtures.ReadFile(path)
+		if err != nil {
+			return "", err
+		}
+		h.Write([]byte(path))
+		h.Write([]byte{0})
+		h.Write(data)
+		h.Write([]byte{0})
+	}
+	return hex.EncodeToString(h.Sum(nil)), nil
+}
 
 var failed bool
 var sensitive []string
@@ -276,7 +308,16 @@ func run() {
 		result("native-darwin-arm64-required", false)
 		return
 	}
-	fmt.Printf("META kit=%s source=%s sdk=0.7.6 runtime=0.7.6 archive_sha256=%s go=%s\n", kitRev, source, archiveSHA, runtime.Version())
+	manifests, e := manifestSHA256()
+	if e != nil {
+		// Without the manifest hash the transcript could not be told apart
+		// from a run against a different loader set (#349). Failing here is
+		// the honest outcome; run.py also fails a missing META line.
+		diagnostic("manifest-hash", e, "")
+		result("manifest-hash", false)
+		return
+	}
+	fmt.Printf("META kit=%s source=%s sdk=0.7.6 runtime=0.7.6 archive_sha256=%s manifest_sha256=%s go=%s\n", kitRev, source, archiveSHA, manifests, runtime.Version())
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	ctx, cancel := context.WithTimeout(ctx, 14*time.Minute)

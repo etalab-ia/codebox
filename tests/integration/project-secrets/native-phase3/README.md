@@ -149,7 +149,7 @@ nameserver, else `1.1.1.1`).
 `run.py` exits 0 only if every case passes; the sanitized report is written
 to `results.txt` (one `PASS`/`FAIL <name>` per case plus a `META` line with
 the kit revision, source commit, SDK/runtime versions, runtime archive
-SHA256 and Go version). Case names:
+SHA256, the guest manifest SHA256 and Go version). Case names:
 
 ```
 create-inert-sentinels          rotate-to-envrefs            exact-guest-env-markers
@@ -209,6 +209,24 @@ META kit=p3v2 source=f483a8003d7745dfe3cdea7363d5f366af51eebc sdk=0.7.6 runtime=
      archive_sha256=a4f1722fee6460d4e2813e62b60dae4c092021d8120b7aaa9c2f4b5679d97d89 go=go1.27.1
 ```
 
+That is the historical shape, kept as recorded. Since #349 the probe also
+emits `manifest_sha256=`, the SHA256 of the three embedded guest manifests
+(`guest/node-app/package.json`, `guest/node-app/package-lock.json`,
+`guest/python-app/requirements.txt`), hashed in that order with their paths:
+
+```
+META kit=p3v3 source=f483a8003d7745dfe3cdea7363d5f366af51eebc sdk=0.7.6 runtime=0.7.6 \
+     archive_sha256=a4f1722fee6460d4e2813e62b60dae4c092021d8120b7aaa9c2f4b5679d97d89 \
+     manifest_sha256=<sha256 of the embedded guest manifests> go=go1.27.3
+```
+
+The field is computed from the bytes the probe pushes into the guest — no
+git, no network — so it names the loader set the run actually qualified.
+`source=` stays the vendoring pin `verify_vendored.py` checks: a different
+fact, constant while the manifests move. `run.py` requires the field on new
+runs (`FAIL probe-meta-line-missing` without it); transcripts recorded before
+it existed remain valid historical artifacts of the format in force then.
+
 The two cases that carry the phase-3 claim are `node-header-substituted` and
 `python-header-substituted`: a real Node application and a real Python
 application each read their own component's generated file, took the marker
@@ -226,9 +244,9 @@ variable name without mixing.
 - `~/.microsandbox` is fingerprinted recursively (names, sizes, mtimes) before
   and after; any change fails the run (`FAIL host-msb-state-touched`).
 - The transcript must contain the probe's own `META` line, which names the kit
-  revision and the source commit; a run whose META line is missing or filtered
-  out fails (`FAIL probe-meta-line-missing`) instead of producing evidence that
-  cannot be tied to what ran.
+  revision, the source commit and the guest manifest hash; a run whose META
+  line is missing or filtered out fails (`FAIL probe-meta-line-missing`)
+  instead of producing evidence that cannot be tied to what ran.
 
 ### Re-qualification run (2026-11-09)
 
@@ -245,7 +263,9 @@ the pair above is evidence that the fixture installs really happen rather than a
 transcript of case names.
 
 `evidence/README.md` maps each transcript to the loader set it covers; the
-transcripts themselves do not name one (see #349).
+transcripts recorded before #349 do not name one. Runs from the #349 fix
+onward carry `manifest_sha256` in their META line, so the mapping is in the
+artifact itself and the prose is only a convenience.
 
 ## Cleanup
 
