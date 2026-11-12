@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.17.1](https://github.com/etalab-ia/codebox/compare/codebox-v0.17.0...codebox-v0.17.1) (2026-11-12)
+
+
+### Bug Fixes
+
+* **mcp:** disable the browser MCP's Google telemetry and update checks ([1cee4c5](https://github.com/etalab-ia/codebox/commit/1cee4c5583c1b3a3e3c8748457d764ab2f49307e))
+* **mcp:** disable the browser MCP's Google telemetry and update checks ([9b759ec](https://github.com/etalab-ia/codebox/commit/9b759ecfadad869d5a752d1a070843d784899faf))
+
 ## [0.17.0](https://github.com/etalab-ia/codebox/compare/codebox-v0.16.0...codebox-v0.17.0) (2026-11-11)
 
 
