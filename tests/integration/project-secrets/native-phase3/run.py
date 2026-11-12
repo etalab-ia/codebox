@@ -17,7 +17,11 @@ HERE = pathlib.Path(__file__).resolve().parent
 # The kit revision is matched generically: pinning it here once cost a silent
 # drop of this whole line when the probe moved to the next revision, which left
 # the recorded evidence unbound to the source commit it claims to qualify.
-META_PROBE = re.compile(r'^META kit=p3v[0-9]+ source=[0-9a-f]{40} sdk=0\.7\.6 runtime=0\.7\.6 archive_sha256=[0-9a-f]{64} go=go[0-9.]+$')
+# manifest_sha256 binds the transcript to the guest loader pins it qualified
+# (#349); source= remains the vendoring pin, a different fact. Runs recorded
+# before the field existed stay readable as historical artifacts — they are
+# never re-validated against this pattern — but a new run must carry it.
+META_PROBE = re.compile(r'^META kit=p3v[0-9]+ source=[0-9a-f]{40} sdk=0\.7\.6 runtime=0\.7\.6 archive_sha256=[0-9a-f]{64} manifest_sha256=[0-9a-f]{64} go=go[0-9.]+$')
 META_RUNTIME = re.compile(r'^META runtime_archive_sha256=[0-9a-f]{64} runtime_version=0\.7\.6$')
 CASE = re.compile(r'^(PASS|FAIL) [a-z0-9-]+$')
 PROXY_NOISE = re.compile(r'(?i)(proxy-authorization|authorization|bearer|basic)')
@@ -239,7 +243,8 @@ def main():
         # --- the run must be bound to what actually ran --------------------
         # Without the probe's own META line the transcript names no source
         # commit and no kit revision: a run of a different probe would be
-        # indistinguishable from this one.
+        # indistinguishable from this one. The manifest_sha256 field extends
+        # that binding to the guest loader pins (#349).
         if not any(META_PROBE.match(r) for r in results):
             results.append('FAIL probe-meta-line-missing')
 
