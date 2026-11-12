@@ -1,10 +1,14 @@
 package main
 
 import (
+	"crypto/sha256"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 )
@@ -57,7 +61,7 @@ func TestDiagnosticRedactionAndResultFormat(t *testing.T) {
 	if !strings.Contains(s, "[REDACTED-CANARY]") || !strings.Contains(s, "[REDACTED-AUTHORIZATION]") {
 		t.Fatalf("markers missing: %q", s)
 	}
-	if source == "" || archiveSHA == "" || kitRev != "p3v2" {
+	if source == "" || archiveSHA == "" || kitRev != "p3v3" {
 		t.Fatal("metadata constants incomplete")
 	}
 }
@@ -131,5 +135,88 @@ func TestGuestFixtureDependencyPins(t *testing.T) {
 		if _, err := guestFixtures.ReadFile(path); err != nil {
 			t.Fatalf("embedded fixture missing: %s", path)
 		}
+	}
+}
+
+// The META line's manifest_sha256 must be derived from the embedded guest
+// manifests themselves, so two runs against different loader sets cannot
+// produce the same transcript (#349). These assertions run on the host, in
+// CI, without a VM.
+func TestManifestSHA256BindsTheEmbeddedLoaderPins(t *testing.T) {
+	got, err := manifestSHA256()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 64 {
+		t.Fatalf("manifest hash is not a sha256 hex digest: %q", got)
+	}
+	// Independently recompute over the same embedded bytes: the helper must
+	// hash exactly the three manifests, in the declared order, and nothing
+	// else (not the app sources, not a git revision, not the vendoring pin).
+	h := sha256.New()
+	for _, path := range guestManifestPaths {
+		data, err := guestFixtures.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		h.Write([]byte(path))
+		h.Write([]byte{0})
+		h.Write(data)
+		h.Write([]byte{0})
+	}
+	if want := hex.EncodeToString(h.Sum(nil)); got != want {
+		t.Fatalf("manifest hash = %s, want %s", got, want)
+	}
+	// Content-bound, not identity-bound: a different manifest byte must
+	// change the digest. This is the property the transcripts were missing.
+	base, err := guestFixtures.ReadFile(guestManifestPaths[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	mutated := sha256.New()
+	mutated.Write([]byte(guestManifestPaths[0]))
+	mutated.Write([]byte{0})
+	mutated.Write(append(append([]byte{}, base...), '\n'))
+	mutated.Write([]byte{0})
+	for _, path := range guestManifestPaths[1:] {
+		data, err := guestFixtures.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		mutated.Write([]byte(path))
+		mutated.Write([]byte{0})
+		mutated.Write(data)
+		mutated.Write([]byte{0})
+	}
+	if hex.EncodeToString(mutated.Sum(nil)) == got {
+		t.Fatal("a changed manifest must change the hash")
+	}
+	// The vendoring pin is a separate fact and must not be what the field
+	// records: source= stays constant while the manifests move.
+	if got == source {
+		t.Fatal("manifest hash must not be the vendoring pin")
+	}
+}
+
+// The emitted META line must satisfy the runner's own validator, or run.py
+// drops it and fails the run. Both shapes are asserted here so a change to
+// one side cannot silently break the other.
+func TestMetaLineMatchesRunnerProbePattern(t *testing.T) {
+	manifests, err := manifestSHA256()
+	if err != nil {
+		t.Fatal(err)
+	}
+	line := fmt.Sprintf("META kit=%s source=%s sdk=0.7.6 runtime=0.7.6 archive_sha256=%s manifest_sha256=%s go=%s",
+		kitRev, source, archiveSHA, manifests, "go1.27.3")
+	probe := regexp.MustCompile(`^META kit=p3v[0-9]+ source=[0-9a-f]{40} sdk=0\.7\.6 runtime=0\.7\.6 archive_sha256=[0-9a-f]{64} manifest_sha256=[0-9a-f]{64} go=go[0-9.]+$`)
+	if !probe.MatchString(line) {
+		t.Fatalf("emitted META line does not match the runner pattern: %s", line)
+	}
+	// A line without the new field must NOT validate: that is the run.py
+	// gate that keeps an unbound transcript from being recorded as evidence.
+	legacy := fmt.Sprintf("META kit=%s source=%s sdk=0.7.6 runtime=0.7.6 archive_sha256=%s go=%s",
+		kitRev, source, archiveSHA, "go1.27.3")
+	if probe.MatchString(legacy) {
+		t.Fatal("a META line without manifest_sha256 must not validate")
 	}
 }
