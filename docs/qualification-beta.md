@@ -271,21 +271,34 @@ Albert est déjà stockée, ne pas lancer ce protocole sur ce poste : il
    l'état du magasin. Un état `denied` ou `unavailable` arrête le
    protocole : c'est un échec de préparation, pas un résultat sur le
    cycle écriture/lecture.
-3. Écriture : `"qa-wincred-marker-1" | codebox auth add albert --stdin`.
-   Attendu : message `Stored credential "albert" in the credential-manager
-   store`, code de sortie 0. Noter l'horodatage.
+3. Écriture :
+   `Read-Host "Marqueur de test" -AsSecureString | ConvertFrom-SecureString -AsPlainText | codebox auth add albert --stdin`.
+   Saisir `qa-wincred-marker-1` à l'invite masquée. La valeur n'apparaît
+   ni à l'écran, ni dans la ligne de commande, ni dans l'historique
+   PowerShell. `ConvertFrom-SecureString -AsPlainText` (PowerShell 7+)
+   rend le texte au pipe ; sur Windows PowerShell 5.1, utiliser
+   `[System.Net.NetworkCredential]::new("", $m).Password` après
+   `$m = Read-Host "Marqueur de test" -AsSecureString`. Attendu : message
+   `Stored credential "albert" in the credential-manager store`, code de
+   sortie 0. Noter l'horodatage.
 4. Relecture immédiate : `codebox auth status`. Attendu : la ligne
    `albert: stored` sous `Native store:`. Noter l'horodatage et le délai
    écoulé depuis l'écriture.
 5. Suppression : `codebox auth remove albert`. Attendu : `Removed
    credential "albert" from the credential-manager store`. Puis
    `codebox auth status` doit montrer `albert: not stored`.
-6. Répéter les étapes 3 à 5 une seconde fois, consécutivement, avec le
-   marqueur `qa-wincred-marker-2`. Les deux cycles complets doivent
-   passer dans la même session.
-7. Valeur absente de `argv` : les commandes ci-dessus passent la valeur
-   par stdin, jamais en argument. Vérifier qu'aucune valeur n'apparaît
-   dans l'historique PowerShell ni dans les sorties conservées.
+6. Répéter les étapes 3 à 5 une seconde fois, consécutivement, en
+   saisissant `qa-wincred-marker-2` à l'invite masquée. Les deux cycles
+   complets doivent passer dans la même session.
+7. Valeur absente de `argv` et de l'historique : la commande de l'étape 3
+   passe la valeur par stdin, jamais en argument de `codebox`. Comme la
+   saisie est masquée, le marqueur ne figure pas non plus dans la ligne de
+   commande. Vérifier que l'historique PowerShell
+   (`Get-History` ou le fichier PSReadLine) ne contient que la commande
+   avec `Read-Host`, sans le marqueur, et que les sorties conservées ne
+   contiennent aucune valeur. L'historique du shell prouve ce qui a été
+   tapé, pas ce que le processus a reçu en argument : la garantie `argv`
+   vient du chemin stdin, pas de l'historique.
 
 **Signatures d'échec à distinguer** (les noter telles quelles, avec
 l'horodatage) :
