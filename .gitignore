@@ -6,6 +6,9 @@ workspace/
 /codebox
 /codebox-*
 
+# Moon local cache
+/.moon/cache/
+
 # Python
 __pycache__/
 

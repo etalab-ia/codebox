@@ -1,0 +1,5 @@
+$schema: "https://moonrepo.dev/schemas/v2/toolchains.json"
+
+# Go version is inherited from root .prototools via versionFromPrototools (default: true).
+go:
+  workspaces: true

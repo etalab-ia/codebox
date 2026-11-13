@@ -1,0 +1,54 @@
+$schema: "https://moonrepo.dev/schemas/v2/tasks.json"
+
+inheritedBy:
+  languages:
+    - "go"
+
+fileGroups:
+  sources:
+    - "**/*.go"
+    - "go.mod"
+    - "go.sum"
+
+tasks:
+  fmt-check:
+    description: "Verify Go source formatting with gofmt."
+    script: 'test -z "$(gofmt -l .)"'
+    inputs:
+      - "@group(sources)"
+    options:
+      os:
+        - "linux"
+        - "macos"
+
+  vet:
+    description: "Run go vet across module packages."
+    command:
+      - "go"
+      - "vet"
+      - "./..."
+    deps:
+      - target: "^:vet"
+        cacheStrategy: "hash"
+    inputs:
+      - "@group(sources)"
+      - project: "^"
+        group: "sources"
+      - "file:///go.work?optional"
+      - "file:///go.work.sum?optional"
+
+  test:
+    description: "Run Go unit tests across module packages."
+    command:
+      - "go"
+      - "test"
+      - "./..."
+    deps:
+      - target: "^:test"
+        cacheStrategy: "hash"
+    inputs:
+      - "@group(sources)"
+      - project: "^"
+        group: "sources"
+      - "file:///go.work?optional"
+      - "file:///go.work.sum?optional"

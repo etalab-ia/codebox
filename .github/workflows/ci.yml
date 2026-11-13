@@ -14,10 +14,30 @@ jobs:
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
           cache: true
+      - uses: moonrepo/setup-toolchain@261c62cb5b0f580c7be7c8cd0f023a2e96756095 # v0.6.4
+        with:
+          proto-version: "0.63.2"
+          moon-version: "2.6.5"
+          auto-install: false
+      - name: Validate Moon workspace and toolchain pins
+        run: |
+          set -eu
+          proto_go="$(sed -n 's/^go = "\(.*\)"$/\1/p' .prototools)"
+          mod_toolchain="$(sed -n 's/^toolchain go\(.*\)$/\1/p' go.mod)"
+          if [ -z "$mod_toolchain" ]; then
+            mod_toolchain="$(sed -n 's/^go \(.*\)$/\1/p' go.mod)"
+          fi
+          test -n "$proto_go" && test "$proto_go" = "$mod_toolchain"
+          proto status
+          moon sync config-schemas
+          moon query projects
+          moon query tasks
       - name: Check formatting
         run: test -z "$(gofmt -l .)"
       - run: go vet ./...
