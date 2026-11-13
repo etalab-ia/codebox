@@ -243,7 +243,7 @@ A passing run does **not** prove (state these honestly in the issue):
 - `runtime-download.py` — pinned official 0.7.6 darwin/arm64 archive,
   SHA256-verified before extraction.
 - `main.go` + `main_test.go` — the probe and its unit tests
-  (`go test ./...` runs anywhere; the probe itself requires darwin/arm64).
+  (`GOWORK=off go test ./...` runs anywhere; the probe itself requires darwin/arm64).
 - `guest/scanner.py`, `guest/reader.py` — stdlib-only in-guest tooling,
   pushed via `FS().Write` at run time.
 - `go.mod` / `go.sum` — SDK pinned at v0.7.6.

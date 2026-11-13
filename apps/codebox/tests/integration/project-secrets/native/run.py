@@ -23,7 +23,7 @@ def main():
     if len(os.fsencode(str(directory/'msb-home'))) > 40:
         raise RuntimeError('owned MSB_HOME exceeds conservative short-path budget')
     print('RUN_DIR='+str(directory),flush=True)
-    env=os.environ.copy();env.update(MSB_HOME=str(directory/'msb-home'),MSB_PATH=str(directory/'runtime'/'msb'),MSB_LIBKRUNFW_PATH=str(directory/'runtime'/'libkrunfw.5.dylib'))
+    env=os.environ.copy();env.update(GOWORK='off',MSB_HOME=str(directory/'msb-home'),MSB_PATH=str(directory/'runtime'/'msb'),MSB_LIBKRUNFW_PATH=str(directory/'runtime'/'libkrunfw.5.dylib'))
     (directory/'msb-home').mkdir(mode=0o700)
     lab=probe=None;rc=1
     def interrupted(sig,frame): raise KeyboardInterrupt()
