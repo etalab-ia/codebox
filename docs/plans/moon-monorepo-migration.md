@@ -71,7 +71,7 @@ codebox/
 ### PR 1: Toolchain, Moon v2 Scaffold, and Migration Plan (`monorepo/moon-scaffold`)
 
 - Add `docs/plans/moon-monorepo-migration.md`.
-- Add `.prototools` (`go = "1.26.10"`, `moon = "2.6.5"`, `telemetry = false`, `detect-strategy = "prefer-prototools"`, `lockfile = true`) and multi-platform `.protolock` covering `linux/{x64,arm64}`, `macos/arm64`, and `windows/{x64,arm64}`.
+- Add `.prototools` (`go = "1.26.10"`, `moon = "2.6.5"`, `telemetry = false`, `detect-strategy = "prefer-prototools"`, `unstable-lockfile = true`) and multi-platform `.protolock` covering `linux/{x64,arm64}`, `macos/arm64`, and `windows/{x64,arm64}`.
 - Add `.moon/workspace.yml`, `.moon/toolchains.yml` (`go: { workspaces: true }`), and `.moon/tasks/go.yml` against `/schemas/v2/...` schemas.
 - Ignore `/.moon/cache/` in `.gitignore`.
 - Add a Moon/proto validation step to the `check` job in `.github/workflows/ci.yml` (`moonrepo/setup-toolchain@261c62cb5b0f580c7be7c8cd0f023a2e96756095`, `proto install --immutable-lockfile` pin alignment check against `go.mod`, `moon sync config-schemas`, `moon query projects`, `moon query tasks`).
