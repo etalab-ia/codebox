@@ -40,7 +40,7 @@ the length of a run, and prefer a trusted network.
 From the extracted kit directory:
 
 ```sh
-go test ./...
+GOWORK=off go test ./...
 python3 run.py --ip "$(ipconfig getifaddr en0)" --tls 18443 --dns 15354
 ```
 
@@ -78,7 +78,7 @@ Manual cleanup, from kit directory, substitute the exact printed absolute RUN_DI
 RUN_DIR='/tmp/jcp0-REPLACE'
 MSB_HOME="$RUN_DIR/msb-home" MSB_PATH="$RUN_DIR/runtime/msb" \
 MSB_LIBKRUNFW_PATH="$RUN_DIR/runtime/libkrunfw.5.dylib" \
-go run . --dir "$RUN_DIR" --cleanup
+GOWORK=off go run . --dir "$RUN_DIR" --cleanup
 ```
 
 Cleanup is idempotent for a missing VM and checks the `cb-p0-` ownership prefix. After PASS cleanup and copying only sanitized results, remove only this exact private directory:

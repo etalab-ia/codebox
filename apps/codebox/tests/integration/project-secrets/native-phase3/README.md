@@ -130,7 +130,7 @@ go.mod / go.sum         module pinned to microsandbox SDK v0.7.6
 
 ```sh
 cd codebox-native-phase3-kit
-go test ./...                       # unit-level qualification (runs anywhere)
+GOWORK=off go test ./...            # unit-level qualification (runs anywhere)
 python3 test_lab.py                 # lab DNS unit tests (runs anywhere)
 python3 verify_vendored.py          # vendored sources match the pinned commit
 python3 run.py --ip <LAN IPv4>      # e.g. --ip 192.168.1.42

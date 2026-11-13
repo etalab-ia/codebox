@@ -132,7 +132,7 @@ jobs:
           for module in native native-phase3 native-phase4; do
             dir="apps/codebox/tests/integration/project-secrets/$module"
             echo "::group::$module"
-            (cd "$dir" && go test ./...)
+            (cd "$dir" && GOWORK=off go test ./...)
             echo "::endgroup::"
           done
 

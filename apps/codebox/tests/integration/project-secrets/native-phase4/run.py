@@ -79,6 +79,7 @@ def main():
     procs = []
     probe_bin = run_dir / 'probe'
     env = dict(os.environ)
+    env['GOWORK'] = 'off'
     env['MSB_HOME'] = str(msb_home)
     env['MSB_PATH'] = str(run_dir / 'runtime' / 'msb')
 
