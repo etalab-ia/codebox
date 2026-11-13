@@ -64,7 +64,7 @@ laisse la file intacte pour une tentative ultérieure.
 L'endpoint est géré par l'équipe codebox. Cette version n'en configure aucun
 par défaut : sans endpoint, les événements restent locaux. Une construction de
 release peut le fixer avec
-`-ldflags "-X github.com/etalab-ia/codebox/internal/codebox.StatsEndpointDefault=<url>"`,
+`-ldflags "-X github.com/etalab-ia/codebox/apps/codebox/internal/codebox.StatsEndpointDefault=<url>"`,
 et `CODEBOX_STATS_URL` le remplace pour les tests et le développement.
 
 La valeur de release est lue dans la variable de dépôt GitHub

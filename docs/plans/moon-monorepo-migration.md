@@ -78,19 +78,20 @@ codebox/
 
 ### PR 2: Relocate CLI into `apps/codebox` with `go.work` (`monorepo/move-codebox`)
 
-- Move `go.mod`, `go.sum`, `cmd/`, `internal/`, `assets/`, `tests/`, `.env.example`, and `CHANGELOG.md` into `apps/codebox/` with `git mv`.
+- Move `go.mod`, `go.sum`, `cmd/`, `internal/`, `assets/`, `tests/`, and `.env.example` into `apps/codebox/` with `git mv` (keeping `CHANGELOG.md` at root until PR 3 switches `release-please-config.json`, so intermediate `main` stays consistent).
 - Rename module and internal imports to `github.com/etalab-ia/codebox/apps/codebox`.
 - Create root `go.work` (`go 1.26.0`, `toolchain go1.26.10`, `use ./apps/codebox`).
-- Add `apps/codebox/moon.yml` (`id: "codebox"`, `language: "go"`, `layer: "application"`, `stack: "systems"`, appending `assets/**/*` and `tests/**/*` to project `sources` and defining the `build` task).
+- Add `apps/codebox/moon.yml` (`id: "codebox"`, `language: "go"`, `layer: "application"`, `stack: "systems"`, appending `.env.example`, `assets/**/*`, and native kit manifests/evidence to project `sources` and defining the `build` task) and pin `proto.version: "0.63.2"` in `.moon/toolchains.yml`.
 - Update `apps/codebox/tests/installers/test-{posix.sh,windows.ps1}` root path resolution (`../../../..` to reach `/scripts/install.*`).
-- Update `.github/workflows/ci.yml`, `.github/workflows/msb-runtime-watch.yml`, `.github/dependabot.yml` (`directory: "/apps/codebox"` preserving the `microsandbox/sdk/go` ignore rule, plus updated `/apps/codebox/tests/...` fixture directories), `.gitignore`, `docs/development.md`, and `docs/installation.md`.
+- Update `.github/workflows/ci.yml`, `.github/workflows/msb-runtime-watch.yml`, `.github/workflows/release-please.yml` (resolving checked-out CLI module layout for both monorepo tags and historical tag rebuilds), `.github/dependabot.yml` (`directory: "/apps/codebox"` preserving the `microsandbox/sdk/go` ignore rule, plus updated `/apps/codebox/tests/...` fixture directories), `.gitignore`, `README.md`, and `docs/*.md`.
 - Verify `moon query projects` discovers `codebox` and run `moon run codebox:fmt-check codebox:vet` plus full `-race`, native CGO Linux/macOS/Windows builds, installer suites, OpenCode host integration, fixture-contracts, and OSV-Scanner.
 
 ### PR 3: Multi-Package `release-please` Cutover (`monorepo/release-please-split`)
 
+- Move `CHANGELOG.md` to `apps/codebox/CHANGELOG.md` with `git mv`.
 - Update `.release-please-manifest.json` from `{".": "0.17.1"}` to `{"apps/codebox": "0.17.1"}`.
 - Update `release-please-config.json` package key from `"."` to `"apps/codebox"` with `"component": "codebox"` and `"changelog-path": "CHANGELOG.md"` so release tags remain `codebox-vX.Y.Z` and installer scripts require no tag-pattern changes.
-- Update `.github/workflows/release-please.yml` to read path-scoped action outputs (`steps.release.outputs['apps/codebox--release_created']` and `steps.release.outputs['apps/codebox--tag_name']`, retaining the `workflow_dispatch` tag path), build `./apps/codebox/cmd/codebox`, run `go -C apps/codebox test ./...`, and stamp `-X github.com/etalab-ia/codebox/apps/codebox/internal/codebox.StatsEndpointDefault`.
+- Update `.github/workflows/release-please.yml` to read path-scoped action outputs (`steps.release.outputs['apps/codebox--release_created']` and `steps.release.outputs['apps/codebox--tag_name']`, retaining the `workflow_dispatch` tag path validated against `^codebox-v?` so future service tags do not trigger CLI desktop builds).
 - Exercise the release artifact build and checksum hand-off via `workflow_dispatch` against `codebox-v0.17.1`.
 
 ## Adding Deployable Services Next (`secrets-api`)

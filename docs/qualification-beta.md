@@ -34,7 +34,7 @@ de démarrage d'une microVM sur l'hyperviseur natif.
    Conserver localement le JSON comme pièce d'évidence; le relire et le
    redacter avant de le joindre à un ticket ou à un compte rendu.
 3. Les workflows GitHub Actions fournissent les preuves de build et des tests
-   unitaires par architecture. Ne lancer `go test ./...` que depuis un
+   unitaires par architecture. Ne lancer `go -C apps/codebox test ./...` que depuis un
    checkout contributeur avec Go et les outils C requis; son absence sur un
    poste d'atelier ne bloque pas le test du binaire installé.
 4. Avec un projet Git jetable, tester le parcours utilisateur vide :
@@ -64,7 +64,7 @@ de démarrage d'une microVM sur l'hyperviseur natif.
    une branche de test. Ne pas utiliser un dépôt contenant des secrets ou du
    contenu de production.
 10. Sur macOS arm64 uniquement, exécuter les parcours réseau de
-    `tests/integration/credentials/README.md` dans le laboratoire dédié et avec
+    `apps/codebox/tests/integration/credentials/README.md` dans le laboratoire dédié et avec
     une clé de test révocable. Distinguer un échec de préparation du laboratoire
     d'un échec d'assertion. Le laboratoire documenté dépend des interfaces et
     commandes macOS : ne pas présenter ce résultat comme preuve de transport

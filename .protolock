@@ -3,7 +3,6 @@
 [[tools.go]]
 os = "linux"
 arch = "x64"
-libc = "gnu"
 spec = "1.26.10"
 version = "1.26.10"
 checksum = "sha256:ccfe7ae822d2c2f41f4fe7c956199967a4dac22d0ee0d2b2bfdb440aab3b20c5"
@@ -11,7 +10,6 @@ checksum = "sha256:ccfe7ae822d2c2f41f4fe7c956199967a4dac22d0ee0d2b2bfdb440aab3b2
 [[tools.go]]
 os = "linux"
 arch = "arm64"
-libc = "gnu"
 spec = "1.26.10"
 version = "1.26.10"
 checksum = "sha256:3f4227ce7b206a513e794f1393adb473a07b46e94d18bd15d1c684bbb7319797"
@@ -40,7 +38,6 @@ checksum = "sha256:6831fd8c31091243d5695c8fa3a721c9f4ae2bb36482763e77e57ee01b764
 [[tools.moon]]
 os = "linux"
 arch = "x64"
-libc = "gnu"
 spec = "2.6.5"
 version = "2.6.5"
 checksum = "sha256:29b4bae3242c7bb65232227ae21a9996dba2d2d21871fe5bb946cbc88695ef20"
@@ -48,7 +45,6 @@ checksum = "sha256:29b4bae3242c7bb65232227ae21a9996dba2d2d21871fe5bb946cbc88695e
 [[tools.moon]]
 os = "linux"
 arch = "arm64"
-libc = "gnu"
 spec = "2.6.5"
 version = "2.6.5"
 checksum = "sha256:dda511d98cf46496b5231b04604e27fe969168a6755e745834a07014c4f7c984"
@@ -66,3 +62,31 @@ arch = "x64"
 spec = "2.6.5"
 version = "2.6.5"
 checksum = "sha256:9994fb457b5c1c85bb80134cfdff287b1d20ae2b0443a31190c9866926341761"
+
+[[tools.proto]]
+os = "linux"
+arch = "x64"
+spec = "0.63.2"
+version = "0.63.2"
+checksum = "sha256:24df51fc98848abfcc27507a53c2ce005b4da783d4bf662717ae9a9d17432c9a"
+
+[[tools.proto]]
+os = "linux"
+arch = "arm64"
+spec = "0.63.2"
+version = "0.63.2"
+checksum = "sha256:5e56d307ab648cfe243d5e9bf968e7e5a1c736e92dac9c6c5925326c64f5ba50"
+
+[[tools.proto]]
+os = "macos"
+arch = "arm64"
+spec = "0.63.2"
+version = "0.63.2"
+checksum = "sha256:d2bb0da3afd121baf516b2e8ed7f549b2849243db91bca0a57b398392fba5e41"
+
+[[tools.proto]]
+os = "windows"
+arch = "x64"
+spec = "0.63.2"
+version = "0.63.2"
+checksum = "sha256:4f39177289667de29afe062dc982249475f838fb6a8101654b79d1bb086aff93"

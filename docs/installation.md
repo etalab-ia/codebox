@@ -62,6 +62,6 @@ Le mode manuel (`MSB_PATH`) et les prérequis plateforme de Microsandbox sont d�
 Prérequis : [Go](https://go.dev) >= 1.22 et une chaîne C native (Xcode Command Line Tools sur macOS, `gcc` sur Linux, MinGW-w64 x64 ou LLVM-MinGW sur Windows ; sous Windows arm64, la chaîne doit cibler `aarch64-w64-mingw32`).
 
 ```bash
-go build -o codebox ./cmd/codebox
-go test ./...
+go -C apps/codebox build -o ../../codebox ./cmd/codebox
+go -C apps/codebox test ./...
 ```

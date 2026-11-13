@@ -1,0 +1,35 @@
+$schema: "https://moonrepo.dev/schemas/v2/project.json"
+
+id: "codebox"
+language: "go"
+layer: "application"
+stack: "systems"
+
+project:
+  title: "codebox CLI"
+  description: "Isolated microVM coding environment CLI and host runtime orchestrator."
+
+fileGroups:
+  sources:
+    - ".env.example"
+    - "assets/**/*"
+    - "tests/integration/project-secrets/native/go.mod"
+    - "tests/integration/project-secrets/native/go.sum"
+    - "tests/integration/project-secrets/native/evidence/*"
+
+tasks:
+  build:
+    description: "Compile the codebox CLI binary."
+    command:
+      - "go"
+      - "build"
+      - "./cmd/codebox"
+    deps:
+      - target: "^:build"
+        optional: true
+    inputs:
+      - "@group(sources)"
+      - project: "^"
+        group: "sources"
+      - "file:///go.work?optional"
+      - "file:///go.work.sum?optional"

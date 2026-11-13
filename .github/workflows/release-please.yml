@@ -86,15 +86,33 @@ jobs:
         # mounted checkout. Writing the exception to the system config makes it
         # visible to every later step regardless of HOME.
         run: git config --system --add safe.directory "$GITHUB_WORKSPACE"
+      # A manual workflow_dispatch rebuild checks out an existing tag, which may
+      # predate the apps/codebox move. Resolve paths from the checked-out tree.
+      - name: Resolve checked-out CLI module layout
+        run: |
+          if [ -f apps/codebox/go.mod ]; then
+            echo "CLI_DIR=apps/codebox" >> "$GITHUB_ENV"
+            echo "GO_MOD_FILE=apps/codebox/go.mod" >> "$GITHUB_ENV"
+            echo "GO_SUM_FILE=apps/codebox/go.sum" >> "$GITHUB_ENV"
+            echo "STATS_SYM=github.com/etalab-ia/codebox/apps/codebox/internal/codebox.StatsEndpointDefault" >> "$GITHUB_ENV"
+            echo "DIST_OUT=../../dist" >> "$GITHUB_ENV"
+          else
+            echo "CLI_DIR=." >> "$GITHUB_ENV"
+            echo "GO_MOD_FILE=go.mod" >> "$GITHUB_ENV"
+            echo "GO_SUM_FILE=go.sum" >> "$GITHUB_ENV"
+            echo "STATS_SYM=github.com/etalab-ia/codebox/internal/codebox.StatsEndpointDefault" >> "$GITHUB_ENV"
+            echo "DIST_OUT=dist" >> "$GITHUB_ENV"
+          fi
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
-          go-version-file: go.mod
+          go-version-file: ${{ env.GO_MOD_FILE }}
           cache: true
+          cache-dependency-path: ${{ env.GO_SUM_FILE }}
       - name: Verify native target
         run: |
           test "$(go env GOOS)" = "linux"
           test "$(go env GOARCH)" = "${{ matrix.arch }}"
-      - run: go test ./...
+      - run: go -C "$CLI_DIR" test ./...
       - name: Build release binary
         env:
           VERSION: ${{ needs.release-please.outputs.tag_name }}
@@ -108,10 +126,11 @@ jobs:
           mkdir -p dist
           LDFLAGS="-s -w -X main.version=$VERSION"
           if [ -n "$STATS_URL" ]; then
-            LDFLAGS="$LDFLAGS -X github.com/etalab-ia/codebox/internal/codebox.StatsEndpointDefault=$STATS_URL"
+            LDFLAGS="$LDFLAGS -X ${STATS_SYM}=$STATS_URL"
           fi
-          go build -trimpath -ldflags="$LDFLAGS" \
-            -o "dist/codebox-${{ matrix.asset }}" ./cmd/codebox
+          go -C "$CLI_DIR" build -trimpath -ldflags="$LDFLAGS" \
+            -o "${DIST_OUT}/codebox-${{ matrix.asset }}" ./cmd/codebox
+          test -f "dist/codebox-${{ matrix.asset }}"
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: ${{ matrix.asset }}
@@ -149,6 +168,24 @@ jobs:
           # Build the exact release tag, not HEAD of main at job start time.
           ref: ${{ needs.release-please.outputs.tag_name }}
           fetch-depth: 0
+      # A manual workflow_dispatch rebuild checks out an existing tag, which may
+      # predate the apps/codebox move. Resolve paths from the checked-out tree.
+      - name: Resolve checked-out CLI module layout
+        shell: bash
+        run: |
+          if [ -f apps/codebox/go.mod ]; then
+            echo "CLI_DIR=apps/codebox" >> "$GITHUB_ENV"
+            echo "GO_MOD_FILE=apps/codebox/go.mod" >> "$GITHUB_ENV"
+            echo "GO_SUM_FILE=apps/codebox/go.sum" >> "$GITHUB_ENV"
+            echo "STATS_SYM=github.com/etalab-ia/codebox/apps/codebox/internal/codebox.StatsEndpointDefault" >> "$GITHUB_ENV"
+            echo "DIST_OUT=../../dist" >> "$GITHUB_ENV"
+          else
+            echo "CLI_DIR=." >> "$GITHUB_ENV"
+            echo "GO_MOD_FILE=go.mod" >> "$GITHUB_ENV"
+            echo "GO_SUM_FILE=go.sum" >> "$GITHUB_ENV"
+            echo "STATS_SYM=github.com/etalab-ia/codebox/internal/codebox.StatsEndpointDefault" >> "$GITHUB_ENV"
+            echo "DIST_OUT=dist" >> "$GITHUB_ENV"
+          fi
       # The runner's gcc is an x86_64 MinGW cross compiler, which cannot
       # assemble arm64. CGO needs a GNU-ABI aarch64 compiler, so the pinned
       # LLVM-MinGW toolchain is installed for the Windows arm64 leg.
@@ -176,8 +213,9 @@ jobs:
           Add-Content -Path $env:GITHUB_ENV -Value 'CXX=aarch64-w64-mingw32-clang++'
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
-          go-version-file: go.mod
+          go-version-file: ${{ env.GO_MOD_FILE }}
           cache: true
+          cache-dependency-path: ${{ env.GO_SUM_FILE }}
       - name: Verify native target
         shell: bash
         run: |
@@ -186,7 +224,8 @@ jobs:
           if [ "${{ matrix.os }}" = "windows" ] && [ "${{ matrix.arch }}" = "arm64" ]; then
             go env CC | grep -q aarch64-w64-mingw32-clang
           fi
-      - run: go test ./...
+      - shell: bash
+        run: go -C "$CLI_DIR" test ./...
       - name: Build release binary
         shell: bash
         env:
@@ -197,10 +236,11 @@ jobs:
           mkdir -p dist
           LDFLAGS="-s -w -X main.version=$VERSION"
           if [ -n "$STATS_URL" ]; then
-            LDFLAGS="$LDFLAGS -X github.com/etalab-ia/codebox/internal/codebox.StatsEndpointDefault=$STATS_URL"
+            LDFLAGS="$LDFLAGS -X ${STATS_SYM}=$STATS_URL"
           fi
-          go build -trimpath -ldflags="$LDFLAGS" \
-            -o "dist/codebox-${{ matrix.asset }}${{ matrix.ext }}" ./cmd/codebox
+          go -C "$CLI_DIR" build -trimpath -ldflags="$LDFLAGS" \
+            -o "${DIST_OUT}/codebox-${{ matrix.asset }}${{ matrix.ext }}" ./cmd/codebox
+          test -f "dist/codebox-${{ matrix.asset }}${{ matrix.ext }}"
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: ${{ matrix.asset }}
