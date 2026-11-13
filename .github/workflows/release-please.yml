@@ -21,8 +21,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     outputs:
-      release_created: ${{ steps.release.outputs.release_created || steps.dispatch.outputs.release_created }}
-      tag_name: ${{ steps.release.outputs.tag_name || steps.dispatch.outputs.tag_name }}
+      codebox_release_created: ${{ steps.release.outputs['apps/codebox--release_created'] || steps.dispatch.outputs.codebox_release_created }}
+      codebox_tag_name: ${{ steps.release.outputs['apps/codebox--tag_name'] || steps.dispatch.outputs.codebox_tag_name }}
     steps:
       - name: Run release-please
         id: release
@@ -45,16 +45,20 @@ jobs:
           GH_REPO: ${{ github.repository }}
           TAG: ${{ inputs.tag }}
         run: |
+          if ! printf '%s\n' "$TAG" | grep -Eq '^codebox-v?[0-9]+\.[0-9]+\.[0-9]+([.-][A-Za-z0-9.-]+)?$'; then
+            echo "::error::Expected a codebox CLI release tag (codebox-vX.Y.Z), got $TAG."
+            exit 1
+          fi
           if ! gh release view "$TAG" >/dev/null 2>&1; then
             echo "::error::No GitHub release exists for $TAG. release-please creates releases; this path only attaches assets."
             exit 1
           fi
-          echo "release_created=true" >> "$GITHUB_OUTPUT"
-          echo "tag_name=$TAG" >> "$GITHUB_OUTPUT"
+          echo "codebox_release_created=true" >> "$GITHUB_OUTPUT"
+          echo "codebox_tag_name=$TAG" >> "$GITHUB_OUTPUT"
 
   build-linux:
     needs: release-please
-    if: needs.release-please.outputs.release_created == 'true'
+    if: needs.release-please.outputs.codebox_release_created == 'true'
     strategy:
       fail-fast: false
       matrix:
@@ -79,7 +83,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           # Build the exact release tag, not HEAD of main at job start time.
-          ref: ${{ needs.release-please.outputs.tag_name }}
+          ref: ${{ needs.release-please.outputs.codebox_tag_name }}
           fetch-depth: 0
       - name: Trust the mounted workspace
         # VCS stamping shells out to git, and the container user does not own the
@@ -115,7 +119,7 @@ jobs:
       - run: go -C "$CLI_DIR" test ./...
       - name: Build release binary
         env:
-          VERSION: ${{ needs.release-please.outputs.tag_name }}
+          VERSION: ${{ needs.release-please.outputs.codebox_tag_name }}
           # Where usage statistics are sent. Kept in the CODEBOX_STATS_URL
           # repository variable so changing the receiving document is a
           # settings change, not a code change. Empty (unset variable, forks)
@@ -140,7 +144,7 @@ jobs:
 
   build-desktop:
     needs: release-please
-    if: needs.release-please.outputs.release_created == 'true'
+    if: needs.release-please.outputs.codebox_release_created == 'true'
     strategy:
       fail-fast: false
       matrix:
@@ -166,7 +170,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           # Build the exact release tag, not HEAD of main at job start time.
-          ref: ${{ needs.release-please.outputs.tag_name }}
+          ref: ${{ needs.release-please.outputs.codebox_tag_name }}
           fetch-depth: 0
       # A manual workflow_dispatch rebuild checks out an existing tag, which may
       # predate the apps/codebox move. Resolve paths from the checked-out tree.
@@ -229,7 +233,7 @@ jobs:
       - name: Build release binary
         shell: bash
         env:
-          VERSION: ${{ needs.release-please.outputs.tag_name }}
+          VERSION: ${{ needs.release-please.outputs.codebox_tag_name }}
           STATS_URL: ${{ vars.CODEBOX_STATS_URL }}
         run: |
           VERSION="${VERSION#codebox-}"
@@ -250,7 +254,7 @@ jobs:
 
   publish:
     needs: [release-please, build-linux, build-desktop]
-    if: needs.release-please.outputs.release_created == 'true' && needs.build-linux.result == 'success' && needs.build-desktop.result == 'success'
+    if: needs.release-please.outputs.codebox_release_created == 'true' && needs.build-linux.result == 'success' && needs.build-desktop.result == 'success'
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -269,7 +273,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
-          TAG: ${{ needs.release-please.outputs.tag_name }}
+          TAG: ${{ needs.release-please.outputs.codebox_tag_name }}
         run: |
           if gh release view "$TAG" --json assets --jq '.[].name' | grep -qx 'codebox-darwin-x64'; then
             gh release delete-asset "$TAG" codebox-darwin-x64 --yes
@@ -278,5 +282,5 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
-          TAG: ${{ needs.release-please.outputs.tag_name }}
+          TAG: ${{ needs.release-please.outputs.codebox_tag_name }}
         run: gh release upload "$TAG" dist/codebox-* dist/SHA256SUMS --clobber
