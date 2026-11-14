@@ -505,15 +505,6 @@ func (m *MicrosandboxRuntime) Reconcile(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	// New instances must not be created with unapproved shared-secret
-	// declarations. Existing instances are deliberately allowed through: a
-	// revoked binding must be unregistered on this reconciliation before the
-	// missing approval can block the next launch.
-	if !facts.Exists && m.ProjectSecretApprovalGate != nil {
-		if err := m.ProjectSecretApprovalGate(); err != nil {
-			return err
-		}
-	}
 	// WithPorts is creation-time state: a running full-mode instance from an
 	// older binary can be a no-op under ordinary reconciliation while still
 	// listening on the backend-only server port. Refuse it before the no-op

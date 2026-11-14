@@ -849,6 +849,15 @@ func (m *MicrosandboxRuntime) startInstanceWithBackendPreflight(ctx context.Cont
 	if err != nil {
 		return err
 	}
+	// Shared-secret approvals are a create-time gate at the common creation
+	// boundary. Reconcile, Restart and Recreate all pass through here before
+	// creating; an existing instance is allowed through so revoked bindings
+	// can be unregistered first.
+	if !exists && m.ProjectSecretApprovalGate != nil {
+		if err := m.ProjectSecretApprovalGate(); err != nil {
+			return err
+		}
+	}
 	if exists {
 		// A sandbox whose /workspace is not guest-owned was created by a
 		// pre-P22 version: it exposes the checkout to the guest, which the

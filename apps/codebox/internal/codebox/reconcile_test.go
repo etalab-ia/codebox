@@ -960,3 +960,14 @@ func TestReconcileExistingInstanceBypassesApprovalGate(t *testing.T) {
 	}
 	_ = os.RemoveAll(filepath.Dir(path))
 }
+
+func TestStartInstanceCommonBoundaryEnforcesApprovalGateOnCreate(t *testing.T) {
+	isolateHostState(t)
+	client := &fakeMSBClient{exists: false}
+	m := newTestMicrosandbox(t, client)
+	m.ProjectSecretApprovalGate = func() error { return errors.New("missing approval") }
+	if err := m.startInstance(context.Background(), nil); err == nil || !strings.Contains(err.Error(), "missing approval") {
+		t.Fatalf("startInstance(create) = %v, want approval gate refusal", err)
+	}
+	_ = os.RemoveAll(filepath.Dir(instanceStatePath(DefaultStateDir(), m.InstanceName())))
+}
