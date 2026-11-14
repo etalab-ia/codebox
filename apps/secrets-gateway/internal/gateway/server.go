@@ -94,20 +94,38 @@ func (s *Server) handleHealth(w http.ResponseWriter, _ *http.Request) {
 // loginParams are parsed from the query string of /auth/login.
 type loginParams struct {
 	port int
+	// terminal selects the paste-the-code flow used over SSH, where the CLI
+	// cannot receive a loopback redirect from the user's browser.
+	terminal bool
 }
 
-// parseLoginParams validates the loopback port the CLI is listening on. The
-// port is the only caller-supplied value in the flow; it decides where the
-// browser is redirected after ProConnect, never who may authenticate.
+// parseLoginParams validates the login mode. `mode=terminal` stores a zero
+// loopback port so the callback issues a ticket instead of redirecting; the
+// default browser mode requires the port the CLI is listening on. The port is
+// the only caller-supplied value in the flow: it decides where the browser is
+// redirected after ProConnect, never who may authenticate.
 func parseLoginParams(q url.Values) (loginParams, error) {
 	var p loginParams
+	switch mode := q.Get("mode"); mode {
+	case "", "browser":
+	case "terminal":
+		p.terminal = true
+	default:
+		return p, fmt.Errorf("unsupported login mode %q", mode)
+	}
 	raw := q.Get("port")
 	if raw == "" {
+		if p.terminal {
+			return p, nil
+		}
 		return p, errors.New("a loopback port is required")
 	}
 	port, err := strconv.Atoi(raw)
 	if err != nil || port < 1024 || port > 65535 {
 		return p, errors.New("port must be an integer between 1024 and 65535")
+	}
+	if p.terminal {
+		return p, errors.New("terminal mode does not use a loopback port")
 	}
 	p.port = port
 	return p, nil
@@ -150,7 +168,7 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusServiceUnavailable, secrets.ErrCodeUpstreamUnavailable, "ProConnect is unreachable; retry shortly")
 		return
 	}
-	s.audit(r, "login.started", slog.Int("port", params.port))
+	s.audit(r, "login.started", slog.Int("port", params.port), slog.Bool("terminal", params.terminal))
 	http.Redirect(w, r, authorizeURL, http.StatusFound)
 }
 
@@ -227,7 +245,10 @@ func (s *Server) handleCallback(w http.ResponseWriter, r *http.Request) {
 		q.Set("expiresAt", expires.UTC().Format(time.RFC3339))
 		target.RawQuery = q.Encode()
 		s.audit(r, "login.loopback_redirect", slog.String("subject", hashPrefix(claims.Email)))
-		writeJSON(w, http.StatusOK, map[string]string{"redirect": target.String()})
+		// The browser is the user agent here: it must be navigated, not handed
+		// JSON. The token therefore travels in the redirect URL to the CLI's
+		// loopback listener, which is the only party that reads it.
+		http.Redirect(w, r, target.String(), http.StatusFound)
 		return
 	}
 
@@ -327,24 +348,26 @@ func (s *Server) handleCreateProject(w http.ResponseWriter, r *http.Request, cla
 	})
 }
 
-// authorizeProject loads the project ACL and returns the caller's role.
-func (s *Server) authorizeProject(ctx context.Context, projectID string, claims TokenClaims) (secrets.ACL, secrets.Role, error) {
+// authorizeProject loads the project ACL once and returns the caller's role
+// together with the revision that ACL was read at, so a caller can never pair
+// stale entries with a fresher revision.
+func (s *Server) authorizeProject(ctx context.Context, projectID string, claims TokenClaims) (secrets.ACL, secrets.Role, uint32, error) {
 	if err := secrets.ValidateProjectID(projectID); err != nil {
-		return secrets.ACL{}, "", err
+		return secrets.ACL{}, "", 0, err
 	}
-	data, _, err := s.store.ReadACL(ctx, projectID)
+	data, revision, err := s.store.ReadACL(ctx, projectID)
 	if err != nil {
-		return secrets.ACL{}, "", err
+		return secrets.ACL{}, "", 0, err
 	}
 	acl, err := secrets.ParseACL(string(data))
 	if err != nil {
-		return secrets.ACL{}, "", fmt.Errorf("%w: stored ACL is unreadable", ErrStoreInvalid)
+		return secrets.ACL{}, "", 0, fmt.Errorf("%w: stored ACL is unreadable", ErrStoreInvalid)
 	}
 	role, ok := acl.Authorize(claims.Email, claims.SIRET)
 	if !ok {
-		return secrets.ACL{}, "", ErrForbidden
+		return secrets.ACL{}, "", 0, ErrForbidden
 	}
-	return acl, role, nil
+	return acl, role, revision, nil
 }
 
 // ErrForbidden marks an authorization denial for the caller's identity.
@@ -352,14 +375,9 @@ var ErrForbidden = errors.New("this identity is not allowed on the project")
 
 func (s *Server) handleListMembers(w http.ResponseWriter, r *http.Request, claims TokenClaims) {
 	projectID := r.PathValue("id")
-	acl, _, err := s.authorizeProject(r.Context(), projectID, claims)
+	acl, _, revision, err := s.authorizeProject(r.Context(), projectID, claims)
 	if err != nil {
 		s.writeAuthorizeError(w, r, err)
-		return
-	}
-	_, revision, err := s.store.ReadACL(r.Context(), projectID)
-	if err != nil {
-		s.writeStoreError(w, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, secrets.MembersResponse{ProjectID: projectID, Revision: revision, Entries: acl.Entries()})
@@ -367,7 +385,7 @@ func (s *Server) handleListMembers(w http.ResponseWriter, r *http.Request, claim
 
 func (s *Server) handleUpdateMembers(w http.ResponseWriter, r *http.Request, claims TokenClaims) {
 	projectID := r.PathValue("id")
-	_, role, err := s.authorizeProject(r.Context(), projectID, claims)
+	_, role, _, err := s.authorizeProject(r.Context(), projectID, claims)
 	if err != nil {
 		s.writeAuthorizeError(w, r, err)
 		return
@@ -401,7 +419,7 @@ func (s *Server) handleUpdateMembers(w http.ResponseWriter, r *http.Request, cla
 
 func (s *Server) handlePushSecrets(w http.ResponseWriter, r *http.Request, claims TokenClaims) {
 	projectID := r.PathValue("id")
-	_, role, err := s.authorizeProject(r.Context(), projectID, claims)
+	_, role, _, err := s.authorizeProject(r.Context(), projectID, claims)
 	if err != nil {
 		s.writeAuthorizeError(w, r, err)
 		return
@@ -440,7 +458,7 @@ func (s *Server) handlePushSecrets(w http.ResponseWriter, r *http.Request, claim
 
 func (s *Server) handleResolve(w http.ResponseWriter, r *http.Request, claims TokenClaims) {
 	projectID := r.PathValue("id")
-	_, _, err := s.authorizeProject(r.Context(), projectID, claims)
+	_, _, _, err := s.authorizeProject(r.Context(), projectID, claims)
 	if err != nil {
 		s.writeAuthorizeError(w, r, err)
 		return

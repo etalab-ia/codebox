@@ -126,7 +126,11 @@ func rsaPublicKeyFromJWK(k jwk) (*rsa.PublicKey, error) {
 // lifetime, returning its claims. Only RS256 is accepted: ProConnect's
 // documented ID token algorithms are RS256, ES256 and HS256, and a shared
 // symmetric secret must never be offered to a public client.
-func verifyRS256JWT(token string, keys map[string]*rsa.PublicKey, issuer string, now time.Time) (verifiedToken, error) {
+//
+// expectedAudience is the gateway's own client ID. `aud` may be a string or an
+// array per OIDC, and the token is rejected when it does not name this client:
+// otherwise an assertion minted for another service could be replayed here.
+func verifyRS256JWT(token string, keys map[string]*rsa.PublicKey, issuer, expectedAudience string, now time.Time) (verifiedToken, error) {
 	parts := strings.Split(token, ".")
 	if len(parts) != 3 {
 		return verifiedToken{}, fmt.Errorf("%w: id token is not a compact JWS", ErrUpstream)
@@ -174,6 +178,9 @@ func verifyRS256JWT(token string, keys map[string]*rsa.PublicKey, issuer string,
 	if payload.Subject == "" {
 		return verifiedToken{}, fmt.Errorf("%w: id token has no subject", ErrUpstream)
 	}
+	if expectedAudience != "" && !audienceMatches(payload.Audience, expectedAudience) {
+		return verifiedToken{}, fmt.Errorf("%w: id token audience does not name this client", ErrUpstream)
+	}
 	issued := time.Unix(payload.IssuedAt, 0).UTC()
 	expires := time.Unix(payload.ExpiresAt, 0).UTC()
 	if payload.ExpiresAt == 0 || !expires.After(now) {
@@ -193,4 +200,26 @@ func verifyRS256JWT(token string, keys map[string]*rsa.PublicKey, issuer string,
 		IssuedAt:  issued,
 		ExpiresAt: expires,
 	}, nil
+}
+
+// audienceMatches reports whether the token's `aud` claim, which OIDC allows to
+// be a string or an array of strings, names expected exactly.
+func audienceMatches(raw json.RawMessage, expected string) bool {
+	if len(raw) == 0 {
+		return false
+	}
+	var single string
+	if err := json.Unmarshal(raw, &single); err == nil {
+		return single == expected
+	}
+	var many []string
+	if err := json.Unmarshal(raw, &many); err != nil {
+		return false
+	}
+	for _, aud := range many {
+		if aud == expected {
+			return true
+		}
+	}
+	return false
 }

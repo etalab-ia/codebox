@@ -77,7 +77,7 @@ func TestVerifyRS256JWT(t *testing.T) {
 		"iat":   now.Add(-time.Minute).Unix(),
 		"exp":   now.Add(time.Hour).Unix(),
 	}
-	verified, err := verifyRS256JWT(signIDToken(t, key, "kid-1", valid), keys, issuer, now)
+	verified, err := verifyRS256JWT(signIDToken(t, key, "kid-1", valid), keys, issuer, "client-id", now)
 	if err != nil {
 		t.Fatalf("verifyRS256JWT: %v", err)
 	}
@@ -101,7 +101,7 @@ func TestVerifyRS256JWT(t *testing.T) {
 			claims[k] = v
 		}
 		tc.mutate(claims)
-		if _, err := verifyRS256JWT(signIDToken(t, key, "kid-1", claims), keys, issuer, now); err == nil {
+		if _, err := verifyRS256JWT(signIDToken(t, key, "kid-1", claims), keys, issuer, "client-id", now); err == nil {
 			t.Errorf("%s: token verified but should have failed", tc.name)
 		}
 	}
@@ -111,12 +111,45 @@ func TestVerifyRS256JWT(t *testing.T) {
 	if err != nil {
 		t.Fatalf("generate key: %v", err)
 	}
-	if _, err := verifyRS256JWT(signIDToken(t, otherKey, "kid-1", valid), keys, issuer, now); err == nil {
+	if _, err := verifyRS256JWT(signIDToken(t, otherKey, "kid-1", valid), keys, issuer, "client-id", now); err == nil {
 		t.Fatal("a token signed by an unpublished key verified")
 	}
 
+	// An audience that does not name this client is refused: `aud` may be a
+	// string or an array per OIDC, and neither form may pass for another client.
+	for _, aud := range []any{"other-client", []string{"other-client", "second"}, []string{}} {
+		claims := make(map[string]any, len(valid))
+		for k, v := range valid {
+			claims[k] = v
+		}
+		claims["aud"] = aud
+		if _, err := verifyRS256JWT(signIDToken(t, key, "kid-1", claims), keys, issuer, "client-id", now); err == nil {
+			t.Errorf("audience %v verified for client-id", aud)
+		}
+	}
+	// An array containing this client is accepted.
+	audArray := make(map[string]any, len(valid))
+	for k, v := range valid {
+		audArray[k] = v
+	}
+	audArray["aud"] = []string{"other-client", "client-id"}
+	if _, err := verifyRS256JWT(signIDToken(t, key, "kid-1", audArray), keys, issuer, "client-id", now); err != nil {
+		t.Errorf("an audience array containing the client was refused: %v", err)
+	}
+	// A missing audience is refused outright.
+	noAud := make(map[string]any, len(valid))
+	for k, v := range valid {
+		if k == "aud" {
+			continue
+		}
+		noAud[k] = v
+	}
+	if _, err := verifyRS256JWT(signIDToken(t, key, "kid-1", noAud), keys, issuer, "client-id", now); err == nil {
+		t.Error("a token with no audience verified")
+	}
+
 	// An unknown kid fails rather than falling back to any available key.
-	if _, err := verifyRS256JWT(signIDToken(t, key, "kid-unknown", valid), keys, issuer, now); err == nil {
+	if _, err := verifyRS256JWT(signIDToken(t, key, "kid-unknown", valid), keys, issuer, "client-id", now); err == nil {
 		t.Fatal("a token with an unknown kid verified")
 	}
 
@@ -130,7 +163,7 @@ func TestVerifyRS256JWT(t *testing.T) {
 		t.Fatalf("marshal payload: %v", err)
 	}
 	hs256 := base64.RawURLEncoding.EncodeToString(header) + "." + base64.RawURLEncoding.EncodeToString(payload) + ".x"
-	if _, err := verifyRS256JWT(hs256, keys, issuer, now); err == nil {
+	if _, err := verifyRS256JWT(hs256, keys, issuer, "client-id", now); err == nil {
 		t.Fatal("a non-RS256 token verified")
 	}
 }

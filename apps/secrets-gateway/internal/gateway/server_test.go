@@ -271,3 +271,120 @@ func createProjectFor(t *testing.T, ts *testServer, claims TokenClaims) string {
 	}
 	return created.ProjectID
 }
+
+// TestLoopbackLoginRedirectsTheBrowser covers the finding that the callback
+// returned JSON: the browser must be navigated to the CLI's loopback listener.
+func TestLoopbackLoginRedirectsTheBrowser(t *testing.T) {
+	ts := newTestServer(t, Identity{Subject: "s1", Email: "dev@beta.gouv.fr", ACR: "eidas2"})
+	handler := ts.server.Handler()
+
+	loginRec := httptest.NewRecorder()
+	handler.ServeHTTP(loginRec, httptest.NewRequest(http.MethodGet, "/auth/login?port=53682", nil))
+	if loginRec.Code != http.StatusFound {
+		t.Fatalf("login status = %d, want 302", loginRec.Code)
+	}
+
+	// Recover the attempt's state from the provider redirect the service issued.
+	state := ts.provider.lastState
+	if state == "" {
+		t.Fatal("no login state was recorded")
+	}
+
+	cbRec := httptest.NewRecorder()
+	handler.ServeHTTP(cbRec, httptest.NewRequest(http.MethodGet, "/auth/callback?state="+state+"&code=abc", nil))
+	if cbRec.Code != http.StatusFound {
+		t.Fatalf("callback status = %d, want 302 to the loopback listener (body %s)", cbRec.Code, cbRec.Body.String())
+	}
+	location := cbRec.Header().Get("Location")
+	if !strings.HasPrefix(location, "http://127.0.0.1:53682/callback?") {
+		t.Fatalf("callback Location = %q, want the loopback listener", location)
+	}
+	if !strings.Contains(location, "token=") {
+		t.Fatalf("callback Location %q carries no token", location)
+	}
+}
+
+// TestTerminalLoginIssuesAPasteableCode covers the finding that the terminal
+// flow was unreachable because every accepted port was non-zero.
+func TestTerminalLoginIssuesAPasteableCode(t *testing.T) {
+	ts := newTestServer(t, Identity{Subject: "s1", Email: "dev@beta.gouv.fr", ACR: "eidas2"})
+	handler := ts.server.Handler()
+
+	loginRec := httptest.NewRecorder()
+	handler.ServeHTTP(loginRec, httptest.NewRequest(http.MethodGet, "/auth/login?mode=terminal", nil))
+	if loginRec.Code != http.StatusFound {
+		t.Fatalf("terminal login status = %d, want 302 (body %s)", loginRec.Code, loginRec.Body.String())
+	}
+	state := ts.provider.lastState
+
+	cbRec := httptest.NewRecorder()
+	handler.ServeHTTP(cbRec, httptest.NewRequest(http.MethodGet, "/auth/callback?state="+state+"&code=abc", nil))
+	if cbRec.Code != http.StatusOK {
+		t.Fatalf("terminal callback status = %d, want 200 with a code (body %s)", cbRec.Code, cbRec.Body.String())
+	}
+	var issued map[string]string
+	decodeJSON(t, cbRec, &issued)
+	if issued["code"] == "" || issued["expiresAt"] == "" {
+		t.Fatalf("terminal callback issued %+v, want a code and expiry", issued)
+	}
+
+	// The pasted code exchanges for a session token.
+	exchangeRec := httptest.NewRecorder()
+	exchangeReq := newJSONRequest(http.MethodPost, "/auth/device/token", secrets.DeviceTokenExchangeRequest{SessionID: issued["code"]})
+	handler.ServeHTTP(exchangeRec, exchangeReq)
+	if exchangeRec.Code != http.StatusOK {
+		t.Fatalf("device token status = %d, want 200 (body %s)", exchangeRec.Code, exchangeRec.Body.String())
+	}
+	var token secrets.TokenResponse
+	decodeJSON(t, exchangeRec, &token)
+	if token.Token == "" || token.Identity.Email != "dev@beta.gouv.fr" {
+		t.Fatalf("device token response = %+v", token)
+	}
+	// And that session works on an authenticated route.
+	whoRec := httptest.NewRecorder()
+	whoReq := httptest.NewRequest(http.MethodGet, "/v1/whoami", nil)
+	whoReq.Header.Set("Authorization", "Bearer "+token.Token)
+	handler.ServeHTTP(whoRec, whoReq)
+	if whoRec.Code != http.StatusOK {
+		t.Fatalf("whoami with the exchanged token = %d, want 200", whoRec.Code)
+	}
+
+	// Terminal mode rejects a loopback port, and browser mode still requires one.
+	for _, target := range []string{"/auth/login?mode=terminal&port=53682", "/auth/login?mode=browser"} {
+		rec := httptest.NewRecorder()
+		handler.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, target, nil))
+		if rec.Code != http.StatusBadRequest {
+			t.Errorf("%s status = %d, want 400", target, rec.Code)
+		}
+	}
+}
+
+// TestMemberListEntriesAndRevisionComeFromOneRead covers the finding that the
+// entries and the revision could be read separately and disagree.
+func TestMemberListEntriesAndRevisionComeFromOneRead(t *testing.T) {
+	ts := newTestServer(t, Identity{})
+	owner := TokenClaims{Subject: "s1", Email: "owner@beta.gouv.fr", ACR: "eidas2"}
+	projectID := createProjectFor(t, ts, owner)
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/v1/projects/"+projectID+"/members", nil)
+	req.Header.Set("Authorization", "Bearer "+ts.sessionToken(t, owner))
+	ts.server.Handler().ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200 (body %s)", rec.Code, rec.Body.String())
+	}
+	var members secrets.MembersResponse
+	decodeJSON(t, rec, &members)
+	if members.Revision != 1 {
+		t.Fatalf("revision = %d, want 1 (the revision the entries were read at)", members.Revision)
+	}
+	// The returned entries must authorise the owner they claim, i.e. they came
+	// from the same snapshot as the revision.
+	acl, err := secrets.NewACL(members.Entries)
+	if err != nil {
+		t.Fatalf("returned entries do not form a valid ACL: %v", err)
+	}
+	if role, ok := acl.Authorize(owner.Email, ""); !ok || role != secrets.RoleOwner {
+		t.Fatalf("returned entries do not authorise the owner: (%q, %v)", role, ok)
+	}
+}
