@@ -70,3 +70,10 @@ secrets inert; local `secrets import` keeps working.
 
 OpenTofu state contains the secret environment variables above. Keep the state
 backend access-controlled and encrypted; never commit `.tfstate` or `.tfvars`.
+
+The container is pinned to exactly one warm replica (`min_scale = max_scale = 1`).
+Pending ProConnect login attempts and single-use terminal tickets live in the
+gateway process's in-memory `AttemptStore`; multiple replicas would reject
+callbacks that land on a different instance and could replay a terminal ticket,
+while scaling to zero could discard a login in progress. Raise `max_scale` only
+after moving those records to shared storage.

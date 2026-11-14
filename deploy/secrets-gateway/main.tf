@@ -124,8 +124,13 @@ resource "scaleway_container" "gateway" {
   port                    = 8080
   cpu_limit               = 512
   memory_limit_bytes      = 268435456
-  min_scale               = 0
-  max_scale               = 5
+  # Pending ProConnect login attempts and single-use terminal tickets are held
+  # in process-local memory (see AttemptStore). Keep exactly one warm replica
+  # until those are moved to shared storage: a callback hitting another
+  # replica would be rejected, and scaling to zero can discard a login in
+  # progress.
+  min_scale               = 1
+  max_scale               = 1
   privacy                 = "public"
   protocol                = "http1"
   https_connections_only  = true
