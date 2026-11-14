@@ -176,6 +176,12 @@ type MicrosandboxRuntime struct {
 	// source injected here resolves all approved values once per call site,
 	// which is shared by start, guest-readable file delivery and recovery.
 	ProjectSecretValues ProjectSecretValueSource
+	// ProjectSecretsManifest carries the schema-7 non-secret remote hints when
+	// a project declares shared development secrets. It is host state derived
+	// from the manifest, never a grant of access. When present, runtime
+	// deliveries come from host-local approvals intersected with these hints
+	// instead of the local import index.
+	ProjectSecretsManifest *ProjectSecretsManifest
 	// ProjectSecretsDeclared is set when the project manifest declares the
 	// optional `secrets` block. A declared remote source without an injected
 	// resolver must fail closed instead of silently using stale local OS-store

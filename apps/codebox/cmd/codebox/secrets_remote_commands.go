@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 
@@ -62,6 +63,10 @@ func deriveSecretBindingHints(root string) ([]codebox.ProjectSecretBindingHint, 
 	if err != nil {
 		return nil, err
 	}
+	paths, err = filterDevelopmentDotenvPaths(paths)
+	if err != nil {
+		return nil, err
+	}
 	files, err := readProjectSecretsFiles(root, paths)
 	if err != nil {
 		return nil, err
@@ -99,6 +104,10 @@ func secretsPushCmd(args []string) (int, error) {
 		return 1, err
 	}
 	paths, err := discoverProjectDotenvFiles(root)
+	if err != nil {
+		return 1, err
+	}
+	paths, err = filterDevelopmentDotenvPaths(paths)
 	if err != nil {
 		return 1, err
 	}
@@ -248,7 +257,14 @@ func ensureDeclaredBindingApprovals(root string) error {
 			changed = append(changed, hint.Component+"#"+hint.Name)
 			continue
 		}
-		if !equalStrings(b.Destinations, hint.Destinations) {
+		// Empty hint destinations mean the host must choose at least one real
+		// destination. A non-empty hint list is a versioned policy and must
+		// match the host approval exactly.
+		if len(hint.Destinations) == 0 {
+			if len(b.Destinations) == 0 {
+				changed = append(changed, hint.Component+"#"+hint.Name)
+			}
+		} else if !codebox.EqualStringSets(b.Destinations, hint.Destinations) {
 			changed = append(changed, hint.Component+"#"+hint.Name)
 		}
 	}
@@ -274,14 +290,54 @@ func ensureDeclaredBindingApprovals(root string) error {
 	return fmt.Errorf("shared secrets declarations are not approved on this host (%d missing, %d changed); run codebox secrets bindings approve", len(missing), len(changed))
 }
 
-func equalStrings(a, b []string) bool {
-	if len(a) != len(b) {
-		return false
+func projectDeclaresSharedSecrets(root string) bool {
+	manifest, err := projectSecretsManifest(root)
+	return err == nil && manifest.Secrets != nil
+}
+
+func validateRemoteBindingAgainstManifest(root string, binding codebox.ProjectSecretBinding) error {
+	manifest, err := projectSecretsManifest(root)
+	if err != nil {
+		return err
 	}
-	for i := range a {
-		if a[i] != b[i] {
-			return false
+	if manifest.Secrets == nil {
+		return fmt.Errorf("this project does not declare shared secrets")
+	}
+	for _, hint := range manifest.Secrets.Bindings {
+		if hint.Component != binding.Component || hint.Name != binding.Name {
+			continue
 		}
+		wantGuest := hint.Delivery == codebox.ProjectSecretDeliveryGuest
+		if binding.GuestReadable() != wantGuest {
+			return fmt.Errorf("delivery mode for %s#%s does not match the declaration", binding.Component, binding.Name)
+		}
+		if wantGuest {
+			return nil
+		}
+		if len(hint.Destinations) > 0 && !codebox.EqualStringSets(binding.Destinations, hint.Destinations) {
+			return fmt.Errorf("destinations for %s#%s do not match the declaration", binding.Component, binding.Name)
+		}
+		if len(binding.Destinations) == 0 {
+			return fmt.Errorf("at least one destination is required for %s#%s", binding.Component, binding.Name)
+		}
+		return codebox.ValidateProjectSecretBindingForRemote("", binding)
 	}
-	return true
+	return fmt.Errorf("%s#%s is not declared by this project's shared-secrets manifest", binding.Component, binding.Name)
+}
+
+// filterDevelopmentDotenvPaths rejects production-named dotenv files. Shared
+// development secrets must never upload a `.env.production`, `.env.prod` or
+// `production.env` file merely because it exists in the checkout.
+func filterDevelopmentDotenvPaths(paths []string) ([]string, error) {
+	out := make([]string, 0, len(paths))
+	for _, path := range paths {
+		base := strings.ToLower(filepath.Base(path))
+		for _, forbidden := range []string{".env.production", ".env.prod", "production.env", "prod.env", "prd.env"} {
+			if base == forbidden || strings.HasPrefix(base, forbidden+".") {
+				return nil, fmt.Errorf("refusing to upload production-named dotenv file %s; shared secrets support development files only", path)
+			}
+		}
+		out = append(out, path)
+	}
+	return out, nil
 }

@@ -561,7 +561,7 @@ func configureGatewayProjectSecrets(d *codebox.Dispatcher, projectRoot string) e
 	if err != nil {
 		return err
 	}
-	d.SetGatewayProjectSecrets(source, true)
+	d.SetGatewayProjectSecrets(source, manifest.Secrets)
 	return nil
 }
 

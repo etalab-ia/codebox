@@ -387,6 +387,9 @@ func (m *MicrosandboxRuntime) projectSecretStore() (*ProjectSecretStore, error) 
 // project, or an empty resolution when this project has none. A project with
 // no binding record is not an error: it simply has no project secrets.
 func (m *MicrosandboxRuntime) projectSecretDeliveries(ctx context.Context) (projectSecretResolution, error) {
+	if m.ProjectSecretsManifest != nil {
+		return m.resolveRemoteProjectSecretDeliveries(ctx)
+	}
 	store, err := m.projectSecretStore()
 	if err != nil {
 		// A runtime with no project scope at all (tests, legacy singletons)
