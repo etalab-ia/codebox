@@ -7,16 +7,16 @@ Ce document décrit l'architecture interne du CLI, l'outillage de développement
 Depuis un checkout des sources, pars du modèle commenté puis renseigne au minimum `ALBERT_API_KEY` :
 
 ```bash
-cp .env.example .env
+cp apps/codebox/.env.example .env
 ```
 
 La référence complète des variables et de leurs règles de priorité se trouve dans [config.md](config.md).
 
-## Portage Go
+## Portage Go et structure monorepo
 
-Le CLI est un binaire Go unique (`cmd/codebox`) qui remplace entièrement le `justfile`. Il orchestre les deux runtimes via une bibliothèque testée (`internal/codebox`) et le SDK Go Microsandbox, sans dépendre d'une commande `msb` externe.
+Le dépôt est organisé en espace de travail Go (`go.work`) orchestré par [Moon](https://moonrepo.dev) et [proto](https://moonrepo.dev/proto) (`.prototools` / `.protolock`, `.moon/`). Le CLI vit dans le module `apps/codebox` (`apps/codebox/cmd/codebox`) et remplace entièrement l'ancien `justfile`. Il orchestre les runtimes via sa bibliothèque privée (`apps/codebox/internal/codebox`) et le SDK Go Microsandbox, sans dépendre d'une commande `msb` externe.
 
-**Binaire autonome.** La configuration OpenCode et le script de démarrage Microsandbox vivent dans `assets/` et sont embarqués dans le binaire via `go:embed`. Ils sont transmis directement au SDK sans fichier de configuration temporaire. Le runtime natif téléchargé reste séparé sous `~/.microsandbox/` (ou `$MSB_HOME`). Il provient de la release amont immuable `superradcompany/microsandbox` : son URL et ses empreintes SHA-256 sont compilées dans `codebox`, l'archive est vérifiée avant décompression, puis la paire installée est validée via `ResolveRuntime()`.
+**Binaire autonome.** La configuration OpenCode et le script de démarrage Microsandbox vivent dans `apps/codebox/assets/` et sont embarqués dans le binaire via `go:embed`. Ils sont transmis directement au SDK sans fichier de configuration temporaire. Le runtime natif téléchargé reste séparé sous `~/.microsandbox/` (ou `$MSB_HOME`). Il provient de la release amont immuable `superradcompany/microsandbox` : son URL et ses empreintes SHA-256 sont compilées dans `codebox`, l'archive est vérifiée avant décompression, puis la paire installée est validée via `ResolveRuntime()`.
 
 **Pas de script shell.** Le bootstrap invité Tart (clampage MTU, installation d'OpenCode, `exec opencode serve`) est du code Go dans le même binaire, exposé sous la sous-commande interne `__guest-bootstrap`. La VM macOS étant elle aussi en arm64, le CLI copie son propre binaire dans le partage en lecture seule, puis le copie sur le disque local de l'invité (l'exécution directe depuis le partage virtiofs n'est pas fiable) avant de l'exécuter.
 
@@ -40,11 +40,11 @@ Contrats comportementaux reproduits : secrets absents des arguments de processus
 Le SDK embarque une bibliothèque FFI propre à chaque plateforme et nécessite CGO. Les binaires de publication sont donc construits sur des runners natifs pour macOS arm64, Linux amd64/arm64 et Windows amd64/arm64. macOS Intel n'est pas publié : le SDK Microsandbox 0.7.6 ne fournit pas de bibliothèque FFI pour `darwin/amd64`.
 
 ```bash
-go test -race ./...   # vert
-go vet ./...          # propre
+moon run codebox:fmt-check codebox:vet codebox:test
+go -C apps/codebox test -race ./...   # vert
 
 # Compilation sur la plateforme cible (CGO activé)
-CGO_ENABLED=1 go build -trimpath -ldflags="-s -w" -o codebox ./cmd/codebox
+CGO_ENABLED=1 go -C apps/codebox build -trimpath -ldflags="-s -w" -o ../../codebox ./cmd/codebox
 ```
 
 ## Hooks pre-commit
@@ -59,16 +59,16 @@ Le hook [gitleaks](https://github.com/gitleaks) scanne les changements stagés �
 
 Le workflow `gitleaks.yml` complète ce contrôle local sur chaque PR et chaque push sur `main`. Il vérifie l'empreinte SHA-256 du binaire avant d'analyser tout l'historique. Il n'utilise pas `gitleaks-action`, dont l'usage sur un dépôt d'organisation nécessite une licence séparée. `.gitleaks.toml` ne contient que des exclusions ciblées et expliquées : les lockfiles et les journaux de qualification restent analysés.
 
-Les fixtures Node sous `tests/` restent des fixtures d'un projet Go : elles ne justifient ni un outillage Node racine ni un hook CVE Lite. OSV-Scanner couvre leurs lockfiles en CI.
+Les fixtures Node sous `apps/codebox/tests/` restent des fixtures d'un projet Go : elles ne justifient ni un outillage Node racine ni un hook CVE Lite. OSV-Scanner couvre leurs lockfiles en CI.
 
 ## Intégration continue et publication
 
 Cinq workflows GitHub Actions accompagnent le CLI :
 
-- **`ci.yml`** (sur chaque PR, et sur `main`) : vérification du formatage (`gofmt`), `go vet`, `go test -race`, tests et compilation CGO sur chaque plateforme native prise en charge, contrat OpenCode hôte épinglé et tests de cycle de vie du serveur de laboratoire TLS. Les jobs d'intégration n'utilisent aucun identifiant et ne démarrent pas de microVM ; voir le [protocole de qualification bêta](qualification-beta.md) pour cette preuve native.
+- **`ci.yml`** (sur chaque PR, et sur `main`) : validation de l'espace Moon/proto, vérification du formatage (`gofmt`), `go vet`, `go test -race`, tests et compilation CGO sur chaque plateforme native prise en charge, contrat OpenCode hôte épinglé et tests de cycle de vie du serveur de laboratoire TLS. Les jobs d'intégration n'utilisent aucun identifiant et ne démarrent pas de microVM ; voir le [protocole de qualification bêta](qualification-beta.md) pour cette preuve native.
 - **`gitleaks.yml`** (sur chaque PR et sur `main`) : scan complet de l'historique pour détecter les secrets, indépendamment de l'installation des hooks sur chaque poste.
 - **`osv-scanner.yml`** (sur chaque PR, sur `main` et chaque semaine) : compare les vulnérabilités introduites par une PR à la branche de base et signale l'inventaire complet dans Code Scanning. Le scan local avec Go installé doit confirmer que l'analyse des appels Go fonctionne.
-- **`release-please.yml`** (sur `main`) : [release-please](https://github.com/googleapis/release-please) maintient une PR de release à partir des Conventional Commits (`feat:` = minor, `fix:` = patch). Fusionner cette PR écrit le `CHANGELOG.md`, crée le tag et la release GitHub, puis construit les cinq binaires (`darwin-arm64`, `linux-arm64`, `linux-x64`, `windows-x64.exe`, `windows-arm64.exe`) sur leurs runners natifs, génère `SHA256SUMS` et les attache à la release une fois toutes les plateformes réussies. Tant que le projet n'a pas décidé de publier sa version 1.0.0, `bump-minor-pre-major` maintient aussi les changements incompatibles sur les versions mineures (`0.1.0`, `0.2.0`, etc.). Le passage à `1.0.0` se fait uniquement par décision explicite, avec `Release-As: 1.0.0` dans le commit concerné.
+- **`release-please.yml`** (sur `main`) : [release-please](https://github.com/googleapis/release-please) maintient une PR de release par application (`apps/codebox`, `separate-pull-requests: true`) à partir des Conventional Commits (`feat:` = minor, `fix:` = patch). Fusionner la PR de `codebox` écrit `apps/codebox/CHANGELOG.md`, crée le tag `codebox-vX.Y.Z` et la release GitHub, puis construit les cinq binaires (`darwin-arm64`, `linux-arm64`, `linux-x64`, `windows-x64.exe`, `windows-arm64.exe`) sur leurs runners natifs, génère `SHA256SUMS` et les attache à la release une fois toutes les plateformes réussies. Tant que le projet n'a pas décidé de publier sa version 1.0.0, `bump-minor-pre-major` maintient aussi les changements incompatibles sur les versions mineures (`0.1.0`, `0.2.0`, etc.). Le passage à `1.0.0` se fait uniquement par décision explicite, avec `Release-As: 1.0.0` dans le commit concerné.
 - **`msb-runtime-watch.yml`** (cron hebdomadaire, lundi 09:00 UTC) : surveille les releases amont du runtime Microsandbox et ouvre une issue de suivi lorsqu'une version plus récente que le SDK embarqué est publiée ; voir « Mise à jour du runtime Microsandbox » ci-dessous.
 
 `.github/dependabot.yml` couvre chaque module Go, lockfile npm, fichier `requirements.txt`, la configuration pre-commit et les workflows. Le délai `cooldown.default-days: 7` retarde les PR de versions ordinaires, pas les correctifs de sécurité. Go n'a pas de délai de publication minimal natif équivalent à pnpm ou uv : les modules verrouillés, Dependabot et la revue restent donc nécessaires. Les mises à jour ne sont jamais fusionnées automatiquement.
@@ -85,8 +85,8 @@ Le runtime évolue indépendamment du CLI. `codebox` télécharge les archives d
 
 **Montée de version du SDK (PR revue).** Lors d'une montée de version de `github.com/superradcompany/microsandbox/sdk/go` :
 
-1. Mettre à jour la dépendance dans `go.mod` et confirmer la valeur renvoyée par `msb.SDKVersion()`.
+1. Mettre à jour la dépendance dans `apps/codebox/go.mod` et confirmer la valeur renvoyée par `msb.SDKVersion()`.
 2. Vérifier la release amont correspondante avant de graver quoi que ce soit : `gh release verify v<X.Y.Z> --repo superradcompany/microsandbox --format json`, puis extraire les empreintes des cinq archives depuis les sujets vérifiés. Ne jamais graver une empreinte issue du seul `checksums.sha256` amont.
-3. Mettre à jour ensemble `msbRuntimeVersion`, `msbRuntimeReleaseURL` et les cinq empreintes dans `internal/codebox/msb_runtime_install.go`. L'URL suit la forme `https://github.com/superradcompany/microsandbox/releases/download/v<X.Y.Z>`. Le test `TestMSBRuntimeVersionMatchesSDK` bloque un décalage entre le SDK et le runtime.
-4. Tester au minimum `go test -race ./...`, puis exécuter `codebox start --microsandbox` avec un `$MSB_HOME` vide sur une plateforme réelle pour valider le téléchargement, l'empreinte, l'extraction et `msb --version` de bout en bout. `codebox doctor --microsandbox` ne télécharge rien : il ne vérifie que le runtime déjà installé.
+3. Mettre à jour ensemble `msbRuntimeVersion`, `msbRuntimeReleaseURL` et les cinq empreintes dans `apps/codebox/internal/codebox/msb_runtime_install.go`. L'URL suit la forme `https://github.com/superradcompany/microsandbox/releases/download/v<X.Y.Z>`. Le test `TestMSBRuntimeVersionMatchesSDK` bloque un décalage entre le SDK et le runtime.
+4. Tester au minimum `go -C apps/codebox test -race ./...`, puis exécuter `codebox start --microsandbox` avec un `$MSB_HOME` vide sur une plateforme réelle pour valider le téléchargement, l'empreinte, l'extraction et `msb --version` de bout en bout. `codebox doctor --microsandbox` ne télécharge rien : il ne vérifie que le runtime déjà installé.
 5. Exécuter `codebox setup doctor` sur la même plateforme et vérifier que le rapport sépare capacité hôte, runtime/VM, toolchain, provider, skills/MCP et stockage des identifiants, sans afficher de valeur secrète. `codebox setup doctor --json` expose le même rapport avec des clés stables pour automatisation.

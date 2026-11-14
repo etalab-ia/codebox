@@ -4,7 +4,14 @@ workspace/
 
 # Go build artifacts
 /codebox
+/codebox.exe
 /codebox-*
+/apps/codebox/codebox
+/apps/codebox/codebox.exe
+/apps/codebox/codebox-*
+
+# Moon local cache
+/.moon/cache/
 
 # Python
 __pycache__/
@@ -13,4 +20,4 @@ __pycache__/
 node_modules/
 
 # Opt-in guest loader qualification dependencies
-/tests/integration/project-secrets/node_modules/
+/apps/codebox/tests/integration/project-secrets/node_modules/

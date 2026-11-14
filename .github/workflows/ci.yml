@@ -14,16 +14,43 @@ jobs:
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
-          go-version-file: go.mod
+          go-version-file: apps/codebox/go.mod
           cache: true
-      - name: Check formatting
-        run: test -z "$(gofmt -l .)"
-      - run: go vet ./...
-      - run: go test -race ./...
+          cache-dependency-path: apps/codebox/go.sum
+      - uses: moonrepo/setup-toolchain@261c62cb5b0f580c7be7c8cd0f023a2e96756095 # v0.6.4
+        with:
+          proto-version: "0.63.2"
+          moon-version: "2.6.5"
+          auto-install: false
+      - name: Validate Moon workspace and toolchain pins
+        run: |
+          set -eu
+          proto_go="$(sed -n 's/^go = "\(.*\)"$/\1/p' .prototools)"
+          work_toolchain="$(sed -n 's/^toolchain go\(.*\)$/\1/p' go.work)"
+          if [ -z "$work_toolchain" ]; then
+            work_toolchain="$(sed -n 's/^go \(.*\)$/\1/p' go.work)"
+          fi
+          mod_toolchain="$(sed -n 's/^toolchain go\(.*\)$/\1/p' apps/codebox/go.mod)"
+          if [ -z "$mod_toolchain" ]; then
+            mod_toolchain="$(sed -n 's/^go \(.*\)$/\1/p' apps/codebox/go.mod)"
+          fi
+          test -n "$proto_go" && test "$proto_go" = "$work_toolchain" && test "$proto_go" = "$mod_toolchain"
+          proto status
+          moon sync config-schemas
+          test "$(moon query projects | jq -r '.projects | map(.id) | join(",")')" = "codebox"
+          moon query tasks >/dev/null
+      - name: Check formatting and vet via Moon
+        run: |
+          set -eu
+          moon run codebox:fmt-check codebox:vet
+          git diff --exit-code .protolock go.work apps/codebox/go.mod apps/codebox/go.sum
+      - run: go -C apps/codebox test -race ./...
       - name: Test POSIX installer
-        run: sh tests/installers/test-posix.sh
+        run: sh apps/codebox/tests/installers/test-posix.sh
 
   integration-host:
     runs-on: ubuntu-latest
@@ -32,8 +59,9 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
-          go-version-file: go.mod
+          go-version-file: apps/codebox/go.mod
           cache: true
+          cache-dependency-path: apps/codebox/go.sum
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 22
@@ -41,15 +69,15 @@ jobs:
         with:
           python-version: "3.x"
       - name: Test pinned OpenCode host integration
-        run: tests/integration/opencode/run.sh
+        run: apps/codebox/tests/integration/opencode/run.sh
       - name: Test credential lab server lifecycle
-        run: python -m unittest discover -s tests/integration/credentials/lab -p 'test_*.py' -v
+        run: python -m unittest discover -s apps/codebox/tests/integration/credentials/lab -p 'test_*.py' -v
 
   # The project-secret loader suites and the fixture Go modules are separate
-  # modules with no go.work, so `go test ./...` at the root never reaches them.
-  # Dependabot opens PRs against their manifests anyway, and without this job
-  # those PRs land green while the recorded pins and loader contracts drift.
-  # See https://github.com/etalab-ia/codebox/issues/246.
+  # modules excluded from go.work, so `go test ./...` inside apps/codebox never
+  # reaches them. Dependabot opens PRs against their manifests anyway, and
+  # without this job those PRs land green while the recorded pins and loader
+  # contracts drift. See https://github.com/etalab-ia/codebox/issues/246.
   fixture-contracts:
     runs-on: ubuntu-latest
     timeout-minutes: 30
@@ -60,23 +88,24 @@ jobs:
           node-version: 22
           cache: npm
           cache-dependency-path: |
-            tests/integration/project-secrets/package-lock.json
-            tests/integration/project-secrets/native-phase3/guest/node-app/package-lock.json
+            apps/codebox/tests/integration/project-secrets/package-lock.json
+            apps/codebox/tests/integration/project-secrets/native-phase3/guest/node-app/package-lock.json
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
           python-version: "3.x"
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
-          go-version-file: go.mod
+          go-version-file: apps/codebox/go.mod
           cache: true
+          cache-dependency-path: apps/codebox/go.sum
       - name: Install the qualified Node loaders
-        working-directory: tests/integration/project-secrets
+        working-directory: apps/codebox/tests/integration/project-secrets
         run: npm ci --ignore-scripts
       - name: Run the Node loader contract suite
-        working-directory: tests/integration/project-secrets
+        working-directory: apps/codebox/tests/integration/project-secrets
         run: npm test
       - name: Install the qualified Python loaders
-        working-directory: tests/integration/project-secrets
+        working-directory: apps/codebox/tests/integration/project-secrets
         run: |
           set -eu
           # A venv under RUNNER_TEMP keeps this independent of the runner
@@ -88,11 +117,11 @@ jobs:
           "$venv/bin/python" -m pip install --no-cache-dir -r requirements.txt
           echo "LOADERS_VENV=$venv" >> "$GITHUB_ENV"
       - name: Run the Python loader contract suite
-        working-directory: tests/integration/project-secrets
+        working-directory: apps/codebox/tests/integration/project-secrets
         run: |
           "$LOADERS_VENV/bin/python" -m unittest -v test_python_loaders.py
       - name: Install the guest Node fixture
-        working-directory: tests/integration/project-secrets/native-phase3/guest/node-app
+        working-directory: apps/codebox/tests/integration/project-secrets/native-phase3/guest/node-app
         run: npm ci --ignore-scripts
       # Covers the embedded guest fixture pins (TestGuestFixtureDependencyPins)
       # and the fixture-side loader/credential contracts. These jobs do not
@@ -101,9 +130,9 @@ jobs:
         run: |
           set -eu
           for module in native native-phase3 native-phase4; do
-            dir="tests/integration/project-secrets/$module"
+            dir="apps/codebox/tests/integration/project-secrets/$module"
             echo "::group::$module"
-            (cd "$dir" && go test ./...)
+            (cd "$dir" && GOWORK=off go test ./...)
             echo "::endgroup::"
           done
 
@@ -137,14 +166,15 @@ jobs:
         run: git config --system --add safe.directory "$GITHUB_WORKSPACE"
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
-          go-version-file: go.mod
+          go-version-file: apps/codebox/go.mod
           cache: true
+          cache-dependency-path: apps/codebox/go.sum
       - name: Verify native target
         run: |
           test "$(go env GOOS)" = "linux"
           test "$(go env GOARCH)" = "${{ matrix.arch }}"
-      - run: go test ./...
-      - run: go build ./cmd/codebox
+      - run: go -C apps/codebox test ./...
+      - run: go -C apps/codebox build ./cmd/codebox
 
   # The SDK embeds a platform-specific FFI library and uses CGO, so macOS and
   # Windows are built and tested on native runners. These jobs do not boot a
@@ -169,11 +199,11 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Test POSIX installer on macOS
         if: matrix.os == 'darwin'
-        run: sh tests/installers/test-posix.sh
+        run: sh apps/codebox/tests/installers/test-posix.sh
       - name: Test PowerShell installer
         if: matrix.os == 'windows'
         shell: powershell
-        run: ./tests/installers/test-windows.ps1
+        run: ./apps/codebox/tests/installers/test-windows.ps1
       # The runner's gcc is an x86_64 MinGW cross compiler, which cannot
       # assemble arm64. CGO needs a GNU-ABI aarch64 compiler, so the pinned
       # LLVM-MinGW toolchain is installed for the Windows arm64 leg.
@@ -201,8 +231,9 @@ jobs:
           Add-Content -Path $env:GITHUB_ENV -Value 'CXX=aarch64-w64-mingw32-clang++'
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
-          go-version-file: go.mod
+          go-version-file: apps/codebox/go.mod
           cache: true
+          cache-dependency-path: apps/codebox/go.sum
       - name: Verify native target
         shell: bash
         run: |
@@ -211,8 +242,8 @@ jobs:
           if [ "${{ matrix.os }}" = "windows" ] && [ "${{ matrix.arch }}" = "arm64" ]; then
             go env CC | grep -q aarch64-w64-mingw32-clang
           fi
-      - run: go test ./...
-      - run: go build ./cmd/codebox
+      - run: go -C apps/codebox test ./...
+      - run: go -C apps/codebox build ./cmd/codebox
 
   # The release jobs in release-please.yml only run when a release is created,
   # so PR CI never exercises the artifact actions. Those actions are how a

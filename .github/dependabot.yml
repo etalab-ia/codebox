@@ -6,17 +6,17 @@ version: 2
 #  - updates are grouped, so Dependabot opens one PR per group and per cycle
 #    instead of one PR per dependency.
 updates:
-  # Go: root module.
+  # Go: codebox CLI module.
   - package-ecosystem: "gomod"
-    directory: "/"
+    directory: "/apps/codebox"
     schedule:
       interval: "weekly"
     cooldown:
       default-days: 7
     open-pull-requests-limit: 5
     # The Microsandbox SDK is pinned to the hosted runtime: msbRuntimeVersion and
-    # the five archive digests in internal/codebox/msb_runtime_install.go have to
-    # move with go.mod, and TestMSBRuntimeVersionMatchesSDK fails CI whenever SDK
+    # the five archive digests in apps/codebox/internal/codebox/msb_runtime_install.go have to
+    # move with apps/codebox/go.mod, and TestMSBRuntimeVersionMatchesSDK fails CI whenever SDK
     # version and runtime version drift apart, so an isolated Dependabot bump is
     # always red. Upstream releases are detected and turned into a tracked issue by
     # .github/workflows/msb-runtime-watch.yml, which carries the procedure for the
@@ -33,8 +33,8 @@ updates:
     ignore:
       - dependency-name: "github.com/superradcompany/microsandbox/sdk/go"
     groups:
-      go-root:
-        # One PR per week for all Go updates in the root module.
+      go-codebox:
+        # One PR per week for all Go updates in apps/codebox.
         patterns: ["*"]
 
   # Go: integration-test fixtures. Each of these manifests declares only the
@@ -43,9 +43,9 @@ updates:
   # kept so that any dependency added later is still covered.
   - package-ecosystem: "gomod"
     directories:
-      - "/tests/integration/project-secrets/native"
-      - "/tests/integration/project-secrets/native-phase3"
-      - "/tests/integration/project-secrets/native-phase4"
+      - "/apps/codebox/tests/integration/project-secrets/native"
+      - "/apps/codebox/tests/integration/project-secrets/native-phase3"
+      - "/apps/codebox/tests/integration/project-secrets/native-phase4"
     schedule:
       interval: "weekly"
     cooldown:
@@ -62,8 +62,8 @@ updates:
 
   - package-ecosystem: "npm"
     directories:
-      - "/tests/integration/project-secrets"
-      - "/tests/integration/project-secrets/native-phase3/guest/node-app"
+      - "/apps/codebox/tests/integration/project-secrets"
+      - "/apps/codebox/tests/integration/project-secrets/native-phase3/guest/node-app"
     schedule:
       interval: "weekly"
     cooldown:
@@ -74,7 +74,7 @@ updates:
     # .env values in every quote mode, so the tests named "dotenv-expand does
     # not evaluate command substitution" fail and turn the fixture-contracts
     # CI job red (see the Observed Matrix in
-    # tests/integration/project-secrets/README.md). Ignore the major here so
+    # apps/codebox/tests/integration/project-secrets/README.md). Ignore the major here so
     # Dependabot stops proposing it weekly; an `@dependabot ignore` comment is
     # a no-op on a PR built from a group rule (see #271). Versions below 1000
     # stay eligible: 13.0.0 keeps `$(...)` verbatim and passes the guards.
@@ -91,8 +91,8 @@ updates:
 
   - package-ecosystem: "pip"
     directories:
-      - "/tests/integration/project-secrets"
-      - "/tests/integration/project-secrets/native-phase3/guest/python-app"
+      - "/apps/codebox/tests/integration/project-secrets"
+      - "/apps/codebox/tests/integration/project-secrets/native-phase3/guest/python-app"
     schedule:
       interval: "weekly"
     cooldown:

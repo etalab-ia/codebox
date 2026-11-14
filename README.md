@@ -8,7 +8,7 @@
 
 [![CI](https://github.com/etalab-ia/codebox/actions/workflows/ci.yml/badge.svg)](https://github.com/etalab-ia/codebox/actions/workflows/ci.yml)
 [![version](https://img.shields.io/github/v/release/etalab-ia/codebox?label=version&sort=semver)](https://github.com/etalab-ia/codebox/releases/latest)
-[![go](https://img.shields.io/github/go-mod/go-version/etalab-ia/codebox?label=go)](https://go.dev/dl/)
+[![go](https://img.shields.io/github/go-mod/go-version/etalab-ia/codebox?filename=apps%2Fcodebox%2Fgo.mod&label=go)](https://go.dev/dl/)
 [![licence](https://img.shields.io/github/license/etalab-ia/codebox?label=licence)](LICENSE)
 ![statut](https://img.shields.io/badge/statut-exp%C3%A9rimental-orange)
 ![plateformes](https://img.shields.io/badge/plateformes-darwin%20%7C%20linux%20%7C%20windows-blue)

@@ -261,7 +261,7 @@ Dans le guest, la variable contient un marqueur opaque sans dollar
 (`__CODEBOX_SECRET_…__`), jamais la valeur. Le choix de ce marqueur est
 qualifié : les chargeurs dotenv usuels suppriment une référence `$MSB_…` non
 définie, y compris entre guillemets, alors qu'un marqueur opaque survit aux
-modes testés (voir `tests/integration/project-secrets/`).
+modes testés (voir `apps/codebox/tests/integration/project-secrets/`).
 
 Le profil actif est explicite : `secrets profile <name>` sélectionne le seul
 profil livré, et `--clear` est refusé tant que des liaisons restent approuvées,

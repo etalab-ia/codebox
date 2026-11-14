@@ -32,7 +32,7 @@ refuse donc explicitement cette combinaison plutôt que d'échouer plus tard, et
 un test le vérifie (`msbRuntimeArtifactFor`).
 
 Les cinq combinaisons prises en charge ont une empreinte SHA256 épinglée dans
-`internal/codebox/msb_runtime_install.go` : le runtime téléchargé est vérifié
+`apps/codebox/internal/codebox/msb_runtime_install.go` : le runtime téléchargé est vérifié
 avant d'être extrait, et une version publiée différente n'est pas adoptée
 silencieusement.
 
@@ -42,7 +42,7 @@ Server 2025 amd64 a démarré une microVM Alpine réelle via WHP avec le runtime
 exclu le fichier dotenv factice et conservé les fichiers après arrêt/redémarrage.
 Ce spike n'est **pas** une qualification complète de #77 : l'édition testée
 diffère des cibles Windows 10/11 du protocole actuel, et le lancement OpenCode
-est bloqué par #292. Voir `tests/integration/qualification/windows-amd64/`.
+est bloqué par #292. Voir `apps/codebox/tests/integration/qualification/windows-amd64/`.
 Windows arm64 reste non testé (#291).
 
 ## Magasins d'identifiants natifs
@@ -63,13 +63,13 @@ interactive sur Windows Server 2025. Une exécution a réussi `put` / `get` /
 immédiate après écriture ; les sessions SSH ont ignoré le test après refus de
 la sonde. Le service est donc réellement atteint, mais pas qualifié : la cause
 de cette intermittence reste à établir dans #293. Les trois transcripts sont
-sous `tests/integration/credentials/evidence/`.
+sous `apps/codebox/tests/integration/credentials/evidence/`.
 
 Le Trousseau a été qualifié sur macOS arm64 le 2026-10-16 (hôte Scaleway
 Mac mini M4, trousseau dédiée déverrouillée — sur un hôte headless, le
 trousseau `login` n'est pas déverrouillable) : les transcripts
 `darwin-arm64-run-1.txt` et `darwin-arm64-run-2.txt` sous
-`tests/integration/credentials/evidence/` montrent `put` / `get` / `remove`,
+`apps/codebox/tests/integration/credentials/evidence/` montrent `put` / `get` / `remove`,
 rotation et retrait d'élément absent, exécutés deux fois de suite contre la
 révision qualifiée. Le magasin Linux est qualifié depuis le même jour, sur
 amd64 comme sur arm64 : transcripts `--- PASS` conservés
@@ -84,12 +84,12 @@ sonde de disponibilité est en lecture seule et déclare le magasin
 ainsi n'est pas une régression du produit mais il n'est pas une preuve non
 plus : seule une exécution passante sur un magasin réellement utilisable
 qualifie la ligne. Sur un poste avec une session ouverte, la commande de
-preuve reste `go test ./internal/codebox/ -run TestRealStore -v` ; un test
+preuve reste `go -C apps/codebox test ./internal/codebox/ -run TestRealStore -v` ; un test
 ignoré n'est pas une preuve.
 
 La qualification microVM de Linux arm64 a été obtenue sur un hôte KVM réel
 (Scaleway Mac mini M2 sous Asahi Fedora 42, noyau arm64 à pages de 16 K) ;
-les preuves sont sous `tests/integration/qualification/linux-arm64/`. Les
+les preuves sont sous `apps/codebox/tests/integration/qualification/linux-arm64/`. Les
 Instances Scaleway arm64 classiques n'exposent pas de virtualisation
 emboîtée et ne peuvent donc pas servir d'hôtes de qualification pour la
 microVM.
@@ -115,14 +115,14 @@ et son état est rappelé à chaque affichage.
 
 | Preuve | Emplacement |
 | --- | --- |
-| Qualification complète Linux amd64 (parcours commun, secrets, terminal, installateur) | `tests/integration/qualification/linux-amd64/` |
-| Qualification complète macOS arm64 (parcours commun, secrets, terminal, agent-vm, laboratoire d'identifiants) | `tests/integration/qualification/darwin-arm64/` |
-| Qualification complète Linux arm64 sur hôte KVM (parcours commun, secrets, terminal, installateur) | `tests/integration/qualification/linux-arm64/` |
-| Spike Windows amd64 sur Windows Server dédié (microVM, workspace, limites) | `tests/integration/qualification/windows-amd64/` |
-| Qualification native du transport proxy et des marqueurs (phase 0) | `tests/integration/project-secrets/native/evidence/` |
-| Qualification native de bout en bout des fichiers dotenv gérés (phase 3) | `tests/integration/project-secrets/native-phase3/evidence/` |
-| Magasin d'identifiants natif exercé (macOS, Linux, Windows) | `tests/integration/credentials/evidence/` |
-| Matrice des chargeurs dotenv (Node, Python) | `tests/integration/project-secrets/` |
+| Qualification complète Linux amd64 (parcours commun, secrets, terminal, installateur) | `apps/codebox/tests/integration/qualification/linux-amd64/` |
+| Qualification complète macOS arm64 (parcours commun, secrets, terminal, agent-vm, laboratoire d'identifiants) | `apps/codebox/tests/integration/qualification/darwin-arm64/` |
+| Qualification complète Linux arm64 sur hôte KVM (parcours commun, secrets, terminal, installateur) | `apps/codebox/tests/integration/qualification/linux-arm64/` |
+| Spike Windows amd64 sur Windows Server dédié (microVM, workspace, limites) | `apps/codebox/tests/integration/qualification/windows-amd64/` |
+| Qualification native du transport proxy et des marqueurs (phase 0) | `apps/codebox/tests/integration/project-secrets/native/evidence/` |
+| Qualification native de bout en bout des fichiers dotenv gérés (phase 3) | `apps/codebox/tests/integration/project-secrets/native-phase3/evidence/` |
+| Magasin d'identifiants natif exercé (macOS, Linux, Windows) | `apps/codebox/tests/integration/credentials/evidence/` |
+| Matrice des chargeurs dotenv (Node, Python) | `apps/codebox/tests/integration/project-secrets/` |
 | Protocole de qualification manuelle par hôte | `docs/qualification-beta.md` |
 
 Chaque transcript conservé porte une ligne `META` nommant la révision du

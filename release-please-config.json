@@ -1,13 +1,15 @@
 {
   "$schema": "https://raw.githubusercontent.com/googleapis/release-please/main/schemas/config.json",
   "bootstrap-sha": "2aa140eb470cd393eda0578588d71a98b7a71c4f",
+  "separate-pull-requests": true,
   "packages": {
-    ".": {
+    "apps/codebox": {
       "release-type": "simple",
       "bump-minor-pre-major": true,
       "changelog-path": "CHANGELOG.md",
       "initial-version": "0.1.0",
-      "component": "codebox"
+      "component": "codebox",
+      "include-component-in-tag": true
     }
   }
 }
