@@ -83,6 +83,19 @@ func (m *MicrosandboxRuntime) resolveProjectSecretValueSet(ctx context.Context, 
 	if len(requests) == 0 {
 		return resolvedSecretSet{values: map[ProjectSecretIdentity]ProjectSecretValue{}}, nil
 	}
+	// A caller may set ProjectSecretsDeclared explicitly (the CLI will, once
+	// it has loaded the manifest). Also derive it here from the project's own
+	// manifest when a workspace root is available, so a declared remote source
+	// fails closed on every path that reaches this resolver.
+	declared := m.ProjectSecretsDeclared
+	if !declared && m.cfg.WorkspaceDir != "" {
+		if manifest, err := ReadProjectManifest(DefaultFS, ProjectManifestPath(m.cfg.WorkspaceDir)); err == nil {
+			declared = manifest.Secrets != nil
+		}
+	}
+	if declared && m.ProjectSecretValues == nil {
+		return resolvedSecretSet{}, ErrProjectSecretValueSourceUnconfigured
+	}
 
 	if source := m.ProjectSecretValues; source != nil {
 		values, err := source.ResolveProjectSecretValues(ctx, requests)
