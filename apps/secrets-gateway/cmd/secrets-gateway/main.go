@@ -120,15 +120,15 @@ func configFromEnv(logger *slog.Logger) (gateway.Config, error) {
 		return gateway.Config{}, errors.New("GATEWAY_PUBLIC_URL is required")
 	}
 	oidcCfg := gateway.OIDCConfig{
-		Issuer:        envOr("PROCONNECT_ISSUER", "https://test.proconnect.gouv.fr"),
+		Issuer:        envOr("PROCONNECT_ISSUER", gateway.ProConnectSandboxIssuer),
 		ClientID:      os.Getenv("PROCONNECT_CLIENT_ID"),
 		ClientSecret:  os.Getenv("PROCONNECT_CLIENT_SECRET"),
 		RedirectURL:   strings.TrimSuffix(publicURL, "/") + "/auth/callback",
 		Scopes:        splitNonEmpty(os.Getenv("PROCONNECT_SCOPES")),
 		AllowedSIRETs: splitNonEmpty(os.Getenv("GATEWAY_ALLOWED_SIRETS")),
 	}
-	if oidcCfg.Issuer == "https://test.proconnect.gouv.fr" {
-		logger.Warn("using the ProConnect sandbox issuer; production credentials change only this variable")
+	if oidcCfg.Issuer == gateway.ProConnectSandboxIssuer {
+		logger.Warn("using the ProConnect sandbox issuer; set PROCONNECT_ISSUER to the production issuer once the DataPass authorisation is granted")
 	}
 	return gateway.Config{
 		ListenAddr:     envOr("PORT_LISTEN", ":"+envOr("PORT", "8080")),

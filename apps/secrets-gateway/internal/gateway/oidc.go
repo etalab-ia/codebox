@@ -15,6 +15,20 @@ import (
 	"github.com/etalab-ia/codebox/packages/secrets"
 )
 
+// ProConnectSandboxIssuer and ProConnectProductionIssuer are the verified
+// ProConnect OIDC issuers. Discovery lives under `<issuer>/.well-known/openid-configuration`,
+// so the issuer must include the `/api/v2` path segment.
+//
+// Verified 2026-11-14 against the published domain table
+// (https://partenaires.proconnect.gouv.fr/docs/ressources/valeur_ac_domain) and
+// by fetching both discovery documents: the sandbox issuer returns
+// `issuer: https://fca.integ01.dev-agentconnect.fr/api/v2` with RS256 among its
+// signing algorithms.
+const (
+	ProConnectSandboxIssuer    = "https://fca.integ01.dev-agentconnect.fr/api/v2"
+	ProConnectProductionIssuer = "https://auth.agentconnect.gouv.fr/api/v2"
+)
+
 // MFAEnabledACRValues lists the assurance levels that satisfy the gateway's
 // two-factor requirement. HR-backed ProConnect identity providers return
 // eidas2/eidas3; providers without HR provisioning return the `-mfa` or
@@ -93,6 +107,11 @@ type oidcDiscovery struct {
 	TokenURL         string `json:"token_endpoint"`
 	UserInfoURL      string `json:"userinfo_endpoint"`
 	JWKSURL          string `json:"jwks_uri"`
+	// UserInfoSigningAlgs lists the algorithms the provider may use for signed
+	// UserInfo responses. ProConnect documents `application/jwt` UserInfo when a
+	// signing algorithm is registered for the client, so the client must be
+	// prepared for both formats.
+	UserInfoSigningAlgs []string `json:"userinfo_signing_alg_values_supported"`
 }
 
 // NewOIDCClient builds a client. It does not perform network I/O: discovery
@@ -285,13 +304,18 @@ func (c *OIDCClient) verifyIDToken(ctx context.Context, disc *oidcDiscovery, idT
 	}, nil
 }
 
+// userInfo retrieves the caller's profile. ProConnect returns either a JSON
+// document or a signed JWT (`application/jwt`) depending on the algorithm
+// registered for the client, and the Accept header does not change that, so
+// both forms are handled: a signed response is verified against the provider's
+// key set before any claim is trusted.
 func (c *OIDCClient) userInfo(ctx context.Context, disc *oidcDiscovery, accessToken string) (Identity, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, disc.UserInfoURL, nil)
 	if err != nil {
 		return Identity{}, err
 	}
 	req.Header.Set("Authorization", "Bearer "+accessToken)
-	req.Header.Set("Accept", "application/json")
+	req.Header.Set("Accept", "application/json, application/jwt")
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
 		return Identity{}, fmt.Errorf("%w: userinfo: %v", ErrUpstream, err)
@@ -301,25 +325,61 @@ func (c *OIDCClient) userInfo(ctx context.Context, disc *oidcDiscovery, accessTo
 	if err != nil || resp.StatusCode != http.StatusOK {
 		return Identity{}, fmt.Errorf("%w: userinfo returned HTTP %d", ErrUpstream, resp.StatusCode)
 	}
-	var profile struct {
-		Email string `json:"email"`
-		SIRET string `json:"siret"`
-		Given string `json:"given_name"`
-		Usual string `json:"usual_name"`
-		ACR   string `json:"acr"`
-		Sub   string `json:"sub"`
-		UID   string `json:"uid"`
-	}
-	if err := json.Unmarshal(body, &profile); err != nil {
-		return Identity{}, fmt.Errorf("%w: userinfo payload is not valid JSON", ErrUpstream)
+
+	contentType := resp.Header.Get("Content-Type")
+	signed := strings.HasPrefix(contentType, "application/jwt") || looksLikeJWS(body)
+	var profile userInfoClaims
+	if signed {
+		keys, err := c.fetchJWKS(ctx, disc.JWKSURL)
+		if err != nil {
+			return Identity{}, err
+		}
+		verified, err := verifyRS256JWTClaims(strings.TrimSpace(string(body)), keys, c.cfg.Issuer, c.cfg.ClientID, c.now())
+		if err != nil {
+			return Identity{}, err
+		}
+		profile = userInfoClaims{
+			Subject: verified.Subject,
+			Email:   verified.Email,
+			SIRET:   verified.SIRET,
+			ACR:     verified.ACR,
+			Given:   verified.GivenName,
+			Usual:   verified.UsualName,
+			UID:     verified.UID,
+		}
+	} else {
+		if err := json.Unmarshal(body, &profile); err != nil {
+			return Identity{}, fmt.Errorf("%w: userinfo payload is neither JSON nor a signed JWT", ErrUpstream)
+		}
 	}
 	return Identity{
-		Subject:  firstNonEmpty(profile.Sub, profile.UID),
+		Subject:  firstNonEmpty(profile.Subject, profile.UID),
 		Email:    strings.ToLower(profile.Email),
 		SIRET:    profile.SIRET,
 		ACR:      profile.ACR,
 		NameHint: strings.TrimSpace(profile.Given + " " + profile.Usual),
 	}, nil
+}
+
+// userInfoClaims is the subset of the UserInfo response the gateway reads. It
+// decodes both the JSON document and the claim set of a signed JWT.
+type userInfoClaims struct {
+	Subject string `json:"sub"`
+	UID     string `json:"uid"`
+	Email   string `json:"email"`
+	SIRET   string `json:"siret"`
+	Given   string `json:"given_name"`
+	Usual   string `json:"usual_name"`
+	ACR     string `json:"acr"`
+}
+
+// looksLikeJWS reports whether a body is a three-segment compact JWS.
+func looksLikeJWS(body []byte) bool {
+	trimmed := strings.TrimSpace(string(body))
+	if strings.HasPrefix(trimmed, "{") {
+		return false
+	}
+	return strings.Count(trimmed, ".") == 2 && !strings.ContainsAny(trimmed, " \n\t")
 }
 
 func firstNonEmpty(values ...string) string {
