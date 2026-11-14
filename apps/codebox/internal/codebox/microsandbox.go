@@ -1682,31 +1682,33 @@ func (m *MicrosandboxRuntime) resolvePersistedBindings(ctx context.Context, refs
 	if read == nil {
 		read = readStoredWith
 	}
-	// A project may persist several env-reference secrets. Resolve the approved
-	// values once so a remote source performs one fetch for the entire recovery,
-	// and every persisted registration reads the same value for a given
-	// identity.
-	var projectValues resolvedSecretSet
-	hasProjectRefs := false
-	for _, ref := range refs {
-		if strings.HasPrefix(ref.HostEnv, msbProjectSecretHostEnvPrefix) {
-			hasProjectRefs = true
-			break
+	// A project may persist several env-reference secrets. The value set is
+	// lazy: compatibility with the persisted allowlist and placeholder is
+	// proven per reference BEFORE any value is read, so a stale or ambiguous
+	// registration cannot trigger a credential-store or gateway read. Once a
+	// first compatible reference needs a value, resolve the approved set once
+	// and share it with every remaining compatible reference.
+	projectValues := resolvedSecretSet{values: map[ProjectSecretIdentity]ProjectSecretValue{}}
+	projectValuesResolved := false
+	var resolveProjectValues func() (resolvedSecretSet, error)
+	resolveProjectValues = func() (resolvedSecretSet, error) {
+		if projectValuesResolved {
+			return projectValues, nil
 		}
-	}
-	if hasProjectRefs {
 		record, err := m.projectSecretDeliveries(ctx)
 		if err != nil {
-			return nil, err
+			return resolvedSecretSet{}, err
 		}
 		store, err := m.projectSecretStore()
 		if err != nil {
-			return nil, err
+			return resolvedSecretSet{}, err
 		}
 		projectValues, err = m.resolveProjectSecretValueSet(ctx, store, record.deliveries)
 		if err != nil {
-			return nil, err
+			return resolvedSecretSet{}, err
 		}
+		projectValuesResolved = true
+		return projectValues, nil
 	}
 	out := make([]resolvedBinding, 0, len(refs))
 	for _, ref := range refs {
@@ -1717,7 +1719,7 @@ func (m *MicrosandboxRuntime) resolvePersistedBindings(ctx context.Context, refs
 		// approved project-secret metadata, so map it back through that
 		// metadata rather than the current provider or binding configuration.
 		if strings.HasPrefix(hostEnv, msbProjectSecretHostEnvPrefix) {
-			b, ok, err := m.resolvePersistedProjectBinding(ctx, ref, projectValues)
+			b, ok, err := m.resolvePersistedProjectBinding(ctx, ref, resolveProjectValues)
 			if err != nil {
 				return nil, err
 			}
@@ -1810,7 +1812,7 @@ func (m *MicrosandboxRuntime) resolvePersistedBindings(ctx context.Context, refs
 // is stale and is skipped with a warning rather than blocking recovery; an
 // approved delivery whose backing value cannot be read fails closed, matching
 // the resolveProjectSecretBindings contract.
-func (m *MicrosandboxRuntime) resolvePersistedProjectBinding(ctx context.Context, ref persistedSecretRef, values resolvedSecretSet) (resolvedBinding, bool, error) {
+func (m *MicrosandboxRuntime) resolvePersistedProjectBinding(ctx context.Context, ref persistedSecretRef, resolveValues func() (resolvedSecretSet, error)) (resolvedBinding, bool, error) {
 	hostEnv := ref.HostEnv
 	record, err := m.projectSecretDeliveries(ctx)
 	if err != nil {
@@ -1857,6 +1859,13 @@ func (m *MicrosandboxRuntime) resolvePersistedProjectBinding(ctx context.Context
 	// guidance instead of guessing.
 	if err := validatePersistedProjectSecretCompatibility(ref, delivery); err != nil {
 		return resolvedBinding{}, false, fmt.Errorf("cannot recover %s: %w: the persisted project-secret registration %q is incompatible with the current approval for %s/%s/%s; recreate the sandbox to apply the changed secret metadata", m.InstanceName(), err, hostEnv, delivery.Profile, delivery.Component, delivery.Name)
+	}
+	// Only now that the persisted registration is proven compatible with the
+	// current approval may the runtime read a value. The lazy resolver shares
+	// one fetch across every compatible persisted project reference.
+	values, err := resolveValues()
+	if err != nil {
+		return resolvedBinding{}, false, err
 	}
 	resolved, err := values.get(ProjectSecretIdentity{Profile: delivery.Profile, Component: delivery.Component, Name: delivery.Name})
 	if err != nil {
