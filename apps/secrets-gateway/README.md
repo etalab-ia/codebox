@@ -32,7 +32,7 @@ gateway disables the previous version when it writes a new one.
 | `GATEWAY_TOKEN_SEED` | **yes** | base64url (no padding) 32-byte Ed25519 seed. Generate once with `secrets-gateway -print-token-seed`. Rotating it invalidates every issued session. |
 | `GATEWAY_TOKEN_LIFETIME` | no | Session lifetime, default `12h`, maximum 24h. |
 | `GATEWAY_TICKET_LIFETIME` | no | Lifetime of the terminal paste-the-code ticket, default `5m`. |
-| `PROCONNECT_ISSUER` | no | Default `https://test.proconnect.gouv.fr`. Production changes only this value. |
+| `PROCONNECT_ISSUER` | no | Default `https://fca.integ01.dev-agentconnect.fr/api/v2` (sandbox). Production is `https://auth.agentconnect.gouv.fr/api/v2`. The `/api/v2` segment is part of the issuer: discovery is `<issuer>/.well-known/openid-configuration`, and omitting the segment returns 404. |
 | `PROCONNECT_CLIENT_ID` | **yes** | OIDC client ID issued by the ProConnect partner portal. |
 | `PROCONNECT_CLIENT_SECRET` | **yes** | OIDC client secret. |
 | `PROCONNECT_SCOPES` | no | Comma-separated scopes; defaults to `openid,email,given_name,usual_name,uid,siret`. |
@@ -52,6 +52,25 @@ misconfigured deployment fails at boot rather than at the first user request.
 3. Record the client ID and secret as deployment secrets.
 4. For production, complete the DataPass authorisation and then change only
    `PROCONNECT_ISSUER` and the client pair.
+
+## Domains and issuers
+
+Verified on 2026-11-14 against the published
+[domain table](https://partenaires.proconnect.gouv.fr/docs/ressources/valeur_ac_domain)
+and by fetching both discovery documents:
+
+| Environment | Network | Issuer |
+| --- | --- | --- |
+| Integration (sandbox) | Internet | `https://fca.integ01.dev-agentconnect.fr/api/v2` |
+| Integration (sandbox) | RIE | `https://fca.integ02.agentconnect.rie.gouv.fr/api/v2` |
+| Production | Internet | `https://auth.agentconnect.gouv.fr/api/v2` |
+
+The sandbox discovery document advertises `RS256` for both ID tokens and
+UserInfo. The gateway verifies RS256 for both and also accepts an unsigned JSON
+UserInfo response, so a client registered either way works.
+
+Note that `test.proconnect.gouv.fr` is the integration test application, not an
+OIDC issuer: pointing `PROCONNECT_ISSUER` at it returns 404 from discovery.
 
 ## Two-factor requirement
 

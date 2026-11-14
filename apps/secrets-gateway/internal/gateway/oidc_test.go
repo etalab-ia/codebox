@@ -285,3 +285,128 @@ func TestProjectCreationEligibility(t *testing.T) {
 		t.Fatalf("an allowlisted SIRET was refused: %v", err)
 	}
 }
+
+// TestProConnectIssuerConstantsHaveTheApiV2Path guards the finding that the
+// default issuer omitted `/api/v2`, which made discovery 404 and every login
+// return 503. The path segment is part of the published issuer value.
+func TestProConnectIssuerConstantsHaveTheApiV2Path(t *testing.T) {
+	for name, issuer := range map[string]string{
+		"sandbox":    ProConnectSandboxIssuer,
+		"production": ProConnectProductionIssuer,
+	} {
+		if !strings.HasSuffix(issuer, "/api/v2") {
+			t.Errorf("%s issuer %q must end with /api/v2", name, issuer)
+		}
+		if strings.Contains(issuer, "test.proconnect.gouv.fr") {
+			t.Errorf("%s issuer %q is the partner-portal host, not the OIDC issuer", name, issuer)
+		}
+	}
+}
+
+// TestSignedUserInfoIsVerified covers the finding that a client registered for
+// signed UserInfo responses received `application/jwt`, which the JSON decoder
+// rejected, so profile claims were silently dropped.
+func TestSignedUserInfoIsVerified(t *testing.T) {
+	key, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		t.Fatalf("generate key: %v", err)
+	}
+	now := time.Date(2026, 11, 14, 12, 0, 0, 0, time.UTC)
+
+	mux := http.NewServeMux()
+	var issuer string
+	var signedUserInfo, forgedUserInfo bool
+	mux.HandleFunc("/api/v2/.well-known/openid-configuration", func(w http.ResponseWriter, _ *http.Request) {
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"issuer":                                issuer,
+			"authorization_endpoint":                issuer + "/authorize",
+			"token_endpoint":                        issuer + "/token",
+			"userinfo_endpoint":                     issuer + "/userinfo",
+			"jwks_uri":                              issuer + "/jwks",
+			"userinfo_signing_alg_values_supported": []string{"HS256", "ES256", "RS256"},
+		})
+	})
+	mux.HandleFunc("/api/v2/jwks", func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write(jwksFor(t, key, "kid-1"))
+	})
+	mux.HandleFunc("/api/v2/token", func(w http.ResponseWriter, _ *http.Request) {
+		// The ID token carries no email or SIRET, so the gateway must call
+		// UserInfo to obtain them.
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"id_token": signIDToken(t, key, "kid-1", map[string]any{
+				"iss": issuer, "sub": "sub-9", "aud": "client", "acr": "eidas2",
+				"iat": now.Add(-time.Minute).Unix(), "exp": now.Add(time.Hour).Unix(),
+			}),
+			"access_token": "opaque",
+		})
+	})
+	mux.HandleFunc("/api/v2/userinfo", func(w http.ResponseWriter, r *http.Request) {
+		if forgedUserInfo {
+			w.Header().Set("Content-Type", "application/jwt")
+			other, err := rsa.GenerateKey(rand.Reader, 2048)
+			if err != nil {
+				t.Errorf("generate key: %v", err)
+				return
+			}
+			_, _ = w.Write([]byte(signIDToken(t, other, "kid-1", map[string]any{
+				"iss": issuer, "sub": "sub-9", "aud": "client", "acr": "eidas2",
+				"email": "forged@example.com", "iat": now.Add(-time.Minute).Unix(), "exp": now.Add(time.Hour).Unix(),
+			})))
+			return
+		}
+		if signedUserInfo {
+			w.Header().Set("Content-Type", "application/jwt")
+			_, _ = w.Write([]byte(signIDToken(t, key, "kid-1", map[string]any{
+				"iss": issuer, "sub": "sub-9", "aud": "client", "acr": "eidas2",
+				"email": "signed@beta.gouv.fr", "siret": "13002526500013", "uid": "uid-9",
+				"given_name": "Ada", "usual_name": "Lovelace",
+				"iat": now.Add(-time.Minute).Unix(), "exp": now.Add(time.Hour).Unix(),
+			})))
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]string{
+			"sub": "sub-9", "email": "plain@beta.gouv.fr", "siret": "13002526500013", "uid": "uid-9",
+		})
+	})
+	server := httptest.NewServer(mux)
+	defer server.Close()
+	issuer = server.URL + "/api/v2"
+
+	newClient := func() *OIDCClient {
+		client, err := NewOIDCClient(OIDCConfig{
+			Issuer: issuer, ClientID: "client", ClientSecret: "secret",
+			RedirectURL: "https://gateway.test/auth/callback",
+		}, server.Client(), func() time.Time { return now })
+		if err != nil {
+			t.Fatalf("NewOIDCClient: %v", err)
+		}
+		return client
+	}
+
+	// JSON UserInfo still works.
+	identity, err := newClient().Exchange(t.Context(), "code-1", "v", "")
+	if err != nil {
+		t.Fatalf("Exchange(JSON userinfo): %v", err)
+	}
+	if identity.Email != "plain@beta.gouv.fr" {
+		t.Fatalf("JSON userinfo email = %q", identity.Email)
+	}
+
+	// Signed UserInfo is verified and its claims are used.
+	signedUserInfo = true
+	identity, err = newClient().Exchange(t.Context(), "code-2", "v", "")
+	if err != nil {
+		t.Fatalf("Exchange(signed userinfo): %v", err)
+	}
+	if identity.Email != "signed@beta.gouv.fr" || identity.SIRET != "13002526500013" {
+		t.Fatalf("signed userinfo identity = %+v", identity)
+	}
+
+	// A signed UserInfo with a bad signature must not be trusted.
+	forgedUserInfo = true
+	forged, err := newClient().Exchange(t.Context(), "code-3", "v", "")
+	if err == nil && forged.Email == "forged@example.com" {
+		t.Fatal("a UserInfo JWT signed by an unpublished key was trusted")
+	}
+}

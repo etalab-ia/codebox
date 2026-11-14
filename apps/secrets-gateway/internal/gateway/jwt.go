@@ -34,6 +34,9 @@ type verifiedToken struct {
 	ACR       string
 	AMR       []string
 	NameHint  string
+	GivenName string
+	UsualName string
+	UID       string
 	Nonce     string
 	IssuedAt  time.Time
 	ExpiresAt time.Time
@@ -51,6 +54,7 @@ type jwtPayload struct {
 	AMR       []string        `json:"amr"`
 	GivenName string          `json:"given_name"`
 	UsualName string          `json:"usual_name"`
+	UID       string          `json:"uid"`
 	Nonce     string          `json:"nonce"`
 	IssuedAt  int64           `json:"iat"`
 	ExpiresAt int64           `json:"exp"`
@@ -131,6 +135,12 @@ func rsaPublicKeyFromJWK(k jwk) (*rsa.PublicKey, error) {
 // array per OIDC, and the token is rejected when it does not name this client:
 // otherwise an assertion minted for another service could be replayed here.
 func verifyRS256JWT(token string, keys map[string]*rsa.PublicKey, issuer, expectedAudience string, now time.Time) (verifiedToken, error) {
+	return verifyRS256JWTClaims(token, keys, issuer, expectedAudience, now)
+}
+
+// verifyRS256JWTClaims is verifyRS256JWT with the full claim set, so the same
+// verification serves both ID tokens and signed UserInfo responses.
+func verifyRS256JWTClaims(token string, keys map[string]*rsa.PublicKey, issuer, expectedAudience string, now time.Time) (verifiedToken, error) {
 	parts := strings.Split(token, ".")
 	if len(parts) != 3 {
 		return verifiedToken{}, fmt.Errorf("%w: id token is not a compact JWS", ErrUpstream)
@@ -196,6 +206,9 @@ func verifyRS256JWT(token string, keys map[string]*rsa.PublicKey, issuer, expect
 		ACR:       payload.ACR,
 		AMR:       payload.AMR,
 		NameHint:  strings.TrimSpace(payload.GivenName + " " + payload.UsualName),
+		GivenName: payload.GivenName,
+		UsualName: payload.UsualName,
+		UID:       payload.UID,
 		Nonce:     payload.Nonce,
 		IssuedAt:  issued,
 		ExpiresAt: expires,
