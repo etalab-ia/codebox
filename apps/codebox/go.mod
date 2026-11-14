@@ -11,6 +11,7 @@ require (
 	charm.land/lipgloss/v2 v2.0.6
 	github.com/charmbracelet/x/ansi v0.11.9
 	github.com/creack/pty v1.1.24
+	github.com/etalab-ia/codebox/packages/secrets v0.0.0
 	github.com/go-rotini/dotenv v1.0.3
 	github.com/joho/godotenv v1.5.1
 	github.com/mattn/go-runewidth v0.0.31
@@ -41,3 +42,5 @@ require (
 	github.com/xo/terminfo v1.0.0 // indirect
 	golang.org/x/sync v0.24.0 // indirect
 )
+
+replace github.com/etalab-ia/codebox/packages/secrets => ../../packages/secrets
