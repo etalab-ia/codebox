@@ -97,3 +97,22 @@ func TestResolveProjectSecretValueSetManifestDeclaredWithoutResolverFailsClosed(
 		t.Fatalf("error = %v, want ErrProjectSecretValueSourceUnconfigured", err)
 	}
 }
+
+func TestGatewayRevisionMarkerChangesBindingsRevision(t *testing.T) {
+	makeBinding := func(reference string) resolvedBinding {
+		return resolvedBinding{
+			msbSecretBinding: msbSecretBinding{
+				Kind: "JC_API_KEY", GuestEnv: "JC_API_KEY", Placeholder: "__CB__",
+				Project: &ProjectBindingRef{Profile: "development", Component: ".env", Name: "API_KEY", Reference: reference},
+			},
+			source: bindingSourceStore,
+			store:  "gateway",
+			entry:  reference,
+		}
+	}
+	before := bindingsRevision([]resolvedBinding{makeBinding("gateway-rev-1/r1")})
+	after := bindingsRevision([]resolvedBinding{makeBinding("gateway-rev-2/r1")})
+	if before == after {
+		t.Fatal("a gateway bundle revision change did not move bindingsRevision")
+	}
+}
