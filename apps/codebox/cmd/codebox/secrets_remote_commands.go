@@ -257,6 +257,12 @@ func ensureDeclaredBindingApprovals(root string) error {
 			changed = append(changed, hint.Component+"#"+hint.Name)
 			continue
 		}
+		// Guest-readable approvals have no destinations by design; applying
+		// the proxy rule here would make an otherwise valid approval
+		// impossible to satisfy.
+		if wantGuest {
+			continue
+		}
 		// Empty hint destinations mean the host must choose at least one real
 		// destination. A non-empty hint list is a versioned policy and must
 		// match the host approval exactly.
