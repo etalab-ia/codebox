@@ -8,6 +8,7 @@
 package secrets
 
 import (
+	"bytes"
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
@@ -16,6 +17,7 @@ import (
 	"io"
 	"path"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -472,12 +474,18 @@ func MarshalBundle(components map[string]map[string]string) ([]byte, error) {
 }
 
 // UnmarshalBundle parses and validates a serialized secret Bundle.
+// It checks UTF-8 validity and unpaired UTF-16 surrogates prior to JSON
+// decoding because encoding/json silently replaces malformed sequences with
+// U+FFFD, which would corrupt secret values instead of failing closed.
 func UnmarshalBundle(data []byte) (Bundle, error) {
 	if len(data) > MaxBundleBytes {
 		return Bundle{}, ErrBundleTooLarge
 	}
+	if !utf8.Valid(data) || hasUnpairedUTF16Surrogate(data) {
+		return Bundle{}, errors.New("parse secret bundle: payload contains invalid UTF-8")
+	}
 	var b Bundle
-	dec := json.NewDecoder(strings.NewReader(string(data)))
+	dec := json.NewDecoder(bytes.NewReader(data))
 	dec.DisallowUnknownFields()
 	if err := dec.Decode(&b); err != nil {
 		return Bundle{}, fmt.Errorf("parse secret bundle: %w", err)
@@ -498,6 +506,62 @@ func UnmarshalBundle(data []byte) (Bundle, error) {
 		}
 	}
 	return b, nil
+}
+
+func hasUnpairedUTF16Surrogate(data []byte) bool {
+	inString := false
+	for i := 0; i < len(data); {
+		c := data[i]
+		if !inString {
+			if c == '"' {
+				inString = true
+			}
+			i++
+			continue
+		}
+		if c == '"' {
+			inString = false
+			i++
+			continue
+		}
+		if c != '\\' {
+			i++
+			continue
+		}
+		if i+1 >= len(data) {
+			return false
+		}
+		if data[i+1] != 'u' {
+			i += 2
+			continue
+		}
+		if i+6 > len(data) {
+			return false
+		}
+		u1, err := strconv.ParseUint(string(data[i+2:i+6]), 16, 16)
+		if err != nil {
+			return false
+		}
+		if u1 >= 0xDC00 && u1 <= 0xDFFF {
+			return true
+		}
+		if u1 >= 0xD800 && u1 <= 0xDBFF {
+			if i+12 > len(data) || data[i+6] != '\\' || data[i+7] != 'u' {
+				return true
+			}
+			u2, err := strconv.ParseUint(string(data[i+8:i+12]), 16, 16)
+			if err != nil {
+				return false
+			}
+			if u2 < 0xDC00 || u2 > 0xDFFF {
+				return true
+			}
+			i += 12
+			continue
+		}
+		i += 6
+	}
+	return false
 }
 
 // CanonicalizeBindingHints returns a copy of hints sorted by (Component, Name)

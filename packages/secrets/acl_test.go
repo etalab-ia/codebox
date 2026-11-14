@@ -80,6 +80,11 @@ func TestParseACLFailsClosedAndPreventsOwnerLockout(t *testing.T) {
 			line: 3,
 		},
 		{
+			name: "invalid utf8 in comment",
+			body: "owner:lead@numerique.gouv.fr\n# invalid " + string([]byte{0xff}) + " byte\n",
+			line: 2,
+		},
+		{
 			name: "control character",
 			body: "owner:lead@numerique.gouv.fr\x00\n",
 			line: 1,

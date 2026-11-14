@@ -111,6 +111,26 @@ func TestBundleMarshalUnmarshalAndLimits(t *testing.T) {
 			t.Errorf("expected trailing payload %q to be rejected", trailing)
 		}
 	}
+
+	// Raw invalid UTF-8 and unpaired UTF-16 surrogates must fail closed rather than coerce to U+FFFD,
+	// while valid astral UTF-16 surrogate pairs and literal U+FFFD remain intact.
+	validAstral, err := UnmarshalBundle([]byte(`{"schemaVersion":1,"components":{".env":{"EMOJI":"\ud83d\ude80","FFFD":"` + "\ufffd" + `"}}}`))
+	if err != nil {
+		t.Fatalf("expected valid UTF-16 surrogate pair and literal U+FFFD to succeed, got %v", err)
+	}
+	if validAstral.Components[".env"]["EMOJI"] != "🚀" || validAstral.Components[".env"]["FFFD"] != "\ufffd" {
+		t.Fatalf("unexpected decoded values: %+v", validAstral.Components[".env"])
+	}
+	for _, badUTF8 := range [][]byte{
+		[]byte("{\"schemaVersion\":1,\"components\":{\".env\":{\"TOKEN\":\"\xff\"}}}"),
+		[]byte(`{"schemaVersion":1,"components":{".env":{"TOKEN":"\ud800"}}}`),
+		[]byte(`{"schemaVersion":1,"components":{".env":{"TOKEN":"\udc00"}}}`),
+		[]byte(`{"schemaVersion":1,"components":{".env":{"TOKEN":"\ud800x"}}}`),
+	} {
+		if _, err := UnmarshalBundle(badUTF8); err == nil {
+			t.Errorf("expected malformed UTF-8/surrogate bundle %q to fail closed", badUTF8)
+		}
+	}
 }
 
 func TestValidateAndCanonicalizeBindingHints(t *testing.T) {

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"unicode/utf8"
 )
 
 // Role identifies a caller's effective permission level on a project.
@@ -112,6 +113,9 @@ func ParseACL(text string) (ACL, error) {
 	for idx, line := range lines {
 		lineNo := idx + 1
 		line = strings.TrimSuffix(line, "\r")
+		if !utf8.ValidString(line) {
+			return ACL{}, &ParseError{Line: lineNo, Reason: "contains invalid UTF-8"}
+		}
 		for _, r := range line {
 			if (r < 32 && r != '\t') || r == 127 {
 				return ACL{}, &ParseError{Line: lineNo, Reason: "contains control characters"}
