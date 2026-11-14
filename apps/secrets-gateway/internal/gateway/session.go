@@ -26,6 +26,7 @@ type LoginAttempt struct {
 type AttemptStore struct {
 	mu       sync.Mutex
 	attempts map[string]*LoginAttempt
+	consumed map[string]time.Time
 	ttl      time.Duration
 	maxItems int
 	now      func() time.Time
@@ -75,6 +76,37 @@ func (a *AttemptStore) Take(state string) (*LoginAttempt, bool) {
 	}
 	delete(a.attempts, state)
 	return attempt, true
+}
+
+// ConsumeOnce records that key has been redeemed, returning false when it was
+// already used. It is the replay guard for single-use login tickets.
+//
+// The record lives in memory, so it is per-instance: two gateway replicas behind
+// a load balancer would each keep their own set. That is acceptable while the
+// service runs as a single container, and closing it fully requires a shared
+// store. The blast radius is bounded either way, because a ticket is a
+// short-lived bearer for an identity ProConnect already authenticated, and a
+// second redemption yields the same subject rather than new access.
+func (a *AttemptStore) ConsumeOnce(key string, ttl time.Duration) bool {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.evictExpiredLocked()
+	if a.consumed == nil {
+		a.consumed = make(map[string]time.Time)
+	}
+	now := a.now().UTC()
+	if expiry, ok := a.consumed[key]; ok && now.Before(expiry) {
+		return false
+	}
+	if len(a.consumed) >= a.maxItems*8 {
+		for k, expiry := range a.consumed {
+			if !now.Before(expiry) {
+				delete(a.consumed, k)
+			}
+		}
+	}
+	a.consumed[key] = now.Add(ttl)
+	return true
 }
 
 func (a *AttemptStore) evictExpiredLocked() {

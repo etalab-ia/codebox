@@ -112,6 +112,18 @@ func newScalewayFake(t *testing.T) (*scalewayFake, *httptest.Server) {
 			f.versions[key] = append(list, fakeVersion{revision: rev, data: raw, enabled: true})
 			f.writes++
 			_ = json.NewEncoder(w).Encode(map[string]any{"revision": rev})
+		case len(parts) == 2 && parts[1] == "versions" && r.Method == http.MethodGet:
+			f.mu.Lock()
+			defer f.mu.Unlock()
+			out := []map[string]any{}
+			for _, v := range f.versions[key] {
+				status := "disabled"
+				if v.enabled {
+					status = "enabled"
+				}
+				out = append(out, map[string]any{"revision": v.revision, "status": status})
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{"versions": out})
 		case len(parts) == 3 && parts[1] == "versions":
 			f.mu.Lock()
 			defer f.mu.Unlock()
@@ -323,5 +335,75 @@ func TestScalewayStoreRejectsInvalidProjectIDBeforeAnyRequest(t *testing.T) {
 	}
 	if calls != 0 {
 		t.Fatalf("%d upstream calls were made for invalid project IDs, want 0", calls)
+	}
+}
+
+// TestScalewayStoreRemainsWritableAfterARetraction covers the finding that the
+// earlier contiguity assumption wedged a project permanently: a retracted
+// revision left a disabled gap that made every later write fail its base+1 test.
+func TestScalewayStoreRemainsWritableAfterARetraction(t *testing.T) {
+	const projectID = "44444444-4444-4444-8444-444444444444"
+	const key = ACLPath + "/" + projectID
+
+	fake, server := newScalewayFake(t)
+	defer server.Close()
+	store, err := NewScalewayStore(server.URL, "scw", "proj", "fr-par", server.Client())
+	if err != nil {
+		t.Fatalf("NewScalewayStore: %v", err)
+	}
+	ctx := t.Context()
+	if err := store.CreateProject(ctx, projectID, "owner@beta.gouv.fr", "eidas2"); err != nil {
+		t.Fatalf("CreateProject: %v", err)
+	}
+
+	// Force a lost race so a retracted (disabled) revision exists: version 3 is
+	// appended and then disabled, leaving revisions 2 (enabled) and 3 (disabled).
+	interleaved := false
+	fake.beforeAppend = func() {
+		if interleaved {
+			return
+		}
+		interleaved = true
+		other, err := NewScalewayStore(server.URL, "scw", "proj", "fr-par", server.Client())
+		if err != nil {
+			t.Errorf("NewScalewayStore: %v", err)
+			return
+		}
+		fake.beforeAppend = nil
+		if _, err := other.WriteACL(ctx, projectID, 1, []byte("owner:owner@beta.gouv.fr\nmember:winner@beta.gouv.fr\n")); err != nil {
+			t.Errorf("winner WriteACL: %v", err)
+		}
+	}
+	if _, err := store.WriteACL(ctx, projectID, 1, []byte("owner:owner@beta.gouv.fr\nmember:loser@beta.gouv.fr\n")); !errors.Is(err, ErrStoreConflict) {
+		t.Fatalf("losing write = %v, want ErrStoreConflict", err)
+	}
+	fake.mu.Lock()
+	total := len(fake.versions[key])
+	fake.mu.Unlock()
+	if total < 3 {
+		t.Fatalf("expected a retracted revision to exist (%d versions recorded)", total)
+	}
+
+	// The project must still be writable: the next writer appends beyond the gap.
+	data, revision, err := store.ReadACL(ctx, projectID)
+	if err != nil {
+		t.Fatalf("ReadACL after retraction: %v", err)
+	}
+	newRec, err := store.WriteACL(ctx, projectID, revision, []byte("owner:owner@beta.gouv.fr\nmember:after@beta.gouv.fr\n"))
+	if err != nil {
+		t.Fatalf("WriteACL after a retraction failed; the project is wedged: %v", err)
+	}
+	if newRec <= revision {
+		t.Fatalf("revision went from %d to %d; it must increase", revision, newRec)
+	}
+	live, _, err := store.ReadACL(ctx, projectID)
+	if err != nil {
+		t.Fatalf("ReadACL: %v", err)
+	}
+	if !strings.Contains(string(live), "member:after@beta.gouv.fr") {
+		t.Fatalf("the post-retraction write is not live; ACL = %q (previous %q)", live, data)
+	}
+	if got := len(fake.enabled(key)); got != 1 {
+		t.Fatalf("%d enabled ACL versions, want exactly 1", got)
 	}
 }

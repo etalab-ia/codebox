@@ -261,22 +261,27 @@ func (s *ScalewayStore) latestRevision(ctx context.Context, path, name, revision
 	return doc.Revision, nil
 }
 
-// writeVersionConditional appends a new immutable version only if the current
-// latest revision still equals baseRevision, and returns the new revision.
+// writeVersionConditional appends a new immutable version only if no other
+// writer committed since baseRevision, and returns the new revision.
 //
-// Scaleway exposes no conditional write, so this emulates a compare-and-swap
-// with the monotonically increasing revision number acting as a sequence
-// ticket:
+// Scaleway exposes no conditional write, so this approximates a compare-and-swap
+// using the monotonically increasing revision number. Revision numbers are never
+// reused and may contain gaps, because a losing writer retracts its version and
+// leaves a disabled hole. The comparison therefore uses the highest revision in
+// existence — the true last-created revision — rather than assuming contiguity
+// or using latest_enabled:
 //
-//  1. read the current revision; a mismatch fails fast without writing;
-//  2. append a version with disable_previous=false;
-//  3. if the new revision is exactly baseRevision+1 this writer owned the
-//     window: disable the previous version so the new one is the only enabled one;
-//  4. otherwise another writer committed first. Disable our own version so the
-//     winner's value stays live, and report a conflict.
+//  1. read the latest enabled revision E and the highest revision H. A value of
+//     E different from baseRevision is an ordinary stale read: fail fast;
+//  2. append a version with disable_previous=false, obtaining revision R;
+//  3. we committed immediately after H if and only if R == H+1. Otherwise a
+//     competitor appended between our read and our write, so we retract our
+//     version and report a conflict;
+//  4. the winner disables every lower version, leaving exactly one enabled.
 //
-// Two concurrent writers can therefore never both succeed, and the loser never
-// overwrites or disables the winner.
+// Using H+1 rather than baseRevision+1 is what keeps a project writable after a
+// retraction: a gap left by a loser is absorbed into H, so the next writer still
+// commits at H+1 and succeeds instead of failing forever.
 func (s *ScalewayStore) writeVersionConditional(ctx context.Context, path, name, description string, baseRevision uint32, payload []byte) (uint32, error) {
 	current, err := s.latestRevision(ctx, path, name, "latest_enabled")
 	if err != nil {
@@ -289,23 +294,104 @@ func (s *ScalewayStore) writeVersionConditional(ctx context.Context, path, name,
 	if err != nil {
 		return 0, err
 	}
+	highestBefore, err := s.highestRevision(ctx, id)
+	if err != nil {
+		return 0, err
+	}
 	revision, err := s.appendVersion(ctx, id, description, payload)
 	if err != nil {
 		return 0, err
 	}
-	if revision != baseRevision+1 {
-		// Lost the race: retract our version so the winner stays live.
+	if revision != highestBefore+1 {
+		// A competitor appended during our window: retract ours so the earlier
+		// committed value stays live, and report the conflict.
 		if disableErr := s.setVersionEnabled(ctx, id, revision, false); disableErr != nil {
 			return 0, fmt.Errorf("%w: could not retract a superseded version: %v", ErrStoreUnavailable, disableErr)
 		}
 		return 0, ErrStoreConflict
 	}
-	if baseRevision > 0 {
-		if err := s.setVersionEnabled(ctx, id, baseRevision, false); err != nil {
-			return 0, fmt.Errorf("%w: could not disable the superseded version: %v", ErrStoreUnavailable, err)
-		}
+	if err := s.disableVersionsBelow(ctx, id, revision); err != nil {
+		return 0, err
 	}
 	return revision, nil
+}
+
+// highestRevision returns the greatest revision number of a secret, enabled or
+// not, so callers can decide who wrote last without assuming contiguity.
+func (s *ScalewayStore) highestRevision(ctx context.Context, secretID string) (uint32, error) {
+	versions, err := s.listVersions(ctx, secretID)
+	if err != nil {
+		return 0, err
+	}
+	var highest uint32
+	for _, v := range versions {
+		if v.Revision > highest {
+			highest = v.Revision
+		}
+	}
+	if highest == 0 {
+		return 0, ErrStoreNotFound
+	}
+	return highest, nil
+}
+
+// disableVersionsBelow leaves only `keep` enabled, tolerating disabled gaps.
+func (s *ScalewayStore) disableVersionsBelow(ctx context.Context, secretID string, keep uint32) error {
+	versions, err := s.listVersions(ctx, secretID)
+	if err != nil {
+		return err
+	}
+	for _, v := range versions {
+		if v.Revision >= keep || !v.Enabled() {
+			continue
+		}
+		if err := s.setVersionEnabled(ctx, secretID, v.Revision, false); err != nil {
+			return fmt.Errorf("%w: could not disable the superseded version %d: %v", ErrStoreUnavailable, v.Revision, err)
+		}
+	}
+	return nil
+}
+
+// secretVersion is the subset of a listed version the adapter needs.
+type secretVersion struct {
+	Revision uint32 `json:"revision"`
+	Status   string `json:"status"`
+}
+
+// Enabled reports whether a listed version is readable.
+func (v secretVersion) Enabled() bool { return v.Status == "enabled" }
+
+// listVersions returns every version of a secret, enabled or not.
+func (s *ScalewayStore) listVersions(ctx context.Context, secretID string) ([]secretVersion, error) {
+	endpoint := fmt.Sprintf("%s/%s/versions?page_size=100", s.secretsURL(), secretID)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("X-Auth-Token", s.secretKey)
+	req.Header.Set("Accept", "application/json")
+	resp, err := s.do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = resp.Body.Close() }()
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	if err != nil {
+		return nil, fmt.Errorf("%w: secret version list unreadable", ErrStoreUnavailable)
+	}
+	if resp.StatusCode == http.StatusNotFound {
+		return nil, ErrStoreNotFound
+	}
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("%w: secret version list returned HTTP %d", ErrStoreUnavailable, resp.StatusCode)
+	}
+	var doc struct {
+		Versions []secretVersion `json:"versions"`
+	}
+	if err := json.Unmarshal(body, &doc); err != nil {
+		return nil, fmt.Errorf("%w: secret version list is not valid JSON", ErrStoreInvalid)
+	}
+	return doc.Versions, nil
 }
 
 // appendVersion creates a new version without touching the previous one, so a
