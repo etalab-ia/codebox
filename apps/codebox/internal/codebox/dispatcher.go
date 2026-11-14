@@ -37,10 +37,11 @@ func (d *Dispatcher) SetLaunchUX(u *LaunchUX) {
 // the Microsandbox backend. A nil source leaves the local OS-store workflow
 // intact; declared is true when the project manifest has a `secrets` block, so
 // a missing resolver fails closed instead of falling back to stale values.
-func (d *Dispatcher) SetGatewayProjectSecrets(source ProjectSecretValueSource, declared bool) {
+func (d *Dispatcher) SetGatewayProjectSecrets(source ProjectSecretValueSource, manifest *ProjectSecretsManifest) {
 	if m, ok := d.backends[RuntimeMicrosandbox].(*MicrosandboxRuntime); ok {
 		m.ProjectSecretValues = source
-		m.ProjectSecretsDeclared = declared
+		m.ProjectSecretsManifest = manifest
+		m.ProjectSecretsDeclared = manifest != nil
 	}
 }
 

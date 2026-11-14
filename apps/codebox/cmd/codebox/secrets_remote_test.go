@@ -137,3 +137,58 @@ func TestEnsureDeclaredBindingApprovalsFailsClosed(t *testing.T) {
 		t.Fatalf("error = %v, want fail-closed approval error", err)
 	}
 }
+
+func TestFilterDevelopmentDotenvPathsRejectsProduction(t *testing.T) {
+	cases := []string{
+		".env", ".env.local", "apps/api/.env.development",
+	}
+	if _, err := filterDevelopmentDotenvPaths(cases); err != nil {
+		t.Fatalf("development files rejected: %v", err)
+	}
+	for _, bad := range []string{".env.production", ".env.prod", "production.env", "prod.env", "prd.env", "apps/api/.env.production.local"} {
+		if _, err := filterDevelopmentDotenvPaths([]string{bad}); err == nil {
+			t.Errorf("production-named file %q was accepted", bad)
+		}
+	}
+}
+
+func TestValidateRemoteBindingAgainstManifest(t *testing.T) {
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, ".codebox"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	manifest := codebox.ProjectManifest{Secrets: &codebox.ProjectSecretsManifest{
+		ProjectID: "22222222-2222-4222-8222-222222222222",
+		Bindings: []codebox.ProjectSecretBindingHint{
+			{Component: ".env", Name: "API_KEY"},
+			{Component: ".env", Name: "DB_PASSWORD", Delivery: codebox.ProjectSecretDeliveryGuest},
+		},
+	}}
+	if err := codebox.WriteProjectManifest(codebox.DefaultFS, codebox.ProjectManifestPath(root), manifest); err != nil {
+		t.Fatal(err)
+	}
+	proxy := codebox.ProjectSecretBinding{
+		Profile: "development", Component: ".env", Name: "API_KEY",
+		GuestEnv: "JC_API_KEY", Destinations: []string{"api.example.com"},
+	}
+	if err := validateRemoteBindingAgainstManifest(root, proxy); err != nil {
+		t.Fatalf("valid proxy approval rejected: %v", err)
+	}
+	if err := validateRemoteBindingAgainstManifest(root, codebox.ProjectSecretBinding{
+		Profile: "development", Component: ".env", Name: "API_KEY", GuestEnv: "JC_API_KEY",
+	}); err == nil {
+		t.Fatal("proxy approval without a destination was accepted")
+	}
+	guest := codebox.ProjectSecretBinding{
+		Profile: "development", Component: ".env", Name: "DB_PASSWORD",
+		Delivery: codebox.ProjectSecretDeliveryGuest,
+	}
+	if err := validateRemoteBindingAgainstManifest(root, guest); err != nil {
+		t.Fatalf("valid guest approval rejected: %v", err)
+	}
+	if err := validateRemoteBindingAgainstManifest(root, codebox.ProjectSecretBinding{
+		Profile: "development", Component: ".env", Name: "NOT_DECLARED", Destinations: []string{"api.example.com"},
+	}); err == nil {
+		t.Fatal("an undeclared variable was accepted")
+	}
+}
