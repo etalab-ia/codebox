@@ -176,6 +176,18 @@ type MicrosandboxRuntime struct {
 	// source injected here resolves all approved values once per call site,
 	// which is shared by start, guest-readable file delivery and recovery.
 	ProjectSecretValues ProjectSecretValueSource
+	// ProjectSecretsDeclared is set when the project manifest declares the
+	// optional `secrets` block. A declared remote source without an injected
+	// resolver must fail closed instead of silently using stale local OS-store
+	// values. The flag is host state derived from the manifest, never a grant
+	// of access.
+	ProjectSecretsDeclared bool
+	// currentProjectSecretValues is the resolved value set for one Start call.
+	// resolveBindings sets it; syncProjectSecretDelivery consumes and clears it
+	// so proxy bindings and guest-readable files cannot observe two different
+	// remote bundle revisions. Direct calls from tests keep resolving on their
+	// own when this is nil.
+	currentProjectSecretValues *resolvedSecretSet
 	// Launch is the first-launch report (issue #172). When set on a terminal,
 	// the runtime records what each phase did into it and stops printing its
 	// own verbose English lines, because the CLI renders one French checklist
@@ -540,6 +552,9 @@ func (m *MicrosandboxRuntime) resolveProjectSecretBindings(ctx context.Context) 
 	if err != nil {
 		return nil, err
 	}
+	// A real Start resolves bindings before delivering files; stash this one
+	// set so syncProjectSecretDelivery cannot resolve a second remote bundle.
+	m.currentProjectSecretValues = &values
 	var out []resolvedBinding
 	seen := map[string]bool{}
 	for _, d := range record.deliveries {
@@ -685,7 +700,15 @@ func (m *MicrosandboxRuntime) syncProjectSecretDelivery(ctx context.Context, bin
 	if err != nil {
 		return err
 	}
-	deliveries, err := m.projectSecretFileDeliveries(ctx, store, record.deliveries)
+	// A Start path already resolved this set in resolveProjectSecretBindings.
+	// Reuse and clear it so guest-readable delivery cannot fetch a second
+	// remote bundle revision after the sandbox has already started.
+	var reusedValues *resolvedSecretSet
+	if m.currentProjectSecretValues != nil {
+		reusedValues = m.currentProjectSecretValues
+		m.currentProjectSecretValues = nil
+	}
+	deliveries, err := m.projectSecretFileDeliveriesWithValues(ctx, store, record.deliveries, reusedValues)
 	if err != nil {
 		return err
 	}
@@ -719,9 +742,31 @@ func (m *MicrosandboxRuntime) syncProjectSecretDelivery(ctx context.Context, bin
 // last moment before the SDK call that writes it; a proxy-protected one keeps
 // its marker, because the placeholder is all the guest may hold.
 func (m *MicrosandboxRuntime) projectSecretFileDeliveries(ctx context.Context, store *ProjectSecretStore, approved []ProjectSecretDelivery) ([]ProjectSecretDelivery, error) {
-	values, err := m.resolveProjectSecretValueSet(ctx, store, approved)
-	if err != nil {
-		return nil, err
+	return m.projectSecretFileDeliveriesWithValues(ctx, store, approved, nil)
+}
+
+// projectSecretFileDeliveriesWithValues renders approved bindings into the set
+// the guest receives as files. A Start call passes the value set it already
+// resolved; a direct call resolves one lazily and only when a guest-readable
+// delivery actually needs a value. Proxy-only deliveries never read values.
+func (m *MicrosandboxRuntime) projectSecretFileDeliveriesWithValues(ctx context.Context, store *ProjectSecretStore, approved []ProjectSecretDelivery, reused *resolvedSecretSet) ([]ProjectSecretDelivery, error) {
+	needValues := false
+	for _, d := range approved {
+		if d.GuestReadable() {
+			needValues = true
+			break
+		}
+	}
+	values := resolvedSecretSet{values: map[ProjectSecretIdentity]ProjectSecretValue{}}
+	switch {
+	case reused != nil:
+		values = *reused
+	case needValues:
+		resolved, err := m.resolveProjectSecretValueSet(ctx, store, approved)
+		if err != nil {
+			return nil, err
+		}
+		values = resolved
 	}
 	out := make([]ProjectSecretDelivery, 0, len(approved))
 	guestReadable := 0
@@ -1688,6 +1733,31 @@ func (m *MicrosandboxRuntime) resolvePersistedBindings(ctx context.Context, refs
 	// registration cannot trigger a credential-store or gateway read. Once a
 	// first compatible reference needs a value, resolve the approved set once
 	// and share it with every remaining compatible reference.
+	// Precompute which approved deliveries are actually referenced by a
+	// compatible persisted proxy registration. Recovery must not read values
+	// for unrelated approvals (guest-readable files, later approvals, or
+	// revoked registrations), because recovery only republishes env-reference
+	// registrations and those extra failures would block workspace export.
+	record, err := m.projectSecretDeliveries(ctx)
+	if err != nil {
+		return nil, err
+	}
+	compatibleDeliveries := make([]ProjectSecretDelivery, 0, len(refs))
+	for _, ref := range refs {
+		if !strings.HasPrefix(ref.HostEnv, msbProjectSecretHostEnvPrefix) {
+			continue
+		}
+		for i := range record.deliveries {
+			d := &record.deliveries[i]
+			if d.GuestReadable() || msbProjectSecretHostEnvPrefix+d.GuestEnv != ref.HostEnv {
+				continue
+			}
+			if validatePersistedProjectSecretCompatibility(ref, d) == nil {
+				compatibleDeliveries = append(compatibleDeliveries, *d)
+			}
+			break
+		}
+	}
 	projectValues := resolvedSecretSet{values: map[ProjectSecretIdentity]ProjectSecretValue{}}
 	projectValuesResolved := false
 	var resolveProjectValues func() (resolvedSecretSet, error)
@@ -1695,15 +1765,11 @@ func (m *MicrosandboxRuntime) resolvePersistedBindings(ctx context.Context, refs
 		if projectValuesResolved {
 			return projectValues, nil
 		}
-		record, err := m.projectSecretDeliveries(ctx)
-		if err != nil {
-			return resolvedSecretSet{}, err
-		}
 		store, err := m.projectSecretStore()
 		if err != nil {
 			return resolvedSecretSet{}, err
 		}
-		projectValues, err = m.resolveProjectSecretValueSet(ctx, store, record.deliveries)
+		projectValues, err = m.resolveProjectSecretValueSet(ctx, store, compatibleDeliveries)
 		if err != nil {
 			return resolvedSecretSet{}, err
 		}

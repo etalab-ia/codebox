@@ -70,3 +70,30 @@ func TestResolveProjectSecretValueSetRemoteErrorPropagates(t *testing.T) {
 		t.Fatalf("error = %v, want wrapped sentinel", err)
 	}
 }
+
+func TestResolveProjectSecretValueSetDeclaredWithoutResolverFailsClosed(t *testing.T) {
+	runtime := &MicrosandboxRuntime{ProjectSecretsDeclared: true}
+	deliveries := []ProjectSecretDelivery{{ProjectSecretBinding: ProjectSecretBinding{
+		Profile: "development", Component: ".env", Name: "API_KEY",
+	}}}
+	if _, err := runtime.resolveProjectSecretValueSet(context.Background(), nil, deliveries); !errors.Is(err, ErrProjectSecretValueSourceUnconfigured) {
+		t.Fatalf("error = %v, want ErrProjectSecretValueSourceUnconfigured", err)
+	}
+}
+
+func TestResolveProjectSecretValueSetManifestDeclaredWithoutResolverFailsClosed(t *testing.T) {
+	tmp := t.TempDir()
+	path := ProjectManifestPath(tmp)
+	manifest := ProjectManifest{Secrets: &ProjectSecretsManifest{ProjectID: "22222222-2222-4222-8222-222222222222"}}
+	// The runtime reads through DefaultFS, so write to the isolated temp root.
+	if err := WriteProjectManifest(DefaultFS, path, manifest); err != nil {
+		t.Fatalf("WriteProjectManifest: %v", err)
+	}
+	runtime := &MicrosandboxRuntime{cfg: Config{WorkspaceDir: tmp}}
+	deliveries := []ProjectSecretDelivery{{ProjectSecretBinding: ProjectSecretBinding{
+		Profile: "development", Component: ".env", Name: "API_KEY",
+	}}}
+	if _, err := runtime.resolveProjectSecretValueSet(context.Background(), nil, deliveries); !errors.Is(err, ErrProjectSecretValueSourceUnconfigured) {
+		t.Fatalf("error = %v, want ErrProjectSecretValueSourceUnconfigured", err)
+	}
+}
