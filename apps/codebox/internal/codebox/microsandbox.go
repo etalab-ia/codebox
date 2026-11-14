@@ -1738,24 +1738,36 @@ func (m *MicrosandboxRuntime) resolvePersistedBindings(ctx context.Context, refs
 	// for unrelated approvals (guest-readable files, later approvals, or
 	// revoked registrations), because recovery only republishes env-reference
 	// registrations and those extra failures would block workspace export.
-	record, err := m.projectSecretDeliveries(ctx)
-	if err != nil {
-		return nil, err
+	// If the sandbox persisted no project-secret ref at all, skip the project
+	// metadata entirely: a bad or stale project approval must not block
+	// recovery of built-in credentials or workspace export.
+	hasProjectRef := false
+	for _, ref := range refs {
+		if strings.HasPrefix(ref.HostEnv, msbProjectSecretHostEnvPrefix) {
+			hasProjectRef = true
+			break
+		}
 	}
 	compatibleDeliveries := make([]ProjectSecretDelivery, 0, len(refs))
-	for _, ref := range refs {
-		if !strings.HasPrefix(ref.HostEnv, msbProjectSecretHostEnvPrefix) {
-			continue
+	if hasProjectRef {
+		record, err := m.projectSecretDeliveries(ctx)
+		if err != nil {
+			return nil, err
 		}
-		for i := range record.deliveries {
-			d := &record.deliveries[i]
-			if d.GuestReadable() || msbProjectSecretHostEnvPrefix+d.GuestEnv != ref.HostEnv {
+		for _, ref := range refs {
+			if !strings.HasPrefix(ref.HostEnv, msbProjectSecretHostEnvPrefix) {
 				continue
 			}
-			if validatePersistedProjectSecretCompatibility(ref, d) == nil {
-				compatibleDeliveries = append(compatibleDeliveries, *d)
+			for i := range record.deliveries {
+				d := &record.deliveries[i]
+				if d.GuestReadable() || msbProjectSecretHostEnvPrefix+d.GuestEnv != ref.HostEnv {
+					continue
+				}
+				if validatePersistedProjectSecretCompatibility(ref, d) == nil {
+					compatibleDeliveries = append(compatibleDeliveries, *d)
+				}
+				break
 			}
-			break
 		}
 	}
 	projectValues := resolvedSecretSet{values: map[ProjectSecretIdentity]ProjectSecretValue{}}
