@@ -38,6 +38,9 @@ const MaxACLEntries = 256
 // explicit `owner:<email>` principals, preventing accidental lockout.
 var ErrNoOwner = errors.New("project ACL must retain at least one owner:<email> entry")
 
+// ErrACLTooLarge is returned when an input or canonicalized ACL exceeds MaxACLBytes.
+var ErrACLTooLarge = fmt.Errorf("ACL exceeds maximum size (%d bytes)", MaxACLBytes)
+
 // ACLEntry represents one normalized rule in `/acl/<projectId>`.
 type ACLEntry struct {
 	Kind  EntryKind `json:"kind"`
@@ -102,7 +105,7 @@ func (a ACL) Authorize(email, siret string) (Role, bool) {
 // owner fails closed with an error; no partial ACL is returned.
 func ParseACL(text string) (ACL, error) {
 	if len(text) > MaxACLBytes {
-		return ACL{}, fmt.Errorf("ACL exceeds maximum size (%d bytes)", MaxACLBytes)
+		return ACL{}, ErrACLTooLarge
 	}
 	lines := strings.Split(text, "\n")
 	var raw []ACLEntry
@@ -221,12 +224,16 @@ func NewACL(entries []ACLEntry) (ACL, error) {
 		canonical = append(canonical, ACLEntry{Kind: EntrySIRET, Value: s})
 	}
 
-	return ACL{
+	out := ACL{
 		entries: canonical,
 		owners:  owners,
 		members: members,
 		sirets:  sirets,
-	}, nil
+	}
+	if len(out.Format()) > MaxACLBytes {
+		return ACL{}, ErrACLTooLarge
+	}
+	return out, nil
 }
 
 // Format serializes the ACL into canonical line-oriented text suitable for

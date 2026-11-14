@@ -2,6 +2,8 @@ package secrets
 
 import (
 	"errors"
+	"fmt"
+	"strings"
 	"testing"
 )
 
@@ -113,4 +115,50 @@ func FuzzParseACL(f *testing.F) {
 			t.Fatalf("canonical Format() output drifted across round-trip")
 		}
 	})
+}
+
+func TestACLCanonicalByteLimitOnParseAndNewACL(t *testing.T) {
+	domain := strings.Repeat("b", 60) + "." + strings.Repeat("c", 60) + "." + strings.Repeat("d", 60) + ".fr"
+	makeEmail := func(i int) string {
+		return fmt.Sprintf("u%03d%s@%s", i, strings.Repeat("a", 56), domain)
+	}
+
+	// Positive boundary: 1 owner + 126 bare members fits within MaxACLBytes after canonical expansion.
+	var fitRaw strings.Builder
+	fitEntries := make([]ACLEntry, 0, 127)
+	owner := makeEmail(0)
+	fitRaw.WriteString("owner:" + owner + "\n")
+	fitEntries = append(fitEntries, ACLEntry{Kind: EntryOwner, Value: owner})
+	for i := 1; i <= 126; i++ {
+		em := makeEmail(i)
+		fitRaw.WriteString(em + "\n")
+		fitEntries = append(fitEntries, ACLEntry{Kind: EntryMember, Value: em})
+	}
+	acl, err := ParseACL(fitRaw.String())
+	if err != nil {
+		t.Fatalf("ParseACL(fitRaw) unexpected error: %v", err)
+	}
+	if _, err := ParseACL(acl.Format()); err != nil {
+		t.Fatalf("ParseACL(acl.Format()) unexpected error: %v", err)
+	}
+
+	// Negative boundary: 1 owner + 130 bare members is <MaxACLBytes raw (32,363 B),
+	// but canonical Format() expands bare emails with "member:" + header to >MaxACLBytes (33,327 B).
+	var expandRaw strings.Builder
+	expandEntries := append([]ACLEntry(nil), fitEntries...)
+	expandRaw.WriteString(fitRaw.String())
+	for i := 127; i <= 130; i++ {
+		em := makeEmail(i)
+		expandRaw.WriteString(em + "\n")
+		expandEntries = append(expandEntries, ACLEntry{Kind: EntryMember, Value: em})
+	}
+	if expandRaw.Len() > MaxACLBytes {
+		t.Fatalf("test setup error: raw length %d already exceeds MaxACLBytes %d", expandRaw.Len(), MaxACLBytes)
+	}
+	if _, err := ParseACL(expandRaw.String()); !errors.Is(err, ErrACLTooLarge) {
+		t.Fatalf("ParseACL(canonical overflow) = %v, want ErrACLTooLarge", err)
+	}
+	if _, err := NewACL(expandEntries); !errors.Is(err, ErrACLTooLarge) {
+		t.Fatalf("NewACL(canonical overflow) = %v, want ErrACLTooLarge", err)
+	}
 }

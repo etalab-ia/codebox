@@ -13,6 +13,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"path"
 	"sort"
 	"strings"
@@ -481,7 +482,8 @@ func UnmarshalBundle(data []byte) (Bundle, error) {
 	if err := dec.Decode(&b); err != nil {
 		return Bundle{}, fmt.Errorf("parse secret bundle: %w", err)
 	}
-	if dec.More() {
+	var trailing any
+	if err := dec.Decode(&trailing); !errors.Is(err, io.EOF) {
 		return Bundle{}, errors.New("parse secret bundle: trailing data")
 	}
 	if err := ValidateBundle(b); err != nil {
@@ -489,6 +491,11 @@ func UnmarshalBundle(data []byte) (Bundle, error) {
 	}
 	if b.Components == nil {
 		b.Components = map[string]map[string]string{}
+	}
+	for comp, vars := range b.Components {
+		if len(vars) == 0 {
+			delete(b.Components, comp)
+		}
 	}
 	return b, nil
 }

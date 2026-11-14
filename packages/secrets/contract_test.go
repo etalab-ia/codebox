@@ -99,6 +99,18 @@ func TestBundleMarshalUnmarshalAndLimits(t *testing.T) {
 	if _, err := UnmarshalBundle([]byte(`{"schemaVersion":1,"components":{},"extra":true}`)); err == nil {
 		t.Fatal("expected unknown JSON field to be rejected")
 	}
+	if _, err := UnmarshalBundle([]byte(`{"schemaVersion":1,"components":{}}   ` + "\n")); err != nil {
+		t.Fatalf("expected trailing JSON whitespace to succeed, got %v", err)
+	}
+	for _, trailing := range []string{
+		`{"schemaVersion":1,"components":{}}]`,
+		`{"schemaVersion":1,"components":{}}}garbage`,
+		`{"schemaVersion":1,"components":{}}{}`,
+	} {
+		if _, err := UnmarshalBundle([]byte(trailing)); err == nil {
+			t.Errorf("expected trailing payload %q to be rejected", trailing)
+		}
+	}
 }
 
 func TestValidateAndCanonicalizeBindingHints(t *testing.T) {
