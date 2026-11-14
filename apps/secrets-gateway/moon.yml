@@ -14,7 +14,9 @@ dependsOn:
 
 fileGroups:
   sources:
-    - "deploy/**/*"
+    - "file:///deploy/secrets-gateway/Dockerfile"
+    - "file:///deploy/secrets-gateway/main.tf"
+    - "file:///deploy/secrets-gateway/README.md"
 
 tasks:
   build:
