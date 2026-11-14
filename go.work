@@ -4,5 +4,6 @@ toolchain go1.26.10
 
 use (
 	./apps/codebox
+	./apps/secrets-gateway
 	./packages/secrets
 )

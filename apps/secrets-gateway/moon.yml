@@ -1,0 +1,33 @@
+$schema: "https://moonrepo.dev/schemas/v2/project.json"
+
+id: "secrets-gateway"
+language: "go"
+layer: "application"
+stack: "backend"
+
+project:
+  title: "secrets-gateway"
+  description: "Stateless ProConnect-gated gateway resolving development secrets from an isolated Scaleway Secret Manager project."
+
+dependsOn:
+  - "secrets"
+
+fileGroups:
+  sources:
+    - "deploy/**/*"
+
+tasks:
+  build:
+    description: "Compile the secrets-gateway server binary."
+    command:
+      - "go"
+      - "build"
+      - "./cmd/secrets-gateway"
+    deps:
+      - target: "^:build"
+        optional: true
+    inputs:
+      - "@group(sources)"
+      - project: "^"
+        group: "sources"
+      - "file:///go.work?optional"

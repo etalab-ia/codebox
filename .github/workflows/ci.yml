@@ -34,7 +34,7 @@ jobs:
           if [ -z "$work_toolchain" ]; then
             work_toolchain="$(sed -n 's/^go \(.*\)$/\1/p' go.work)"
           fi
-          for mod in apps/codebox/go.mod packages/secrets/go.mod; do
+          for mod in apps/codebox/go.mod apps/secrets-gateway/go.mod packages/secrets/go.mod; do
             mod_toolchain="$(sed -n 's/^toolchain go\(.*\)$/\1/p' "$mod")"
             if [ -z "$mod_toolchain" ]; then
               mod_toolchain="$(sed -n 's/^go \(.*\)$/\1/p' "$mod")"
@@ -44,14 +44,15 @@ jobs:
           test -n "$proto_go" && test "$proto_go" = "$work_toolchain"
           proto status
           moon sync config-schemas
-          test "$(moon query projects | jq -r '.projects | map(.id) | sort | join(",")')" = "codebox,secrets"
+          test "$(moon query projects | jq -r '.projects | map(.id) | sort | join(",")')" = "codebox,secrets,secrets-gateway"
           moon query tasks >/dev/null
       - name: Check formatting and vet via Moon
         run: |
           set -eu
           moon run :fmt-check :vet
-          git diff --exit-code .protolock go.work apps/codebox/go.mod apps/codebox/go.sum packages/secrets/go.mod
+          git diff --exit-code .protolock go.work apps/codebox/go.mod apps/codebox/go.sum apps/secrets-gateway/go.mod packages/secrets/go.mod
       - run: GOWORK=off go -C packages/secrets test -race ./...
+      - run: GOWORK=off go -C apps/secrets-gateway test -race ./...
       - run: go -C apps/codebox test -race ./...
       - name: Test POSIX installer
         run: sh apps/codebox/tests/installers/test-posix.sh
