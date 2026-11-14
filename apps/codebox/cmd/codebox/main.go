@@ -396,12 +396,11 @@ func run(args []string) (int, error) {
 	}
 	d.SetOpenCodeOverlay(overlay)
 	if projErr == nil && runtimeUsesMicrosandbox(parsed.runtime, manifestRuntime) {
-		if err := ensureDeclaredBindingApprovals(projectRoot); err != nil {
-			if isLaunchAction(parsed.action) {
-				return 1, err
-			}
-			fmt.Fprintf(os.Stderr, "Warning: shared development secret approvals are incomplete (%v)\n", err)
-		}
+		// Set a create-time gate, not an immediate launch failure: an
+		// existing instance must reconcile first so a revoked binding can be
+		// unregistered even if the manifest still declares it.
+		root := projectRoot
+		d.SetProjectSecretApprovalGate(func() error { return ensureDeclaredBindingApprovals(root) })
 		if err := configureGatewayProjectSecrets(d, projectRoot); err != nil {
 			if isLaunchAction(parsed.action) {
 				return 1, err
