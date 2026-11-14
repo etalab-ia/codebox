@@ -115,6 +115,9 @@ func secretsPushCmd(args []string) (int, error) {
 	if err != nil {
 		return 1, err
 	}
+	if len(files) == 0 {
+		return 1, fmt.Errorf("no development dotenv file found; refusing to replace the shared bundle with an empty bundle")
+	}
 	components := map[string]map[string]string{}
 	for _, file := range files {
 		components[file.Component] = file.Parsed.Values
