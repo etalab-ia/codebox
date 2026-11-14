@@ -3,6 +3,7 @@ package codebox
 import (
 	"fmt"
 	"os"
+	"path"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -206,6 +207,32 @@ type ProjectManifest struct {
 	// DependencySetID binds this manifest to the lockfile generation written
 	// by an explicit project update. Empty is accepted for pre-P18 projects.
 	DependencySetID string `json:"dependencySetId,omitempty"`
+	// Secrets carries only non-secret remote-secret references and delivery
+	// hints. Values and host approvals never live in this file.
+	Secrets *ProjectSecretsManifest `json:"secrets,omitempty"`
+}
+
+// ProjectSecretsManifest is the version-controlled, secret-free declaration for
+// a project's shared development secrets. A repository manifest never grants
+// access: the host-local bindings.json approval remains authoritative.
+type ProjectSecretsManifest struct {
+	// ProjectID is a canonical lowercase UUIDv4 naming the remote project.
+	ProjectID string `json:"projectId"`
+	// Bindings describe how approved variables should be delivered. They are
+	// hints the CLI turns into one local approval screen; they do not carry
+	// secret values.
+	Bindings []ProjectSecretBindingHint `json:"bindings,omitempty"`
+}
+
+// ProjectSecretBindingHint is the manifest-level delivery hint for one dotenv
+// variable. It mirrors packages/secrets.BindingHint without importing another
+// Go module from the CLI's config model.
+type ProjectSecretBindingHint struct {
+	Component    string   `json:"component"`
+	Name         string   `json:"name"`
+	Delivery     string   `json:"delivery,omitempty"`
+	GuestEnv     string   `json:"guestEnv,omitempty"`
+	Destinations []string `json:"destinations,omitempty"`
 }
 
 // PortMapping publishes a guest TCP port on a host loopback port.
@@ -219,13 +246,14 @@ type PortMapping struct {
 // written manifest/lock pair after an interrupted update. #176 adds the
 // harness: a binary that does not know the field would run OpenCode for a
 // project that asked for something else, which is the silent substitution the
-// version check exists to prevent.
-const projectManifestSchemaVersion = 6
+// version check exists to prevent. #385 adds the optional `secrets` block:
+// a binary that ignores it would silently skip approved remote secrets.
+const projectManifestSchemaVersion = 7
 
 // maxSupportedManifestSchema is the highest manifest schemaVersion this build
 // reads. A newer version is a hard error: the file was written by a binary
 // this one cannot interpret.
-const maxSupportedManifestSchema = 6
+const maxSupportedManifestSchema = 7
 
 // Lockfile is the project lock (.codebox/lock.json): resolved revisions of
 // everything the manifest pins (skills, images, connector packages), so a
@@ -246,6 +274,90 @@ const lockfileSchemaVersion = 3
 // maxSupportedLockfileSchema is the highest lock.json schemaVersion this
 // build reads.
 const maxSupportedLockfileSchema = 3
+
+// ValidateProjectSecretsManifest checks the version-controlled secrets block.
+// It holds no values; only a canonical lowercase UUIDv4 project ID and
+// delivery hints. Full hint validation happens when the CLI turns them into
+// host-local approvals (PR 4).
+func ValidateProjectSecretsManifest(s *ProjectSecretsManifest) error {
+	if s == nil {
+		return nil
+	}
+	if !validCanonicalUUIDv4(s.ProjectID) {
+		return fmt.Errorf("project secrets: projectId must be a canonical lowercase UUIDv4")
+	}
+	seen := map[string]bool{}
+	for _, hint := range s.Bindings {
+		if err := ValidateComponentPathForManifest(hint.Component); err != nil {
+			return fmt.Errorf("project secrets binding: %w", err)
+		}
+		if !validSecretIdentifier(hint.Name) {
+			return fmt.Errorf("project secrets binding: invalid variable name %q", hint.Name)
+		}
+		id := hint.Component + "\x00" + hint.Name
+		if seen[id] {
+			return fmt.Errorf("project secrets binding: duplicate %s in %s", hint.Name, hint.Component)
+		}
+		seen[id] = true
+		switch hint.Delivery {
+		case "", "proxy":
+		case "guest":
+			if len(hint.Destinations) > 0 || hint.GuestEnv != "" {
+				return fmt.Errorf("project secrets binding %s (%s): guest delivery must not declare destinations or guestEnv", hint.Name, hint.Component)
+			}
+		default:
+			return fmt.Errorf("project secrets binding %s (%s): unsupported delivery %q", hint.Name, hint.Component, hint.Delivery)
+		}
+	}
+	return nil
+}
+
+// ValidateComponentPathForManifest performs the structural component-path check
+// without importing the shared secrets module into the CLI config model.
+func ValidateComponentPathForManifest(p string) error {
+	if p == "" || len(p) > 256 || p == "." || path.IsAbs(p) || path.Clean(p) != p || strings.ContainsAny(p, "\\:") {
+		return fmt.Errorf("invalid dotenv component path %q", p)
+	}
+	for _, seg := range strings.Split(p, "/") {
+		if seg == "" || seg == "." || seg == ".." {
+			return fmt.Errorf("invalid dotenv component path %q", p)
+		}
+	}
+	for _, r := range p {
+		if r < 32 || r == 127 {
+			return fmt.Errorf("invalid control character in component path")
+		}
+	}
+	return nil
+}
+
+func validCanonicalUUIDv4(id string) bool {
+	if len(id) != 36 {
+		return false
+	}
+	for i := 0; i < len(id); i++ {
+		c := id[i]
+		switch i {
+		case 8, 13, 18, 23:
+			if c != '-' {
+				return false
+			}
+		case 14:
+			if c != '4' {
+				return false
+			}
+		case 19:
+			if c != '8' && c != '9' && c != 'a' && c != 'b' {
+				return false
+			}
+		default:
+			if !((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f')) {
+				return false
+			}
+		}
+	}
+	return true
+}
 
 // checkSchemaVersion rejects a version this build cannot interpret. It is
 // shared by all three file formats so the failure mode is uniform.

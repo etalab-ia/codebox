@@ -3069,3 +3069,36 @@ func TestRecoverTimesOutWhenGuestShellUnreachable(t *testing.T) {
 		t.Fatalf("Recover must not relaunch the backend on a shell timeout, got calls:\n%s", client.calls)
 	}
 }
+
+// Recover must not consult project-secret metadata when the stopped sandbox
+// persists only built-in references. A broken or stale local approval record
+// cannot be allowed to block workspace export for an unrelated recovery.
+func TestRecoverSkipsProjectMetadataWithoutPersistedProjectRefs(t *testing.T) {
+	client := sealedFakeMSB()
+	client.persistedSecretRefs = []persistedSecretRef{{HostEnv: "CODEBOX_HOST_ALBERT_API_KEY"}}
+	m := newTestMicrosandbox(t, client)
+	m.cfg.APIKey = ""
+	m.credentialRead = func(context.Context, CredentialKind, string) (string, string, error) {
+		return "stored-albert-secret", "native", nil
+	}
+
+	// Make projectSecretDeliveries fail if recovery touches project metadata.
+	store, err := m.projectSecretStore()
+	if err != nil {
+		t.Fatalf("projectSecretStore: %v", err)
+	}
+	path := ProjectSecretBindingsPath(m.StateDir, store.Namespace())
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte("not-json"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := m.Recover(context.Background()); err != nil {
+		t.Fatalf("Recover was blocked by unrelated project metadata: %v", err)
+	}
+	if got := client.startHostEnv["CODEBOX_HOST_ALBERT_API_KEY"]; got != "stored-albert-secret" {
+		t.Fatalf("Recover did not publish the built-in persisted transport variable, got %q", got)
+	}
+}
