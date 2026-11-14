@@ -44,7 +44,7 @@ jobs:
           test -n "$proto_go" && test "$proto_go" = "$work_toolchain"
           proto status
           moon sync config-schemas
-          test "$(moon query projects | jq -r '.projects | map(.id) | sort | join(",")')" = "codebox,secrets,secrets-gateway"
+          test "$(moon query projects | jq -r '.projects | map(.id) | sort | join(",")')" = "codebox,secrets,secrets-gateway,secrets-gateway-e2e"
           moon query tasks >/dev/null
       - name: Check formatting and vet via Moon
         run: |
@@ -56,6 +56,8 @@ jobs:
       - run: go -C apps/codebox test -race ./...
       - name: Test POSIX installer
         run: sh apps/codebox/tests/installers/test-posix.sh
+      - name: Run secrets-gateway e2e smoke
+        run: moon run secrets-gateway-e2e:smoke
 
   integration-host:
     runs-on: ubuntu-latest
