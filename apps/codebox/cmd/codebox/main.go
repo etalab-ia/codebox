@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/etalab-ia/codebox/apps/codebox/internal/codebox"
+	"github.com/etalab-ia/codebox/apps/codebox/internal/gatewayclient"
 )
 
 func main() {
@@ -394,6 +395,19 @@ func run(args []string) (int, error) {
 		d = codebox.NewDispatcher(cfg)
 	}
 	d.SetOpenCodeOverlay(overlay)
+	if projErr == nil && runtimeUsesMicrosandbox(parsed.runtime, manifestRuntime) {
+		// Set a create-time gate, not an immediate launch failure: an
+		// existing instance must reconcile first so a revoked binding can be
+		// unregistered even if the manifest still declares it.
+		root := projectRoot
+		d.SetProjectSecretApprovalGate(func() error { return ensureDeclaredBindingApprovals(root) })
+		if err := configureGatewayProjectSecrets(d, projectRoot); err != nil {
+			if isLaunchAction(parsed.action) {
+				return 1, err
+			}
+			fmt.Fprintf(os.Stderr, "Warning: shared development secrets are not configured (%v)\n", err)
+		}
+	}
 	if launch != nil {
 		d.SetLaunchUX(launch)
 		launch.RecordModel(modelSelection)
@@ -517,6 +531,37 @@ func withProjectRootAsWorkspaceSource(cfg codebox.Config, pc codebox.ProjectCont
 	}
 	cfg.WorkspaceDir = pc.Root
 	return cfg
+}
+
+// configureGatewayProjectSecrets reads the project's non-secret `secrets`
+// declaration and injects the remote value source into the Microsandbox
+// backend. A project without that declaration keeps the local OS-store
+// workflow; a declared project always requires a session and resolver so a
+// checkout cannot silently launch with stale local values.
+func configureGatewayProjectSecrets(d *codebox.Dispatcher, projectRoot string) error {
+	manifest, err := codebox.ReadProjectManifest(codebox.DefaultFS, codebox.ProjectManifestPath(projectRoot))
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return err
+	}
+	if manifest.Secrets == nil {
+		return nil
+	}
+	if err := codebox.ValidateProjectSecretsManifest(manifest.Secrets); err != nil {
+		return err
+	}
+	store := codebox.DefaultCredentialStore()
+	if store == nil {
+		return fmt.Errorf("no native credential store is available for the gateway session; run codebox secrets login")
+	}
+	source, _, err := gatewayclient.BuildRuntimeValueSource(context.Background(), manifest.Secrets.ProjectID, store, nil)
+	if err != nil {
+		return err
+	}
+	d.SetGatewayProjectSecrets(source, manifest.Secrets)
+	return nil
 }
 
 // applyIsolation resolves the effective isolation level: an explicit flag

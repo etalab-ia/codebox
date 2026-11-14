@@ -176,12 +176,23 @@ type MicrosandboxRuntime struct {
 	// source injected here resolves all approved values once per call site,
 	// which is shared by start, guest-readable file delivery and recovery.
 	ProjectSecretValues ProjectSecretValueSource
+	// ProjectSecretsManifest carries the schema-7 non-secret remote hints when
+	// a project declares shared development secrets. It is host state derived
+	// from the manifest, never a grant of access. When present, runtime
+	// deliveries come from host-local approvals intersected with these hints
+	// instead of the local import index.
+	ProjectSecretsManifest *ProjectSecretsManifest
 	// ProjectSecretsDeclared is set when the project manifest declares the
 	// optional `secrets` block. A declared remote source without an injected
 	// resolver must fail closed instead of silently using stale local OS-store
 	// values. The flag is host state derived from the manifest, never a grant
 	// of access.
 	ProjectSecretsDeclared bool
+	// ProjectSecretApprovalGate is checked only before creating a new
+	// instance. It is host state, never a grant of access. Existing
+	// instances must reconcile first so revoked bindings can be unregistered
+	// even when a manifest still declares them.
+	ProjectSecretApprovalGate func() error
 	// currentProjectSecretValues is the resolved value set for one Start call.
 	// resolveBindings sets it; syncProjectSecretDelivery consumes and clears it
 	// so proxy bindings and guest-readable files cannot observe two different
@@ -837,6 +848,15 @@ func (m *MicrosandboxRuntime) startInstanceWithBackendPreflight(ctx context.Cont
 	sandbox, exists, err := m.Client.Lookup(ctx, m.InstanceName())
 	if err != nil {
 		return err
+	}
+	// Shared-secret approvals are a create-time gate at the common creation
+	// boundary. Reconcile, Restart and Recreate all pass through here before
+	// creating; an existing instance is allowed through so revoked bindings
+	// can be unregistered first.
+	if !exists && m.ProjectSecretApprovalGate != nil {
+		if err := m.ProjectSecretApprovalGate(); err != nil {
+			return err
+		}
 	}
 	if exists {
 		// A sandbox whose /workspace is not guest-owned was created by a

@@ -273,10 +273,14 @@ func secretsBindingsApproveCmd(args []string) (int, error) {
 		GuestEnv:     opts.GuestEnv,
 		Destinations: opts.Destin,
 	}
+	remoteProject := projectDeclaresSharedSecrets(opts.Root)
 	if binding.GuestEnv == "" && !guestReadable {
 		binding.GuestEnv = codebox.ProjectSecretGuestEnv(binding.Component, binding.Name)
 	}
-	if guestReadable {
+	// A remote project has no local imported value. Host-local approval only
+	// records delivery metadata; the resolved gateway bundle is checked when a
+	// guest-readable file is actually rendered at launch.
+	if guestReadable && !remoteProject {
 		// Fail here rather than at the next start: whether a value can be
 		// written into a dotenv file exactly is a property of the value, and
 		// the user is present now. A value that no encoding carries would
@@ -310,8 +314,12 @@ func secretsBindingsApproveCmd(args []string) (int, error) {
 	// phantom approval and a changed active profile behind on the exit-1 path,
 	// and `bindings list` then showed state the user never successfully
 	// created. Nothing is written until the resolution question is answered.
-	if err := store.ValidateBindingAgainst(binding, opts.Profile); err != nil {
-		return 1, fmt.Errorf("this approval would not resolve, so nothing was recorded: %w", err)
+	if !remoteProject {
+		if err := store.ValidateBindingAgainst(binding, opts.Profile); err != nil {
+			return 1, fmt.Errorf("this approval would not resolve, so nothing was recorded: %w", err)
+		}
+	} else if err := validateRemoteBindingAgainstManifest(opts.Root, binding); err != nil {
+		return 1, fmt.Errorf("this remote approval does not match the project declaration, so nothing was recorded: %w", err)
 	}
 	// An approval already in effect is reported as such: approvals are
 	// upserted, so declining a re-run that only changes a destination or the

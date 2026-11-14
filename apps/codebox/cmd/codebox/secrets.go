@@ -101,24 +101,28 @@ func secretsCmd(args []string) (int, error) {
 		printSecretsUsage()
 		return 0, nil
 	}
-	if args[0] != "import" {
-		if args[0] == "bindings" {
-			return secretsBindingsCmd(args[1:])
-		}
-		if args[0] == "profile" {
-			return secretsProfileCmd(args[1:])
-		}
-		return 2, fmt.Errorf("unknown secrets command %q (expected import, bindings or profile)", args[0])
+	switch args[0] {
+	case "import":
+		return projectSecretsImportCmd(args[1:])
+	case "bindings":
+		return secretsBindingsCmd(args[1:])
+	case "profile":
+		return secretsProfileCmd(args[1:])
+	case "login", "logout", "check", "init", "push", "members":
+		return secretsRemoteCmd(args)
+	default:
+		return 2, fmt.Errorf("unknown secrets command %q", args[0])
 	}
-	return projectSecretsImportCmd(args[1:])
 }
 
 func printSecretsUsage() {
 	fmt.Println("Usage: codebox secrets import [--root PATH] --profile NAME [--file PATH ...] [--apply [--yes]] [--fallback]")
 	fmt.Println("       codebox secrets bindings list | approve <profile> <component> <NAME> --destination <host> | revoke <profile> <component> <NAME>")
 	fmt.Println("       codebox secrets profile <name> | --clear")
+	fmt.Println("       codebox secrets login [--terminal] | logout | check | init | push | members <list|add|remove>")
 	fmt.Println("Preview is read-only. --apply stores literal values in the selected project/profile/file scope; it does not approve or deliver them to the guest.")
 	fmt.Println("Approving a binding (secrets bindings approve) is the separate host-local step that lets the sandbox proxy expose one imported value toward specific destinations.")
+	fmt.Println("Shared development secrets use ProConnect and the secrets-gateway; production secrets are out of scope.")
 	fmt.Println("Without --file, an interactive terminal offers bounded dotenv-file discovery. Non-interactive use must name each --file.")
 }
 
