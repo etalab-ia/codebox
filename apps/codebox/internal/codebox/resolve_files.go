@@ -130,6 +130,9 @@ func ReadProjectManifest(fs FS, path string) (ProjectManifest, error) {
 	if err := checkSchemaVersion("project manifest", pm.SchemaVersion, maxSupportedManifestSchema); err != nil {
 		return ProjectManifest{}, err
 	}
+	if err := ValidateProjectSecretsManifest(pm.Secrets); err != nil {
+		return ProjectManifest{}, fmt.Errorf("project manifest %s: %w", path, err)
+	}
 	return pm, nil
 }
 
