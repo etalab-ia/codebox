@@ -349,6 +349,19 @@ func TestTerminalLoginIssuesAPasteableCode(t *testing.T) {
 		t.Fatalf("whoami with the exchanged token = %d, want 200", whoRec.Code)
 	}
 
+	// A ticket is single-use: replaying the same code must be refused.
+	replayRec := httptest.NewRecorder()
+	replayReq := newJSONRequest(http.MethodPost, "/auth/device/token", secrets.DeviceTokenExchangeRequest{SessionID: issued["code"]})
+	handler.ServeHTTP(replayRec, replayReq)
+	if replayRec.Code != http.StatusUnauthorized {
+		t.Fatalf("replayed ticket status = %d, want 401 (body %s)", replayRec.Code, replayRec.Body.String())
+	}
+	var replayErr secrets.APIError
+	decodeJSON(t, replayRec, &replayErr)
+	if replayErr.Code != secrets.ErrCodeUnauthorized {
+		t.Fatalf("replay error code = %q, want %q", replayErr.Code, secrets.ErrCodeUnauthorized)
+	}
+
 	// Terminal mode rejects a loopback port, and browser mode still requires one.
 	for _, target := range []string{"/auth/login?mode=terminal&port=53682", "/auth/login?mode=browser"} {
 		rec := httptest.NewRecorder()

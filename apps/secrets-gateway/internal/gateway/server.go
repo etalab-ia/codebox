@@ -286,6 +286,13 @@ func (s *Server) handleDeviceToken(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusUnauthorized, secrets.ErrCodeUnauthorized, "this login code is invalid or expired; run codebox secrets login again")
 		return
 	}
+	// A ticket is single-use: the first exchange consumes it, so a code
+	// recovered from clipboard or shell history stops working immediately.
+	if !s.attempts.ConsumeOnce(TokenFingerprint(req.SessionID), s.cfg.TicketLifetime) {
+		s.audit(r, "login.ticket_replayed", slog.String("subject", hashPrefix(claims.Email)))
+		writeError(w, http.StatusUnauthorized, secrets.ErrCodeUnauthorized, "this login code has already been used; run codebox secrets login again")
+		return
+	}
 	token, expires, err := s.tokens.IssueSession(TokenClaims{
 		Subject: claims.Subject, Email: claims.Email, SIRET: claims.SIRET, ACR: claims.ACR,
 	})
