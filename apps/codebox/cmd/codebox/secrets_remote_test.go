@@ -192,3 +192,44 @@ func TestValidateRemoteBindingAgainstManifest(t *testing.T) {
 		t.Fatal("an undeclared variable was accepted")
 	}
 }
+
+func TestEnsureDeclaredBindingApprovalsAcceptsGuestReadable(t *testing.T) {
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, ".codebox"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	manifest := codebox.ProjectManifest{Secrets: &codebox.ProjectSecretsManifest{
+		ProjectID: "22222222-2222-4222-8222-222222222222",
+		Bindings: []codebox.ProjectSecretBindingHint{
+			{Component: ".env", Name: "DB_PASSWORD", Delivery: codebox.ProjectSecretDeliveryGuest},
+		},
+	}}
+	if err := codebox.WriteProjectManifest(codebox.DefaultFS, codebox.ProjectManifestPath(root), manifest); err != nil {
+		t.Fatal(err)
+	}
+	stateDir := filepath.Join(root, ".state")
+	oldState, oldTTY, oldConfirm := projectSecretsStateDirFn, projectSecretsTTYFn, projectSecretsConfirmFn
+	projectSecretsStateDirFn = func() string { return stateDir }
+	projectSecretsTTYFn = func() bool { return false }
+	projectSecretsConfirmFn = func(string, string, bool) (bool, error) { return false, nil }
+	t.Cleanup(func() {
+		projectSecretsStateDirFn, projectSecretsTTYFn, projectSecretsConfirmFn = oldState, oldTTY, oldConfirm
+	})
+
+	store, err := projectSecretStoreForCLI(root, false)
+	if err != nil {
+		t.Fatalf("projectSecretStoreForCLI: %v", err)
+	}
+	if err := codebox.SetProjectSecretActiveProfile(codebox.DefaultFS, stateDir, store.Namespace(), "development"); err != nil {
+		t.Fatalf("SetProjectSecretActiveProfile: %v", err)
+	}
+	if err := codebox.ApproveProjectSecretBinding(codebox.DefaultFS, stateDir, store.Namespace(), codebox.ProjectSecretBinding{
+		Profile: "development", Component: ".env", Name: "DB_PASSWORD",
+		Delivery: codebox.ProjectSecretDeliveryGuest,
+	}); err != nil {
+		t.Fatalf("ApproveProjectSecretBinding: %v", err)
+	}
+	if err := ensureDeclaredBindingApprovals(root); err != nil {
+		t.Fatalf("valid guest-readable approval was rejected: %v", err)
+	}
+}
