@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.17.2](https://github.com/etalab-ia/codebox/compare/codebox-v0.17.1...codebox-v0.17.2) (2026-11-14)
+
+
+### Miscellaneous Chores
+
+* **deps:** Bump golang.org/x/sys ([0de126b](https://github.com/etalab-ia/codebox/commit/0de126b7e13a202cd210838a6efd650537000024))
+* **deps:** Bump golang.org/x/sys from 0.49.0 to 0.50.0 in /apps/codebox in the go-codebox group ([9a16f53](https://github.com/etalab-ia/codebox/commit/9a16f539cb5779c92228824fedf0ec0c00e5703d))
+* **monorepo:** merge monorepo/move-codebox GOWORK=off update into release-please layer ([252d090](https://github.com/etalab-ia/codebox/commit/252d090ea14fbf4ee0521672bfa59552efad1ac2))
+* **monorepo:** relocate codebox CLI into apps/codebox with go.work ([ef27406](https://github.com/etalab-ia/codebox/commit/ef274064fc304e2684cc3c9a035be33fc38eacbe))
+* **monorepo:** run standalone project-secret fixture kits with GOWORK=off ([c11debc](https://github.com/etalab-ia/codebox/commit/c11debcae531a829f93ece3de7fec5cf9f1f9c87))
+* **monorepo:** scope release-please to apps/codebox for multi-package releases ([a1745b3](https://github.com/etalab-ia/codebox/commit/a1745b3e2852fdf1e6661c8c522dcb91e88a8af4))
+* **monorepo:** scope release-please to apps/codebox for multi-package releases ([f9e0a60](https://github.com/etalab-ia/codebox/commit/f9e0a60507a88c83e9cd2cd48f5d8d334c822075))
+
 ## [0.17.1](https://github.com/etalab-ia/codebox/compare/codebox-v0.17.0...codebox-v0.17.1) (2026-11-12)
 
 
