@@ -116,3 +116,22 @@ func TestGatewayRevisionMarkerChangesBindingsRevision(t *testing.T) {
 		t.Fatal("a gateway bundle revision change did not move bindingsRevision")
 	}
 }
+
+func TestGatewayProjectIdentityChangesBindingsRevision(t *testing.T) {
+	makeBinding := func(reference string) resolvedBinding {
+		return resolvedBinding{
+			msbSecretBinding: msbSecretBinding{
+				Kind: "JC_API_KEY", GuestEnv: "JC_API_KEY", Placeholder: "__CB__",
+				Project: &ProjectBindingRef{Profile: "development", Component: ".env", Name: "API_KEY", Reference: reference},
+			},
+			source: bindingSourceStore,
+			store:  "gateway",
+			entry:  reference,
+		}
+	}
+	before := bindingsRevision([]resolvedBinding{makeBinding("gateway-11111111-1111-4111-8111-111111111111-rev-4/r1")})
+	after := bindingsRevision([]resolvedBinding{makeBinding("gateway-22222222-2222-4222-8222-222222222222-rev-4/r1")})
+	if before == after {
+		t.Fatal("switching to another gateway project at the same revision did not move bindingsRevision")
+	}
+}

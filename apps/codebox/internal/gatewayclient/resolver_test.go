@@ -56,7 +56,7 @@ func TestValueSourceResolvesAllIdentitiesInOneCall(t *testing.T) {
 	if values[requests[0].Identity].Value != "a" || values[requests[1].Identity].Value != "b" || values[requests[2].Identity].Value != "c" {
 		t.Fatalf("resolved values = %+v", values)
 	}
-	if values[requests[0].Identity].Source != "gateway" || !strings.Contains(values[requests[0].Identity].Reference, "gateway-rev-4/r1") {
+	if values[requests[0].Identity].Source != "gateway" || !strings.Contains(values[requests[0].Identity].Reference, "gateway-"+projectID+"-rev-4/r1") {
 		t.Fatalf("resolved metadata = %+v", values[requests[0].Identity])
 	}
 }
@@ -103,7 +103,7 @@ func TestValueSourceCarriesGatewayRevision(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ResolveProjectSecretValues: %v", err)
 	}
-	if got := values[req.Identity].Reference; !strings.Contains(got, "gateway-rev-9") {
-		t.Fatalf("reference = %q, want the gateway revision marker", got)
+	if got := values[req.Identity].Reference; !strings.Contains(got, "gateway-"+projectID+"-rev-9") {
+		t.Fatalf("reference = %q, want the gateway project and revision marker", got)
 	}
 }
