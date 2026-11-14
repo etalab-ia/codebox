@@ -33,6 +33,17 @@ func (d *Dispatcher) SetLaunchUX(u *LaunchUX) {
 	}
 }
 
+// SetGatewayProjectSecrets injects the remote development-secrets source into
+// the Microsandbox backend. A nil source leaves the local OS-store workflow
+// intact; declared is true when the project manifest has a `secrets` block, so
+// a missing resolver fails closed instead of falling back to stale values.
+func (d *Dispatcher) SetGatewayProjectSecrets(source ProjectSecretValueSource, declared bool) {
+	if m, ok := d.backends[RuntimeMicrosandbox].(*MicrosandboxRuntime); ok {
+		m.ProjectSecretValues = source
+		m.ProjectSecretsDeclared = declared
+	}
+}
+
 // RecordLaunchSkills runs after a successful start has reconciled the skills.
 func (d *Dispatcher) RecordLaunchSkills() {
 	var names []string

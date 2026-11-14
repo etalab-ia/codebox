@@ -232,6 +232,38 @@ n'active pas de liaison proxy et ne livre aucun fichier au guest. `--fallback`
 choisit explicitement le magasin JSON local propriétaire (`0600`), qui n'est
 pas chiffré par codebox.
 
+## Secrets de développement partagés (`secrets login`, `init`, `push`, `members`)
+
+Ces commandes servent uniquement des secrets de développement. Les secrets de
+production et les secrets de CI/CD restent hors du périmètre de codebox.
+
+```bash
+codebox secrets login                 # navigateur, ProConnect avec 2FA
+codebox secrets login --terminal      # session SSH : code à coller
+codebox secrets check
+codebox secrets init
+codebox secrets push
+codebox secrets members list
+codebox secrets members add alice.martin@numerique.gouv.fr
+codebox secrets logout
+```
+
+`secrets init` écrit dans `.codebox/project.json` un identifiant de projet et
+des indications de liaison. Ce fichier ne contient aucune valeur secrète et
+n'autorise aucun accès : l'approbation des destinations reste enregistrée sur
+le poste, dans `bindings.json`. Au démarrage, une déclaration nouvelle ou
+modifiée bloque le lancement jusqu'à une approbation explicite avec
+`codebox secrets bindings approve`. Un terminal affiche un seul écran de
+confirmation récapitulatif ; un script reçoit une erreur explicite.
+
+Le jeton de session ProConnect est conservé dans le magasin natif de l'OS sous
+une entrée dédiée. `codebox auth` ne peut pas l'écrire. Les valeurs sont
+résolues une seule fois par démarrage, restent en mémoire sur l'hôte, puis
+suivent les modes de livraison existants : proxy avec destinations approuvées,
+ou fichier lisible dans le guest après une approbation distincte. `Recover`
+utilise le même ensemble de valeurs et conserve la règle de compatibilité des
+enregistrements persistés.
+
 ## Exposer un secret importé au guest (`secrets bindings`)
 
 Importer ne donne aucun accès. L'étape séparée qui autorise le proxy à exposer
