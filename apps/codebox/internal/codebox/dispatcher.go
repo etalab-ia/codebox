@@ -45,6 +45,14 @@ func (d *Dispatcher) SetGatewayProjectSecrets(source ProjectSecretValueSource, m
 	}
 }
 
+// SetProjectSecretApprovalGate sets a launch gate for new Microsandbox
+// instances. Existing instances bypass the gate so revocation cleanup can run.
+func (d *Dispatcher) SetProjectSecretApprovalGate(gate func() error) {
+	if m, ok := d.backends[RuntimeMicrosandbox].(*MicrosandboxRuntime); ok {
+		m.ProjectSecretApprovalGate = gate
+	}
+}
+
 // RecordLaunchSkills runs after a successful start has reconciled the skills.
 func (d *Dispatcher) RecordLaunchSkills() {
 	var names []string

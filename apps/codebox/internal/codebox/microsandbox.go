@@ -188,6 +188,11 @@ type MicrosandboxRuntime struct {
 	// values. The flag is host state derived from the manifest, never a grant
 	// of access.
 	ProjectSecretsDeclared bool
+	// ProjectSecretApprovalGate is checked only before creating a new
+	// instance. It is host state, never a grant of access. Existing
+	// instances must reconcile first so revoked bindings can be unregistered
+	// even when a manifest still declares them.
+	ProjectSecretApprovalGate func() error
 	// currentProjectSecretValues is the resolved value set for one Start call.
 	// resolveBindings sets it; syncProjectSecretDelivery consumes and clears it
 	// so proxy bindings and guest-readable files cannot observe two different

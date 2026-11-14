@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -939,6 +940,23 @@ func TestReconcileCarriesUnappliedSizingForward(t *testing.T) {
 	}
 	if final.CPUs == 8 || final.MemoryMB == 16384 {
 		t.Fatalf("the state must not claim sizing the guest never received: %+v", final)
+	}
+	_ = os.RemoveAll(filepath.Dir(path))
+}
+
+func TestReconcileExistingInstanceBypassesApprovalGate(t *testing.T) {
+	isolateHostState(t)
+	client := &fakeMSBClient{exists: true, status: "running"}
+	m := newTestMicrosandbox(t, client)
+	m.Probe = func(context.Context, string, string, string) HealthProbe { return HealthProbe{Healthy: true} }
+	m.ProjectSecretApprovalGate = func() error { return errors.New("approval gate should not run for an existing instance") }
+	desired := m.desiredState(true, testBindings(m.cfg.APIKey), nil)
+	path := instanceStatePath(DefaultStateDir(), m.InstanceName())
+	if err := WriteInstanceState(DefaultFS, path, desired.toState()); err != nil {
+		t.Fatal(err)
+	}
+	if err := m.Reconcile(context.Background()); err != nil {
+		t.Fatalf("existing instance reconcile was blocked by the approval gate: %v", err)
 	}
 	_ = os.RemoveAll(filepath.Dir(path))
 }
