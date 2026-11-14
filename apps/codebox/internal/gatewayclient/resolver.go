@@ -64,7 +64,7 @@ func (s *ValueSource) ResolveProjectSecretValues(ctx context.Context, requests [
 		out[req.Identity] = codebox.ProjectSecretValue{
 			Value:     value,
 			Source:    "gateway",
-			Reference: fmt.Sprintf("gateway-rev-%d/%s", resolved.Revision, req.Reference),
+			Reference: fmt.Sprintf("gateway-%s-rev-%d/%s", s.ProjectID, resolved.Revision, req.Reference),
 		}
 	}
 	return out, nil
