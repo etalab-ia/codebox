@@ -266,7 +266,7 @@ func (c *OIDCClient) verifyIDToken(ctx context.Context, disc *oidcDiscovery, idT
 	if err != nil {
 		return Identity{}, err
 	}
-	verified, err := verifyRS256JWT(idToken, keys, c.cfg.Issuer, c.now())
+	verified, err := verifyRS256JWT(idToken, keys, c.cfg.Issuer, c.cfg.ClientID, c.now())
 	if err != nil {
 		return Identity{}, err
 	}

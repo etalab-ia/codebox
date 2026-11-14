@@ -261,21 +261,65 @@ func (s *ScalewayStore) latestRevision(ctx context.Context, path, name, revision
 	return doc.Revision, nil
 }
 
-// writeVersion appends a new immutable version and disables the previous one.
-func (s *ScalewayStore) writeVersion(ctx context.Context, path, name, description string, payload []byte) (uint32, error) {
+// writeVersionConditional appends a new immutable version only if the current
+// latest revision still equals baseRevision, and returns the new revision.
+//
+// Scaleway exposes no conditional write, so this emulates a compare-and-swap
+// with the monotonically increasing revision number acting as a sequence
+// ticket:
+//
+//  1. read the current revision; a mismatch fails fast without writing;
+//  2. append a version with disable_previous=false;
+//  3. if the new revision is exactly baseRevision+1 this writer owned the
+//     window: disable the previous version so the new one is the only enabled one;
+//  4. otherwise another writer committed first. Disable our own version so the
+//     winner's value stays live, and report a conflict.
+//
+// Two concurrent writers can therefore never both succeed, and the loser never
+// overwrites or disables the winner.
+func (s *ScalewayStore) writeVersionConditional(ctx context.Context, path, name, description string, baseRevision uint32, payload []byte) (uint32, error) {
+	current, err := s.latestRevision(ctx, path, name, "latest_enabled")
+	if err != nil {
+		return 0, err
+	}
+	if current != baseRevision {
+		return 0, ErrStoreConflict
+	}
 	id, err := s.ensureSecret(ctx, path, name, description)
 	if err != nil {
 		return 0, err
 	}
+	revision, err := s.appendVersion(ctx, id, description, payload)
+	if err != nil {
+		return 0, err
+	}
+	if revision != baseRevision+1 {
+		// Lost the race: retract our version so the winner stays live.
+		if disableErr := s.setVersionEnabled(ctx, id, revision, false); disableErr != nil {
+			return 0, fmt.Errorf("%w: could not retract a superseded version: %v", ErrStoreUnavailable, disableErr)
+		}
+		return 0, ErrStoreConflict
+	}
+	if baseRevision > 0 {
+		if err := s.setVersionEnabled(ctx, id, baseRevision, false); err != nil {
+			return 0, fmt.Errorf("%w: could not disable the superseded version: %v", ErrStoreUnavailable, err)
+		}
+	}
+	return revision, nil
+}
+
+// appendVersion creates a new version without touching the previous one, so a
+// losing writer can retract cleanly.
+func (s *ScalewayStore) appendVersion(ctx context.Context, secretID, description string, payload []byte) (uint32, error) {
 	body, err := json.Marshal(map[string]any{
 		"data":             base64.StdEncoding.EncodeToString(payload),
 		"description":      description,
-		"disable_previous": true,
+		"disable_previous": false,
 	})
 	if err != nil {
 		return 0, err
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, s.secretsURL()+"/"+id+"/versions", bytes.NewReader(body))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, s.secretsURL()+"/"+secretID+"/versions", bytes.NewReader(body))
 	if err != nil {
 		return 0, err
 	}
@@ -297,10 +341,34 @@ func (s *ScalewayStore) writeVersion(ctx context.Context, path, name, descriptio
 	var doc struct {
 		Revision uint32 `json:"revision"`
 	}
-	if err := json.Unmarshal(raw, &doc); err != nil {
+	if err := json.Unmarshal(raw, &doc); err != nil || doc.Revision == 0 {
 		return 0, fmt.Errorf("%w: secret version creation payload is not valid JSON", ErrStoreInvalid)
 	}
 	return doc.Revision, nil
+}
+
+// setVersionEnabled enables or disables one immutable version.
+func (s *ScalewayStore) setVersionEnabled(ctx context.Context, secretID string, revision uint32, enabled bool) error {
+	action := "disable"
+	if enabled {
+		action = "enable"
+	}
+	endpoint := fmt.Sprintf("%s/%s/versions/%d/%s", s.secretsURL(), secretID, revision, action)
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, strings.NewReader("{}"))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("X-Auth-Token", s.secretKey)
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := s.do(req)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("%s version %d returned HTTP %d", action, revision, resp.StatusCode)
+	}
+	return nil
 }
 
 // ProjectExists reports whether the ACL secret exists for projectID.
@@ -315,7 +383,9 @@ func (s *ScalewayStore) ProjectExists(ctx context.Context, projectID string) (bo
 	return err == nil, err
 }
 
-// CreateProject creates the project ACL and an empty secret bundle.
+// CreateProject creates the project ACL and an empty secret bundle. The first
+// version of a brand-new secret needs no revision check: there is nothing to
+// conflict with, and a concurrent creation loses on ensureSecret's list.
 func (s *ScalewayStore) CreateProject(ctx context.Context, projectID, ownerEmail, _ string) error {
 	if err := secrets.ValidateProjectID(projectID); err != nil {
 		return err
@@ -324,17 +394,27 @@ func (s *ScalewayStore) CreateProject(ctx context.Context, projectID, ownerEmail
 	if err != nil {
 		return err
 	}
-	if _, err := s.writeVersion(ctx, ACLPath, projectID, "codebox project ACL", []byte(acl.Format())); err != nil {
+	if _, err := s.writeInitialVersion(ctx, ACLPath, projectID, "codebox project ACL", []byte(acl.Format())); err != nil {
 		return err
 	}
 	bundle, err := secrets.MarshalBundle(map[string]map[string]string{})
 	if err != nil {
 		return err
 	}
-	if _, err := s.writeVersion(ctx, SecretPath, projectID, "codebox project secret bundle", bundle); err != nil {
+	if _, err := s.writeInitialVersion(ctx, SecretPath, projectID, "codebox project secret bundle", bundle); err != nil {
 		return err
 	}
 	return nil
+}
+
+// writeInitialVersion creates the secret when needed and appends its first
+// version.
+func (s *ScalewayStore) writeInitialVersion(ctx context.Context, path, name, description string, payload []byte) (uint32, error) {
+	id, err := s.ensureSecret(ctx, path, name, description)
+	if err != nil {
+		return 0, err
+	}
+	return s.appendVersion(ctx, id, description, payload)
 }
 
 // ReadACL returns the latest enabled ACL payload and revision.
@@ -345,19 +425,12 @@ func (s *ScalewayStore) ReadACL(ctx context.Context, projectID string) ([]byte, 
 	return s.readVersion(ctx, ACLPath, projectID, "latest_enabled")
 }
 
-// WriteACL appends a new ACL revision, enforcing baseRevision.
+// WriteACL appends a new ACL revision, enforcing baseRevision atomically.
 func (s *ScalewayStore) WriteACL(ctx context.Context, projectID string, baseRevision uint32, data []byte) (uint32, error) {
 	if err := secrets.ValidateProjectID(projectID); err != nil {
 		return 0, err
 	}
-	current, err := s.latestRevision(ctx, ACLPath, projectID, "latest_enabled")
-	if err != nil {
-		return 0, err
-	}
-	if current != baseRevision {
-		return 0, ErrStoreConflict
-	}
-	return s.writeVersion(ctx, ACLPath, projectID, "codebox project ACL", data)
+	return s.writeVersionConditional(ctx, ACLPath, projectID, "codebox project ACL", baseRevision, data)
 }
 
 // ReadBundle returns the latest enabled secret bundle and revision.
@@ -368,19 +441,12 @@ func (s *ScalewayStore) ReadBundle(ctx context.Context, projectID string) ([]byt
 	return s.readVersion(ctx, SecretPath, projectID, "latest_enabled")
 }
 
-// WriteBundle appends a new bundle revision, enforcing baseRevision.
+// WriteBundle appends a new bundle revision, enforcing baseRevision atomically.
 func (s *ScalewayStore) WriteBundle(ctx context.Context, projectID string, baseRevision uint32, data []byte) (uint32, error) {
 	if err := secrets.ValidateProjectID(projectID); err != nil {
 		return 0, err
 	}
-	current, err := s.latestRevision(ctx, SecretPath, projectID, "latest_enabled")
-	if err != nil {
-		return 0, err
-	}
-	if current != baseRevision {
-		return 0, ErrStoreConflict
-	}
-	return s.writeVersion(ctx, SecretPath, projectID, "codebox project secret bundle", data)
+	return s.writeVersionConditional(ctx, SecretPath, projectID, "codebox project secret bundle", baseRevision, data)
 }
 
 func (s *ScalewayStore) do(req *http.Request) (*http.Response, error) {
