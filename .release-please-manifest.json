@@ -1,3 +1,4 @@
 {
-  "apps/codebox": "0.17.2"
+  "apps/codebox": "0.17.2",
+  "apps/secrets-gateway": "0.1.0"
 }

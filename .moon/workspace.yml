@@ -4,6 +4,7 @@ projects:
   globs:
     - "apps/*"
     - "packages/*"
+    - "e2e/*"
 
 vcs:
   client: "git"
