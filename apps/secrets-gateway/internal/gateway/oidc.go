@@ -214,16 +214,30 @@ func (c *OIDCClient) Exchange(ctx context.Context, code, codeVerifier, expectedN
 	}
 	if token.AccessToken != "" && (claims.Email == "" || claims.SIRET == "") {
 		// UserInfo is authoritative for profile claims when the ID token is thin.
-		if profile, err := c.userInfo(ctx, disc, token.AccessToken); err == nil {
-			if claims.Email == "" {
-				claims.Email = profile.Email
-			}
-			if claims.SIRET == "" {
-				claims.SIRET = profile.SIRET
-			}
-			if claims.NameHint == "" {
-				claims.NameHint = profile.NameHint
-			}
+		// Its subject MUST equal the ID token's subject (OIDC Core 5.3.2): the
+		// gateway authorises on email and SIRET, so copying profile claims from a
+		// response about a different subject would grant this caller another
+		// identity's project permissions. A profile failure is fatal when the ID
+		// token cannot supply the claims on its own, rather than silently
+		// degrading into a confusing "no email" rejection.
+		profile, profileErr := c.userInfo(ctx, disc, token.AccessToken)
+		if profileErr != nil {
+			return Identity{}, profileErr
+		}
+		if profile.Subject == "" {
+			return Identity{}, fmt.Errorf("%w: UserInfo response carries no subject to bind against the ID token", ErrUpstream)
+		}
+		if profile.Subject != claims.Subject {
+			return Identity{}, fmt.Errorf("%w: UserInfo subject does not match the ID token subject", ErrUpstream)
+		}
+		if claims.Email == "" {
+			claims.Email = profile.Email
+		}
+		if claims.SIRET == "" {
+			claims.SIRET = profile.SIRET
+		}
+		if claims.NameHint == "" {
+			claims.NameHint = profile.NameHint
 		}
 	}
 	if claims.Email == "" {

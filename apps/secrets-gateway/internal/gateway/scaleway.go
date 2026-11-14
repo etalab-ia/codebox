@@ -224,41 +224,14 @@ func (s *ScalewayStore) readVersion(ctx context.Context, path, name, revision st
 	return raw, doc.Revision, nil
 }
 
-// latestRevision resolves the current revision number for a secret without
+// latestRevision resolves the revision number of a path/name selector without
 // returning its payload.
 func (s *ScalewayStore) latestRevision(ctx context.Context, path, name, revision string) (uint32, error) {
 	id, err := s.listSecretID(ctx, path, name)
 	if err != nil {
 		return 0, err
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, s.secretsURL()+"/"+id+"/versions/"+url.PathEscape(revision), nil)
-	if err != nil {
-		return 0, err
-	}
-	req.Header.Set("X-Auth-Token", s.secretKey)
-	req.Header.Set("Accept", "application/json")
-	resp, err := s.do(req)
-	if err != nil {
-		return 0, err
-	}
-	defer func() { _ = resp.Body.Close() }()
-	body, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
-	if err != nil {
-		return 0, fmt.Errorf("%w: secret version metadata unreadable", ErrStoreUnavailable)
-	}
-	if resp.StatusCode == http.StatusNotFound {
-		return 0, ErrStoreNotFound
-	}
-	if resp.StatusCode != http.StatusOK {
-		return 0, fmt.Errorf("%w: secret version metadata returned HTTP %d", ErrStoreUnavailable, resp.StatusCode)
-	}
-	var doc struct {
-		Revision uint32 `json:"revision"`
-	}
-	if err := json.Unmarshal(body, &doc); err != nil {
-		return 0, fmt.Errorf("%w: secret version metadata is not valid JSON", ErrStoreInvalid)
-	}
-	return doc.Revision, nil
+	return s.versionMetadataRevision(ctx, id, revision)
 }
 
 // writeVersionConditional appends a new immutable version only if no other
@@ -317,22 +290,18 @@ func (s *ScalewayStore) writeVersionConditional(ctx context.Context, path, name,
 }
 
 // highestRevision returns the greatest revision number of a secret, enabled or
-// not, so callers can decide who wrote last without assuming contiguity.
+// not. It uses the API's `latest` selector rather than listing versions, so the
+// answer is correct regardless of how many versions exist; listing would need
+// pagination and could silently miss the highest revision.
 func (s *ScalewayStore) highestRevision(ctx context.Context, secretID string) (uint32, error) {
-	versions, err := s.listVersions(ctx, secretID)
+	revision, err := s.versionMetadataRevision(ctx, secretID, "latest")
 	if err != nil {
 		return 0, err
 	}
-	var highest uint32
-	for _, v := range versions {
-		if v.Revision > highest {
-			highest = v.Revision
-		}
-	}
-	if highest == 0 {
+	if revision == 0 {
 		return 0, ErrStoreNotFound
 	}
-	return highest, nil
+	return revision, nil
 }
 
 // disableVersionsBelow leaves only `keep` enabled, tolerating disabled gaps.
@@ -361,37 +330,81 @@ type secretVersion struct {
 // Enabled reports whether a listed version is readable.
 func (v secretVersion) Enabled() bool { return v.Status == "enabled" }
 
-// listVersions returns every version of a secret, enabled or not.
-func (s *ScalewayStore) listVersions(ctx context.Context, secretID string) ([]secretVersion, error) {
-	endpoint := fmt.Sprintf("%s/%s/versions?page_size=100", s.secretsURL(), secretID)
+// versionMetadataRevision returns the revision number of a version selector
+// (`latest`, `latest_enabled`, or a number).
+func (s *ScalewayStore) versionMetadataRevision(ctx context.Context, secretID, revision string) (uint32, error) {
+	endpoint := fmt.Sprintf("%s/%s/versions/%s", s.secretsURL(), secretID, url.PathEscape(revision))
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
 	if err != nil {
-		return nil, err
+		return 0, err
 	}
 	req.Header.Set("X-Auth-Token", s.secretKey)
 	req.Header.Set("Accept", "application/json")
 	resp, err := s.do(req)
 	if err != nil {
-		return nil, err
+		return 0, err
 	}
 	defer func() { _ = resp.Body.Close() }()
 	body, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 	if err != nil {
-		return nil, fmt.Errorf("%w: secret version list unreadable", ErrStoreUnavailable)
+		return 0, fmt.Errorf("%w: secret version metadata unreadable", ErrStoreUnavailable)
 	}
 	if resp.StatusCode == http.StatusNotFound {
-		return nil, ErrStoreNotFound
+		return 0, ErrStoreNotFound
 	}
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("%w: secret version list returned HTTP %d", ErrStoreUnavailable, resp.StatusCode)
+		return 0, fmt.Errorf("%w: secret version metadata returned HTTP %d", ErrStoreUnavailable, resp.StatusCode)
 	}
 	var doc struct {
-		Versions []secretVersion `json:"versions"`
+		Revision uint32 `json:"revision"`
 	}
 	if err := json.Unmarshal(body, &doc); err != nil {
-		return nil, fmt.Errorf("%w: secret version list is not valid JSON", ErrStoreInvalid)
+		return 0, fmt.Errorf("%w: secret version metadata is not valid JSON", ErrStoreInvalid)
 	}
-	return doc.Versions, nil
+	return doc.Revision, nil
+}
+
+// listVersions returns every version of a secret, following pagination so a
+// secret with more versions than one page is handled correctly.
+func (s *ScalewayStore) listVersions(ctx context.Context, secretID string) ([]secretVersion, error) {
+	const pageSize = 100
+	var all []secretVersion
+	for page := 1; page <= 1000; page++ {
+		endpoint := fmt.Sprintf("%s/%s/versions?page_size=%d&page=%d", s.secretsURL(), secretID, pageSize, page)
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
+		if err != nil {
+			return nil, err
+		}
+		req.Header.Set("X-Auth-Token", s.secretKey)
+		req.Header.Set("Accept", "application/json")
+		resp, err := s.do(req)
+		if err != nil {
+			return nil, err
+		}
+		body, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+		_ = resp.Body.Close()
+		if err != nil {
+			return nil, fmt.Errorf("%w: secret version list unreadable", ErrStoreUnavailable)
+		}
+		if resp.StatusCode == http.StatusNotFound {
+			return nil, ErrStoreNotFound
+		}
+		if resp.StatusCode != http.StatusOK {
+			return nil, fmt.Errorf("%w: secret version list returned HTTP %d", ErrStoreUnavailable, resp.StatusCode)
+		}
+		var doc struct {
+			Versions   []secretVersion `json:"versions"`
+			TotalCount uint64          `json:"total_count"`
+		}
+		if err := json.Unmarshal(body, &doc); err != nil {
+			return nil, fmt.Errorf("%w: secret version list is not valid JSON", ErrStoreInvalid)
+		}
+		all = append(all, doc.Versions...)
+		if len(doc.Versions) < pageSize || uint64(len(all)) >= doc.TotalCount {
+			return all, nil
+		}
+	}
+	return all, nil
 }
 
 // appendVersion creates a new version without touching the previous one, so a

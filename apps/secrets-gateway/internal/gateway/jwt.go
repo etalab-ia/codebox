@@ -135,12 +135,19 @@ func rsaPublicKeyFromJWK(k jwk) (*rsa.PublicKey, error) {
 // array per OIDC, and the token is rejected when it does not name this client:
 // otherwise an assertion minted for another service could be replayed here.
 func verifyRS256JWT(token string, keys map[string]*rsa.PublicKey, issuer, expectedAudience string, now time.Time) (verifiedToken, error) {
-	return verifyRS256JWTClaims(token, keys, issuer, expectedAudience, now)
+	return verifyRS256JWTChecked(token, keys, issuer, expectedAudience, now, true)
 }
 
-// verifyRS256JWTClaims is verifyRS256JWT with the full claim set, so the same
-// verification serves both ID tokens and signed UserInfo responses.
+// verifyRS256JWTClaims verifies a signed UserInfo response. OIDC requires such
+// a response to carry sub, iss and aud but NOT an expiry, so an absent `exp` is
+// accepted here — while an expiry that IS present must still be valid.
 func verifyRS256JWTClaims(token string, keys map[string]*rsa.PublicKey, issuer, expectedAudience string, now time.Time) (verifiedToken, error) {
+	return verifyRS256JWTChecked(token, keys, issuer, expectedAudience, now, false)
+}
+
+// verifyRS256JWTChecked is the shared verifier. expiryRequired distinguishes an
+// ID token (expiry mandatory) from a signed UserInfo response (expiry optional).
+func verifyRS256JWTChecked(token string, keys map[string]*rsa.PublicKey, issuer, expectedAudience string, now time.Time, expiryRequired bool) (verifiedToken, error) {
 	parts := strings.Split(token, ".")
 	if len(parts) != 3 {
 		return verifiedToken{}, fmt.Errorf("%w: id token is not a compact JWS", ErrUpstream)
@@ -193,8 +200,12 @@ func verifyRS256JWTClaims(token string, keys map[string]*rsa.PublicKey, issuer, 
 	}
 	issued := time.Unix(payload.IssuedAt, 0).UTC()
 	expires := time.Unix(payload.ExpiresAt, 0).UTC()
-	if payload.ExpiresAt == 0 || !expires.After(now) {
-		return verifiedToken{}, fmt.Errorf("%w: id token is expired", ErrUpstream)
+	if payload.ExpiresAt == 0 {
+		if expiryRequired {
+			return verifiedToken{}, fmt.Errorf("%w: id token has no expiry", ErrUpstream)
+		}
+	} else if !expires.After(now) {
+		return verifiedToken{}, fmt.Errorf("%w: token is expired", ErrUpstream)
 	}
 	if issued.After(now.Add(5 * time.Minute)) {
 		return verifiedToken{}, fmt.Errorf("%w: id token is not yet valid", ErrUpstream)

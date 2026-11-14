@@ -315,7 +315,7 @@ func TestSignedUserInfoIsVerified(t *testing.T) {
 
 	mux := http.NewServeMux()
 	var issuer string
-	var signedUserInfo, forgedUserInfo bool
+	var signedUserInfo, forgedUserInfo, mismatchedSubject bool
 	mux.HandleFunc("/api/v2/.well-known/openid-configuration", func(w http.ResponseWriter, _ *http.Request) {
 		_ = json.NewEncoder(w).Encode(map[string]any{
 			"issuer":                                issuer,
@@ -341,6 +341,13 @@ func TestSignedUserInfoIsVerified(t *testing.T) {
 		})
 	})
 	mux.HandleFunc("/api/v2/userinfo", func(w http.ResponseWriter, r *http.Request) {
+		if mismatchedSubject {
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(map[string]string{
+				"sub": "someone-else", "email": "victim@beta.gouv.fr", "siret": "13002526500013",
+			})
+			return
+		}
 		if forgedUserInfo {
 			w.Header().Set("Content-Type", "application/jwt")
 			other, err := rsa.GenerateKey(rand.Reader, 2048)
@@ -403,10 +410,57 @@ func TestSignedUserInfoIsVerified(t *testing.T) {
 		t.Fatalf("signed userinfo identity = %+v", identity)
 	}
 
+	// A UserInfo response about a different subject must not be merged into the
+	// verified identity: authorization uses email and SIRET.
+	signedUserInfo, forgedUserInfo = false, false
+	mismatchedSubject = true
+	if _, err := newClient().Exchange(t.Context(), "code-4", "v", ""); err == nil {
+		t.Fatal("a UserInfo response for a different subject was accepted")
+	}
+	mismatchedSubject = false
+
 	// A signed UserInfo with a bad signature must not be trusted.
 	forgedUserInfo = true
 	forged, err := newClient().Exchange(t.Context(), "code-3", "v", "")
 	if err == nil && forged.Email == "forged@example.com" {
 		t.Fatal("a UserInfo JWT signed by an unpublished key was trusted")
+	}
+}
+
+// TestSignedUserInfoWithoutExpiryIsAcceptedButIDTokenIsNot covers the split
+// requirement: OIDC makes expiry optional for a signed UserInfo response but
+// mandatory for an ID token.
+func TestSignedUserInfoWithoutExpiryIsAcceptedButIDTokenIsNot(t *testing.T) {
+	key, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		t.Fatalf("generate key: %v", err)
+	}
+	now := time.Date(2026, 11, 14, 12, 0, 0, 0, time.UTC)
+	keys := map[string]*rsa.PublicKey{"kid-1": &key.PublicKey}
+	const issuer = "https://issuer.example/api/v2"
+
+	noExpiry := map[string]any{
+		"iss": issuer, "sub": "sub-9", "aud": "client-id",
+		"email": "user@beta.gouv.fr", "siret": "13002526500013", "acr": "eidas2",
+		"iat": now.Add(-time.Minute).Unix(),
+	}
+	signed := signIDToken(t, key, "kid-1", noExpiry)
+
+	// UserInfo path: accepted.
+	if _, err := verifyRS256JWTClaims(signed, keys, issuer, "client-id", now); err != nil {
+		t.Fatalf("signed UserInfo without exp was rejected: %v", err)
+	}
+	// ID token path: refused.
+	if _, err := verifyRS256JWT(signed, keys, issuer, "client-id", now); err == nil {
+		t.Fatal("an ID token without exp was accepted")
+	}
+	// A present but expired exp is still refused on the UserInfo path.
+	expired := make(map[string]any, len(noExpiry)+1)
+	for k, v := range noExpiry {
+		expired[k] = v
+	}
+	expired["exp"] = now.Add(-time.Hour).Unix()
+	if _, err := verifyRS256JWTClaims(signIDToken(t, key, "kid-1", expired), keys, issuer, "client-id", now); err == nil {
+		t.Fatal("an expired signed UserInfo was accepted")
 	}
 }
