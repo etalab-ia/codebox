@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/etalab-ia/codebox/apps/codebox/internal/codebox"
@@ -55,7 +56,7 @@ func TestValueSourceResolvesAllIdentitiesInOneCall(t *testing.T) {
 	if values[requests[0].Identity].Value != "a" || values[requests[1].Identity].Value != "b" || values[requests[2].Identity].Value != "c" {
 		t.Fatalf("resolved values = %+v", values)
 	}
-	if values[requests[0].Identity].Source != "gateway" || values[requests[0].Identity].Reference != "r1" {
+	if values[requests[0].Identity].Source != "gateway" || !strings.Contains(values[requests[0].Identity].Reference, "gateway-rev-4/r1") {
 		t.Fatalf("resolved metadata = %+v", values[requests[0].Identity])
 	}
 }
@@ -78,5 +79,31 @@ func TestValueSourceFailsClosedOnMissingVariable(t *testing.T) {
 	})
 	if err == nil {
 		t.Fatal("a missing approved variable was silently accepted")
+	}
+}
+
+func TestValueSourceCarriesGatewayRevision(t *testing.T) {
+	const projectID = "22222222-2222-4222-8222-222222222222"
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_ = json.NewEncoder(w).Encode(secrets.ResolveResponse{
+			ProjectID: projectID, Revision: 9,
+			Components: map[string]map[string]string{".env": {"API_KEY": "v"}},
+		})
+	}))
+	defer server.Close()
+	source, err := NewValueSource(newForTest(server.URL, "token", server.Client()), projectID)
+	if err != nil {
+		t.Fatalf("NewValueSource: %v", err)
+	}
+	req := codebox.ProjectSecretValueRequest{
+		Identity:  codebox.ProjectSecretIdentity{Profile: "development", Component: ".env", Name: "API_KEY"},
+		Reference: "gateway:development/.env/API_KEY",
+	}
+	values, err := source.ResolveProjectSecretValues(context.Background(), []codebox.ProjectSecretValueRequest{req})
+	if err != nil {
+		t.Fatalf("ResolveProjectSecretValues: %v", err)
+	}
+	if got := values[req.Identity].Reference; !strings.Contains(got, "gateway-rev-9") {
+		t.Fatalf("reference = %q, want the gateway revision marker", got)
 	}
 }

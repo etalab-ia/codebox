@@ -57,10 +57,14 @@ func (s *ValueSource) ResolveProjectSecretValues(ctx context.Context, requests [
 		if !ok {
 			return nil, fmt.Errorf("gateway bundle has no variable %s in %s (revision %d)", req.Identity.Name, req.Identity.Component, resolved.Revision)
 		}
+		// Carry the gateway bundle revision as a non-secret reference. The
+		// resolved binding's storeEntry() feeds bindingsRevision and
+		// storeGenerationOf, so a rotated remote bundle changes the desired
+		// state and makes Reconcile refresh credentials on a healthy guest.
 		out[req.Identity] = codebox.ProjectSecretValue{
 			Value:     value,
 			Source:    "gateway",
-			Reference: req.Reference,
+			Reference: fmt.Sprintf("gateway-rev-%d/%s", resolved.Revision, req.Reference),
 		}
 	}
 	return out, nil
