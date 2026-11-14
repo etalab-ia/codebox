@@ -233,3 +233,46 @@ func TestEnsureDeclaredBindingApprovalsAcceptsGuestReadable(t *testing.T) {
 		t.Fatalf("valid guest-readable approval was rejected: %v", err)
 	}
 }
+
+func TestFilterDevelopmentDotenvPathsKeepsEmptyForExplicitCheck(t *testing.T) {
+	// The push command separately refuses an empty discovery result. The filter
+	// itself must not invent files or reject an already-empty list.
+	out, err := filterDevelopmentDotenvPaths(nil)
+	if err != nil || len(out) != 0 {
+		t.Fatalf("filter(nil) = %v, %v", out, err)
+	}
+}
+
+func TestSecretsPushRefusesEmptyDiscoveredBundle(t *testing.T) {
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, ".codebox"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	manifest := codebox.ProjectManifest{Secrets: &codebox.ProjectSecretsManifest{ProjectID: "22222222-2222-4222-8222-222222222222"}}
+	if err := codebox.WriteProjectManifest(codebox.DefaultFS, codebox.ProjectManifestPath(root), manifest); err != nil {
+		t.Fatal(err)
+	}
+	oldwd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chdir(root); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chdir(oldwd) })
+
+	oldBase, oldClient := secretsGatewayBaseURLFn, secretsGatewayClientFn
+	secretsGatewayBaseURLFn = func() (string, error) { return "https://gateway.example", nil }
+	secretsGatewayClientFn = func() (*gatewayclient.Client, error) {
+		return gatewayclient.NewInsecureForTest("https://gateway.example", "token", http.DefaultClient)
+	}
+	t.Cleanup(func() { secretsGatewayBaseURLFn, secretsGatewayClientFn = oldBase, oldClient })
+
+	code, err := secretsPushCmd(nil)
+	if err == nil || code == 0 {
+		t.Fatalf("secretsPushCmd = %d, %v; want refusal", code, err)
+	}
+	if !strings.Contains(err.Error(), "empty bundle") && !strings.Contains(err.Error(), "no development dotenv") {
+		t.Fatalf("unexpected error = %v", err)
+	}
+}
