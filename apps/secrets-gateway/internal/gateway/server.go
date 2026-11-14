@@ -5,10 +5,8 @@ import (
 	crand "crypto/rand"
 	"crypto/sha256"
 	"encoding/base64"
-	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"log/slog"
 	"net"
 	"net/http"
@@ -275,7 +273,7 @@ func (s *Server) handleDeviceToken(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var req secrets.DeviceTokenExchangeRequest
-	if err := decodeJSONBody(r, &req, 8<<10); err != nil {
+	if err := decodeStrictJSON(r, &req, 8<<10); err != nil {
 		writeError(w, http.StatusBadRequest, secrets.ErrCodeInvalidRequest, err.Error())
 		return
 	}
@@ -336,7 +334,7 @@ func (s *Server) handleCreateProject(w http.ResponseWriter, r *http.Request, cla
 		return
 	}
 	var req secrets.CreateProjectRequest
-	if err := decodeJSONBody(r, &req, 4<<10); err != nil {
+	if err := decodeStrictJSON(r, &req, 4<<10); err != nil {
 		writeError(w, http.StatusBadRequest, secrets.ErrCodeInvalidRequest, err.Error())
 		return
 	}
@@ -402,7 +400,7 @@ func (s *Server) handleUpdateMembers(w http.ResponseWriter, r *http.Request, cla
 		return
 	}
 	var req secrets.UpdateMembersRequest
-	if err := decodeJSONBody(r, &req, 64<<10); err != nil {
+	if err := decodeStrictJSON(r, &req, 64<<10); err != nil {
 		writeError(w, http.StatusBadRequest, secrets.ErrCodeInvalidRequest, err.Error())
 		return
 	}
@@ -436,7 +434,7 @@ func (s *Server) handlePushSecrets(w http.ResponseWriter, r *http.Request, claim
 		return
 	}
 	var req secrets.PushSecretsRequest
-	if err := decodeJSONBody(r, &req, secrets.MaxBundleBytes+8<<10); err != nil {
+	if err := decodeStrictJSON(r, &req, secrets.MaxBundleBytes+8<<10); err != nil {
 		writeError(w, http.StatusBadRequest, secrets.ErrCodeInvalidRequest, err.Error())
 		return
 	}
@@ -475,7 +473,7 @@ func (s *Server) handleResolve(w http.ResponseWriter, r *http.Request, claims To
 		return
 	}
 	var req secrets.ResolveRequest
-	if err := decodeJSONBody(r, &req, 16<<10); err != nil {
+	if err := decodeStrictJSON(r, &req, 16<<10); err != nil {
 		writeError(w, http.StatusBadRequest, secrets.ErrCodeInvalidRequest, err.Error())
 		return
 	}
@@ -572,24 +570,6 @@ func ClientIP(r *http.Request) string {
 		return r.RemoteAddr
 	}
 	return host
-}
-
-// decodeJSONBody decodes at most limit bytes and rejects unknown fields and
-// trailing data, so a malformed request cannot smuggle extra content.
-func decodeJSONBody(r *http.Request, dst any, limit int64) error {
-	if ct := r.Header.Get("Content-Type"); ct != "" && !strings.HasPrefix(ct, "application/json") {
-		return errors.New("request body must be JSON")
-	}
-	dec := json.NewDecoder(io.LimitReader(r.Body, limit))
-	dec.DisallowUnknownFields()
-	if err := dec.Decode(dst); err != nil {
-		return errors.New("request body is not a valid JSON payload")
-	}
-	var trailing any
-	if err := dec.Decode(&trailing); !errors.Is(err, io.EOF) {
-		return errors.New("request body contains trailing data")
-	}
-	return nil
 }
 
 func randomURLToken(bytesLen int) (string, error) {
