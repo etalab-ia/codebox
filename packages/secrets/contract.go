@@ -278,6 +278,9 @@ func RejectProductionScope(scope string) error {
 // project root (for example ".env" or "apps/api/.env.local"), matching
 // codebox's validSecretComponent contract.
 func ValidateComponentPath(p string) error {
+	if !utf8.ValidString(p) {
+		return fmt.Errorf("component path contains invalid UTF-8")
+	}
 	if p == "" || len(p) > 256 || p == "." || path.IsAbs(p) || path.Clean(p) != p || strings.ContainsAny(p, "\\:") {
 		return fmt.Errorf("invalid dotenv component path %q", p)
 	}
@@ -351,6 +354,59 @@ func ValidateDestinationHost(host string) error {
 	return nil
 }
 
+// DeriveGuestEnv computes codebox's deterministic default guest variable name
+// for a dotenv component path and secret identifier (for example ".env" +
+// "API_KEY" -> "JC_API_KEY", "apps/api/.env" + "API_KEY" ->
+// "JC_APPS_API_API_KEY").
+func DeriveGuestEnv(component, name string) string {
+	var parts []string
+	dir, base := path.Split(component)
+	for _, segment := range strings.Split(strings.Trim(dir, "/"), "/") {
+		if segment == "" || segment == "." {
+			continue
+		}
+		if s := sanitizeGuestEnvSegment(segment); s != "" {
+			parts = append(parts, s)
+		}
+	}
+	if stem := dotenvComponentStem(base); stem != "" {
+		parts = append(parts, stem)
+	}
+	return "JC_" + strings.Join(append(parts, name), "_")
+}
+
+func dotenvComponentStem(base string) string {
+	lower := strings.ToLower(base)
+	switch {
+	case lower == ".env":
+		return ""
+	case strings.HasPrefix(lower, ".env."):
+		return sanitizeGuestEnvSegment(strings.TrimPrefix(lower, ".env."))
+	case strings.HasSuffix(lower, ".env"):
+		return sanitizeGuestEnvSegment(strings.TrimSuffix(lower, ".env"))
+	default:
+		return sanitizeGuestEnvSegment(lower)
+	}
+}
+
+func sanitizeGuestEnvSegment(segment string) string {
+	var b strings.Builder
+	lastUnderscore := false
+	for _, r := range strings.ToUpper(segment) {
+		switch {
+		case r >= 'A' && r <= 'Z', r >= '0' && r <= '9':
+			b.WriteRune(r)
+			lastUnderscore = false
+		default:
+			if !lastUnderscore && b.Len() > 0 {
+				b.WriteByte('_')
+				lastUnderscore = true
+			}
+		}
+	}
+	return strings.Trim(b.String(), "_")
+}
+
 // ValidateBindingHints validates a slice of manifest binding hints for
 // structural soundness, uniqueness, and delivery-mode invariants.
 func ValidateBindingHints(hints []BindingHint) error {
@@ -378,15 +434,17 @@ func ValidateBindingHints(hints []BindingHint) error {
 				return fmt.Errorf("guest-readable binding hint %s (%s) must not declare guestEnv", h.Name, h.Component)
 			}
 		case DeliveryProxy:
-			if h.GuestEnv != "" {
-				if err := ValidateVariableName(h.GuestEnv); err != nil {
-					return fmt.Errorf("binding hint %s (%s) has invalid guestEnv %q", h.Name, h.Component, h.GuestEnv)
-				}
-				if prev, dup := seenGuestEnv[h.GuestEnv]; dup {
-					return fmt.Errorf("binding hints %s and %s share guestEnv %s", prev, h.Name, h.GuestEnv)
-				}
-				seenGuestEnv[h.GuestEnv] = h.Component + ":" + h.Name
+			effectiveEnv := h.GuestEnv
+			if effectiveEnv == "" {
+				effectiveEnv = DeriveGuestEnv(h.Component, h.Name)
 			}
+			if err := ValidateVariableName(effectiveEnv); err != nil {
+				return fmt.Errorf("binding hint %s (%s) has invalid guestEnv %q", h.Name, h.Component, effectiveEnv)
+			}
+			if prev, dup := seenGuestEnv[effectiveEnv]; dup {
+				return fmt.Errorf("binding hints %s and %s:%s share guestEnv %s", prev, h.Component, h.Name, effectiveEnv)
+			}
+			seenGuestEnv[effectiveEnv] = h.Component + ":" + h.Name
 			if len(h.Destinations) == 0 {
 				return fmt.Errorf("proxy binding hint %s (%s) requires at least one destination host", h.Name, h.Component)
 			}
@@ -445,6 +503,9 @@ func ValidateBundle(b Bundle) error {
 // MarshalBundle validates and deterministically serializes a Bundle, enforcing
 // MaxBundleBytes on the resulting JSON payload.
 func MarshalBundle(components map[string]map[string]string) ([]byte, error) {
+	if err := ValidateComponents(components); err != nil {
+		return nil, err
+	}
 	clean := make(map[string]map[string]string, len(components))
 	for comp, vars := range components {
 		if len(vars) == 0 {
@@ -473,10 +534,10 @@ func MarshalBundle(components map[string]map[string]string) ([]byte, error) {
 	return data, nil
 }
 
-// UnmarshalBundle parses and validates a serialized secret Bundle.
-// It checks UTF-8 validity and unpaired UTF-16 surrogates prior to JSON
-// decoding because encoding/json silently replaces malformed sequences with
-// U+FFFD, which would corrupt secret values instead of failing closed.
+// UnmarshalBundle parses and validates a serialized secret Bundle using a
+// strict token-level JSON reader so null values, non-integer schema versions,
+// duplicate keys, unknown fields, trailing tokens, and malformed UTF-8 or
+// unpaired UTF-16 surrogates all fail closed without silent coercion.
 func UnmarshalBundle(data []byte) (Bundle, error) {
 	if len(data) > MaxBundleBytes {
 		return Bundle{}, ErrBundleTooLarge
@@ -484,21 +545,66 @@ func UnmarshalBundle(data []byte) (Bundle, error) {
 	if !utf8.Valid(data) || hasUnpairedUTF16Surrogate(data) {
 		return Bundle{}, errors.New("parse secret bundle: payload contains invalid UTF-8")
 	}
-	var b Bundle
 	dec := json.NewDecoder(bytes.NewReader(data))
-	dec.DisallowUnknownFields()
-	if err := dec.Decode(&b); err != nil {
-		return Bundle{}, fmt.Errorf("parse secret bundle: %w", err)
+	dec.UseNumber()
+
+	if err := expectJSONDelim(dec, '{', "bundle root"); err != nil {
+		return Bundle{}, err
 	}
-	var trailing any
-	if err := dec.Decode(&trailing); !errors.Is(err, io.EOF) {
+
+	var b Bundle
+	seenTop := make(map[string]bool, 2)
+	for {
+		tok, err := dec.Token()
+		if err != nil {
+			return Bundle{}, fmt.Errorf("parse secret bundle: %w", err)
+		}
+		if d, ok := tok.(json.Delim); ok && d == '}' {
+			break
+		}
+		key, ok := tok.(string)
+		if !ok {
+			return Bundle{}, errors.New("parse secret bundle: expected object key")
+		}
+		if seenTop[key] {
+			return Bundle{}, fmt.Errorf("parse secret bundle: duplicate top-level key %q", key)
+		}
+		seenTop[key] = true
+
+		switch key {
+		case "schemaVersion":
+			vTok, err := dec.Token()
+			if err != nil {
+				return Bundle{}, fmt.Errorf("parse secret bundle schemaVersion: %w", err)
+			}
+			num, ok := vTok.(json.Number)
+			if !ok {
+				return Bundle{}, errors.New("parse secret bundle: schemaVersion must be an integer")
+			}
+			ver, err := strconv.Atoi(num.String())
+			if err != nil {
+				return Bundle{}, errors.New("parse secret bundle: schemaVersion must be an integer")
+			}
+			b.SchemaVersion = ver
+		case "components":
+			comps, err := decodeBundleComponents(dec)
+			if err != nil {
+				return Bundle{}, err
+			}
+			b.Components = comps
+		default:
+			return Bundle{}, fmt.Errorf("parse secret bundle: unknown field %q", key)
+		}
+	}
+
+	if !seenTop["schemaVersion"] || !seenTop["components"] {
+		return Bundle{}, errors.New("parse secret bundle: schemaVersion and components are required")
+	}
+	if _, err := dec.Token(); !errors.Is(err, io.EOF) {
 		return Bundle{}, errors.New("parse secret bundle: trailing data")
 	}
 	if err := ValidateBundle(b); err != nil {
 		return Bundle{}, err
-	}
-	if b.Components == nil {
-		b.Components = map[string]map[string]string{}
 	}
 	for comp, vars := range b.Components {
 		if len(vars) == 0 {
@@ -506,6 +612,77 @@ func UnmarshalBundle(data []byte) (Bundle, error) {
 		}
 	}
 	return b, nil
+}
+
+func decodeBundleComponents(dec *json.Decoder) (map[string]map[string]string, error) {
+	if err := expectJSONDelim(dec, '{', "components"); err != nil {
+		return nil, err
+	}
+	out := make(map[string]map[string]string)
+	seenComp := make(map[string]bool)
+	for {
+		tok, err := dec.Token()
+		if err != nil {
+			return nil, fmt.Errorf("parse secret bundle components: %w", err)
+		}
+		if d, ok := tok.(json.Delim); ok && d == '}' {
+			return out, nil
+		}
+		comp, ok := tok.(string)
+		if !ok {
+			return nil, errors.New("parse secret bundle: expected component path string")
+		}
+		if seenComp[comp] {
+			return nil, fmt.Errorf("parse secret bundle: duplicate component %q", comp)
+		}
+		seenComp[comp] = true
+
+		if err := expectJSONDelim(dec, '{', "component "+comp); err != nil {
+			return nil, err
+		}
+		vars := make(map[string]string)
+		seenVar := make(map[string]bool)
+		for {
+			kTok, err := dec.Token()
+			if err != nil {
+				return nil, fmt.Errorf("parse secret bundle component %s: %w", comp, err)
+			}
+			if d, ok := kTok.(json.Delim); ok && d == '}' {
+				break
+			}
+			name, ok := kTok.(string)
+			if !ok {
+				return nil, fmt.Errorf("parse secret bundle component %s: expected variable name", comp)
+			}
+			if seenVar[name] {
+				return nil, fmt.Errorf("parse secret bundle component %s: duplicate variable %q", comp, name)
+			}
+			seenVar[name] = true
+
+			vTok, err := dec.Token()
+			if err != nil {
+				return nil, fmt.Errorf("parse secret bundle variable %s: %w", name, err)
+			}
+			val, ok := vTok.(string)
+			if !ok {
+				return nil, fmt.Errorf("parse secret bundle: variable %s in %s must be a JSON string", name, comp)
+			}
+			vars[name] = val
+		}
+		out[comp] = vars
+	}
+}
+
+func expectJSONDelim(dec *json.Decoder, want rune, where string) error {
+	tok, err := dec.Token()
+	if err != nil {
+		return fmt.Errorf("parse secret bundle (%s): %w", where, err)
+	}
+	d, ok := tok.(json.Delim)
+	if !ok || d != json.Delim(want) {
+		return fmt.Errorf("parse secret bundle: %s must be a JSON object", where)
+	}
+	return nil
 }
 
 func hasUnpairedUTF16Surrogate(data []byte) bool {
@@ -550,10 +727,7 @@ func hasUnpairedUTF16Surrogate(data []byte) bool {
 				return true
 			}
 			u2, err := strconv.ParseUint(string(data[i+8:i+12]), 16, 16)
-			if err != nil {
-				return false
-			}
-			if u2 < 0xDC00 || u2 > 0xDFFF {
+			if err != nil || u2 < 0xDC00 || u2 > 0xDFFF {
 				return true
 			}
 			i += 12

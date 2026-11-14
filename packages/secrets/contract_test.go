@@ -122,13 +122,39 @@ func TestBundleMarshalUnmarshalAndLimits(t *testing.T) {
 		t.Fatalf("unexpected decoded values: %+v", validAstral.Components[".env"])
 	}
 	for _, badUTF8 := range [][]byte{
-		[]byte("{\"schemaVersion\":1,\"components\":{\".env\":{\"TOKEN\":\"\xff\"}}}"),
+		append([]byte(`{"schemaVersion":1,"components":{".env":{"TOKEN":"`), 0xff, '"', '}', '}', '}'),
 		[]byte(`{"schemaVersion":1,"components":{".env":{"TOKEN":"\ud800"}}}`),
 		[]byte(`{"schemaVersion":1,"components":{".env":{"TOKEN":"\udc00"}}}`),
 		[]byte(`{"schemaVersion":1,"components":{".env":{"TOKEN":"\ud800x"}}}`),
 	} {
 		if _, err := UnmarshalBundle(badUTF8); err == nil {
 			t.Errorf("expected malformed UTF-8/surrogate bundle %q to fail closed", badUTF8)
+		}
+	}
+	// Invalid UTF-8 component paths fail closed before serialization (even when empty).
+	badComp := string([]byte{0xff}) + ".env"
+	if _, err := MarshalBundle(map[string]map[string]string{badComp: {"KEY": "v"}}); err == nil {
+		t.Fatal("expected non-UTF-8 component path to fail MarshalBundle")
+	}
+	if _, err := MarshalBundle(map[string]map[string]string{badComp: {}}); err == nil {
+		t.Fatal("expected empty non-UTF-8 component path to fail MarshalBundle")
+	}
+
+	// Null values, non-string values, float schemaVersion, missing fields, and duplicate keys fail closed.
+	for _, malformedJSON := range []string{
+		`null`,
+		`{"schemaVersion":1}`,
+		`{"schemaVersion":1.0,"components":{}}`,
+		`{"schemaVersion":1,"components":null}`,
+		`{"schemaVersion":1,"components":{".env":null}}`,
+		`{"schemaVersion":1,"components":{".env":{"TOKEN":null}}}`,
+		`{"schemaVersion":1,"components":{".env":{"TOKEN":123}}}`,
+		`{"schemaVersion":1,"schemaVersion":1,"components":{}}`,
+		`{"schemaVersion":1,"components":{".env":{"A":"1"},".env":{"B":"2"}}}`,
+		`{"schemaVersion":1,"components":{".env":{"TOKEN":"1","TOKEN":"2"}}}`,
+	} {
+		if _, err := UnmarshalBundle([]byte(malformedJSON)); err == nil {
+			t.Errorf("expected malformed bundle %s to fail closed", malformedJSON)
 		}
 	}
 }
@@ -167,6 +193,10 @@ func TestValidateAndCanonicalizeBindingHints(t *testing.T) {
 		{
 			{Component: ".env", Name: "A", GuestEnv: "SHARED_ENV", Destinations: []string{"a.example.com"}},
 			{Component: "sub/.env", Name: "B", GuestEnv: "SHARED_ENV", Destinations: []string{"b.example.com"}},
+		},
+		{
+			{Component: ".env", Name: "API_KEY", Destinations: []string{"a.example.com"}},
+			{Component: "sub/.env", Name: "OTHER", GuestEnv: "JC_API_KEY", Destinations: []string{"b.example.com"}},
 		},
 	}
 	for i, tc := range badCases {
