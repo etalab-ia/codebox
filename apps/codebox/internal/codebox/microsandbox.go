@@ -171,6 +171,23 @@ type MicrosandboxRuntime struct {
 	// store; a caller that already resolved one (the CLI, or tests) injects it
 	// so the index's recorded store matches the store actually used.
 	ProjectSecrets *ProjectSecretStore
+	// ProjectSecretValues is the value-resolution seam for approved project
+	// secrets. Nil preserves the local OS credential store behavior. A remote
+	// source injected here resolves all approved values once per call site,
+	// which is shared by start, guest-readable file delivery and recovery.
+	ProjectSecretValues ProjectSecretValueSource
+	// ProjectSecretsDeclared is set when the project manifest declares the
+	// optional `secrets` block. A declared remote source without an injected
+	// resolver must fail closed instead of silently using stale local OS-store
+	// values. The flag is host state derived from the manifest, never a grant
+	// of access.
+	ProjectSecretsDeclared bool
+	// currentProjectSecretValues is the resolved value set for one Start call.
+	// resolveBindings sets it; syncProjectSecretDelivery consumes and clears it
+	// so proxy bindings and guest-readable files cannot observe two different
+	// remote bundle revisions. Direct calls from tests keep resolving on their
+	// own when this is nil.
+	currentProjectSecretValues *resolvedSecretSet
 	// Launch is the first-launch report (issue #172). When set on a terminal,
 	// the runtime records what each phase did into it and stops printing its
 	// own verbose English lines, because the CLI renders one French checklist
@@ -531,6 +548,13 @@ func (m *MicrosandboxRuntime) resolveProjectSecretBindings(ctx context.Context) 
 	if err != nil {
 		return nil, err
 	}
+	values, err := m.resolveProjectSecretValueSet(ctx, store, record.deliveries)
+	if err != nil {
+		return nil, err
+	}
+	// A real Start resolves bindings before delivering files; stash this one
+	// set so syncProjectSecretDelivery cannot resolve a second remote bundle.
+	m.currentProjectSecretValues = &values
 	var out []resolvedBinding
 	seen := map[string]bool{}
 	for _, d := range record.deliveries {
@@ -545,23 +569,18 @@ func (m *MicrosandboxRuntime) resolveProjectSecretBindings(ctx context.Context) 
 			return nil, fmt.Errorf("two project secret bindings share the guest variable %s", d.GuestEnv)
 		}
 		seen[d.GuestEnv] = true
-		value, err := store.Get(ctx, d.Profile, d.Component, d.Name)
+		resolved, err := values.get(ProjectSecretIdentity{Profile: d.Profile, Component: d.Component, Name: d.Name})
 		if err != nil {
-			// An APPROVED project secret whose backing entry is gone is not
-			// the tolerable "not stored yet" case, even though the store
-			// reports both as not-found: the user already imported and
-			// approved it, so only re-importing or removing the approval can
-			// restore a consistent project state. Treating it as transient
-			// would let a healthy no-op start exit 0 while the guest kept
-			// serving the previous value (#204). The sentinel is therefore
-			// unwrapped away: it is the store *fault* branch — a typed
-			// *StoreError — that stays tolerable, and that still matches.
-			if isNotFound(err) {
-				return nil, fmt.Errorf("cannot read the approved project secret %s (%s): %w", d.Name, d.Component, ErrProjectSecretImportMissing)
-			}
 			return nil, fmt.Errorf("cannot read the approved project secret %s (%s): %w", d.Name, d.Component, err)
 		}
 		ref := d.Reference
+		if resolved.Reference != "" {
+			ref = resolved.Reference
+		}
+		source := resolved.Source
+		if source == "" {
+			source = store.Kind()
+		}
 		out = append(out, resolvedBinding{
 			msbSecretBinding: msbSecretBinding{
 				Kind:        CredentialKind(d.GuestEnv),
@@ -577,8 +596,8 @@ func (m *MicrosandboxRuntime) resolveProjectSecretBindings(ctx context.Context) 
 				},
 			},
 			source: bindingSourceStore,
-			value:  value,
-			store:  store.Kind(),
+			value:  resolved.Value,
+			store:  source,
 			entry:  ref,
 		})
 	}
@@ -681,7 +700,15 @@ func (m *MicrosandboxRuntime) syncProjectSecretDelivery(ctx context.Context, bin
 	if err != nil {
 		return err
 	}
-	deliveries, err := m.projectSecretFileDeliveries(ctx, store, record.deliveries)
+	// A Start path already resolved this set in resolveProjectSecretBindings.
+	// Reuse and clear it so guest-readable delivery cannot fetch a second
+	// remote bundle revision after the sandbox has already started.
+	var reusedValues *resolvedSecretSet
+	if m.currentProjectSecretValues != nil {
+		reusedValues = m.currentProjectSecretValues
+		m.currentProjectSecretValues = nil
+	}
+	deliveries, err := m.projectSecretFileDeliveriesWithValues(ctx, store, record.deliveries, reusedValues)
 	if err != nil {
 		return err
 	}
@@ -715,14 +742,41 @@ func (m *MicrosandboxRuntime) syncProjectSecretDelivery(ctx context.Context, bin
 // last moment before the SDK call that writes it; a proxy-protected one keeps
 // its marker, because the placeholder is all the guest may hold.
 func (m *MicrosandboxRuntime) projectSecretFileDeliveries(ctx context.Context, store *ProjectSecretStore, approved []ProjectSecretDelivery) ([]ProjectSecretDelivery, error) {
+	return m.projectSecretFileDeliveriesWithValues(ctx, store, approved, nil)
+}
+
+// projectSecretFileDeliveriesWithValues renders approved bindings into the set
+// the guest receives as files. A Start call passes the value set it already
+// resolved; a direct call resolves one lazily and only when a guest-readable
+// delivery actually needs a value. Proxy-only deliveries never read values.
+func (m *MicrosandboxRuntime) projectSecretFileDeliveriesWithValues(ctx context.Context, store *ProjectSecretStore, approved []ProjectSecretDelivery, reused *resolvedSecretSet) ([]ProjectSecretDelivery, error) {
+	needValues := false
+	for _, d := range approved {
+		if d.GuestReadable() {
+			needValues = true
+			break
+		}
+	}
+	values := resolvedSecretSet{values: map[ProjectSecretIdentity]ProjectSecretValue{}}
+	switch {
+	case reused != nil:
+		values = *reused
+	case needValues:
+		resolved, err := m.resolveProjectSecretValueSet(ctx, store, approved)
+		if err != nil {
+			return nil, err
+		}
+		values = resolved
+	}
 	out := make([]ProjectSecretDelivery, 0, len(approved))
 	guestReadable := 0
 	for _, d := range approved {
 		if d.GuestReadable() {
-			value, err := store.Get(ctx, d.Profile, d.Component, d.Name)
+			resolved, err := values.get(ProjectSecretIdentity{Profile: d.Profile, Component: d.Component, Name: d.Name})
 			if err != nil {
 				return nil, fmt.Errorf("cannot read the guest-readable project secret %s (%s): %w", d.Name, d.Component, err)
 			}
+			value := resolved.Value
 			d.Value = &value
 			guestReadable++
 		}
@@ -1673,6 +1727,67 @@ func (m *MicrosandboxRuntime) resolvePersistedBindings(ctx context.Context, refs
 	if read == nil {
 		read = readStoredWith
 	}
+	// A project may persist several env-reference secrets. The value set is
+	// lazy: compatibility with the persisted allowlist and placeholder is
+	// proven per reference BEFORE any value is read, so a stale or ambiguous
+	// registration cannot trigger a credential-store or gateway read. Once a
+	// first compatible reference needs a value, resolve the approved set once
+	// and share it with every remaining compatible reference.
+	// Precompute which approved deliveries are actually referenced by a
+	// compatible persisted proxy registration. Recovery must not read values
+	// for unrelated approvals (guest-readable files, later approvals, or
+	// revoked registrations), because recovery only republishes env-reference
+	// registrations and those extra failures would block workspace export.
+	// If the sandbox persisted no project-secret ref at all, skip the project
+	// metadata entirely: a bad or stale project approval must not block
+	// recovery of built-in credentials or workspace export.
+	hasProjectRef := false
+	for _, ref := range refs {
+		if strings.HasPrefix(ref.HostEnv, msbProjectSecretHostEnvPrefix) {
+			hasProjectRef = true
+			break
+		}
+	}
+	compatibleDeliveries := make([]ProjectSecretDelivery, 0, len(refs))
+	if hasProjectRef {
+		record, err := m.projectSecretDeliveries(ctx)
+		if err != nil {
+			return nil, err
+		}
+		for _, ref := range refs {
+			if !strings.HasPrefix(ref.HostEnv, msbProjectSecretHostEnvPrefix) {
+				continue
+			}
+			for i := range record.deliveries {
+				d := &record.deliveries[i]
+				if d.GuestReadable() || msbProjectSecretHostEnvPrefix+d.GuestEnv != ref.HostEnv {
+					continue
+				}
+				if validatePersistedProjectSecretCompatibility(ref, d) == nil {
+					compatibleDeliveries = append(compatibleDeliveries, *d)
+				}
+				break
+			}
+		}
+	}
+	projectValues := resolvedSecretSet{values: map[ProjectSecretIdentity]ProjectSecretValue{}}
+	projectValuesResolved := false
+	var resolveProjectValues func() (resolvedSecretSet, error)
+	resolveProjectValues = func() (resolvedSecretSet, error) {
+		if projectValuesResolved {
+			return projectValues, nil
+		}
+		store, err := m.projectSecretStore()
+		if err != nil {
+			return resolvedSecretSet{}, err
+		}
+		projectValues, err = m.resolveProjectSecretValueSet(ctx, store, compatibleDeliveries)
+		if err != nil {
+			return resolvedSecretSet{}, err
+		}
+		projectValuesResolved = true
+		return projectValues, nil
+	}
 	out := make([]resolvedBinding, 0, len(refs))
 	for _, ref := range refs {
 		hostEnv := ref.HostEnv
@@ -1682,7 +1797,7 @@ func (m *MicrosandboxRuntime) resolvePersistedBindings(ctx context.Context, refs
 		// approved project-secret metadata, so map it back through that
 		// metadata rather than the current provider or binding configuration.
 		if strings.HasPrefix(hostEnv, msbProjectSecretHostEnvPrefix) {
-			b, ok, err := m.resolvePersistedProjectBinding(ctx, ref)
+			b, ok, err := m.resolvePersistedProjectBinding(ctx, ref, resolveProjectValues)
 			if err != nil {
 				return nil, err
 			}
@@ -1775,7 +1890,7 @@ func (m *MicrosandboxRuntime) resolvePersistedBindings(ctx context.Context, refs
 // is stale and is skipped with a warning rather than blocking recovery; an
 // approved delivery whose backing value cannot be read fails closed, matching
 // the resolveProjectSecretBindings contract.
-func (m *MicrosandboxRuntime) resolvePersistedProjectBinding(ctx context.Context, ref persistedSecretRef) (resolvedBinding, bool, error) {
+func (m *MicrosandboxRuntime) resolvePersistedProjectBinding(ctx context.Context, ref persistedSecretRef, resolveValues func() (resolvedSecretSet, error)) (resolvedBinding, bool, error) {
 	hostEnv := ref.HostEnv
 	record, err := m.projectSecretDeliveries(ctx)
 	if err != nil {
@@ -1823,16 +1938,24 @@ func (m *MicrosandboxRuntime) resolvePersistedProjectBinding(ctx context.Context
 	if err := validatePersistedProjectSecretCompatibility(ref, delivery); err != nil {
 		return resolvedBinding{}, false, fmt.Errorf("cannot recover %s: %w: the persisted project-secret registration %q is incompatible with the current approval for %s/%s/%s; recreate the sandbox to apply the changed secret metadata", m.InstanceName(), err, hostEnv, delivery.Profile, delivery.Component, delivery.Name)
 	}
-	store, err := m.projectSecretStore()
+	// Only now that the persisted registration is proven compatible with the
+	// current approval may the runtime read a value. The lazy resolver shares
+	// one fetch across every compatible persisted project reference.
+	values, err := resolveValues()
 	if err != nil {
 		return resolvedBinding{}, false, err
 	}
-	value, err := store.Get(ctx, delivery.Profile, delivery.Component, delivery.Name)
+	resolved, err := values.get(ProjectSecretIdentity{Profile: delivery.Profile, Component: delivery.Component, Name: delivery.Name})
 	if err != nil {
-		if isNotFound(err) {
-			return resolvedBinding{}, false, fmt.Errorf("cannot read the approved project secret %s (%s): %w", delivery.Name, delivery.Component, ErrProjectSecretImportMissing)
-		}
 		return resolvedBinding{}, false, fmt.Errorf("cannot read the approved project secret %s (%s): %w", delivery.Name, delivery.Component, err)
+	}
+	refValue := delivery.Reference
+	if resolved.Reference != "" {
+		refValue = resolved.Reference
+	}
+	source := resolved.Source
+	if source == "" {
+		source = "store"
 	}
 	return resolvedBinding{
 		msbSecretBinding: msbSecretBinding{
@@ -1843,13 +1966,13 @@ func (m *MicrosandboxRuntime) resolvePersistedProjectBinding(ctx context.Context
 			AllowHosts:  append([]string(nil), delivery.Destinations...),
 			Optional:    false,
 			Project: &ProjectBindingRef{
-				Profile: delivery.Profile, Component: delivery.Component, Name: delivery.Name, Reference: delivery.Reference,
+				Profile: delivery.Profile, Component: delivery.Component, Name: delivery.Name, Reference: refValue,
 			},
 		},
 		source: bindingSourceStore,
-		value:  value,
-		store:  store.Kind(),
-		entry:  delivery.Reference,
+		value:  resolved.Value,
+		store:  source,
+		entry:  refValue,
 	}, true, nil
 }
 

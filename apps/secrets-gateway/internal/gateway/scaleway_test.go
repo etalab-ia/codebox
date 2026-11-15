@@ -21,6 +21,9 @@ type scalewayFake struct {
 	versions map[string][]fakeVersion // key: path+"/"+name
 	sids     map[string]string
 	nextID   int
+	// beforeHighest lets a test interleave a competing write after the initial
+	// enabled-revision check but before the highest-revision read.
+	beforeHighest func()
 	// beforeAppend lets a test interleave a competing write between this
 	// writer's revision check and its append.
 	beforeAppend func()
@@ -125,6 +128,9 @@ func newScalewayFake(t *testing.T) (*scalewayFake, *httptest.Server) {
 			}
 			_ = json.NewEncoder(w).Encode(map[string]any{"versions": out})
 		case len(parts) == 3 && parts[1] == "versions":
+			if parts[2] == "latest" && f.beforeHighest != nil {
+				f.beforeHighest()
+			}
 			f.mu.Lock()
 			defer f.mu.Unlock()
 			list := f.versions[key]
@@ -311,6 +317,53 @@ func TestScalewayStoreConcurrentWritersCannotBothWin(t *testing.T) {
 	}
 	if strings.Contains(string(data), "member:loser@beta.gouv.fr") {
 		t.Fatalf("the loser's change became visible; live ACL = %q", data)
+	}
+	if got := len(fake.enabled(key)); got != 1 {
+		t.Fatalf("%d enabled ACL versions after the race, want exactly 1", got)
+	}
+}
+
+func TestScalewayStoreRejectsCompetitorBeforeHighestRevisionRead(t *testing.T) {
+	const projectID = "55555555-5555-4555-8555-555555555555"
+	const key = ACLPath + "/" + projectID
+
+	fake, server := newScalewayFake(t)
+	defer server.Close()
+	store, err := NewScalewayStore(server.URL, "scw", "proj", "fr-par", server.Client())
+	if err != nil {
+		t.Fatalf("NewScalewayStore: %v", err)
+	}
+	ctx := t.Context()
+	if err := store.CreateProject(ctx, projectID, "owner@beta.gouv.fr", "eidas2"); err != nil {
+		t.Fatalf("CreateProject: %v", err)
+	}
+
+	const winnerACL = "owner:owner@beta.gouv.fr\nmember:winner@beta.gouv.fr\n"
+	const loserACL = "owner:owner@beta.gouv.fr\nmember:loser@beta.gouv.fr\n"
+
+	// The stale writer has already read enabled revision 1. The competitor then
+	// commits revision 2 before the stale writer reads the highest revision.
+	fake.beforeHighest = func() {
+		fake.beforeHighest = nil
+		other, err := NewScalewayStore(server.URL, "scw", "proj", "fr-par", server.Client())
+		if err != nil {
+			t.Errorf("NewScalewayStore: %v", err)
+			return
+		}
+		if _, err := other.WriteACL(ctx, projectID, 1, []byte(winnerACL)); err != nil {
+			t.Errorf("competing WriteACL: %v", err)
+		}
+	}
+
+	if _, err = store.WriteACL(ctx, projectID, 1, []byte(loserACL)); !errors.Is(err, ErrStoreConflict) {
+		t.Fatalf("stale WriteACL = %v, want ErrStoreConflict", err)
+	}
+	data, _, err := store.ReadACL(ctx, projectID)
+	if err != nil {
+		t.Fatalf("ReadACL: %v", err)
+	}
+	if !strings.Contains(string(data), "member:winner@beta.gouv.fr") || strings.Contains(string(data), "member:loser@beta.gouv.fr") {
+		t.Fatalf("the stale ACL replaced the competitor's ACL: %q", data)
 	}
 	if got := len(fake.enabled(key)); got != 1 {
 		t.Fatalf("%d enabled ACL versions after the race, want exactly 1", got)

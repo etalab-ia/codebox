@@ -449,6 +449,20 @@ func TestTicketReplayThroughAlternateSignatureEncodingIsRefused(t *testing.T) {
 			t.Fatalf("alternate signature encoding %q was accepted after redemption", string(alternate))
 		}
 	}
+
+	// Go's base64 decoder ignores CR/LF. These variants must be rejected before
+	// fingerprinting, or each spelling would bypass the ticket's consumed key.
+	for _, suffix := range []string{"\n", "\r\n"} {
+		alternateToken := ticket + suffix
+		if _, err := ts.tokens.Verify(alternateToken, tokenPurposeTicket); err == nil {
+			t.Fatalf("token with ignored suffix %q still verifies", suffix)
+		}
+		replayRec := httptest.NewRecorder()
+		handler.ServeHTTP(replayRec, newJSONRequest(http.MethodPost, "/auth/device/token", secrets.DeviceTokenExchangeRequest{SessionID: alternateToken}))
+		if replayRec.Code != http.StatusUnauthorized {
+			t.Fatalf("replay with ignored suffix %q = %d, want 401", suffix, replayRec.Code)
+		}
+	}
 }
 
 func TestMemberUpdateWithStaleBaseRevisionIsConflict(t *testing.T) {

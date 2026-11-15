@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/etalab-ia/codebox/packages/secrets"
@@ -31,6 +32,9 @@ type ScalewayStore struct {
 	projectID  string
 	region     string
 	httpClient *http.Client
+	// writeMu makes the revision check and append one serialized operation for
+	// the single gateway process that owns this store.
+	writeMu sync.Mutex
 }
 
 // NewScalewayStore builds a store. baseURL is injectable so tests never reach
@@ -237,25 +241,30 @@ func (s *ScalewayStore) latestRevision(ctx context.Context, path, name, revision
 // writeVersionConditional appends a new immutable version only if no other
 // writer committed since baseRevision, and returns the new revision.
 //
-// Scaleway exposes no conditional write, so this approximates a compare-and-swap
-// using the monotonically increasing revision number. Revision numbers are never
-// reused and may contain gaps, because a losing writer retracts its version and
-// leaves a disabled hole. The comparison therefore uses the highest revision in
-// existence — the true last-created revision — rather than assuming contiguity
-// or using latest_enabled:
+// Scaleway exposes no conditional write. The store mutex serializes requests
+// through the gateway's shared store, while the revision checks below also
+// reject the observed interleavings from an independent writer. Revision
+// numbers are never reused and may contain gaps, because a losing writer
+// retracts its version and leaves a disabled hole. The comparison therefore
+// uses the highest revision in existence rather than assuming contiguity:
 //
-//  1. read the latest enabled revision E and the highest revision H. A value of
-//     E different from baseRevision is an ordinary stale read: fail fast;
-//  2. append a version with disable_previous=false, obtaining revision R;
-//  3. we committed immediately after H if and only if R == H+1. Otherwise a
+//  1. read the latest enabled revision E and reject a value different from
+//     baseRevision;
+//  2. read the highest revision H, then check E again so a competitor that
+//     committed before the H read cannot slip through;
+//  3. append a version with disable_previous=false, obtaining revision R;
+//  4. we committed immediately after H if and only if R == H+1. Otherwise a
 //     competitor appended between our read and our write, so we retract our
 //     version and report a conflict;
-//  4. the winner disables every lower version, leaving exactly one enabled.
+//  5. the winner disables every lower version, leaving exactly one enabled.
 //
 // Using H+1 rather than baseRevision+1 is what keeps a project writable after a
 // retraction: a gap left by a loser is absorbed into H, so the next writer still
 // commits at H+1 and succeeds instead of failing forever.
 func (s *ScalewayStore) writeVersionConditional(ctx context.Context, path, name, description string, baseRevision uint32, payload []byte) (uint32, error) {
+	s.writeMu.Lock()
+	defer s.writeMu.Unlock()
+
 	current, err := s.latestRevision(ctx, path, name, "latest_enabled")
 	if err != nil {
 		return 0, err
@@ -270,6 +279,13 @@ func (s *ScalewayStore) writeVersionConditional(ctx context.Context, path, name,
 	highestBefore, err := s.highestRevision(ctx, id)
 	if err != nil {
 		return 0, err
+	}
+	current, err = s.versionMetadataRevision(ctx, id, "latest_enabled")
+	if err != nil {
+		return 0, err
+	}
+	if current != baseRevision {
+		return 0, ErrStoreConflict
 	}
 	revision, err := s.appendVersion(ctx, id, description, payload)
 	if err != nil {
