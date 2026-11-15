@@ -18,7 +18,10 @@ type LoginAttempt struct {
 	// LoopbackPort is non-zero for the desktop flow: the callback redirects to
 	// http://127.0.0.1:<port>/callback with the gateway session token.
 	LoopbackPort int
-	CreatedAt    time.Time
+	// LoopbackState is the CLI-generated value that authorizes that callback to
+	// store the token. It is not the OIDC state used between gateway and IdP.
+	LoopbackState string
+	CreatedAt     time.Time
 }
 
 // AttemptStore holds in-flight logins with bounded size and TTL. It is a

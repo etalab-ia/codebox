@@ -255,6 +255,13 @@ func TestLoginRequiresLoopbackPort(t *testing.T) {
 			t.Errorf("port %q status = %d, want 400", port, rec.Code)
 		}
 	}
+	for _, target := range []string{"/auth/login?port=53682", "/auth/login?port=53682&loopback_state=short"} {
+		rec = httptest.NewRecorder()
+		ts.server.Handler().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, target, nil))
+		if rec.Code != http.StatusBadRequest {
+			t.Errorf("missing or malformed loopback state %q status = %d, want 400", target, rec.Code)
+		}
+	}
 }
 
 func createProjectFor(t *testing.T, ts *testServer, claims TokenClaims) string {
@@ -279,9 +286,10 @@ func createProjectFor(t *testing.T, ts *testServer, claims TokenClaims) string {
 func TestLoopbackLoginRedirectsTheBrowser(t *testing.T) {
 	ts := newTestServer(t, Identity{Subject: "s1", Email: "dev@beta.gouv.fr", ACR: "eidas2"})
 	handler := ts.server.Handler()
+	loopbackState := strings.Repeat("A", 43)
 
 	loginRec := httptest.NewRecorder()
-	handler.ServeHTTP(loginRec, httptest.NewRequest(http.MethodGet, "/auth/login?port=53682", nil))
+	handler.ServeHTTP(loginRec, httptest.NewRequest(http.MethodGet, "/auth/login?port=53682&loopback_state="+loopbackState, nil))
 	if loginRec.Code != http.StatusFound {
 		t.Fatalf("login status = %d, want 302", loginRec.Code)
 	}
@@ -303,6 +311,9 @@ func TestLoopbackLoginRedirectsTheBrowser(t *testing.T) {
 	}
 	if !strings.Contains(location, "token=") {
 		t.Fatalf("callback Location %q carries no token", location)
+	}
+	if !strings.Contains(location, "state="+loopbackState) {
+		t.Fatalf("callback Location %q does not carry the CLI's loopback state", location)
 	}
 }
 
