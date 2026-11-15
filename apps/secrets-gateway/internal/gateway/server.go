@@ -390,7 +390,7 @@ func (s *Server) handleListMembers(w http.ResponseWriter, r *http.Request, claim
 
 func (s *Server) handleUpdateMembers(w http.ResponseWriter, r *http.Request, claims TokenClaims) {
 	projectID := r.PathValue("id")
-	_, role, _, err := s.authorizeProject(r.Context(), projectID, claims)
+	_, role, authorizationRevision, err := s.authorizeProject(r.Context(), projectID, claims)
 	if err != nil {
 		s.writeAuthorizeError(w, r, err)
 		return
@@ -402,6 +402,14 @@ func (s *Server) handleUpdateMembers(w http.ResponseWriter, r *http.Request, cla
 	var req secrets.UpdateMembersRequest
 	if err := decodeStrictJSON(r, &req, 64<<10); err != nil {
 		writeError(w, http.StatusBadRequest, secrets.ErrCodeInvalidRequest, err.Error())
+		return
+	}
+	// The base revision is the authorization guard, not only a write guard:
+	// if it does not match the ACL snapshot that just authorized this owner,
+	// the request must not be allowed to restore access after a revocation.
+	if req.BaseRevision != authorizationRevision {
+		s.audit(r, "members.stale_base_revision")
+		writeError(w, http.StatusConflict, secrets.ErrCodeConflict, "the project ACL changed since this change was authorized; review the fresh member list and retry")
 		return
 	}
 	acl, err := secrets.NewACL(req.Entries)

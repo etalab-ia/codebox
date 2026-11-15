@@ -147,6 +147,15 @@ func (t *TokenIssuer) Verify(token, purpose string) (TokenClaims, error) {
 	if err != nil {
 		return TokenClaims{}, errors.New("malformed token signature")
 	}
+	// RawURLEncoding accepts encodings with nonzero unused bits. Reject any
+	// segment that is not its own canonical encoding, so a re-encoded ticket
+	// cannot mint a second session after it was consumed.
+	for _, segment := range parts {
+		decoded, err := base64.RawURLEncoding.DecodeString(segment)
+		if err != nil || base64.RawURLEncoding.EncodeToString(decoded) != segment {
+			return TokenClaims{}, errors.New("token segments must use canonical unpadded base64url encoding")
+		}
+	}
 	if !ed25519.Verify(t.public, []byte(signingInput), signature) {
 		return TokenClaims{}, errors.New("invalid token signature")
 	}

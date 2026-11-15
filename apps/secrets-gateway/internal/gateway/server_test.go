@@ -401,3 +401,78 @@ func TestMemberListEntriesAndRevisionComeFromOneRead(t *testing.T) {
 		t.Fatalf("returned entries do not authorise the owner: (%q, %v)", role, ok)
 	}
 }
+
+func TestTicketReplayThroughAlternateSignatureEncodingIsRefused(t *testing.T) {
+	ts := newTestServer(t, Identity{Subject: "s1", Email: "dev@beta.gouv.fr", ACR: "eidas2"})
+	handler := ts.server.Handler()
+
+	loginRec := httptest.NewRecorder()
+	handler.ServeHTTP(loginRec, httptest.NewRequest(http.MethodGet, "/auth/login?mode=terminal", nil))
+	if loginRec.Code != http.StatusFound {
+		t.Fatalf("login status = %d", loginRec.Code)
+	}
+	cbRec := httptest.NewRecorder()
+	handler.ServeHTTP(cbRec, httptest.NewRequest(http.MethodGet, "/auth/callback?state="+ts.provider.lastState+"&code=abc", nil))
+	var issued map[string]string
+	decodeJSON(t, cbRec, &issued)
+	ticket := issued["code"]
+	if ticket == "" {
+		t.Fatal("no ticket issued")
+	}
+
+	// Legitimate first redemption succeeds.
+	firstRec := httptest.NewRecorder()
+	handler.ServeHTTP(firstRec, newJSONRequest(http.MethodPost, "/auth/device/token", secrets.DeviceTokenExchangeRequest{SessionID: ticket}))
+	if firstRec.Code != http.StatusOK {
+		t.Fatalf("first redemption = %d, body %s", firstRec.Code, firstRec.Body.String())
+	}
+
+	// Change only unused bits of the last signature character. This verifies
+	// as the same signature but is not the canonical encoding.
+	parts := strings.Split(ticket, ".")
+	last := parts[2][len(parts[2])-1]
+	for _, alternate := range []byte("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_") {
+		if alternate == last {
+			continue
+		}
+		alternateToken := parts[0] + "." + parts[1] + "." + parts[2][:len(parts[2])-1] + string(alternate)
+		if _, err := ts.tokens.Verify(alternateToken, tokenPurposeTicket); err != nil {
+			// Correct behavior: any non-canonical encoding is refused, so the
+			// replay guard sees no second redemption.
+			continue
+		}
+		replayRec := httptest.NewRecorder()
+		handler.ServeHTTP(replayRec, newJSONRequest(http.MethodPost, "/auth/device/token", secrets.DeviceTokenExchangeRequest{SessionID: alternateToken}))
+		if replayRec.Code == http.StatusOK {
+			t.Fatalf("alternate signature encoding %q was accepted after redemption", string(alternate))
+		}
+	}
+}
+
+func TestMemberUpdateWithStaleBaseRevisionIsConflict(t *testing.T) {
+	ts := newTestServer(t, Identity{})
+	owner := TokenClaims{Subject: "s1", Email: "owner@beta.gouv.fr", ACR: "eidas2"}
+	projectID := createProjectFor(t, ts, owner)
+
+	// Simulate an intervening ACL change between the caller's read and its
+	// write: the base revision is stale, so the mutation must be a 409 before
+	// it can restore a removed member or owner.
+	req := newJSONRequest(http.MethodPut, "/v1/projects/"+projectID+"/members", secrets.UpdateMembersRequest{
+		BaseRevision: 99,
+		Entries: []secrets.ACLEntry{
+			{Kind: secrets.EntryOwner, Value: owner.Email},
+			{Kind: secrets.EntryMember, Value: "revoked@beta.gouv.fr"},
+		},
+	})
+	req.Header.Set("Authorization", "Bearer "+ts.sessionToken(t, owner))
+	rec := httptest.NewRecorder()
+	ts.server.Handler().ServeHTTP(rec, req)
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("status = %d, want 409 (body %s)", rec.Code, rec.Body.String())
+	}
+	var apiErr secrets.APIError
+	decodeJSON(t, rec, &apiErr)
+	if apiErr.Code != secrets.ErrCodeConflict {
+		t.Fatalf("error code = %q, want %q", apiErr.Code, secrets.ErrCodeConflict)
+	}
+}
