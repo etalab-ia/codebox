@@ -2,6 +2,9 @@ package main
 
 import (
 	"context"
+	"crypto/rand"
+	"crypto/subtle"
+	"encoding/base64"
 	"errors"
 	"fmt"
 	"io"
@@ -148,13 +151,17 @@ func secretsLoginCmd(args []string) (int, error) {
 		return 0, nil
 	}
 
+	callbackState, err := newLoopbackLoginState()
+	if err != nil {
+		return 1, fmt.Errorf("create loopback login state: %w", err)
+	}
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		return 1, fmt.Errorf("open loopback listener: %w", err)
 	}
 	defer func() { _ = listener.Close() }()
 	port := listener.Addr().(*net.TCPAddr).Port
-	loginURL := urlBuilder.LoginURLWithBase(base, port)
+	loginURL := urlBuilder.LoginURLWithBase(base, port, callbackState)
 	fmt.Fprintf(secretsGatewayLoginOut, "Opening ProConnect in your browser: %s\n", loginURL)
 	if err := secretsGatewayOpenURLFn(loginURL); err != nil {
 		return 1, fmt.Errorf("open a browser: %w", err)
@@ -167,19 +174,29 @@ func secretsLoginCmd(args []string) (int, error) {
 	ch := make(chan result, 1)
 	mux := http.NewServeMux()
 	mux.HandleFunc("/callback", func(w http.ResponseWriter, r *http.Request) {
-		token := r.URL.Query().Get("token")
-		if token == "" {
-			ch <- result{err: errors.New("the gateway callback carried no token")}
-			http.Error(w, "login failed: no token", http.StatusBadRequest)
+		if subtle.ConstantTimeCompare([]byte(r.URL.Query().Get("state")), []byte(callbackState)) != 1 {
+			// An unbound callback must not consume the result channel: the genuine
+			// browser callback still needs to complete this login attempt.
+			http.Error(w, "login failed: invalid state", http.StatusForbidden)
 			return
 		}
-		ch <- result{token: token}
+		token := r.URL.Query().Get("token")
+		if token == "" {
+			http.Error(w, "login failed: no token", http.StatusBadRequest)
+			ch <- result{err: errors.New("the gateway callback carried no token")}
+			return
+		}
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		_, _ = w.Write([]byte("<!doctype html><meta charset=\"utf-8\"><title>codebox</title><p>Connexion terminée. Fermez cet onglet et revenez au terminal.</p>"))
+		ch <- result{token: token}
 	})
 	server := &http.Server{Handler: mux, ReadHeaderTimeout: 10 * time.Second}
 	go func() { _ = server.Serve(listener) }()
-	defer func() { _ = server.Close() }()
+	defer func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		_ = server.Shutdown(ctx)
+	}()
 
 	select {
 	case res := <-ch:
@@ -239,6 +256,14 @@ func openBrowserURL(raw string) error {
 		cmd = exec.Command("xdg-open", raw)
 	}
 	return cmd.Start()
+}
+
+func newLoopbackLoginState() (string, error) {
+	state := make([]byte, 32)
+	if _, err := rand.Read(state); err != nil {
+		return "", err
+	}
+	return base64.RawURLEncoding.EncodeToString(state), nil
 }
 
 func projectSecretsManifest(root string) (*codebox.ProjectManifest, error) {

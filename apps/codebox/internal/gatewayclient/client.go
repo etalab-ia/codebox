@@ -11,6 +11,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -40,7 +41,51 @@ func New(baseURL, token string, httpClient *http.Client) (*Client, error) {
 	if httpClient == nil {
 		httpClient = &http.Client{Timeout: 30 * time.Second}
 	}
-	return &Client{baseURL: strings.TrimSuffix(u.String(), "/"), token: strings.TrimSpace(token), httpClient: httpClient}, nil
+	return &Client{baseURL: strings.TrimSuffix(u.String(), "/"), token: strings.TrimSpace(token), httpClient: trustedOriginHTTPClient(u, httpClient)}, nil
+}
+
+// trustedOriginHTTPClient clones client and enforces the configured gateway
+// origin on every redirect hop. The default ten-redirect budget and any
+// caller-supplied policy are preserved.
+func trustedOriginHTTPClient(trusted *url.URL, client *http.Client) *http.Client {
+	if client == nil {
+		client = &http.Client{}
+	}
+	cloned := *client
+	previous := cloned.CheckRedirect
+	cloned.CheckRedirect = func(req *http.Request, via []*http.Request) error {
+		if len(via) >= 10 {
+			return errors.New("stopped after 10 gateway redirects")
+		}
+		if !sameOrigin(trusted, req.URL) {
+			return errors.New("refusing redirect outside the trusted gateway origin")
+		}
+		if previous != nil {
+			return previous(req, via)
+		}
+		return nil
+	}
+	return &cloned
+}
+
+func sameOrigin(a, b *url.URL) bool {
+	if a == nil || b == nil || a.User != nil || b.User != nil {
+		return false
+	}
+	return strings.EqualFold(a.Scheme, b.Scheme) && originHostPort(a) == originHostPort(b)
+}
+
+func originHostPort(u *url.URL) string {
+	port := u.Port()
+	if port == "" {
+		switch strings.ToLower(u.Scheme) {
+		case "https":
+			port = "443"
+		case "http":
+			port = "80"
+		}
+	}
+	return net.JoinHostPort(strings.ToLower(u.Hostname()), port)
 }
 
 // WhoAmI returns the verified identity behind the session token.
@@ -88,16 +133,17 @@ func (c *Client) Resolve(ctx context.Context, projectID string, components []str
 }
 
 // LoginURL builds the ProConnect login URL for a CLI loopback listener.
-func (c *Client) LoginURL(port int) string {
-	return c.LoginURLWithBase(c.baseURL, port)
+func (c *Client) LoginURL(port int, loopbackState string) string {
+	return c.LoginURLWithBase(c.baseURL, port, loopbackState)
 }
 
 // LoginURLWithBase builds a browser login URL for an explicit gateway base.
-func (c *Client) LoginURLWithBase(base string, port int) string {
+func (c *Client) LoginURLWithBase(base string, port int, loopbackState string) string {
 	u, _ := url.Parse(strings.TrimSuffix(base, "/"))
 	u.Path = strings.TrimSuffix(u.Path, "/") + "/auth/login"
 	q := u.Query()
 	q.Set("port", strconv.Itoa(port))
+	q.Set("loopback_state", loopbackState)
 	u.RawQuery = q.Encode()
 	return u.String()
 }
@@ -124,6 +170,11 @@ func ExchangeTicket(ctx context.Context, baseURL, code string, httpClient *http.
 	if httpClient == nil {
 		httpClient = &http.Client{Timeout: 20 * time.Second}
 	}
+	trusted, err := url.Parse(strings.TrimSuffix(baseURL, "/"))
+	if err != nil {
+		return out, fmt.Errorf("gateway login URL: %w", err)
+	}
+	httpClient = trustedOriginHTTPClient(trusted, httpClient)
 	// The gateway treats the ticket itself as the bearer; no PKCE verifier is
 	// used on this endpoint. Marshal a minimal body so the lower-layer contract
 	// stays untouched by this PR.
@@ -215,5 +266,6 @@ func newForTest(baseURL, token string, httpClient *http.Client) *Client {
 	if httpClient == nil {
 		httpClient = &http.Client{}
 	}
-	return &Client{baseURL: strings.TrimSuffix(baseURL, "/"), token: token, httpClient: httpClient}
+	u, _ := url.Parse(strings.TrimSuffix(baseURL, "/"))
+	return &Client{baseURL: strings.TrimSuffix(baseURL, "/"), token: token, httpClient: trustedOriginHTTPClient(u, httpClient)}
 }

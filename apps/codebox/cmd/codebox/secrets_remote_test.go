@@ -6,10 +6,12 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/etalab-ia/codebox/apps/codebox/internal/codebox"
 	"github.com/etalab-ia/codebox/apps/codebox/internal/gatewayclient"
@@ -94,6 +96,87 @@ func TestSecretsLogoutRemovesSession(t *testing.T) {
 	}
 	if !strings.Contains(buf.String(), "Logged out") {
 		t.Fatalf("output = %q", buf.String())
+	}
+}
+
+func TestSecretsLoginRejectsUnboundLoopbackCallback(t *testing.T) {
+	store := &fakeCredentialStore{values: map[codebox.CredentialKind]string{}}
+	withRemoteSeams(t, "https://gateway.example", store)
+
+	loginURLCh := make(chan string, 1)
+	oldOpenURL := secretsGatewayOpenURLFn
+	secretsGatewayOpenURLFn = func(raw string) error {
+		loginURLCh <- raw
+		return nil
+	}
+	t.Cleanup(func() { secretsGatewayOpenURLFn = oldOpenURL })
+
+	type loginResult struct {
+		code int
+		err  error
+	}
+	resultCh := make(chan loginResult, 1)
+	go func() {
+		code, err := secretsLoginCmd(nil)
+		resultCh <- loginResult{code: code, err: err}
+	}()
+
+	var rawLoginURL string
+	select {
+	case rawLoginURL = <-loginURLCh:
+	case <-time.After(5 * time.Second):
+		t.Fatal("login URL was not opened")
+	}
+	parsed, err := url.Parse(rawLoginURL)
+	if err != nil {
+		t.Fatalf("login URL: %v", err)
+	}
+	port := parsed.Query().Get("port")
+	if port == "" {
+		t.Fatalf("login URL %q has no loopback port", rawLoginURL)
+	}
+	loopbackState := parsed.Query().Get("loopback_state")
+	callback := "http://127.0.0.1:" + port + "/callback?token=attacker-session"
+	if loopbackState != "" {
+		callback += "&state=wrong-state"
+	}
+	wrongResp, err := http.Get(callback)
+	if err != nil {
+		t.Fatalf("unbound callback: %v", err)
+	}
+	_ = wrongResp.Body.Close()
+	storedAfterWrong, _ := store.Get(context.Background(), codebox.CredentialSecretsGateway)
+
+	if loopbackState != "" {
+		validResp, err := http.Get("http://127.0.0.1:" + port + "/callback?token=legitimate-session&state=" + url.QueryEscape(loopbackState))
+		if err != nil {
+			t.Errorf("legitimate callback: %v", err)
+		} else {
+			_ = validResp.Body.Close()
+			if validResp.StatusCode != http.StatusOK {
+				t.Errorf("legitimate callback status = %d, want 200", validResp.StatusCode)
+			}
+		}
+	}
+	select {
+	case result := <-resultCh:
+		if result.err != nil || result.code != 0 {
+			t.Errorf("secretsLoginCmd = %d, %v", result.code, result.err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("login did not finish")
+	}
+	if wrongResp.StatusCode != http.StatusForbidden {
+		t.Errorf("unbound callback status = %d, want 403", wrongResp.StatusCode)
+	}
+	if storedAfterWrong != "" {
+		t.Errorf("unbound callback stored a session %q", storedAfterWrong)
+	}
+	if loopbackState != "" {
+		stored, _ := store.Get(context.Background(), codebox.CredentialSecretsGateway)
+		if stored != "legitimate-session" {
+			t.Errorf("legitimate callback stored %q, want the legitimate session", stored)
+		}
 	}
 }
 
