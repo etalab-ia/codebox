@@ -34,20 +34,24 @@ jobs:
           if [ -z "$work_toolchain" ]; then
             work_toolchain="$(sed -n 's/^go \(.*\)$/\1/p' go.work)"
           fi
-          mod_toolchain="$(sed -n 's/^toolchain go\(.*\)$/\1/p' apps/codebox/go.mod)"
-          if [ -z "$mod_toolchain" ]; then
-            mod_toolchain="$(sed -n 's/^go \(.*\)$/\1/p' apps/codebox/go.mod)"
-          fi
-          test -n "$proto_go" && test "$proto_go" = "$work_toolchain" && test "$proto_go" = "$mod_toolchain"
+          for mod in apps/codebox/go.mod packages/secrets/go.mod; do
+            mod_toolchain="$(sed -n 's/^toolchain go\(.*\)$/\1/p' "$mod")"
+            if [ -z "$mod_toolchain" ]; then
+              mod_toolchain="$(sed -n 's/^go \(.*\)$/\1/p' "$mod")"
+            fi
+            test "$proto_go" = "$mod_toolchain"
+          done
+          test -n "$proto_go" && test "$proto_go" = "$work_toolchain"
           proto status
           moon sync config-schemas
-          test "$(moon query projects | jq -r '.projects | map(.id) | join(",")')" = "codebox"
+          test "$(moon query projects | jq -r '.projects | map(.id) | sort | join(",")')" = "codebox,secrets"
           moon query tasks >/dev/null
       - name: Check formatting and vet via Moon
         run: |
           set -eu
-          moon run codebox:fmt-check codebox:vet
-          git diff --exit-code .protolock go.work apps/codebox/go.mod apps/codebox/go.sum
+          moon run :fmt-check :vet
+          git diff --exit-code .protolock go.work apps/codebox/go.mod apps/codebox/go.sum packages/secrets/go.mod
+      - run: GOWORK=off go -C packages/secrets test -race ./...
       - run: go -C apps/codebox test -race ./...
       - name: Test POSIX installer
         run: sh apps/codebox/tests/installers/test-posix.sh

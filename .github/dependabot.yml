@@ -37,6 +37,18 @@ updates:
         # One PR per week for all Go updates in apps/codebox.
         patterns: ["*"]
 
+  # Go: shared secrets contract library.
+  - package-ecosystem: "gomod"
+    directory: "/packages/secrets"
+    schedule:
+      interval: "weekly"
+    cooldown:
+      default-days: 7
+    open-pull-requests-limit: 5
+    groups:
+      go-secrets-pkg:
+        patterns: ["*"]
+
   # Go: integration-test fixtures. Each of these manifests declares only the
   # Microsandbox SDK, so with the same ignore repeated here (ignore is scoped to
   # one entry, not to the file) they are expected to stay quiet. The entries are
