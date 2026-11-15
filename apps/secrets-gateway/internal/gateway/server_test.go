@@ -2,6 +2,8 @@ package gateway
 
 import (
 	"errors"
+	"io"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -474,5 +476,54 @@ func TestMemberUpdateWithStaleBaseRevisionIsConflict(t *testing.T) {
 	decodeJSON(t, rec, &apiErr)
 	if apiErr.Code != secrets.ErrCodeConflict {
 		t.Fatalf("error code = %q, want %q", apiErr.Code, secrets.ErrCodeConflict)
+	}
+}
+
+func TestTwoTicketsForSameIdentityInSameSecondAreIndependent(t *testing.T) {
+	// Freeze the clock so both tickets have identical iat/exp claims.
+	base := time.Date(2026, 11, 15, 15, 0, 0, 0, time.UTC)
+	tokens, err := NewTokenIssuer(testSeed, "https://gateway.test", time.Minute, func() time.Time { return base })
+	if err != nil {
+		t.Fatalf("NewTokenIssuer: %v", err)
+	}
+	claims := TokenClaims{Subject: "s1", Email: "dev@beta.gouv.fr", ACR: "eidas2"}
+	first, _, err := tokens.IssueTicket(claims, time.Minute)
+	if err != nil {
+		t.Fatalf("IssueTicket 1: %v", err)
+	}
+	second, _, err := tokens.IssueTicket(claims, time.Minute)
+	if err != nil {
+		t.Fatalf("IssueTicket 2: %v", err)
+	}
+	if first == second {
+		t.Fatal("two tickets issued for the same identity and timestamps were identical; they need unique jti values")
+	}
+	claims1, err := tokens.Verify(first, tokenPurposeTicket)
+	if err != nil || claims1.JTI == "" {
+		t.Fatalf("first ticket: %v, jti=%q", err, claims1.JTI)
+	}
+	claims2, err := tokens.Verify(second, tokenPurposeTicket)
+	if err != nil || claims2.JTI == "" || claims2.JTI == claims1.JTI {
+		t.Fatalf("second ticket: %v, jti=%q (want a distinct nonempty jti)", err, claims2.JTI)
+	}
+
+	// Both independently issued tickets must redeem: a replay guard may refuse
+	// the same ticket twice, but must never conflate two distinct tickets.
+	store := newMemoryStore()
+	server, err := NewServer(
+		Config{PublicURL: "https://gateway.test", TicketLifetime: time.Minute, AuditLogger: slog.New(slog.NewJSONHandler(io.Discard, nil))},
+		&fakeProvider{}, store, tokens,
+		NewAttemptStore(time.Minute, 128, time.Now), NewRateLimiter(100, time.Minute, 128, time.Now), time.Now,
+	)
+	if err != nil {
+		t.Fatalf("NewServer: %v", err)
+	}
+	for _, ticket := range []string{first, second} {
+		rec := httptest.NewRecorder()
+		req := newJSONRequest(http.MethodPost, "/auth/device/token", secrets.DeviceTokenExchangeRequest{SessionID: ticket})
+		server.Handler().ServeHTTP(rec, req)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("ticket redemption = %d, body %s", rec.Code, rec.Body.String())
+		}
 	}
 }

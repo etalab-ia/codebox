@@ -26,10 +26,14 @@ type TokenIssuer struct {
 
 // TokenClaims is the verified identity carried by a gateway token.
 type TokenClaims struct {
-	Subject   string
-	Email     string
-	SIRET     string
-	ACR       string
+	Subject string
+	Email   string
+	SIRET   string
+	ACR     string
+	// JTI is a cryptographically random per-token identifier. Two logins by the
+	// same person in the same second are still different tickets: Ed25519 is
+	// deterministic, so this is what makes replay protection distinguish them.
+	JTI       string
 	IssuedAt  time.Time
 	ExpiresAt time.Time
 }
@@ -48,6 +52,9 @@ type tokenPayload struct {
 	IssuedAt  int64  `json:"iat"`
 	ExpiresAt int64  `json:"exp"`
 	Purpose   string `json:"purpose"`
+	// JTI is a standard JWT ID, a random nonce here so two independently issued
+	// tickets for the same identity never share one replay fingerprint.
+	JTI string `json:"jti"`
 }
 
 const (
@@ -114,6 +121,11 @@ func (t *TokenIssuer) issue(claims TokenClaims, purpose string, ttl time.Duratio
 	}
 	now := t.now().UTC()
 	exp := now.Add(ttl)
+	jtiBytes := make([]byte, 16)
+	if _, err := crand.Read(jtiBytes); err != nil {
+		return "", time.Time{}, fmt.Errorf("token identifier: %w", err)
+	}
+	jti := base64.RawURLEncoding.EncodeToString(jtiBytes)
 	header, err := json.Marshal(tokenHeader{Alg: "EdDSA", Typ: tokenType})
 	if err != nil {
 		return "", time.Time{}, err
@@ -127,6 +139,7 @@ func (t *TokenIssuer) issue(claims TokenClaims, purpose string, ttl time.Duratio
 		IssuedAt:  now.Unix(),
 		ExpiresAt: exp.Unix(),
 		Purpose:   purpose,
+		JTI:       jti,
 	})
 	if err != nil {
 		return "", time.Time{}, err
@@ -190,6 +203,7 @@ func (t *TokenIssuer) Verify(token, purpose string) (TokenClaims, error) {
 		Email:     payload.Email,
 		SIRET:     payload.SIRET,
 		ACR:       payload.ACR,
+		JTI:       payload.JTI,
 		IssuedAt:  time.Unix(payload.IssuedAt, 0).UTC(),
 		ExpiresAt: time.Unix(payload.ExpiresAt, 0).UTC(),
 	}, nil
