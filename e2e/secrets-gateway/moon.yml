@@ -1,0 +1,31 @@
+$schema: "https://moonrepo.dev/schemas/v2/project.json"
+
+id: "secrets-gateway-e2e"
+language: "bash"
+layer: "automation"
+
+project:
+  title: "secrets-gateway e2e"
+  description: "Cross-service smoke test for the gateway binary and the codebox CLI."
+
+dependsOn:
+  - "codebox"
+  - "secrets-gateway"
+  - "secrets"
+
+fileGroups:
+  sources:
+    - "run.sh"
+
+tasks:
+  smoke:
+    description: "Build gateway + CLI, verify /healthz and the fail-closed CLI session check."
+    command:
+      - "bash"
+      - "run.sh"
+    inputs:
+      - "@group(sources)"
+      - project: "^"
+        group: "sources"
+    options:
+      cache: false

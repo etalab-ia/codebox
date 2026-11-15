@@ -25,6 +25,14 @@
       "initial-version": "0.1.0",
       "component": "codebox",
       "include-component-in-tag": true
+    },
+    "apps/secrets-gateway": {
+      "release-type": "simple",
+      "bump-minor-pre-major": true,
+      "changelog-path": "CHANGELOG.md",
+      "initial-version": "0.1.0",
+      "component": "secrets-gateway",
+      "include-component-in-tag": true
     }
   }
 }
