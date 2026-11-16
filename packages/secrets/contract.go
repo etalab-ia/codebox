@@ -1,6 +1,6 @@
 // Package secrets defines the shared wire contract, validation invariants, and
 // access-control list (ACL) format used by both the codebox CLI and the
-// stateless secrets-gateway service.
+// stateless codebox-server service.
 //
 // The package intentionally depends only on the Go standard library so both
 // applications and standalone security scanners (GOWORK=off) can build and
@@ -53,7 +53,7 @@ const (
 	DeliveryGuest = "guest"
 )
 
-// Redacted API error codes returned by secrets-gateway. Error payloads never
+// Redacted API error codes returned by codebox-server. Error payloads never
 // echo secret values, OAuth authorization codes, or bearer tokens.
 const (
 	ErrCodeUnauthorized        = "unauthorized"
@@ -190,7 +190,7 @@ type TokenResponse struct {
 	Identity  WhoAmIResponse `json:"identity"`
 }
 
-// APIError is the structured error envelope returned by secrets-gateway.
+// APIError is the structured error envelope returned by codebox-server.
 type APIError struct {
 	Code    string `json:"code"`
 	Message string `json:"message"`

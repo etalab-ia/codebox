@@ -1,4 +1,4 @@
-module github.com/etalab-ia/codebox/apps/secrets-gateway
+module github.com/etalab-ia/codebox/apps/codebox-server
 
 go 1.26.0
 

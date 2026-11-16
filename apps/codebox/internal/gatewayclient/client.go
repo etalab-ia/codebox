@@ -1,4 +1,4 @@
-// Package gatewayclient talks to the #385 development-secrets gateway. It is
+// Package gatewayclient talks to the #385 development-secrets server. It is
 // host-side only: session tokens are read from the OS credential store and
 // secret values are returned to the caller in memory, never written to a
 // project file or the guest directly.
@@ -21,7 +21,7 @@ import (
 	"github.com/etalab-ia/codebox/packages/secrets"
 )
 
-// Client is a small typed HTTP client for secrets-gateway.
+// Client is a small typed HTTP client for codebox-server.
 type Client struct {
 	baseURL    string
 	token      string

@@ -1,4 +1,4 @@
-// Package gateway implements the stateless secrets-gateway: ProConnect OIDC
+// Package gateway implements the stateless codebox-server: ProConnect OIDC
 // authentication, authorisation against a per-project access-control list, and
 // resolution of development secret bundles held in an isolated Scaleway Secret
 // Manager project.

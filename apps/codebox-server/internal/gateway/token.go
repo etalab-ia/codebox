@@ -58,8 +58,8 @@ type tokenPayload struct {
 }
 
 const (
-	tokenPurposeSession = "secrets-gateway-session"
-	tokenPurposeTicket  = "secrets-gateway-ticket"
+	tokenPurposeSession = "codebox-server-session"
+	tokenPurposeTicket  = "codebox-server-ticket"
 	tokenType           = "JWT"
 )
 

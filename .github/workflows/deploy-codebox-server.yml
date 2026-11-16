@@ -12,7 +12,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: secrets-gateway-deploy
+  group: codebox-server-deploy
   cancel-in-progress: false
 
 jobs:
@@ -49,10 +49,10 @@ jobs:
           SCW_REGISTRY_NAMESPACE: ${{ vars.SCW_REGISTRY_NAMESPACE }}
           PROCONNECT_CLIENT_ID: ${{ secrets.TF_VAR_PROCONNECT_CLIENT_ID }}
           PROCONNECT_CLIENT_SECRET: ${{ secrets.TF_VAR_PROCONNECT_CLIENT_SECRET }}
-          CODEBOX_SECRETS_GATEWAY_URL: ${{ vars.CODEBOX_SECRETS_GATEWAY_URL }}
-          GATEWAY_ALLOWED_SIRETS: ${{ vars.CODEBOX_SECRETS_ALLOWED_SIRETS }}
+          CODEBOX_SERVER_URL: ${{ vars.CODEBOX_SERVER_URL }}
+          GATEWAY_ALLOWED_SIRETS: ${{ vars.CODEBOX_SERVER_ALLOWED_SIRETS }}
           IMAGE_TAG: ${{ inputs.image_tag }}
-        run: bash .github/scripts/deploy-secrets-gateway.sh
+        run: bash .github/scripts/deploy-codebox-server.sh
 
       - name: Publish the deployment summary
         env:
@@ -63,13 +63,13 @@ jobs:
         run: |
           set -euo pipefail
           {
-            printf '## Secrets-gateway deployment\n\n'
+            printf '## Codebox server deployment\n\n'
             printf -- '- Container ID: %s\n' "$CONTAINER_ID"
             printf -- '- Status: %s\n' "$CONTAINER_STATUS"
             printf -- '- Native endpoint: %s\n' "$NATIVE_ORIGIN"
             printf -- '- Configured public URL: %s\n\n' "$PUBLIC_URL"
             if [[ "$PUBLIC_URL" == 'https://bootstrap.invalid' ]]; then
-              printf 'Bootstrap complete. Set CODEBOX_SECRETS_GATEWAY_URL to %s, register %s/auth/callback in ProConnect, then rerun this workflow from the GitHub UI.\n' \
+              printf 'Bootstrap complete. Set CODEBOX_SERVER_URL to %s, register %s/auth/callback in ProConnect, then rerun this workflow from the GitHub UI.\n' \
                 "$NATIVE_ORIGIN" "$NATIVE_ORIGIN"
             else
               printf 'Final public URL applied. Health endpoint: %s/healthz.\n' "$NATIVE_ORIGIN"

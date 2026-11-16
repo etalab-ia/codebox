@@ -1,4 +1,4 @@
-# secrets-gateway deployment
+# codebox-server deployment
 
 The container is deployed into a dedicated, otherwise empty Scaleway project.
 It holds no production infrastructure and no CI/CD secrets. The gateway's IAM
@@ -24,8 +24,8 @@ Configure these repository settings before the first run:
 | `TF_VAR_PROCONNECT_CLIENT_ID` | secret | ProConnect sandbox client ID |
 | `TF_VAR_PROCONNECT_CLIENT_SECRET` | secret | Regenerated ProConnect sandbox client secret |
 | `SCW_REGISTRY_NAMESPACE` | variable | Registry namespace name, such as `codebox` |
-| `CODEBOX_SECRETS_GATEWAY_URL` | variable | Final public HTTPS origin; leave unset for the bootstrap run |
-| `CODEBOX_SECRETS_ALLOWED_SIRETS` | variable | Optional comma-separated project-creation allowlist |
+| `CODEBOX_SERVER_URL` | variable | Final public HTTPS origin; leave unset for the bootstrap run |
+| `CODEBOX_SERVER_ALLOWED_SIRETS` | variable | Optional comma-separated project-creation allowlist |
 
 The deploy application needs `ContainersFullAccess`,
 `ContainerRegistryReadOnly`, and `SecretManagerFullAccess` on the dedicated
@@ -36,15 +36,15 @@ Use this two-run bootstrap sequence:
 
 1. Register the ProConnect application with the temporary callback
    `https://bootstrap.invalid/auth/callback`, leaving logout URLs empty and
-   selecting RS256 where configurable. Leave `CODEBOX_SECRETS_GATEWAY_URL`
+   selecting RS256 where configurable. Leave `CODEBOX_SERVER_URL`
    unset.
 2. Open **Actions → Deploy codebox server → Run workflow**, enter a published
    immutable tag such as `codebox-server-vX.Y.Z`, and run from `main`.
-3. The workflow creates or reuses the `codebox-secrets-gateway` namespace and
+3. The workflow creates or reuses the `codebox-server` namespace and
    container, stores the signing seed in Secret Manager at
    `/gateway/gateway-token-seed`, waits for readiness, and prints the native
    HTTPS endpoint in the run summary. No credential values are printed.
-4. Set `CODEBOX_SECRETS_GATEWAY_URL` to that native origin and replace the
+4. Set `CODEBOX_SERVER_URL` to that native origin and replace the
    ProConnect temporary callback with `<native-origin>/auth/callback`.
 5. Rerun the workflow from the GitHub UI with the same image tag. This updates
    the same container with the final public URL and preserves the signing seed.
@@ -56,15 +56,13 @@ updates ProConnect or GitHub repository settings automatically.
 
 ## Build and publish
 
-PR 5 adds a release-please component for `apps/secrets-gateway` with the tag
+PR 5 adds a release-please component for `apps/codebox-server` with the tag
 series `codebox-server-vX.Y.Z`. A release for that component builds and pushes
 the distroless image from [Dockerfile](Dockerfile) to the Scaleway Container
 Registry namespace named by the repository variable `SCW_REGISTRY_NAMESPACE`,
 using the repository secret `SCW_REGISTRY_SECRET_KEY` with the fixed Docker
 username `nologin`. No secret value is written to the image. The registry image
-is named `codebox-server`. Historical `secrets-gateway-vX.Y.Z` releases remain
-valid for explicit asset rebuilds and publish the same `codebox-server` image
-repository with their original tag.
+is named `codebox-server`.
 
 ## Operator-local OpenTofu alternative
 
@@ -78,15 +76,15 @@ export TF_VAR_project_id="<codebox-dev-secrets project UUID>"
 export TF_VAR_scw_access_key="<deploy IAM access key>"
 export TF_VAR_scw_secret_key="<deploy IAM secret key>"
 export TF_VAR_gateway_public_url="https://<gateway domain>"
-export TF_VAR_gateway_token_seed="$(secrets-gateway -print-token-seed)"
+export TF_VAR_gateway_token_seed="$(codebox-server -print-token-seed)"
 export TF_VAR_proconnect_client_id="<ProConnect sandbox client ID>"
 export TF_VAR_proconnect_client_secret="<ProConnect sandbox client secret>"
 export TF_VAR_registry_namespace_name="<registry namespace>"
 export TF_VAR_image_tag="codebox-server-vX.Y.Z"
 
-tofu -chdir=deploy/secrets-gateway init
-tofu -chdir=deploy/secrets-gateway plan
-tofu -chdir=deploy/secrets-gateway apply
+tofu -chdir=deploy/codebox-server init
+tofu -chdir=deploy/codebox-server plan
+tofu -chdir=deploy/codebox-server apply
 ```
 
 The default `PROCONNECT_ISSUER` is the verified ProConnect sandbox issuer
@@ -117,7 +115,7 @@ the ProConnect application.
 | `SCW_REGISTRY_SECRET_KEY` | yes (repository secret) | API secret key used by release CI to push the image (`nologin` Docker username) |
 | `allowed_sirets` | no | Optional comma-separated SIRET allowlist for project creation |
 
-The CLI build separately consumes `CODEBOX_SECRETS_GATEWAY_URL` as a repository
+The CLI build separately consumes `CODEBOX_SERVER_URL` as a repository
 variable through `-ldflags`. Forks and unconfigured release builds leave remote
 secrets inert; local `secrets import` keeps working.
 

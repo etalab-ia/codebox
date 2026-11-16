@@ -1,16 +1,16 @@
 $schema: "https://moonrepo.dev/schemas/v2/project.json"
 
-id: "secrets-gateway-e2e"
+id: "codebox-server-e2e"
 language: "bash"
 layer: "automation"
 
 project:
-  title: "secrets-gateway e2e"
+  title: "codebox-server e2e"
   description: "Cross-service smoke test for the gateway binary and the codebox CLI."
 
 dependsOn:
   - "codebox"
-  - "secrets-gateway"
+  - "codebox-server"
   - "secrets"
 
 fileGroups:

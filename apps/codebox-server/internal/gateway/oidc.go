@@ -254,7 +254,7 @@ var ErrUpstream = errors.New("identity provider unavailable")
 
 // ErrMFARequired is returned when the identity provider returned a
 // single-factor assertion.
-var ErrMFARequired = errors.New("two-factor authentication is required to use the secrets gateway")
+var ErrMFARequired = errors.New("two-factor authentication is required to use the codebox server")
 
 func (c *OIDCClient) discover(ctx context.Context) (*oidcDiscovery, error) {
 	c.mu.Lock()

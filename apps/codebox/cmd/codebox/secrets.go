@@ -122,7 +122,7 @@ func printSecretsUsage() {
 	fmt.Println("       codebox secrets login [--terminal] | logout | check | init | push | members <list|add|remove>")
 	fmt.Println("Preview is read-only. --apply stores literal values in the selected project/profile/file scope; it does not approve or deliver them to the guest.")
 	fmt.Println("Approving a binding (secrets bindings approve) is the separate host-local step that lets the sandbox proxy expose one imported value toward specific destinations.")
-	fmt.Println("Shared development secrets use ProConnect and the secrets-gateway; production secrets are out of scope.")
+	fmt.Println("Shared development secrets use ProConnect and the codebox-server; production secrets are out of scope.")
 	fmt.Println("Without --file, an interactive terminal offers bounded dotenv-file discovery. Non-interactive use must name each --file.")
 }
 

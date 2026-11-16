@@ -14,11 +14,11 @@ workspace/
 /.moon/cache/
 
 # OpenTofu operator-local state and secrets
-/deploy/secrets-gateway/.terraform/
-/deploy/secrets-gateway/*.tfstate
-/deploy/secrets-gateway/*.tfstate.*
-/deploy/secrets-gateway/*.tfvars
-/deploy/secrets-gateway/.terraform.lock.hcl
+/deploy/codebox-server/.terraform/
+/deploy/codebox-server/*.tfstate
+/deploy/codebox-server/*.tfstate.*
+/deploy/codebox-server/*.tfvars
+/deploy/codebox-server/.terraform.lock.hcl
 
 # Python
 __pycache__/

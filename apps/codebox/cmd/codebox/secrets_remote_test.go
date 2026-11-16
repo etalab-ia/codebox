@@ -48,18 +48,18 @@ func (f *fakeCredentialStore) Generation(context.Context, codebox.CredentialKind
 
 func withRemoteSeams(t *testing.T, base string, store *fakeCredentialStore) *bytes.Buffer {
 	t.Helper()
-	oldBase, oldStore, oldClient, oldOut := secretsGatewayBaseURLFn, secretsGatewayStoreFn, secretsGatewayClientFn, secretsGatewayLoginOut
+	oldBase, oldStore, oldClient, oldOut := codeboxServerBaseURLFn, codeboxServerStoreFn, codeboxServerClientFn, codeboxServerLoginOut
 	buf := &bytes.Buffer{}
-	secretsGatewayBaseURLFn = func() (string, error) { return base, nil }
-	secretsGatewayStoreFn = func() (codebox.CredentialStore, error) { return store, nil }
-	secretsGatewayLoginOut = buf
+	codeboxServerBaseURLFn = func() (string, error) { return base, nil }
+	codeboxServerStoreFn = func() (codebox.CredentialStore, error) { return store, nil }
+	codeboxServerLoginOut = buf
 	if strings.HasPrefix(base, "http://") {
-		secretsGatewayClientFn = func() (*gatewayclient.Client, error) {
-			return gatewayclient.NewInsecureForTest(base, store.values[codebox.CredentialSecretsGateway], http.DefaultClient)
+		codeboxServerClientFn = func() (*gatewayclient.Client, error) {
+			return gatewayclient.NewInsecureForTest(base, store.values[codebox.CredentialCodeboxServer], http.DefaultClient)
 		}
 	}
 	t.Cleanup(func() {
-		secretsGatewayBaseURLFn, secretsGatewayStoreFn, secretsGatewayClientFn, secretsGatewayLoginOut = oldBase, oldStore, oldClient, oldOut
+		codeboxServerBaseURLFn, codeboxServerStoreFn, codeboxServerClientFn, codeboxServerLoginOut = oldBase, oldStore, oldClient, oldOut
 	})
 	return buf
 }
@@ -72,7 +72,7 @@ func TestSecretsCheckPrintsIdentityWithoutToken(t *testing.T) {
 		_ = json.NewEncoder(w).Encode(secrets.WhoAmIResponse{Email: "dev@beta.gouv.fr", ACR: "eidas2"})
 	}))
 	defer server.Close()
-	store := &fakeCredentialStore{values: map[codebox.CredentialKind]string{codebox.CredentialSecretsGateway: "token-1"}}
+	store := &fakeCredentialStore{values: map[codebox.CredentialKind]string{codebox.CredentialCodeboxServer: "token-1"}}
 	buf := withRemoteSeams(t, server.URL, store)
 
 	code, err := secretsCheckCmd(nil)
@@ -85,13 +85,13 @@ func TestSecretsCheckPrintsIdentityWithoutToken(t *testing.T) {
 }
 
 func TestSecretsLogoutRemovesSession(t *testing.T) {
-	store := &fakeCredentialStore{values: map[codebox.CredentialKind]string{codebox.CredentialSecretsGateway: "token-1"}}
+	store := &fakeCredentialStore{values: map[codebox.CredentialKind]string{codebox.CredentialCodeboxServer: "token-1"}}
 	buf := withRemoteSeams(t, "https://gateway.example", store)
 	code, err := secretsLogoutCmd(nil)
 	if err != nil || code != 0 {
 		t.Fatalf("secretsLogoutCmd = %d, %v", code, err)
 	}
-	if _, ok := store.values[codebox.CredentialSecretsGateway]; ok {
+	if _, ok := store.values[codebox.CredentialCodeboxServer]; ok {
 		t.Fatal("session token was not removed")
 	}
 	if !strings.Contains(buf.String(), "Logged out") {
@@ -104,12 +104,12 @@ func TestSecretsLoginRejectsUnboundLoopbackCallback(t *testing.T) {
 	withRemoteSeams(t, "https://gateway.example", store)
 
 	loginURLCh := make(chan string, 1)
-	oldOpenURL := secretsGatewayOpenURLFn
-	secretsGatewayOpenURLFn = func(raw string) error {
+	oldOpenURL := codeboxServerOpenURLFn
+	codeboxServerOpenURLFn = func(raw string) error {
 		loginURLCh <- raw
 		return nil
 	}
-	t.Cleanup(func() { secretsGatewayOpenURLFn = oldOpenURL })
+	t.Cleanup(func() { codeboxServerOpenURLFn = oldOpenURL })
 
 	type loginResult struct {
 		code int
@@ -145,7 +145,7 @@ func TestSecretsLoginRejectsUnboundLoopbackCallback(t *testing.T) {
 		t.Fatalf("unbound callback: %v", err)
 	}
 	_ = wrongResp.Body.Close()
-	storedAfterWrong, _ := store.Get(context.Background(), codebox.CredentialSecretsGateway)
+	storedAfterWrong, _ := store.Get(context.Background(), codebox.CredentialCodeboxServer)
 
 	if loopbackState != "" {
 		validResp, err := http.Get("http://127.0.0.1:" + port + "/callback?token=legitimate-session&state=" + url.QueryEscape(loopbackState))
@@ -173,7 +173,7 @@ func TestSecretsLoginRejectsUnboundLoopbackCallback(t *testing.T) {
 		t.Errorf("unbound callback stored a session %q", storedAfterWrong)
 	}
 	if loopbackState != "" {
-		stored, _ := store.Get(context.Background(), codebox.CredentialSecretsGateway)
+		stored, _ := store.Get(context.Background(), codebox.CredentialCodeboxServer)
 		if stored != "legitimate-session" {
 			t.Errorf("legitimate callback stored %q, want the legitimate session", stored)
 		}
@@ -344,12 +344,12 @@ func TestSecretsPushRefusesEmptyDiscoveredBundle(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = os.Chdir(oldwd) })
 
-	oldBase, oldClient := secretsGatewayBaseURLFn, secretsGatewayClientFn
-	secretsGatewayBaseURLFn = func() (string, error) { return "https://gateway.example", nil }
-	secretsGatewayClientFn = func() (*gatewayclient.Client, error) {
+	oldBase, oldClient := codeboxServerBaseURLFn, codeboxServerClientFn
+	codeboxServerBaseURLFn = func() (string, error) { return "https://gateway.example", nil }
+	codeboxServerClientFn = func() (*gatewayclient.Client, error) {
 		return gatewayclient.NewInsecureForTest("https://gateway.example", "token", http.DefaultClient)
 	}
-	t.Cleanup(func() { secretsGatewayBaseURLFn, secretsGatewayClientFn = oldBase, oldClient })
+	t.Cleanup(func() { codeboxServerBaseURLFn, codeboxServerClientFn = oldBase, oldClient })
 
 	code, err := secretsPushCmd(nil)
 	if err == nil || code == 0 {

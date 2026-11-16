@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Reconcile the public codebox secrets-gateway with the Scaleway CLI.
+# Reconcile the public codebox-server with the Scaleway CLI.
 # Required credentials and configuration arrive through the environment.
 set -euo pipefail
 set +x
@@ -7,13 +7,13 @@ umask 077
 
 SCW_CLI=${SCW_CLI:-scw}
 REGION=${SCW_DEFAULT_REGION:-fr-par}
-NAMESPACE_NAME=codebox-secrets-gateway
-CONTAINER_NAME=codebox-secrets-gateway
+NAMESPACE_NAME=codebox-server
+CONTAINER_NAME=codebox-server
 SEED_SECRET_NAME=gateway-token-seed
 SEED_SECRET_PATH=/gateway
 PROCONNECT_ISSUER=${PROCONNECT_ISSUER:-https://fca.integ01.dev-agentconnect.fr/api/v2}
 GATEWAY_ALLOWED_SIRETS=${GATEWAY_ALLOWED_SIRETS:-}
-PUBLIC_URL=${CODEBOX_SECRETS_GATEWAY_URL:-https://bootstrap.invalid}
+PUBLIC_URL=${CODEBOX_SERVER_URL:-https://bootstrap.invalid}
 
 fail() {
   printf '::error::%s\n' "$*" >&2
@@ -53,10 +53,10 @@ esac
   fail 'SCW_DEFAULT_PROJECT_ID must be the project UUID, not its name'
 [[ "$SCW_REGISTRY_NAMESPACE" =~ ^[a-z0-9][a-z0-9-]*$ ]] || \
   fail 'SCW_REGISTRY_NAMESPACE must be the registry namespace name'
-[[ "$IMAGE_TAG" =~ ^(codebox-server|secrets-gateway)-v[0-9]+\.[0-9]+\.[0-9]+([.-][A-Za-z0-9.-]+)?$ ]] || \
+[[ "$IMAGE_TAG" =~ ^(codebox-server)-v[0-9]+\.[0-9]+\.[0-9]+([.-][A-Za-z0-9.-]+)?$ ]] || \
   fail 'IMAGE_TAG must be an immutable codebox-server release tag'
 [[ "$PUBLIC_URL" =~ ^https://[A-Za-z0-9.-]+(:[0-9]+)?$ ]] || \
-  fail 'CODEBOX_SECRETS_GATEWAY_URL must be an HTTPS origin without a path or trailing slash'
+  fail 'CODEBOX_SERVER_URL must be an HTTPS origin without a path or trailing slash'
 
 IMAGE_REFERENCE="rg.$REGION.scw.cloud/$SCW_REGISTRY_NAMESPACE/codebox-server:$IMAGE_TAG"
 WORK_DIR=$(mktemp -d)
@@ -70,7 +70,7 @@ if [[ "$NAMESPACE_COUNT" -eq 0 ]]; then
   NAMESPACE_JSON=$("$SCW_CLI" container namespace create \
     "project-id=$SCW_DEFAULT_PROJECT_ID" \
     "name=$NAMESPACE_NAME" \
-    'description=Stateless development-secrets gateway for codebox' \
+    'description=Stateless development-secrets server for codebox' \
     "region=$REGION" --wait -o json)
   NAMESPACE_ID=$(jq -r '.id // empty' <<<"$NAMESPACE_JSON")
 else
@@ -126,7 +126,7 @@ CONTAINER_COUNT=$(jq 'length' <<<"$CONTAINERS_JSON") || fail 'Could not parse th
 [[ "$CONTAINER_COUNT" -le 1 ]] || fail 'Multiple containers match the deployment name'
 
 CONTAINER_ARGS=(
-  'description=Stateless development-secrets gateway for codebox'
+  'description=Stateless development-secrets server for codebox'
   "image=$IMAGE_REFERENCE"
   'port=8080'
   'mvcpu-limit=512'

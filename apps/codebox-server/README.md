@@ -1,6 +1,6 @@
-# secrets-gateway deployment
+# codebox-server deployment
 
-`apps/secrets-gateway` is a stateless HTTP service. It holds no database, no
+`apps/codebox-server` is a stateless HTTP service. It holds no database, no
 user table and no secret of its own beyond the Scaleway IAM application key it
 uses to read the dedicated secrets project.
 
@@ -29,7 +29,7 @@ gateway disables the previous version when it writes a new one.
 | --- | --- | --- |
 | `PORT` | no | Listen port, default `8080` (`PORT_LISTEN` overrides the whole address). |
 | `GATEWAY_PUBLIC_URL` | **yes** | Externally reachable origin. The ProConnect redirect is derived from it (`<url>/auth/callback`). |
-| `GATEWAY_TOKEN_SEED` | **yes** | base64url (no padding) 32-byte Ed25519 seed. Generate once with `secrets-gateway -print-token-seed`. Rotating it invalidates every issued session. |
+| `GATEWAY_TOKEN_SEED` | **yes** | base64url (no padding) 32-byte Ed25519 seed. Generate once with `codebox-server -print-token-seed`. Rotating it invalidates every issued session. |
 | `GATEWAY_TOKEN_LIFETIME` | no | Session lifetime, default `12h`, maximum 24h. |
 | `GATEWAY_TICKET_LIFETIME` | no | Lifetime of the terminal paste-the-code ticket, default `5m`. |
 | `PROCONNECT_ISSUER` | no | Default `https://fca.integ01.dev-agentconnect.fr/api/v2` (sandbox). Production is `https://auth.agentconnect.gouv.fr/api/v2`. The `/api/v2` segment is part of the issuer: discovery is `<issuer>/.well-known/openid-configuration`, and omitting the segment returns 404. |
