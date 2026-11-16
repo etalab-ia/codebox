@@ -9,6 +9,31 @@ permissions:
   contents: read
 
 jobs:
+  platform-scope:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      run_platforms: ${{ steps.classify.outputs.run_platforms }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - name: Classify platform CI scope
+        id: classify
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          if [[ "$EVENT_NAME" == "pull_request" ]]; then
+            git diff --name-only "$BASE_SHA...$HEAD_SHA" | bash .github/scripts/platform-ci-scope.sh "$EVENT_NAME" >> "$GITHUB_OUTPUT"
+          else
+            bash .github/scripts/platform-ci-scope.sh "$EVENT_NAME" </dev/null >> "$GITHUB_OUTPUT"
+          fi
+      - name: Test platform CI classifier
+        run: bash .github/scripts/test-platform-ci-scope.sh
+
   check:
     runs-on: ubuntu-latest
     timeout-minutes: 30
@@ -146,6 +171,9 @@ jobs:
   # Linux builds inside Ubuntu 20.04 so the binary remains compatible with the
   # SDK's glibc baseline instead of inheriting the runner host's newer glibc.
   platform-linux:
+    needs: platform-scope
+    # Keep every required matrix check observable even when classification fails.
+    if: always()
     strategy:
       fail-fast: false
       matrix:
@@ -163,30 +191,51 @@ jobs:
       # runners), which kills the apt step before any code runs.
       options: --dns 1.1.1.1 --dns 8.8.8.8
     steps:
+      - name: Validate platform CI classification
+        shell: bash
+        env:
+          SCOPE_RESULT: ${{ needs.platform-scope.result }}
+          RUN_PLATFORMS: ${{ needs.platform-scope.outputs.run_platforms }}
+        run: |
+          set -euo pipefail
+          [[ "$SCOPE_RESULT" == "success" ]]
+          [[ "$RUN_PLATFORMS" == "true" || "$RUN_PLATFORMS" == "false" ]]
+      - name: Report release-only platform skip
+        if: needs.platform-scope.outputs.run_platforms == 'false'
+        run: echo 'Skipping codebox Linux tests and build for secrets-gateway release metadata only.'
       - name: Install build tools
+        if: needs.platform-scope.outputs.run_platforms == 'true'
         run: apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y ca-certificates gcc git
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - if: needs.platform-scope.outputs.run_platforms == 'true'
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Trust the mounted workspace
+        if: needs.platform-scope.outputs.run_platforms == 'true'
         # VCS stamping shells out to git, and the container user does not own the
         # mounted checkout. Writing the exception to the system config makes it
         # visible to every later step regardless of HOME.
         run: git config --system --add safe.directory "$GITHUB_WORKSPACE"
-      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+      - if: needs.platform-scope.outputs.run_platforms == 'true'
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: apps/codebox/go.mod
           cache: true
           cache-dependency-path: apps/codebox/go.sum
       - name: Verify native target
+        if: needs.platform-scope.outputs.run_platforms == 'true'
         run: |
           test "$(go env GOOS)" = "linux"
           test "$(go env GOARCH)" = "${{ matrix.arch }}"
-      - run: go -C apps/codebox test ./...
-      - run: go -C apps/codebox build ./cmd/codebox
+      - if: needs.platform-scope.outputs.run_platforms == 'true'
+        run: go -C apps/codebox test ./...
+      - if: needs.platform-scope.outputs.run_platforms == 'true'
+        run: go -C apps/codebox build ./cmd/codebox
 
   # The SDK embeds a platform-specific FFI library and uses CGO, so macOS and
   # Windows are built and tested on native runners. These jobs do not boot a
   # microVM: hosted runners lack nested virtualization.
   platform-desktop:
+    needs: platform-scope
+    if: always()
     strategy:
       fail-fast: false
       matrix:
@@ -203,19 +252,33 @@ jobs:
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 45
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Validate platform CI classification
+        shell: bash
+        env:
+          SCOPE_RESULT: ${{ needs.platform-scope.result }}
+          RUN_PLATFORMS: ${{ needs.platform-scope.outputs.run_platforms }}
+        run: |
+          set -euo pipefail
+          [[ "$SCOPE_RESULT" == "success" ]]
+          [[ "$RUN_PLATFORMS" == "true" || "$RUN_PLATFORMS" == "false" ]]
+      - name: Report release-only platform skip
+        if: needs.platform-scope.outputs.run_platforms == 'false'
+        shell: bash
+        run: echo 'Skipping codebox desktop tests and build for secrets-gateway release metadata only.'
+      - if: needs.platform-scope.outputs.run_platforms == 'true'
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Test POSIX installer on macOS
-        if: matrix.os == 'darwin'
+        if: needs.platform-scope.outputs.run_platforms == 'true' && matrix.os == 'darwin'
         run: sh apps/codebox/tests/installers/test-posix.sh
       - name: Test PowerShell installer
-        if: matrix.os == 'windows'
+        if: needs.platform-scope.outputs.run_platforms == 'true' && matrix.os == 'windows'
         shell: powershell
         run: ./apps/codebox/tests/installers/test-windows.ps1
       # The runner's gcc is an x86_64 MinGW cross compiler, which cannot
       # assemble arm64. CGO needs a GNU-ABI aarch64 compiler, so the pinned
       # LLVM-MinGW toolchain is installed for the Windows arm64 leg.
       - name: Install the Windows arm64 C toolchain
-        if: matrix.os == 'windows' && matrix.arch == 'arm64'
+        if: needs.platform-scope.outputs.run_platforms == 'true' && matrix.os == 'windows' && matrix.arch == 'arm64'
         shell: pwsh
         env:
           LLVM_MINGW_VERSION: "20260616"
@@ -236,12 +299,14 @@ jobs:
           Add-Content -Path $env:GITHUB_PATH -Value (Join-Path $dest "llvm-mingw-$version-ucrt-aarch64\bin")
           Add-Content -Path $env:GITHUB_ENV -Value 'CC=aarch64-w64-mingw32-clang'
           Add-Content -Path $env:GITHUB_ENV -Value 'CXX=aarch64-w64-mingw32-clang++'
-      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+      - if: needs.platform-scope.outputs.run_platforms == 'true'
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: apps/codebox/go.mod
           cache: true
           cache-dependency-path: apps/codebox/go.sum
       - name: Verify native target
+        if: needs.platform-scope.outputs.run_platforms == 'true'
         shell: bash
         run: |
           test "$(go env GOOS)" = "${{ matrix.os }}"
@@ -249,8 +314,10 @@ jobs:
           if [ "${{ matrix.os }}" = "windows" ] && [ "${{ matrix.arch }}" = "arm64" ]; then
             go env CC | grep -q aarch64-w64-mingw32-clang
           fi
-      - run: go -C apps/codebox test ./...
-      - run: go -C apps/codebox build ./cmd/codebox
+      - if: needs.platform-scope.outputs.run_platforms == 'true'
+        run: go -C apps/codebox test ./...
+      - if: needs.platform-scope.outputs.run_platforms == 'true'
+        run: go -C apps/codebox build ./cmd/codebox
 
   # The release jobs in release-please.yml only run when a release is created,
   # so PR CI never exercises the artifact actions. Those actions are how a
