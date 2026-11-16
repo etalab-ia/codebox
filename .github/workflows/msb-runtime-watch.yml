@@ -74,6 +74,7 @@ jobs:
           echo "SDK=$sdk_version upstream=$upstream_version"
 
       - name: Open or update the tracking issue
+        if: steps.versions.outputs.upstream_version != steps.versions.outputs.sdk_version
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}

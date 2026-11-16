@@ -118,4 +118,23 @@ check_skips_when_issue_exists
 check_creates_issue_from_verified_digests
 check_fails_closed_when_asset_uncovered
 
+# 4. The workflow must keep gating the step on a version mismatch. The script
+#    itself does not compare SDK_VERSION with UPSTREAM_VERSION, so removing
+#    this condition would open an update issue for the version already
+#    embedded on every scheduled run.
+check_workflow_gates_on_version_mismatch() {
+  local workflow
+  workflow=$(cat "$SCRIPT_DIR/../workflows/msb-runtime-watch.yml")
+  local step
+  step=${workflow#*- name: Open or update the tracking issue}
+  step=${step%%run:*}
+  case "$step" in
+    *"if: steps.versions.outputs.upstream_version != steps.versions.outputs.sdk_version"*) : ;;
+    *) fail "the tracking-issue step lost its version-mismatch condition" ;;
+  esac
+  checks=$((checks + 1))
+}
+
+check_workflow_gates_on_version_mismatch
+
 printf 'ok - %d msb_runtime_watch_issue checks passed\n' "$checks"
