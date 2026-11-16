@@ -123,7 +123,6 @@ CONTAINER_COUNT=$(jq 'length' <<<"$CONTAINERS_JSON") || fail 'Could not parse th
 [[ "$CONTAINER_COUNT" -le 1 ]] || fail 'Multiple containers match the deployment name'
 
 CONTAINER_ARGS=(
-  "name=$CONTAINER_NAME"
   'description=Stateless development-secrets gateway for codebox'
   "image=$IMAGE_REFERENCE"
   'port=8080'
@@ -147,6 +146,7 @@ CONTAINER_ARGS=(
 if [[ "$CONTAINER_COUNT" -eq 0 ]]; then
   CONTAINER_JSON=$("$SCW_CLI" container container create \
     "namespace-id=$NAMESPACE_ID" \
+    "name=$CONTAINER_NAME" \
     "${CONTAINER_ARGS[@]}" \
     'https-connections-only=true' "region=$REGION" --wait -o json)
   CONTAINER_ID=$(jq -r '.id // empty' <<<"$CONTAINER_JSON")

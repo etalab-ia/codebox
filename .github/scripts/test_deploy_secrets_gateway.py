@@ -176,6 +176,8 @@ elif command == ("container", "container", "create"):
     state["containers"].append(item)
     emit(item)
 elif command == ("container", "container", "update"):
+    if "name" in options:
+        fail("unknown argument 'name'")
     if not wait:
         fail("container update did not wait")
     if options.get("https-connection-only") is not True or "https-connections-only" in options:
