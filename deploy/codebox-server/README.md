@@ -17,10 +17,10 @@ Configure these repository settings before the first run:
 
 | Name | Kind | Meaning |
 | --- | --- | --- |
-| `CODEBOX_SCW_ACCESS_KEY` | secret | Access key of the deploy IAM application scoped to the dedicated project |
-| `CODEBOX_SCW_SECRET_KEY` | secret | Secret key of that deploy IAM application |
-| `CODEBOX_SCW_ORGANIZATION_ID` | variable | Scaleway organization UUID containing the dedicated project |
-| `CODEBOX_SCW_PROJECT_ID` | variable | Dedicated project UUID, not its name |
+| `SCW_ACCESS_KEY` | secret | Access key of the deploy IAM application scoped to the dedicated project |
+| `SCW_SECRET_KEY` | secret | Secret key of that deploy IAM application |
+| `SCW_ORGANIZATION_ID` | variable | Scaleway organization UUID containing the dedicated project |
+| `SCW_PROJECT_ID` | variable | Dedicated project UUID, not its name |
 | `TF_VAR_PROCONNECT_CLIENT_ID` | secret | ProConnect sandbox client ID |
 | `TF_VAR_PROCONNECT_CLIENT_SECRET` | secret | Regenerated ProConnect sandbox client secret |
 | `SCW_REGISTRY_NAMESPACE` | variable | Registry namespace name, such as `codebox` |
