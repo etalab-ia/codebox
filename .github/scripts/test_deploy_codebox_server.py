@@ -424,6 +424,8 @@ class DeploymentTest(unittest.TestCase):
         self.assertIn("SCW_ACCESS_KEY: ${{ secrets.SCW_ACCESS_KEY }}", workflow)
         self.assertIn("SCW_SECRET_KEY: ${{ secrets.SCW_SECRET_KEY }}", workflow)
         self.assertIn("SCW_DEFAULT_PROJECT_ID: ${{ vars.SCW_PROJECT_ID }}", workflow)
+        self.assertIn("PROCONNECT_CLIENT_ID: ${{ secrets.PROCONNECT_CLIENT_ID }}", workflow)
+        self.assertIn("PROCONNECT_CLIENT_SECRET: ${{ secrets.PROCONNECT_CLIENT_SECRET }}", workflow)
         self.assertIn("uses: scaleway/action-scw@2e34a1eb35cf3cac627f24643a101fea269cbd83", workflow)
         self.assertIn("version: v2.66.0", workflow)
         self.assertIn('description: "Immutable codebox-server release tag"', workflow)
