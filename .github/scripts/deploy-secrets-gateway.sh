@@ -32,6 +32,7 @@ require_env() {
 require_env \
   SCW_ACCESS_KEY \
   SCW_SECRET_KEY \
+  SCW_DEFAULT_ORGANIZATION_ID \
   SCW_DEFAULT_PROJECT_ID \
   SCW_REGISTRY_NAMESPACE \
   PROCONNECT_CLIENT_ID \
@@ -46,16 +47,18 @@ case "$REGION" in
   fr-par | nl-ams | pl-waw) ;;
   *) fail "Unsupported gateway region: $REGION" ;;
 esac
+[[ "$SCW_DEFAULT_ORGANIZATION_ID" =~ ^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$ ]] || \
+  fail 'SCW_DEFAULT_ORGANIZATION_ID must be the organization UUID'
 [[ "$SCW_DEFAULT_PROJECT_ID" =~ ^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$ ]] || \
   fail 'SCW_DEFAULT_PROJECT_ID must be the project UUID, not its name'
 [[ "$SCW_REGISTRY_NAMESPACE" =~ ^[a-z0-9][a-z0-9-]*$ ]] || \
   fail 'SCW_REGISTRY_NAMESPACE must be the registry namespace name'
-[[ "$IMAGE_TAG" =~ ^secrets-gateway-v[0-9]+\.[0-9]+\.[0-9]+([.-][A-Za-z0-9.-]+)?$ ]] || \
-  fail 'IMAGE_TAG must be an immutable secrets-gateway release tag'
+[[ "$IMAGE_TAG" =~ ^(codebox-server|secrets-gateway)-v[0-9]+\.[0-9]+\.[0-9]+([.-][A-Za-z0-9.-]+)?$ ]] || \
+  fail 'IMAGE_TAG must be an immutable codebox-server release tag'
 [[ "$PUBLIC_URL" =~ ^https://[A-Za-z0-9.-]+(:[0-9]+)?$ ]] || \
   fail 'CODEBOX_SECRETS_GATEWAY_URL must be an HTTPS origin without a path or trailing slash'
 
-IMAGE_REFERENCE="rg.$REGION.scw.cloud/$SCW_REGISTRY_NAMESPACE/secrets-gateway:$IMAGE_TAG"
+IMAGE_REFERENCE="rg.$REGION.scw.cloud/$SCW_REGISTRY_NAMESPACE/codebox-server:$IMAGE_TAG"
 WORK_DIR=$(mktemp -d)
 trap 'rm -rf "$WORK_DIR"' EXIT
 

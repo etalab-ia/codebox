@@ -12,7 +12,10 @@ import unittest
 ROOT = Path(__file__).resolve().parents[2]
 DEPLOY_SCRIPT = ROOT / ".github/scripts/deploy-secrets-gateway.sh"
 WORKFLOW = ROOT / ".github/workflows/deploy-secrets-gateway.yml"
+RELEASE_WORKFLOW = ROOT / ".github/workflows/release-please.yml"
+RELEASE_CONFIG = ROOT / "release-please-config.json"
 PROJECT_ID = "11111111-1111-4111-8111-111111111111"
+ORGANIZATION_ID = "22222222-2222-4222-8222-222222222222"
 DOMAIN = "codeboxsecretsgateway.functions.fnc.fr-par.scw.cloud"
 
 FAKE_SCW = r'''#!/usr/bin/env python3
@@ -233,12 +236,13 @@ class DeploymentTest(unittest.TestCase):
             "SCW_CLI": "scw",
             "SCW_ACCESS_KEY": "test-access-key",
             "SCW_SECRET_KEY": "test-scw-secret",
+            "SCW_DEFAULT_ORGANIZATION_ID": ORGANIZATION_ID,
             "SCW_DEFAULT_PROJECT_ID": PROJECT_ID,
             "SCW_DEFAULT_REGION": "fr-par",
             "SCW_REGISTRY_NAMESPACE": "codebox",
             "PROCONNECT_CLIENT_ID": "test-proconnect-id",
             "PROCONNECT_CLIENT_SECRET": "test-proconnect-secret",
-            "IMAGE_TAG": "secrets-gateway-v0.2.0",
+            "IMAGE_TAG": "codebox-server-v0.2.0",
         })
         self.env.pop("CODEBOX_SECRETS_GATEWAY_URL", None)
 
@@ -294,7 +298,7 @@ class DeploymentTest(unittest.TestCase):
         final_url = "https://" + DOMAIN
         third = self.run_deploy({
             "CODEBOX_SECRETS_GATEWAY_URL": final_url,
-            "IMAGE_TAG": "secrets-gateway-v0.2.1",
+            "IMAGE_TAG": "codebox-server-v0.2.1",
         })
         final = self.state()
         self.assertEqual(1, len(final["namespaces"]))
@@ -303,7 +307,7 @@ class DeploymentTest(unittest.TestCase):
         self.assertEqual(seed, final["versions"]["seed-secret-1"][0]["data"])
         self.assertEqual(final_url, final["containers"][0]["environment_variables"]["GATEWAY_PUBLIC_URL"])
         self.assertEqual(
-            "rg.fr-par.scw.cloud/codebox/secrets-gateway:secrets-gateway-v0.2.1",
+            "rg.fr-par.scw.cloud/codebox/codebox-server:codebox-server-v0.2.1",
             final["containers"][0]["image"],
         )
         self.assertEqual(2, final["container_updates"])
@@ -322,6 +326,25 @@ class DeploymentTest(unittest.TestCase):
         self.assertEqual(1, recovered["version_creations"])
         self.assertEqual(1, len(recovered["versions"]["seed-secret-1"]))
         self.assert_no_unmasked_secrets(result, recovered["versions"]["seed-secret-1"][0]["data"])
+
+    def test_historical_tag_uses_renamed_image(self):
+        self.run_deploy({"IMAGE_TAG": "secrets-gateway-v0.2.0"})
+        state = self.state()
+        self.assertEqual(
+            "rg.fr-par.scw.cloud/codebox/codebox-server:secrets-gateway-v0.2.0",
+            state["containers"][0]["image"],
+        )
+
+    def test_missing_organization_id_fails_before_any_cli_call(self):
+        env = self.env.copy()
+        env.pop("SCW_DEFAULT_ORGANIZATION_ID")
+        result = subprocess.run(
+            ["bash", str(DEPLOY_SCRIPT)], env=env, text=True,
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False,
+        )
+        self.assertNotEqual(0, result.returncode)
+        self.assertIn("Missing required environment variable: SCW_DEFAULT_ORGANIZATION_ID", result.stderr)
+        self.assertFalse(self.state_path.exists())
 
     def test_missing_credentials_fail_before_any_cli_call(self):
         env = self.env.copy()
@@ -381,12 +404,30 @@ class DeploymentTest(unittest.TestCase):
         self.assertEqual(1, recovered["container_creations"])
         self.assertEqual(1, len(recovered["containers"]))
 
+    def test_release_component_and_image_are_renamed(self):
+        config = json.loads(RELEASE_CONFIG.read_text())
+        self.assertEqual("codebox-server", config["packages"]["apps/secrets-gateway"]["component"])
+        workflow = RELEASE_WORKFLOW.read_text()
+        self.assertIn("build-codebox-server-container:", workflow)
+        self.assertIn("codebox-server-* | secrets-gateway-*)", workflow)
+        self.assertLess(
+            workflow.index("codebox-server-* | secrets-gateway-*)"),
+            workflow.index("codebox-*)"),
+        )
+        self.assertIn("/codebox-server:${{ needs.release-please.outputs.secrets_gateway_tag_name }}", workflow)
+        self.assertNotIn("/secrets-gateway:${{ needs.release-please.outputs.secrets_gateway_tag_name }}", workflow)
+
     def test_workflow_is_manual_only_and_serialized(self):
         workflow = WORKFLOW.read_text()
         self.assertIn("workflow_dispatch:", workflow)
         self.assertIn("group: secrets-gateway-deploy", workflow)
         self.assertIn("cancel-in-progress: false", workflow)
         self.assertIn("if: github.ref == 'refs/heads/main'", workflow)
+        self.assertIn("SCW_DEFAULT_ORGANIZATION_ID: ${{ vars.CODEBOX_SCW_ORGANIZATION_ID }}", workflow)
+        self.assertIn("uses: scaleway/action-scw@2e34a1eb35cf3cac627f24643a101fea269cbd83", workflow)
+        self.assertIn("version: v2.66.0", workflow)
+        self.assertIn('description: "Immutable codebox-server release tag"', workflow)
+        self.assertNotIn('default: "secrets-gateway-v', workflow)
         for trigger in ("\n  push:", "\n  pull_request:", "\n  schedule:"):
             self.assertNotIn(trigger, workflow)
 

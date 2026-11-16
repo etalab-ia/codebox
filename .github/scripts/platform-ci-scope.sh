@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Print run_platforms=false only for a PR made exclusively of the two files
-# release-please updates for the secrets-gateway component.
+# release-please updates for the codebox-server component (source path retained).
 set -euo pipefail
 
 event_name="${1:-}"

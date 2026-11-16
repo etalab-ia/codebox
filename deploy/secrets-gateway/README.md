@@ -8,9 +8,10 @@ application is scoped to that project only.
 
 The default deployment path is the **Deploy secrets-gateway** GitHub Actions
 workflow. It has only a `workflow_dispatch` trigger, serializes concurrent runs,
-and uses a pinned, SHA256-verified Scaleway CLI. Run it from `main` after the
-workflow is merged; it is not automatically tested against real infrastructure
-by a pull request.
+and installs a pinned, SHA256-verified Scaleway CLI through the official
+`scaleway/action-scw` action, itself pinned to an immutable commit. Run it from
+`main` after the workflow is merged; it is not automatically tested against real
+infrastructure by a pull request.
 
 Configure these repository settings before the first run:
 
@@ -18,6 +19,7 @@ Configure these repository settings before the first run:
 | --- | --- | --- |
 | `CODEBOX_SCW_ACCESS_KEY` | secret | Access key of the deploy IAM application scoped to the dedicated project |
 | `CODEBOX_SCW_SECRET_KEY` | secret | Secret key of that deploy IAM application |
+| `CODEBOX_SCW_ORGANIZATION_ID` | variable | Scaleway organization UUID containing the dedicated project |
 | `CODEBOX_SCW_PROJECT_ID` | variable | Dedicated project UUID, not its name |
 | `TF_VAR_PROCONNECT_CLIENT_ID` | secret | ProConnect sandbox client ID |
 | `TF_VAR_PROCONNECT_CLIENT_SECRET` | secret | Regenerated ProConnect sandbox client secret |
@@ -36,8 +38,8 @@ Use this two-run bootstrap sequence:
    `https://bootstrap.invalid/auth/callback`, leaving logout URLs empty and
    selecting RS256 where configurable. Leave `CODEBOX_SECRETS_GATEWAY_URL`
    unset.
-2. Open **Actions → Deploy secrets-gateway → Run workflow**, keep an immutable
-   tag such as `secrets-gateway-v0.2.0`, and run from `main`.
+2. Open **Actions → Deploy secrets-gateway → Run workflow**, enter a published
+   immutable tag such as `codebox-server-vX.Y.Z`, and run from `main`.
 3. The workflow creates or reuses the `codebox-secrets-gateway` namespace and
    container, stores the signing seed in Secret Manager at
    `/gateway/gateway-token-seed`, waits for readiness, and prints the native
@@ -55,11 +57,14 @@ updates ProConnect or GitHub repository settings automatically.
 ## Build and publish
 
 PR 5 adds a release-please component for `apps/secrets-gateway` with the tag
-series `secrets-gateway-vX.Y.Z`. A release for that component builds and pushes
+series `codebox-server-vX.Y.Z`. A release for that component builds and pushes
 the distroless image from [Dockerfile](Dockerfile) to the Scaleway Container
 Registry namespace named by the repository variable `SCW_REGISTRY_NAMESPACE`,
 using the repository secret `SCW_REGISTRY_SECRET_KEY` with the fixed Docker
-username `nologin`. No secret value is written to the image.
+username `nologin`. No secret value is written to the image. The registry image
+is named `codebox-server`. Historical `secrets-gateway-vX.Y.Z` releases remain
+valid for explicit asset rebuilds and publish the same `codebox-server` image
+repository with their original tag.
 
 ## Operator-local OpenTofu alternative
 
@@ -77,7 +82,7 @@ export TF_VAR_gateway_token_seed="$(secrets-gateway -print-token-seed)"
 export TF_VAR_proconnect_client_id="<ProConnect sandbox client ID>"
 export TF_VAR_proconnect_client_secret="<ProConnect sandbox client secret>"
 export TF_VAR_registry_namespace_name="<registry namespace>"
-export TF_VAR_image_tag="secrets-gateway-v0.1.0"
+export TF_VAR_image_tag="codebox-server-vX.Y.Z"
 
 tofu -chdir=deploy/secrets-gateway init
 tofu -chdir=deploy/secrets-gateway plan
@@ -107,8 +112,8 @@ the ProConnect application.
 | `proconnect_client_id` | yes | ProConnect OIDC client ID |
 | `proconnect_client_secret` | yes | ProConnect OIDC client secret |
 | `registry_namespace_name` | no | Existing Scaleway registry namespace; must match `SCW_REGISTRY_NAMESPACE` |
-| `registry_image_name` | no | Defaults to `secrets-gateway` |
-| `image_tag` | no | Immutable release tag to deploy, e.g. `secrets-gateway-v0.1.0` |
+| `registry_image_name` | no | Defaults to `codebox-server` |
+| `image_tag` | no | Immutable release tag to deploy, e.g. `codebox-server-vX.Y.Z` |
 | `SCW_REGISTRY_SECRET_KEY` | yes (repository secret) | API secret key used by release CI to push the image (`nologin` Docker username) |
 | `allowed_sirets` | no | Optional comma-separated SIRET allowlist for project creation |
 
