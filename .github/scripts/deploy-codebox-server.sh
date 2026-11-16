@@ -130,7 +130,9 @@ CONTAINER_ARGS=(
   "image=$IMAGE_REFERENCE"
   'port=8080'
   'mvcpu-limit=512'
-  'memory-limit-bytes=268435456'
+  # Scaleway documents 128 MB = 0.125 GB, so 256 MB = 0.25 GB.
+  # https://www.scaleway.com/en/docs/serverless-containers/faq/
+  'memory-limit-bytes=0.25GB'
   'min-scale=1'
   'max-scale=1'
   'privacy=public'
