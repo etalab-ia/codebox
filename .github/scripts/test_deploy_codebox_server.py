@@ -280,7 +280,7 @@ class DeploymentTest(unittest.TestCase):
         self.assertEqual(1, initial["version_creations"])
         self.assertEqual("https://bootstrap.invalid", initial["containers"][0]["environment_variables"]["GATEWAY_PUBLIC_URL"])
         self.assertTrue(initial["containers"][0]["https_connections_only"])
-        self.assertEqual("0.268435456GB", initial["containers"][0]["memory_limit_bytes"])
+        self.assertEqual("0.25GB", initial["containers"][0]["memory_limit_bytes"])
         self.assertIn("native endpoint: https://" + DOMAIN, first.stdout)
         self.assert_no_unmasked_secrets(first, seed)
 
