@@ -59,7 +59,7 @@ jobs:
           if [ -z "$work_toolchain" ]; then
             work_toolchain="$(sed -n 's/^go \(.*\)$/\1/p' go.work)"
           fi
-          for mod in apps/codebox/go.mod apps/secrets-gateway/go.mod packages/secrets/go.mod; do
+          for mod in apps/codebox/go.mod apps/codebox-server/go.mod packages/secrets/go.mod; do
             mod_toolchain="$(sed -n 's/^toolchain go\(.*\)$/\1/p' "$mod")"
             if [ -z "$mod_toolchain" ]; then
               mod_toolchain="$(sed -n 's/^go \(.*\)$/\1/p' "$mod")"
@@ -69,22 +69,22 @@ jobs:
           test -n "$proto_go" && test "$proto_go" = "$work_toolchain"
           proto status
           moon sync config-schemas
-          test "$(moon query projects | jq -r '.projects | map(.id) | sort | join(",")')" = "codebox,secrets,secrets-gateway,secrets-gateway-e2e"
+          test "$(moon query projects | jq -r '.projects | map(.id) | sort | join(",")')" = "codebox,codebox-server,codebox-server-e2e,secrets"
           moon query tasks >/dev/null
       - name: Check formatting and vet via Moon
         run: |
           set -eu
           moon run :fmt-check :vet
-          git diff --exit-code .protolock go.work apps/codebox/go.mod apps/codebox/go.sum apps/secrets-gateway/go.mod packages/secrets/go.mod
+          git diff --exit-code .protolock go.work apps/codebox/go.mod apps/codebox/go.sum apps/codebox-server/go.mod packages/secrets/go.mod
       - run: GOWORK=off go -C packages/secrets test -race ./...
-      - run: GOWORK=off go -C apps/secrets-gateway test -race ./...
+      - run: GOWORK=off go -C apps/codebox-server test -race ./...
       - run: go -C apps/codebox test -race ./...
       - name: Test POSIX installer
         run: sh apps/codebox/tests/installers/test-posix.sh
-      - name: Run secrets-gateway e2e smoke
-        run: moon run secrets-gateway-e2e:smoke
-      - name: Test UI-only secrets-gateway deployment reconciliation
-        run: python3 .github/scripts/test_deploy_secrets_gateway.py
+      - name: Run codebox-server e2e smoke
+        run: moon run codebox-server-e2e:smoke
+      - name: Test UI-only codebox-server deployment reconciliation
+        run: python3 .github/scripts/test_deploy_codebox_server.py
 
   integration-host:
     runs-on: ubuntu-latest

@@ -1,4 +1,4 @@
-// Command secrets-gateway serves the codebox development-secrets gateway:
+// Command codebox-server serves the codebox development-secrets server:
 // ProConnect OIDC authentication, per-project ACL authorisation, and resolution
 // of secret bundles from the dedicated Scaleway Secret Manager project.
 //
@@ -21,18 +21,18 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/etalab-ia/codebox/apps/secrets-gateway/internal/gateway"
+	"github.com/etalab-ia/codebox/apps/codebox-server/internal/gateway"
 )
 
 func main() {
 	if err := run(os.Args[1:]); err != nil {
-		fmt.Fprintln(os.Stderr, "secrets-gateway: "+err.Error())
+		fmt.Fprintln(os.Stderr, "codebox-server: "+err.Error())
 		os.Exit(1)
 	}
 }
 
 func run(args []string) error {
-	fs := flag.NewFlagSet("secrets-gateway", flag.ContinueOnError)
+	fs := flag.NewFlagSet("codebox-server", flag.ContinueOnError)
 	printSeed := fs.Bool("print-token-seed", false, "print a fresh token signing seed and exit")
 	if err := fs.Parse(args); err != nil {
 		return err
@@ -97,7 +97,7 @@ func run(args []string) error {
 
 	errCh := make(chan error, 1)
 	go func() {
-		logger.Info("secrets-gateway listening", slog.String("addr", cfg.ListenAddr), slog.String("store", store.Kind()))
+		logger.Info("codebox-server listening", slog.String("addr", cfg.ListenAddr), slog.String("store", store.Kind()))
 		if err := httpServer.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			errCh <- err
 		}

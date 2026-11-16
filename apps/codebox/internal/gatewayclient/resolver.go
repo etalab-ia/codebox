@@ -75,14 +75,14 @@ func (s *ValueSource) ResolveProjectSecretValues(ctx context.Context, requests [
 // remote value source. A missing URL simply means "local workflow"; a declared
 // project without a session token fails with a login instruction.
 func BuildRuntimeValueSource(ctx context.Context, projectID string, store codebox.CredentialStore, httpClient *http.Client) (codebox.ProjectSecretValueSource, bool, error) {
-	baseURL, err := codebox.SecretsGatewayURL()
+	baseURL, err := codebox.CodeboxServerURL()
 	if err != nil {
 		return nil, false, err
 	}
 	if baseURL == "" {
 		return nil, false, nil
 	}
-	token, err := store.Get(ctx, codebox.CredentialSecretsGateway)
+	token, err := store.Get(ctx, codebox.CredentialCodeboxServer)
 	if err != nil {
 		return nil, true, fmt.Errorf("gateway session missing; run codebox secrets login: %w", err)
 	}

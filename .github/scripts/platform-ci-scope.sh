@@ -18,7 +18,7 @@ while IFS= read -r file || [[ -n "$file" ]]; do
   fi
   saw_file=true
   case "$file" in
-    .release-please-manifest.json | apps/secrets-gateway/CHANGELOG.md)
+    .release-please-manifest.json | apps/codebox-server/CHANGELOG.md)
       ;;
     *)
       run_platforms=true

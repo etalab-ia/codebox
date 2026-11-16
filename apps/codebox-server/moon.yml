@@ -1,12 +1,12 @@
 $schema: "https://moonrepo.dev/schemas/v2/project.json"
 
-id: "secrets-gateway"
+id: "codebox-server"
 language: "go"
 layer: "application"
 stack: "backend"
 
 project:
-  title: "secrets-gateway"
+  title: "codebox-server"
   description: "Stateless ProConnect-gated gateway resolving development secrets from an isolated Scaleway Secret Manager project."
 
 dependsOn:
@@ -14,17 +14,17 @@ dependsOn:
 
 fileGroups:
   sources:
-    - "file:///deploy/secrets-gateway/Dockerfile"
-    - "file:///deploy/secrets-gateway/main.tf"
-    - "file:///deploy/secrets-gateway/README.md"
+    - "file:///deploy/codebox-server/Dockerfile"
+    - "file:///deploy/codebox-server/main.tf"
+    - "file:///deploy/codebox-server/README.md"
 
 tasks:
   build:
-    description: "Compile the secrets-gateway server binary."
+    description: "Compile the codebox-server binary."
     command:
       - "go"
       - "build"
-      - "./cmd/secrets-gateway"
+      - "./cmd/codebox-server"
     deps:
       - target: "^:build"
         optional: true

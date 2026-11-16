@@ -109,13 +109,13 @@ data "scaleway_registry_image_tag" "gateway" {
 }
 
 resource "scaleway_container_namespace" "gateway" {
-  name        = "codebox-secrets-gateway"
-  description = "Stateless development-secrets gateway for codebox"
+  name        = "codebox-server"
+  description = "Stateless development-secrets server for codebox"
   project_id  = var.project_id
 }
 
 resource "scaleway_container" "gateway" {
-  name         = "codebox-secrets-gateway"
+  name         = "codebox-server"
   namespace_id = scaleway_container_namespace.gateway.id
   image        = "${data.scaleway_registry_namespace.gateway.endpoint}/${data.scaleway_registry_image.gateway.name}:${data.scaleway_registry_image_tag.gateway.name}"
   # The immutable tag digest forces a redeploy when the released image changes.

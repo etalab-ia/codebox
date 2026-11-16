@@ -6,9 +6,9 @@ import (
 	"testing"
 )
 
-func TestSecretsGatewayURL(t *testing.T) {
-	oldDefault := SecretsGatewayURLDefault
-	t.Cleanup(func() { SecretsGatewayURLDefault = oldDefault })
+func TestCodeboxServerURL(t *testing.T) {
+	oldDefault := CodeboxServerURLDefault
+	t.Cleanup(func() { CodeboxServerURLDefault = oldDefault })
 
 	for _, tc := range []struct {
 		name    string
@@ -26,12 +26,12 @@ func TestSecretsGatewayURL(t *testing.T) {
 		{name: "fragment refused", env: "https://gateway.example/#x", wantErr: true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			t.Setenv("CODEBOX_SECRETS_GATEWAY_URL", tc.env)
-			SecretsGatewayURLDefault = tc.def
-			got, err := SecretsGatewayURL()
+			t.Setenv("CODEBOX_SERVER_URL", tc.env)
+			CodeboxServerURLDefault = tc.def
+			got, err := CodeboxServerURL()
 			if tc.wantErr {
-				if !errors.Is(err, ErrInvalidSecretsGatewayURL) {
-					t.Fatalf("error = %v, want ErrInvalidSecretsGatewayURL", err)
+				if !errors.Is(err, ErrInvalidCodeboxServerURL) {
+					t.Fatalf("error = %v, want ErrInvalidCodeboxServerURL", err)
 				}
 				return
 			}
@@ -45,11 +45,11 @@ func TestSecretsGatewayURL(t *testing.T) {
 	}
 }
 
-func TestSecretsGatewayCredentialKindIsNotGenericAuth(t *testing.T) {
-	if IsKnownCredentialKind(string(CredentialSecretsGateway)) {
+func TestCodeboxServerCredentialKindIsNotGenericAuth(t *testing.T) {
+	if IsKnownCredentialKind(string(CredentialCodeboxServer)) {
 		t.Fatal("the gateway session token must not be writable through generic codebox auth")
 	}
-	if service := credentialService(CredentialSecretsGateway); !strings.Contains(service, string(CredentialSecretsGateway)) {
+	if service := credentialService(CredentialCodeboxServer); !strings.Contains(service, string(CredentialCodeboxServer)) {
 		t.Fatalf("credential service = %q, want a dedicated service name", service)
 	}
 }

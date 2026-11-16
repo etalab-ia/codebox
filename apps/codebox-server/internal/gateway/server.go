@@ -558,7 +558,7 @@ func (s *Server) audit(r *http.Request, event string, attrs ...slog.Attr) {
 		slog.String("event", event),
 		slog.String("ip", ClientIP(r)),
 	}
-	s.logger.LogAttrs(r.Context(), slog.LevelInfo, "secrets-gateway", append(base, attrs...)...)
+	s.logger.LogAttrs(r.Context(), slog.LevelInfo, "codebox-server", append(base, attrs...)...)
 }
 
 func auditReason(err error) string {

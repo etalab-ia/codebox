@@ -23,25 +23,25 @@ import (
 // Seams for the interactive login flow. Tests replace these and never open a
 // browser or bind a real loopback port unless they explicitly ask for one.
 var (
-	secretsGatewayBaseURLFn = codebox.SecretsGatewayURL
-	secretsGatewayStoreFn   = func() (codebox.CredentialStore, error) {
+	codeboxServerBaseURLFn = codebox.CodeboxServerURL
+	codeboxServerStoreFn   = func() (codebox.CredentialStore, error) {
 		store := codebox.DefaultCredentialStore()
 		if store == nil {
 			return nil, fmt.Errorf("no native credential store is available on this host")
 		}
 		return store, nil
 	}
-	secretsGatewayOpenURLFn           = openBrowserURL
-	secretsGatewayHTTPFn              = func() *http.Client { return &http.Client{Timeout: 30 * time.Second} }
-	secretsGatewayClientFn            = buildGatewayClient
-	secretsGatewayLoginOut  io.Writer = os.Stdout
-	secretsGatewayLoginIn   io.Reader = os.Stdin
+	codeboxServerOpenURLFn           = openBrowserURL
+	codeboxServerHTTPFn              = func() *http.Client { return &http.Client{Timeout: 30 * time.Second} }
+	codeboxServerClientFn            = buildGatewayClient
+	codeboxServerLoginOut  io.Writer = os.Stdout
+	codeboxServerLoginIn   io.Reader = os.Stdin
 )
 
-// ErrSecretsGatewayNotConfigured means the CLI has no gateway URL. The local
+// ErrCodeboxServerNotConfigured means the CLI has no gateway URL. The local
 // secret workflow remains available; this is not an error for projects that
 // do not declare a remote source.
-var ErrSecretsGatewayNotConfigured = errors.New("no secrets gateway configured; set CODEBOX_SECRETS_GATEWAY_URL or use a release build with a gateway endpoint")
+var ErrCodeboxServerNotConfigured = errors.New("no codebox server configured; set CODEBOX_SERVER_URL or use a release build with a gateway endpoint")
 
 func secretsRemoteCmd(args []string) (int, error) {
 	if len(args) == 0 || args[0] == "--help" || args[0] == "-h" {
@@ -68,27 +68,27 @@ func secretsRemoteCmd(args []string) (int, error) {
 
 func printSecretsRemoteUsage() {
 	fmt.Println("Usage: codebox secrets login [--terminal] | logout | check | init | push | members <list|add|remove>")
-	fmt.Println("Shared development secrets are gated by ProConnect and stored by the codebox secrets-gateway.")
+	fmt.Println("Shared development secrets are gated by ProConnect and stored by the codebox-server.")
 	fmt.Println("No production secret is supported by this workflow.")
 }
 
 func gatewayBaseURL() (string, error) {
-	base, err := secretsGatewayBaseURLFn()
+	base, err := codeboxServerBaseURLFn()
 	if err != nil {
 		return "", err
 	}
 	if base == "" {
-		return "", ErrSecretsGatewayNotConfigured
+		return "", ErrCodeboxServerNotConfigured
 	}
 	return base, nil
 }
 
 func gatewaySessionToken() (string, error) {
-	store, err := secretsGatewayStoreFn()
+	store, err := codeboxServerStoreFn()
 	if err != nil {
 		return "", err
 	}
-	token, err := store.Get(context.Background(), codebox.CredentialSecretsGateway)
+	token, err := store.Get(context.Background(), codebox.CredentialCodeboxServer)
 	if err != nil {
 		return "", fmt.Errorf("no gateway session; run codebox secrets login: %w", err)
 	}
@@ -96,7 +96,7 @@ func gatewaySessionToken() (string, error) {
 }
 
 func gatewayClient() (*gatewayclient.Client, error) {
-	return secretsGatewayClientFn()
+	return codeboxServerClientFn()
 }
 
 func buildGatewayClient() (*gatewayclient.Client, error) {
@@ -108,7 +108,7 @@ func buildGatewayClient() (*gatewayclient.Client, error) {
 	if err != nil {
 		return nil, err
 	}
-	return gatewayclient.New(base, token, secretsGatewayHTTPFn())
+	return gatewayclient.New(base, token, codeboxServerHTTPFn())
 }
 
 func secretsLoginCmd(args []string) (int, error) {
@@ -128,26 +128,26 @@ func secretsLoginCmd(args []string) (int, error) {
 	if err != nil {
 		return 1, err
 	}
-	store, err := secretsGatewayStoreFn()
+	store, err := codeboxServerStoreFn()
 	if err != nil {
 		return 1, err
 	}
 	urlBuilder := &gatewayclient.Client{}
 	if terminal {
 		loginURL := urlBuilder.TerminalLoginURLWithBase(base)
-		fmt.Fprintf(secretsGatewayLoginOut, "Open this URL, complete the ProConnect login, then paste the one-time code:\n%s\n> ", loginURL)
+		fmt.Fprintf(codeboxServerLoginOut, "Open this URL, complete the ProConnect login, then paste the one-time code:\n%s\n> ", loginURL)
 		var code string
-		if _, err := fmt.Fscan(secretsGatewayLoginIn, &code); err != nil {
+		if _, err := fmt.Fscan(codeboxServerLoginIn, &code); err != nil {
 			return 1, fmt.Errorf("read login code: %w", err)
 		}
-		tokenResp, err := gatewayclient.ExchangeTicket(context.Background(), base, strings.TrimSpace(code), secretsGatewayHTTPFn())
+		tokenResp, err := gatewayclient.ExchangeTicket(context.Background(), base, strings.TrimSpace(code), codeboxServerHTTPFn())
 		if err != nil {
 			return 1, err
 		}
-		if err := store.Put(context.Background(), codebox.CredentialSecretsGateway, tokenResp.Token); err != nil {
+		if err := store.Put(context.Background(), codebox.CredentialCodeboxServer, tokenResp.Token); err != nil {
 			return 1, fmt.Errorf("store gateway session: %w", err)
 		}
-		fmt.Fprintf(secretsGatewayLoginOut, "Logged in as %s (expires %s).\n", tokenResp.Identity.Email, tokenResp.ExpiresAt.Format(time.RFC3339))
+		fmt.Fprintf(codeboxServerLoginOut, "Logged in as %s (expires %s).\n", tokenResp.Identity.Email, tokenResp.ExpiresAt.Format(time.RFC3339))
 		return 0, nil
 	}
 
@@ -162,8 +162,8 @@ func secretsLoginCmd(args []string) (int, error) {
 	defer func() { _ = listener.Close() }()
 	port := listener.Addr().(*net.TCPAddr).Port
 	loginURL := urlBuilder.LoginURLWithBase(base, port, callbackState)
-	fmt.Fprintf(secretsGatewayLoginOut, "Opening ProConnect in your browser: %s\n", loginURL)
-	if err := secretsGatewayOpenURLFn(loginURL); err != nil {
+	fmt.Fprintf(codeboxServerLoginOut, "Opening ProConnect in your browser: %s\n", loginURL)
+	if err := codeboxServerOpenURLFn(loginURL); err != nil {
 		return 1, fmt.Errorf("open a browser: %w", err)
 	}
 
@@ -203,10 +203,10 @@ func secretsLoginCmd(args []string) (int, error) {
 		if res.err != nil {
 			return 1, res.err
 		}
-		if err := store.Put(context.Background(), codebox.CredentialSecretsGateway, res.token); err != nil {
+		if err := store.Put(context.Background(), codebox.CredentialCodeboxServer, res.token); err != nil {
 			return 1, fmt.Errorf("store gateway session: %w", err)
 		}
-		fmt.Fprintln(secretsGatewayLoginOut, "Logged in. The session is stored in the OS credential store.")
+		fmt.Fprintln(codeboxServerLoginOut, "Logged in. The session is stored in the OS credential store.")
 		return 0, nil
 	case <-time.After(5 * time.Minute):
 		return 1, errors.New("ProConnect login timed out; run codebox secrets login again")
@@ -217,15 +217,15 @@ func secretsLogoutCmd(args []string) (int, error) {
 	if len(args) != 0 {
 		return 2, fmt.Errorf("secrets logout takes no arguments")
 	}
-	store, err := secretsGatewayStoreFn()
+	store, err := codeboxServerStoreFn()
 	if err != nil {
 		return 1, err
 	}
-	err = store.Remove(context.Background(), codebox.CredentialSecretsGateway)
+	err = store.Remove(context.Background(), codebox.CredentialCodeboxServer)
 	if err != nil && !errors.Is(err, codebox.ErrCredentialNotFound) {
 		return 1, fmt.Errorf("remove gateway session: %w", err)
 	}
-	fmt.Fprintln(secretsGatewayLoginOut, "Logged out. The gateway session was removed from the OS credential store.")
+	fmt.Fprintln(codeboxServerLoginOut, "Logged out. The gateway session was removed from the OS credential store.")
 	return 0, nil
 }
 
@@ -241,7 +241,7 @@ func secretsCheckCmd(args []string) (int, error) {
 	if err != nil {
 		return 1, err
 	}
-	fmt.Fprintf(secretsGatewayLoginOut, "Gateway session: %s (ACR %s, expires %s).\n", who.Email, who.ACR, who.ExpiresAt.Format(time.RFC3339))
+	fmt.Fprintf(codeboxServerLoginOut, "Gateway session: %s (ACR %s, expires %s).\n", who.Email, who.ACR, who.ExpiresAt.Format(time.RFC3339))
 	return 0, nil
 }
 

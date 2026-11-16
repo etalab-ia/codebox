@@ -49,16 +49,16 @@ updates:
       go-secrets-pkg:
         patterns: ["*"]
 
-  # Go: stateless secrets gateway service.
+  # Go: stateless codebox server service.
   - package-ecosystem: "gomod"
-    directory: "/apps/secrets-gateway"
+    directory: "/apps/codebox-server"
     schedule:
       interval: "weekly"
     cooldown:
       default-days: 7
     open-pull-requests-limit: 5
     groups:
-      go-secrets-gateway:
+      go-codebox-server:
         patterns: ["*"]
 
   # Go: integration-test fixtures. Each of these manifests declares only the
