@@ -419,6 +419,7 @@ class DeploymentTest(unittest.TestCase):
 
     def test_workflow_is_manual_only_and_serialized(self):
         workflow = WORKFLOW.read_text()
+        self.assertIn("name: Deploy codebox server", workflow)
         self.assertIn("workflow_dispatch:", workflow)
         self.assertIn("group: secrets-gateway-deploy", workflow)
         self.assertIn("cancel-in-progress: false", workflow)
