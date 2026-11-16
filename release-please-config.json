@@ -31,7 +31,7 @@
       "bump-minor-pre-major": true,
       "changelog-path": "CHANGELOG.md",
       "initial-version": "0.1.0",
-      "component": "secrets-gateway",
+      "component": "codebox-server",
       "include-component-in-tag": true
     }
   }

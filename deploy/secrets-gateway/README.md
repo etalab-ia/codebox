@@ -1,19 +1,72 @@
 # secrets-gateway deployment
 
-The container is deployed into a dedicated, otherwise empty Scaleway project
-named `codebox-dev-secrets`. It holds no production infrastructure and no CI/CD
-secrets. The gateway's IAM application is scoped to that project only.
+The container is deployed into a dedicated, otherwise empty Scaleway project.
+It holds no production infrastructure and no CI/CD secrets. The gateway's IAM
+application is scoped to that project only.
+
+## Deploy from the GitHub UI
+
+The default deployment path is the **Deploy secrets-gateway** GitHub Actions
+workflow. It has only a `workflow_dispatch` trigger, serializes concurrent runs,
+and installs a pinned, SHA256-verified Scaleway CLI through the official
+`scaleway/action-scw` action, itself pinned to an immutable commit. Run it from
+`main` after the workflow is merged; it is not automatically tested against real
+infrastructure by a pull request.
+
+Configure these repository settings before the first run:
+
+| Name | Kind | Meaning |
+| --- | --- | --- |
+| `CODEBOX_SCW_ACCESS_KEY` | secret | Access key of the deploy IAM application scoped to the dedicated project |
+| `CODEBOX_SCW_SECRET_KEY` | secret | Secret key of that deploy IAM application |
+| `CODEBOX_SCW_ORGANIZATION_ID` | variable | Scaleway organization UUID containing the dedicated project |
+| `CODEBOX_SCW_PROJECT_ID` | variable | Dedicated project UUID, not its name |
+| `TF_VAR_PROCONNECT_CLIENT_ID` | secret | ProConnect sandbox client ID |
+| `TF_VAR_PROCONNECT_CLIENT_SECRET` | secret | Regenerated ProConnect sandbox client secret |
+| `SCW_REGISTRY_NAMESPACE` | variable | Registry namespace name, such as `codebox` |
+| `CODEBOX_SECRETS_GATEWAY_URL` | variable | Final public HTTPS origin; leave unset for the bootstrap run |
+| `CODEBOX_SECRETS_ALLOWED_SIRETS` | variable | Optional comma-separated project-creation allowlist |
+
+The deploy application needs `ContainersFullAccess`,
+`ContainerRegistryReadOnly`, and `SecretManagerFullAccess` on the dedicated
+project. Release CI can keep its separate `SCW_REGISTRY_SECRET_KEY` with
+`ContainerRegistryFullAccess`; the deploy key does not need to push images.
+
+Use this two-run bootstrap sequence:
+
+1. Register the ProConnect application with the temporary callback
+   `https://bootstrap.invalid/auth/callback`, leaving logout URLs empty and
+   selecting RS256 where configurable. Leave `CODEBOX_SECRETS_GATEWAY_URL`
+   unset.
+2. Open **Actions → Deploy secrets-gateway → Run workflow**, enter a published
+   immutable tag such as `codebox-server-vX.Y.Z`, and run from `main`.
+3. The workflow creates or reuses the `codebox-secrets-gateway` namespace and
+   container, stores the signing seed in Secret Manager at
+   `/gateway/gateway-token-seed`, waits for readiness, and prints the native
+   HTTPS endpoint in the run summary. No credential values are printed.
+4. Set `CODEBOX_SECRETS_GATEWAY_URL` to that native origin and replace the
+   ProConnect temporary callback with `<native-origin>/auth/callback`.
+5. Rerun the workflow from the GitHub UI with the same image tag. This updates
+   the same container with the final public URL and preserves the signing seed.
+   Check `<native-origin>/healthz` before attempting a CLI login.
+
+Reruns converge to the selected image and configuration without creating
+additional namespaces, containers, or token-seed versions. The workflow never
+updates ProConnect or GitHub repository settings automatically.
 
 ## Build and publish
 
 PR 5 adds a release-please component for `apps/secrets-gateway` with the tag
-series `secrets-gateway-vX.Y.Z`. A release for that component builds and pushes
+series `codebox-server-vX.Y.Z`. A release for that component builds and pushes
 the distroless image from [Dockerfile](Dockerfile) to the Scaleway Container
 Registry namespace named by the repository variable `SCW_REGISTRY_NAMESPACE`,
 using the repository secret `SCW_REGISTRY_SECRET_KEY` with the fixed Docker
-username `nologin`. No secret value is written to the image.
+username `nologin`. No secret value is written to the image. The registry image
+is named `codebox-server`. Historical `secrets-gateway-vX.Y.Z` releases remain
+valid for explicit asset rebuilds and publish the same `codebox-server` image
+repository with their original tag.
 
-## Apply
+## Operator-local OpenTofu alternative
 
 OpenTofu reads the existing registry namespace and immutable image tag, creates
 the Serverless Containers namespace and container, and injects non-secret
@@ -29,7 +82,7 @@ export TF_VAR_gateway_token_seed="$(secrets-gateway -print-token-seed)"
 export TF_VAR_proconnect_client_id="<ProConnect sandbox client ID>"
 export TF_VAR_proconnect_client_secret="<ProConnect sandbox client secret>"
 export TF_VAR_registry_namespace_name="<registry namespace>"
-export TF_VAR_image_tag="secrets-gateway-v0.1.0"
+export TF_VAR_image_tag="codebox-server-vX.Y.Z"
 
 tofu -chdir=deploy/secrets-gateway init
 tofu -chdir=deploy/secrets-gateway plan
@@ -46,7 +99,7 @@ for the client (`<url>/auth/callback`). Use the container's native HTTPS domain
 after the first apply, or a stable custom domain configured before registering
 the ProConnect application.
 
-## Required operator values
+### OpenTofu operator values
 
 | Name | Secret | Meaning |
 | --- | --- | --- |
@@ -59,8 +112,8 @@ the ProConnect application.
 | `proconnect_client_id` | yes | ProConnect OIDC client ID |
 | `proconnect_client_secret` | yes | ProConnect OIDC client secret |
 | `registry_namespace_name` | no | Existing Scaleway registry namespace; must match `SCW_REGISTRY_NAMESPACE` |
-| `registry_image_name` | no | Defaults to `secrets-gateway` |
-| `image_tag` | no | Immutable release tag to deploy, e.g. `secrets-gateway-v0.1.0` |
+| `registry_image_name` | no | Defaults to `codebox-server` |
+| `image_tag` | no | Immutable release tag to deploy, e.g. `codebox-server-vX.Y.Z` |
 | `SCW_REGISTRY_SECRET_KEY` | yes (repository secret) | API secret key used by release CI to push the image (`nologin` Docker username) |
 | `allowed_sirets` | no | Optional comma-separated SIRET allowlist for project creation |
 

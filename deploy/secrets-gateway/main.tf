@@ -80,12 +80,12 @@ variable "registry_namespace_name" {
 variable "registry_image_name" {
   type        = string
   description = "Existing Scaleway Container Registry image name for the gateway."
-  default     = "secrets-gateway"
+  default     = "codebox-server"
 }
 
 variable "image_tag" {
   type        = string
-  description = "Immutable image tag to deploy, normally secrets-gateway-vX.Y.Z."
+  description = "Immutable image tag to deploy, normally codebox-server-vX.Y.Z."
 }
 
 variable "allowed_sirets" {
