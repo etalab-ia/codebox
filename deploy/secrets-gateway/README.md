@@ -1,8 +1,56 @@
 # secrets-gateway deployment
 
-The container is deployed into a dedicated, otherwise empty Scaleway project
-named `codebox-dev-secrets`. It holds no production infrastructure and no CI/CD
-secrets. The gateway's IAM application is scoped to that project only.
+The container is deployed into a dedicated, otherwise empty Scaleway project.
+It holds no production infrastructure and no CI/CD secrets. The gateway's IAM
+application is scoped to that project only.
+
+## Deploy from the GitHub UI
+
+The default deployment path is the **Deploy secrets-gateway** GitHub Actions
+workflow. It has only a `workflow_dispatch` trigger, serializes concurrent runs,
+and uses a pinned, SHA256-verified Scaleway CLI. Run it from `main` after the
+workflow is merged; it is not automatically tested against real infrastructure
+by a pull request.
+
+Configure these repository settings before the first run:
+
+| Name | Kind | Meaning |
+| --- | --- | --- |
+| `CODEBOX_SCW_ACCESS_KEY` | secret | Access key of the deploy IAM application scoped to the dedicated project |
+| `CODEBOX_SCW_SECRET_KEY` | secret | Secret key of that deploy IAM application |
+| `CODEBOX_SCW_PROJECT_ID` | variable | Dedicated project UUID, not its name |
+| `TF_VAR_PROCONNECT_CLIENT_ID` | secret | ProConnect sandbox client ID |
+| `TF_VAR_PROCONNECT_CLIENT_SECRET` | secret | Regenerated ProConnect sandbox client secret |
+| `SCW_REGISTRY_NAMESPACE` | variable | Registry namespace name, such as `codebox` |
+| `CODEBOX_SECRETS_GATEWAY_URL` | variable | Final public HTTPS origin; leave unset for the bootstrap run |
+| `CODEBOX_SECRETS_ALLOWED_SIRETS` | variable | Optional comma-separated project-creation allowlist |
+
+The deploy application needs `ContainersFullAccess`,
+`ContainerRegistryReadOnly`, and `SecretManagerFullAccess` on the dedicated
+project. Release CI can keep its separate `SCW_REGISTRY_SECRET_KEY` with
+`ContainerRegistryFullAccess`; the deploy key does not need to push images.
+
+Use this two-run bootstrap sequence:
+
+1. Register the ProConnect application with the temporary callback
+   `https://bootstrap.invalid/auth/callback`, leaving logout URLs empty and
+   selecting RS256 where configurable. Leave `CODEBOX_SECRETS_GATEWAY_URL`
+   unset.
+2. Open **Actions → Deploy secrets-gateway → Run workflow**, keep an immutable
+   tag such as `secrets-gateway-v0.2.0`, and run from `main`.
+3. The workflow creates or reuses the `codebox-secrets-gateway` namespace and
+   container, stores the signing seed in Secret Manager at
+   `/gateway/gateway-token-seed`, waits for readiness, and prints the native
+   HTTPS endpoint in the run summary. No credential values are printed.
+4. Set `CODEBOX_SECRETS_GATEWAY_URL` to that native origin and replace the
+   ProConnect temporary callback with `<native-origin>/auth/callback`.
+5. Rerun the workflow from the GitHub UI with the same image tag. This updates
+   the same container with the final public URL and preserves the signing seed.
+   Check `<native-origin>/healthz` before attempting a CLI login.
+
+Reruns converge to the selected image and configuration without creating
+additional namespaces, containers, or token-seed versions. The workflow never
+updates ProConnect or GitHub repository settings automatically.
 
 ## Build and publish
 
@@ -13,7 +61,7 @@ Registry namespace named by the repository variable `SCW_REGISTRY_NAMESPACE`,
 using the repository secret `SCW_REGISTRY_SECRET_KEY` with the fixed Docker
 username `nologin`. No secret value is written to the image.
 
-## Apply
+## Operator-local OpenTofu alternative
 
 OpenTofu reads the existing registry namespace and immutable image tag, creates
 the Serverless Containers namespace and container, and injects non-secret
@@ -46,7 +94,7 @@ for the client (`<url>/auth/callback`). Use the container's native HTTPS domain
 after the first apply, or a stable custom domain configured before registering
 the ProConnect application.
 
-## Required operator values
+### OpenTofu operator values
 
 | Name | Secret | Meaning |
 | --- | --- | --- |
