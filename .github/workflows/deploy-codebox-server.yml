@@ -41,10 +41,10 @@ jobs:
         id: deploy
         env:
           SCW_CLI: scw
-          SCW_ACCESS_KEY: ${{ secrets.CODEBOX_SCW_ACCESS_KEY }}
-          SCW_SECRET_KEY: ${{ secrets.CODEBOX_SCW_SECRET_KEY }}
-          SCW_DEFAULT_ORGANIZATION_ID: ${{ vars.CODEBOX_SCW_ORGANIZATION_ID }}
-          SCW_DEFAULT_PROJECT_ID: ${{ vars.CODEBOX_SCW_PROJECT_ID }}
+          SCW_ACCESS_KEY: ${{ secrets.SCW_ACCESS_KEY }}
+          SCW_SECRET_KEY: ${{ secrets.SCW_SECRET_KEY }}
+          SCW_DEFAULT_ORGANIZATION_ID: ${{ vars.SCW_ORGANIZATION_ID }}
+          SCW_DEFAULT_PROJECT_ID: ${{ vars.SCW_PROJECT_ID }}
           SCW_DEFAULT_REGION: fr-par
           SCW_REGISTRY_NAMESPACE: ${{ vars.SCW_REGISTRY_NAMESPACE }}
           PROCONNECT_CLIENT_ID: ${{ secrets.TF_VAR_PROCONNECT_CLIENT_ID }}
