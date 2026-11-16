@@ -6,7 +6,7 @@ application is scoped to that project only.
 
 ## Deploy from the GitHub UI
 
-The default deployment path is the **Deploy secrets-gateway** GitHub Actions
+The default deployment path is the **Deploy codebox server** GitHub Actions
 workflow. It has only a `workflow_dispatch` trigger, serializes concurrent runs,
 and installs a pinned, SHA256-verified Scaleway CLI through the official
 `scaleway/action-scw` action, itself pinned to an immutable commit. Run it from
@@ -38,7 +38,7 @@ Use this two-run bootstrap sequence:
    `https://bootstrap.invalid/auth/callback`, leaving logout URLs empty and
    selecting RS256 where configurable. Leave `CODEBOX_SECRETS_GATEWAY_URL`
    unset.
-2. Open **Actions → Deploy secrets-gateway → Run workflow**, enter a published
+2. Open **Actions → Deploy codebox server → Run workflow**, enter a published
    immutable tag such as `codebox-server-vX.Y.Z`, and run from `main`.
 3. The workflow creates or reuses the `codebox-secrets-gateway` namespace and
    container, stores the signing seed in Secret Manager at
