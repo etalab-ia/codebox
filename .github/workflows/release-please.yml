@@ -16,6 +16,13 @@ permissions:
   issues: write
   pull-requests: write
 
+# Serialize release runs: two release-please merges in quick succession must
+# not build and publish concurrently, or the older release could finish last
+# and claim "Latest" after the newer one. Queued runs wait; none is cancelled.
+concurrency:
+  group: release-please
+  cancel-in-progress: false
+
 jobs:
   release-please:
     runs-on: ubuntu-latest
