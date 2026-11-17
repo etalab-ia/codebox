@@ -174,7 +174,7 @@ missing_home="$temp_root/missing asset home"
 mkdir -p "$missing_home/.local/bin"
 printf 'keep installed\n' > "$missing_home/.local/bin/codebox"
 rm -f "$temp_root/setup-called"
-if FAKE_MISSING_ASSET=1 run_installer "$missing_home" "$good_sums" 0 0 0 > "$temp_root/missing-asset.out" 2>&1; then
+if ( export FAKE_MISSING_ASSET=1; run_installer "$missing_home" "$good_sums" 0 0 0 ) > "$temp_root/missing-asset.out" 2>&1; then
 	printf 'missing release asset unexpectedly succeeded\n' >&2
 	exit 1
 fi
@@ -189,15 +189,7 @@ if run_installer "$home" "$good_sums" 0 1 0 > "$temp_root/replace.out" 2>&1; the
 	exit 1
 fi
 cmp -s "$target" "$temp_root/expected-target" || { printf 'failed replacement changed the installed binary\n' >&2; exit 1; }
-cmp -s "$home/.local/bin/codebox.previous" "$temp_root/expected-target" || {
-	printf 'rollback copy missing after failed replacement\n' >&2
-	printf '=== DIAG replace.out ===\n' >&2; cat "$temp_root/replace.out" >&2
-	printf '=== DIAG bin dir ===\n' >&2; ls -la "$home/.local/bin/" >&2
-	printf '=== DIAG previous content ===\n' >&2; cat "$home/.local/bin/codebox.previous" >&2 || printf 'MISSING\n' >&2
-	printf '=== DIAG expected ===\n' >&2; cat "$temp_root/expected-target" >&2
-	printf '=== DIAG urls ===\n' >&2; cat "$temp_root/urls" >&2
-	exit 1
-}
+cmp -s "$home/.local/bin/codebox.previous" "$temp_root/expected-target" || { printf 'rollback copy missing after failed replacement\n' >&2; exit 1; }
 
 if run_installer "$home" "$good_sums" 0 0 9 > "$temp_root/setup-failure.out" 2>&1; then
 	printf 'setup failure unexpectedly succeeded\n' >&2
