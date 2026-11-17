@@ -45,6 +45,9 @@ case "$url" in
 			printf 'partial' > "$output"
 			exit 22
 		fi
+		if [ "${FAKE_MISSING_ASSET:-0}" = 1 ]; then
+			exit 22
+		fi
 		cp "$FAKE_BINARY" "$output"
 		;;
 	*)
@@ -105,6 +108,7 @@ run_installer() {
 	FAKE_SETUP_LOG="$temp_root/setup-called" \
 	FAKE_RELEASE_URL="$release_url" \
 	FAKE_FAIL_DOWNLOAD=$fail_download \
+	FAKE_MISSING_ASSET=${FAKE_MISSING_ASSET:-0} \
 	FAKE_FAIL_REPLACE=$fail_replace \
 	FAKE_SETUP_EXIT=$setup_exit \
 	FAKE_TARGET="$home_dir/.local/bin/codebox" \
@@ -161,6 +165,24 @@ if run_installer "$home" "$good_sums" 1 0 0 > "$temp_root/download.out" 2>&1; th
 	exit 1
 fi
 cmp -s "$target" "$temp_root/expected-target" || { printf 'download failure changed the installed binary\n' >&2; exit 1; }
+
+# A release whose binaries are not (yet) uploaded: the tag resolves but the
+# asset 404s. The failure must name the release, explain the likely cause and
+# give a retry path, not dump a raw curl URL error. The installation must stay
+# untouched.
+missing_home="$temp_root/missing asset home"
+mkdir -p "$missing_home/.local/bin"
+printf 'keep installed\n' > "$missing_home/.local/bin/codebox"
+rm -f "$temp_root/setup-called"
+if FAKE_MISSING_ASSET=1 run_installer "$missing_home" "$good_sums" 0 0 0 > "$temp_root/missing-asset.out" 2>&1; then
+	printf 'missing release asset unexpectedly succeeded\n' >&2
+	exit 1
+fi
+[ "$(cat "$missing_home/.local/bin/codebox")" = 'keep installed' ] || { printf 'missing-asset failure changed the installed binary\n' >&2; exit 1; }
+grep -F "$release_tag" "$temp_root/missing-asset.out" >/dev/null || { printf 'missing-asset error did not name the release\n' >&2; exit 1; }
+grep -F 'réessayez dans quelques minutes' "$temp_root/missing-asset.out" >/dev/null || { printf 'missing-asset error did not suggest a retry\n' >&2; exit 1; }
+grep -F "releases/tag/$release_tag" "$temp_root/missing-asset.out" >/dev/null || { printf 'missing-asset error did not link the release page\n' >&2; exit 1; }
+[ ! -e "$temp_root/setup-called" ] || { printf 'setup ran after a missing-asset failure\n' >&2; exit 1; }
 
 if run_installer "$home" "$good_sums" 0 1 0 > "$temp_root/replace.out" 2>&1; then
 	printf 'interrupted replacement unexpectedly succeeded\n' >&2

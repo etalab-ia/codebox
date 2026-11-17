@@ -309,6 +309,34 @@ jobs:
           GH_REPO: ${{ github.repository }}
           TAG: ${{ needs.release-please.outputs.codebox_tag_name }}
         run: gh release upload "$TAG" dist/codebox-* dist/SHA256SUMS --clobber
+      # The release is created as a draft (release-please-config.json) so
+      # `releases/latest` — which install.sh resolves — can never point at a
+      # release without binaries, whether the build is still running or has
+      # failed. Publish only now that every asset is uploaded, and claim the
+      # "Latest" badge explicitly so a codebox-server release can never take
+      # it (GitHub defaults make_latest to true on release creation).
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ needs.release-please.outputs.codebox_tag_name }}
+        run: gh release edit "$TAG" --draft=false --latest
+
+  # Server releases carry no CLI assets. Left eligible for "Latest", they
+  # would hijack `releases/latest` between CLI releases and break install.sh
+  # (its tag guard rejects codebox-server tags). Demote them at creation.
+  mark-server-release-not-latest:
+    needs: release-please
+    if: needs.release-please.outputs.codebox_server_release_created == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Exclude server release from Latest
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ needs.release-please.outputs.codebox_server_tag_name }}
+        run: gh release edit "$TAG" --latest=false
 
   build-codebox-server-container:
     needs: release-please

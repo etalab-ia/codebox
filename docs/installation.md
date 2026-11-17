@@ -16,6 +16,8 @@ Dans PowerShell sous Windows :
 irm https://raw.githubusercontent.com/etalab-ia/codebox/main/scripts/install.ps1 | iex
 ```
 
+Une release n'est publiée qu'une fois tous ses binaires et `SHA256SUMS` téléversés : pendant la construction d'une nouvelle version, l'installateur continue donc de viser la release complète précédente.
+
 L'installateur choisit une seule release stable, télécharge le binaire et `SHA256SUMS` depuis cette même release, puis compare l'empreinte avant de remplacer l'installation. Le binaire est installé sans privilèges élevés sous `~/.local/bin` (macOS/Linux) ou `$env:LOCALAPPDATA\Programs\codebox` (Windows). Une mise à niveau conserve le binaire précédent sous `codebox.previous` (macOS/Linux) ou `codebox.previous.exe` (Windows). Sous Windows, ferme les sessions `codebox` en cours avant la mise à niveau. Si `codebox setup` échoue, restaure le binaire précédent dans le même répertoire ; sous Windows, par exemple : `Copy-Item -LiteralPath "$env:LOCALAPPDATA\Programs\codebox\codebox.previous.exe" -Destination "$env:LOCALAPPDATA\Programs\codebox\codebox.exe" -Force`. L'assistant `codebox setup` est lancé après l'installation.
 
 Pour examiner le script avant de l'exécuter, télécharge-le puis lance-le :
