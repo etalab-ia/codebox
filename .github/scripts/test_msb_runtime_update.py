@@ -6,6 +6,7 @@ import importlib.util
 import io
 import json
 from pathlib import Path
+import re
 import shutil
 import subprocess
 import tarfile
@@ -58,6 +59,12 @@ class UpdateTest(unittest.TestCase):
             destination = self.root / relative
             destination.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(REPO_ROOT / relative, destination)
+        runtime = (self.root / UPDATER.RUNTIME_SOURCE).read_text()
+        version_match = re.search(r'msbRuntimeVersion\s+=\s+"([0-9]+)\.([0-9]+)\.([0-9]+)"', runtime)
+        self.assertIsNotNone(version_match, "test fixture must expose its actual source runtime pin")
+        major, minor, patch = (int(part) for part in version_match.groups())
+        self.sdk_version = f"{major}.{minor}.{patch}"
+        self.version = f"{major}.{minor}.{patch + 1}"
         self.archives = {
             asset: archive_bytes(members) for asset, members in UPDATER.ASSET_MEMBERS.items()
         }
@@ -85,10 +92,10 @@ class UpdateTest(unittest.TestCase):
         self.assertTrue(check)
         module_dir = Path(cwd)
         if command[1] == "get":
-            self.assertEqual(command[2], f"{UPDATER.SDK_MODULE}@v0.7.15")
+            self.assertEqual(command[2], f"{UPDATER.SDK_MODULE}@v{self.version}")
             for name in ("go.mod", "go.sum"):
                 path = module_dir / name
-                path.write_text(path.read_text().replace("v0.7.14", "v0.7.15"))
+                path.write_text(path.read_text().replace(f"v{self.sdk_version}", f"v{self.version}"))
         else:
             self.assertEqual(command[1:], ["mod", "tidy"])
         return subprocess.CompletedProcess(command, 0)
@@ -98,8 +105,8 @@ class UpdateTest(unittest.TestCase):
             repo_root=self.root,
             attestation_path=self.attestation,
             body_path=self.body,
-            version="0.7.15",
-            sdk_version="0.7.14",
+            version=self.version,
+            sdk_version=self.sdk_version,
             issue_number=419,
             expected_assets=list(UPDATER.ASSET_MEMBERS),
         )
@@ -119,8 +126,8 @@ class UpdateTest(unittest.TestCase):
         self.assertEqual(run.call_count, 4)
         runtime = (self.root / UPDATER.RUNTIME_SOURCE).read_text()
         runtime_test = (self.root / UPDATER.RUNTIME_TEST).read_text()
-        self.assertIn('msbRuntimeVersion     = "0.7.15"', runtime)
-        self.assertIn("releases/download/v0.7.15", runtime)
+        self.assertIn(f'msbRuntimeVersion     = "{self.version}"', runtime)
+        self.assertIn(f"releases/download/v{self.version}", runtime)
         for asset, payload in self.archives.items():
             digest = hashlib.sha256(payload).hexdigest()
             expected_count = sum(
@@ -129,16 +136,18 @@ class UpdateTest(unittest.TestCase):
             self.assertEqual(runtime.count(digest), expected_count, asset)
             self.assertEqual(runtime_test.count(digest), expected_count, asset)
         native_main = (self.root / f"{UPDATER.NATIVE_DIR}/main.go").read_text()
-        self.assertIn('const runtimeVersion = "0.7.15"', native_main)
-        self.assertIn('SDK_VERSION=\'0.7.15\'', (self.root / f"{UPDATER.NATIVE_DIR}/run.py").read_text())
-        self.assertIn('VERSION=\'0.7.15\'', (self.root / f"{UPDATER.NATIVE_DIR}/runtime-download.py").read_text())
+        self.assertIn(f'const runtimeVersion = "{self.version}"', native_main)
+        self.assertIn(f"SDK_VERSION='{self.version}'", (self.root / f"{UPDATER.NATIVE_DIR}/run.py").read_text())
+        self.assertIn(
+            f"VERSION='{self.version}'", (self.root / f"{UPDATER.NATIVE_DIR}/runtime-download.py").read_text()
+        )
         for name, before in evidence.items():
             self.assertEqual((self.root / f"{UPDATER.NATIVE_DIR}/evidence/{name}").read_bytes(), before)
         body = self.body.read_text()
         self.assertIn("Closes #419", body)
         self.assertIn("manually dispatched", body)
-        self.assertIn("compare/v0.7.14...v0.7.15", body)
-        self.assertIn("v0.7.14", body)
+        self.assertIn(f"compare/v{self.sdk_version}...v{self.version}", body)
+        self.assertIn(f"v{UPDATER.evidence_version(self.root)}", body)
         self.assertIn("👾 Generated with", body)
 
     def test_missing_attested_asset_fails_before_download_or_edits(self):

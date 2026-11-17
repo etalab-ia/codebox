@@ -8,7 +8,9 @@ on:
   workflow_dispatch:
 
 permissions:
-  actions: read
+  # The hosted watchdog lists this run's jobs and cancels the run if the paid
+  # job remains queued. Repository administration permission is not required.
+  actions: write
   contents: read
 
 concurrency:
@@ -16,21 +18,7 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  runner-check:
-    runs-on: ubuntu-24.04
-    timeout-minutes: 2
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-      - name: Require an explicitly provisioned Scaleway runner
-        env:
-          GH_TOKEN: ${{ github.token }}
-          GH_REPO: ${{ github.repository }}
-        run: bash .github/scripts/msb-hardware-runner-check.sh
-
   qualify:
-    needs: runner-check
     runs-on: [self-hosted, linux, scaleway]
     timeout-minutes: 15
     steps:
@@ -58,3 +46,20 @@ jobs:
           CODEBOX_MSB_HARDWARE_QUALIFICATION: "1"
           MSB_BACKEND: local
         run: go -C apps/codebox test ./internal/codebox -run '^TestMSBHardwareQualification$' -count=1 -v -timeout=9m
+
+  watchdog:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 4
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Bound the self-hosted runner acquisition wait
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          GITHUB_RUN_ID: ${{ github.run_id }}
+          QUALIFY_JOB_NAME: qualify
+          WAIT_SECONDS: "120"
+          POLL_INTERVAL: "10"
+        run: bash .github/scripts/msb-hardware-watchdog.sh

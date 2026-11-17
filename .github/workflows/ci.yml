@@ -40,8 +40,8 @@ jobs:
         run: bash .github/scripts/test-msb-runtime-watch-issue.sh
       - name: Test msb runtime update preparer
         run: python3 .github/scripts/test_msb_runtime_update.py
-      - name: Test manual msb hardware workflow guards
-        run: bash .github/scripts/test-msb-hardware-runner-check.sh
+      - name: Test manual msb hardware watchdog
+        run: bash .github/scripts/test-msb-hardware-watchdog.sh
 
   check:
     runs-on: ubuntu-latest
