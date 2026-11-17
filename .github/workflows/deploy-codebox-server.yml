@@ -17,7 +17,7 @@ concurrency:
 
 jobs:
   deploy:
-    if: github.ref == 'refs/heads/main'
+    # Manual dispatch may target a PR branch for pre-merge deployment validation.
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
