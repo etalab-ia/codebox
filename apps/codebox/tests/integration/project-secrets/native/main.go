@@ -21,7 +21,9 @@ import (
 	"time"
 )
 
-const source = "684ea414de08a30e2456d3aab24b453b2eec1641"
+var source = os.Getenv("CODEBOX_QUALIFICATION_SOURCE")
+
+const runtimeVersion = "0.7.14"
 const archiveSHA = "9cc2bd2874cc1aa98cb139429a9482830b1e64b48255aa9f40a25b8979a23a9f"
 const markerA = "__CODEBOX_SECRET_a01__"
 const markerB = "__CODEBOX_SECRET_b02__"
@@ -151,11 +153,15 @@ func run() {
 		result("cleanup", e == nil || msb.IsKind(e, msb.ErrSandboxNotFound))
 		return
 	}
+	if !regexp.MustCompile(`^[0-9a-f]{40}$`).MatchString(source) {
+		result("full-source-pin-required", false)
+		return
+	}
 	if runtime.GOOS != "darwin" || runtime.GOARCH != "arm64" {
 		result("native-darwin-arm64-required", false)
 		return
 	}
-	fmt.Printf("META kit=v3 source=%s sdk=0.7.14 runtime=0.7.14 archive_sha256=%s go=%s\n", source, archiveSHA, runtime.Version())
+	fmt.Printf("META kit=v3 source=%s sdk=%s runtime=%s archive_sha256=%s go=%s\n", source, runtimeVersion, runtimeVersion, archiveSHA, runtime.Version())
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	ctx, cancel := context.WithTimeout(ctx, 8*time.Minute)

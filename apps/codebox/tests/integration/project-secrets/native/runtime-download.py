@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """Download only project-pinned official darwin/arm64 runtime, verify before extract."""
 import hashlib, os, pathlib, subprocess, sys, tarfile
-URL='https://github.com/superradcompany/microsandbox/releases/download/v0.7.14/microsandbox-darwin-aarch64.tar.gz'
+VERSION='0.7.14'
+URL=f'https://github.com/superradcompany/microsandbox/releases/download/v{VERSION}/microsandbox-darwin-aarch64.tar.gz'
 SHA='9cc2bd2874cc1aa98cb139429a9482830b1e64b48255aa9f40a25b8979a23a9f'
 def install(directory):
     root=pathlib.Path(directory);root.mkdir(mode=0o700)
@@ -17,6 +18,6 @@ def install(directory):
             data=tf.extractfile(members[0]).read();p=root/name;p.write_bytes(data);p.chmod(0o700 if name=='msb' else 0o600)
     (root/'libkrunfw.dylib').symlink_to('libkrunfw.5.dylib')
     version=subprocess.run([str(root/'msb'),'--version'],capture_output=True,text=True,check=True,timeout=15).stdout.strip()
-    if version!='msb 0.7.14': raise RuntimeError('runtime version mismatch')
-    print('META runtime_archive_sha256='+SHA+' runtime_version=0.7.14',flush=True)
+    if version!=f'msb {VERSION}': raise RuntimeError('runtime version mismatch')
+    print('META runtime_archive_sha256='+SHA+f' runtime_version={VERSION}',flush=True)
 if __name__=='__main__': install(sys.argv[1])

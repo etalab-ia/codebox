@@ -91,8 +91,9 @@ Project bindings should use a stable opaque marker with no dollar references,
 for example `__CODEBOX_SECRET_<opaque-id>__`. Quote selection alone is not a
 portable solution. This is a proposal, not a newly enabled runtime binding.
 
-The current Microsandbox runtime/SDK v0.7.14 passed the native canary matrix
-twice on macOS arm64. See [the native runner and evidence](native/README.md)
+Microsandbox runtime/SDK v0.7.14 was the last version to pass the native canary
+matrix twice on macOS arm64. Later candidate pins do not inherit that result or
+rewrite its evidence. See [the native runner and evidence](native/README.md)
 for custom opaque markers (raw and Basic), shared destinations, independent
 per-binding authorization, forbidden hosts/redirects, rotation, removal,
 re-add/restart and reference persistence. Applications that sign or transform

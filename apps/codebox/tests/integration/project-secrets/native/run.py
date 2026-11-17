@@ -3,6 +3,9 @@
 import argparse, ipaddress, os, pathlib, platform, re, shutil, signal, socket, subprocess, sys, tempfile, time
 
 HERE=pathlib.Path(__file__).resolve().parent
+SDK_VERSION='0.7.14'
+META_PATTERN=(r'META kit=v3 source=[0-9a-f]{40} sdk='+re.escape(SDK_VERSION)+
+              r' runtime='+re.escape(SDK_VERSION)+r' archive_sha256=[0-9a-f]{64} go=go[0-9.]+')
 
 def main():
     p=argparse.ArgumentParser();p.add_argument('--ip',required=True);p.add_argument('--tls',type=int,default=18443);p.add_argument('--dns',type=int,default=15354);a=p.parse_args()
@@ -50,7 +53,7 @@ def main():
             try: rc=probe.wait(timeout=540)
             except subprocess.TimeoutExpired: raise RuntimeError('native probe deadline exceeded')
         raw=(directory/'native-stdout-private.log').read_text(errors='replace')
-        lines=[s for s in raw.splitlines() if re.fullmatch(r'(?:PASS|FAIL) [a-z0-9-]+',s) or re.fullmatch(r'META kit=v3 source=[0-9a-f]{40} sdk=0\.7\.14 runtime=0\.7\.14 archive_sha256=[0-9a-f]{64} go=go[0-9.]+',s)]
+        lines=[s for s in raw.splitlines() if re.fullmatch(r'(?:PASS|FAIL) [a-z0-9-]+',s) or re.fullmatch(META_PATTERN,s)]
         (directory/'results.txt').write_text('\n'.join(lines)+'\n')
         print((directory/'results.txt').read_text(),end='',flush=True)
     except (Exception,KeyboardInterrupt):
