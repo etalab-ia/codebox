@@ -483,6 +483,86 @@ func TestVerifyProjectSkillsRejectsDuplicateDiscovery(t *testing.T) {
 	}
 }
 
+func TestVerifyProjectSkillsFullIsolationCleansUpVerificationOwnedService(t *testing.T) {
+	for name, test := range map[string]struct {
+		apiResult  fakeMSBExecCaptureResult
+		stopResult fakeMSBExecCaptureResult
+		wantErr    string
+	}{
+		"success": {
+			apiResult: fakeMSBExecCaptureResult{stdout: `{"data":[{"name":"rgaa"}]}`},
+		},
+		"discovery error": {
+			apiResult: fakeMSBExecCaptureResult{stdout: "not json"},
+			wantErr:   "invalid OpenCode response",
+		},
+		"cleanup error": {
+			apiResult:  fakeMSBExecCaptureResult{stdout: `{"data":[{"name":"rgaa"}]}`},
+			stopResult: fakeMSBExecCaptureResult{code: 1, stderr: "boom"},
+			wantErr:    "opencode service stop exited 1: boom",
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			client := &fakeMSBClient{execCaptureResults: []fakeMSBExecCaptureResult{
+				{stdout: "stopped\n"},
+				test.apiResult,
+				test.stopResult,
+			}}
+			m := NewMicrosandboxRuntime(Config{Isolation: IsolationFull, ProjectSkills: []SkillPackage{{Name: "rgaa"}}})
+			m.Client = client
+			err := m.verifyProjectSkills(context.Background())
+			if test.wantErr == "" && err != nil {
+				t.Fatalf("verification cleanup after success: %v", err)
+			}
+			if test.wantErr != "" && (err == nil || !strings.Contains(err.Error(), test.wantErr)) {
+				t.Fatalf("verification error = %v, want %q", err, test.wantErr)
+			}
+			expectedCalls := []string{
+				"execcapture " + m.InstanceName() + " opencode service status",
+				"execcapture " + m.InstanceName() + " opencode api GET /api/skill",
+				"execcapture " + m.InstanceName() + " opencode service stop",
+			}
+			if !reflect.DeepEqual(client.calls, expectedCalls) {
+				t.Fatalf("full-isolation verification calls = %v, want %v", client.calls, expectedCalls)
+			}
+		})
+	}
+}
+
+func TestVerifyProjectSkillsFullIsolationPreservesPreexistingService(t *testing.T) {
+	client := &fakeMSBClient{execCaptureResults: []fakeMSBExecCaptureResult{
+		{stdout: "http://127.0.0.1:4096\n"},
+		{stdout: `{"data":[{"name":"rgaa"}]}`},
+	}}
+	m := NewMicrosandboxRuntime(Config{Isolation: IsolationFull, ProjectSkills: []SkillPackage{{Name: "rgaa"}}})
+	m.Client = client
+	if err := m.verifyProjectSkills(context.Background()); err != nil {
+		t.Fatalf("verification with a pre-existing service: %v", err)
+	}
+	expectedCalls := []string{
+		"execcapture " + m.InstanceName() + " opencode service status",
+		"execcapture " + m.InstanceName() + " opencode api GET /api/skill",
+	}
+	if !reflect.DeepEqual(client.calls, expectedCalls) {
+		t.Fatalf("pre-existing service calls = %v, want no service stop", client.calls)
+	}
+}
+
+func TestVerifyProjectSkillsBackendDoesNotManageService(t *testing.T) {
+	client := &fakeMSBClient{execCaptureResults: []fakeMSBExecCaptureResult{
+		{stdout: `{"data":[{"name":"rgaa"}]}`},
+	}}
+	m := NewMicrosandboxRuntime(Config{Isolation: IsolationBackend, ProjectSkills: []SkillPackage{{Name: "rgaa"}}})
+	m.Client = client
+	if err := m.verifyProjectSkills(context.Background()); err != nil {
+		t.Fatalf("backend verification: %v", err)
+	}
+	expectedCalls := []string{"execcapture " + m.InstanceName() + " opencode api GET /api/skill"}
+	if !reflect.DeepEqual(client.calls, expectedCalls) {
+		t.Fatalf("backend verification calls = %v, want only the API query", client.calls)
+	}
+}
+
 func TestVerifyProjectSkillsRetriesTransientMissingSkillOnPersistentService(t *testing.T) {
 	// The persistent OpenCode 2.2.5 service can answer /api/skill before its
 	// skill index is ready (upstream anomalyco/opencode #57524). Retrying the
@@ -491,7 +571,7 @@ func TestVerifyProjectSkillsRetriesTransientMissingSkillOnPersistentService(t *t
 		{stdout: `{"data":[{"name":"builtin"}]}`},
 		{stdout: `{"data":[{"name":"builtin"},{"name":"rgaa"}]}`},
 	}}
-	m := NewMicrosandboxRuntime(Config{ProjectSkills: []SkillPackage{{Name: "rgaa"}}})
+	m := NewMicrosandboxRuntime(Config{Isolation: IsolationBackend, ProjectSkills: []SkillPackage{{Name: "rgaa"}}})
 	m.Client = client
 	m.launchRetryDelay = time.Millisecond
 	if err := m.verifyProjectSkills(context.Background()); err != nil {

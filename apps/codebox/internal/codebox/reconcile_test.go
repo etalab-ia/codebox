@@ -381,7 +381,9 @@ func TestReconcileNoOpInstallsNewProjectSkills(t *testing.T) {
 		exists: true, status: "running",
 		execCaptureResults: []fakeMSBExecCaptureResult{
 			{stdout: `{"schemaVersion":1,"skills":[]}`},
+			{stdout: "stopped\n"},
 			{stdout: `{"data":[{"name":"rgaa"}]}`},
+			{},
 		},
 	}
 	m := newTestMicrosandbox(t, client)

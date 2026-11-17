@@ -5,13 +5,17 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"sort"
 	"strings"
 	"time"
 )
 
-const guestSkillInventorySchema = 1
+const (
+	guestSkillInventorySchema  = 1
+	openCodeServiceStopTimeout = 10 * time.Second
+)
 
 type guestSkillEntry struct {
 	ID       string `json:"id"`
@@ -428,7 +432,7 @@ func (m *MicrosandboxRuntime) commitGuestSkillInventory(ctx context.Context, des
 	return nil
 }
 
-func (m *MicrosandboxRuntime) verifyProjectSkills(ctx context.Context) error {
+func (m *MicrosandboxRuntime) verifyProjectSkills(ctx context.Context) (err error) {
 	if len(m.cfg.ProjectSkills) == 0 {
 		return nil
 	}
@@ -438,6 +442,22 @@ func (m *MicrosandboxRuntime) verifyProjectSkills(ctx context.Context) error {
 	// actually discovered, which is the stronger check and stays as it was.
 	if m.cfg.EffectiveHarness() == HarnessPi {
 		return m.verifyPiProjectSkills(ctx)
+	}
+	if m.cfg.Isolation == IsolationFull {
+		// Full isolation normally leaves no OpenCode service running. Reuse the
+		// persistent service for cold-start retries, but stop it only when it was
+		// stopped on entry; a pre-existing service is not verification-owned.
+		stopped, statusErr := m.openCodeServiceStoppedForVerification(ctx)
+		if statusErr != nil {
+			return statusErr
+		}
+		if stopped {
+			defer func() {
+				cleanupCtx, cancel := context.WithTimeout(context.Background(), openCodeServiceStopTimeout)
+				defer cancel()
+				err = errors.Join(err, m.stopOpenCodeServiceForVerification(cleanupCtx))
+			}()
+		}
 	}
 	expected := make(map[string]bool, len(m.cfg.ProjectSkills))
 	for _, skill := range m.cfg.ProjectSkills {
@@ -479,6 +499,35 @@ func (m *MicrosandboxRuntime) verifyProjectSkills(ctx context.Context) error {
 		}
 	}
 	return problem
+}
+
+func (m *MicrosandboxRuntime) openCodeServiceStoppedForVerification(ctx context.Context) (bool, error) {
+	stdout, stderr, code, err := m.Client.ExecCapture(ctx, m.InstanceName(), "opencode service status")
+	if err != nil {
+		return false, fmt.Errorf("verify guest skill discovery: inspect OpenCode service status: %w", err)
+	}
+	if code != 0 {
+		return false, fmt.Errorf("verify guest skill discovery: opencode service status exited %d: %s", code, strings.TrimSpace(stderr))
+	}
+	status := strings.TrimSpace(stdout)
+	if status == "stopped" {
+		return true, nil
+	}
+	if strings.HasPrefix(status, "http://127.0.0.1:") {
+		return false, nil
+	}
+	return false, fmt.Errorf("verify guest skill discovery: unrecognized OpenCode service status %q", status)
+}
+
+func (m *MicrosandboxRuntime) stopOpenCodeServiceForVerification(ctx context.Context) error {
+	_, stderr, code, err := m.Client.ExecCapture(ctx, m.InstanceName(), "opencode service stop")
+	if err != nil {
+		return fmt.Errorf("verify guest skill discovery: stop verification-owned OpenCode service: %w", err)
+	}
+	if code != 0 {
+		return fmt.Errorf("verify guest skill discovery: opencode service stop exited %d: %s", code, strings.TrimSpace(stderr))
+	}
+	return nil
 }
 
 // queryOpenCodeSkillDiscovery asks the persistent OpenCode service what skills
