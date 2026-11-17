@@ -109,6 +109,7 @@ type fakeProvider struct {
 	identity      Identity
 	exchangeErr   error
 	createErr     error
+	authorizeErr  error
 	lastState     string
 	lastChallenge string
 }
@@ -116,6 +117,9 @@ type fakeProvider struct {
 func (f *fakeProvider) AuthorizeURL(_ context.Context, state, nonce, codeChallenge string) (string, error) {
 	f.lastState = state
 	f.lastChallenge = codeChallenge
+	if f.authorizeErr != nil {
+		return "", f.authorizeErr
+	}
 	return "https://proconnect.example/authorize?state=" + state + "&nonce=" + nonce, nil
 }
 

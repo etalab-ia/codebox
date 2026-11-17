@@ -171,7 +171,9 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 	challenge := sha256.Sum256([]byte(verifier))
 	authorizeURL, err := s.identity.AuthorizeURL(r.Context(), state, nonce, base64.RawURLEncoding.EncodeToString(challenge[:]))
 	if err != nil {
-		s.audit(r, "login.start_failed", slog.String("reason", "identity_provider_unavailable"))
+		s.audit(r, "login.start_failed",
+			slog.String("reason", "identity_provider_unavailable"),
+			slog.String("error_class", upstreamErrorClass(err)))
 		writeError(w, http.StatusServiceUnavailable, secrets.ErrCodeUpstreamUnavailable, "ProConnect is unreachable; retry shortly")
 		return
 	}
@@ -569,6 +571,53 @@ func auditReason(err error) string {
 		return "mfa_required"
 	default:
 		return "verification"
+	}
+}
+
+// upstreamErrorClass names the failure class of an ErrUpstream-wrapped error
+// for the audit log: which leg failed and how, never the wrapped text, which
+// can embed request URLs or provider response detail. Transport failures keep
+// their typed cause (dns / timeout / network) so an operator can tell a
+// blackholed destination from a name-resolution problem; the wrapped text is
+// only consulted to name the leg, never emitted.
+func upstreamErrorClass(err error) string {
+	if !errors.Is(err, ErrUpstream) {
+		return "internal"
+	}
+	msg := err.Error()
+	var stage string
+	switch {
+	case strings.Contains(msg, "userinfo"), strings.Contains(msg, "UserInfo"):
+		stage = "userinfo"
+	case strings.Contains(msg, "id token"):
+		stage = "id_token"
+	case strings.Contains(msg, "discovery"):
+		stage = "discovery"
+	case strings.Contains(msg, "token"):
+		stage = "token"
+	case strings.Contains(msg, "jwks"):
+		stage = "jwks"
+	default:
+		stage = "provider"
+	}
+	var dnsErr *net.DNSError
+	var netErr net.Error
+	switch {
+	case errors.As(err, &dnsErr):
+		return stage + "_dns"
+	case errors.As(err, &netErr) && netErr.Timeout():
+		return stage + "_timeout"
+	case errors.As(err, &netErr):
+		return stage + "_network"
+	case strings.Contains(msg, "returned HTTP"):
+		return stage + "_http_status"
+	case strings.Contains(msg, "not valid JSON"), strings.Contains(msg, "unreadable"),
+		strings.Contains(msg, "not a valid OIDC payload"), strings.Contains(msg, "neither JSON nor a signed JWT"):
+		return stage + "_bad_payload"
+	case strings.Contains(msg, "missing required endpoints"), strings.Contains(msg, "does not match"):
+		return stage + "_invalid_discovery"
+	default:
+		return stage + "_other"
 	}
 }
 

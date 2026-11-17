@@ -188,7 +188,7 @@ func (c *OIDCClient) Exchange(ctx context.Context, code, codeVerifier, expectedN
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
-		return Identity{}, fmt.Errorf("%w: token endpoint: %v", ErrUpstream, err)
+		return Identity{}, fmt.Errorf("%w: token endpoint: %w", ErrUpstream, err)
 	}
 	defer func() { _ = resp.Body.Close() }()
 	body, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
@@ -271,7 +271,7 @@ func (c *OIDCClient) discover(ctx context.Context) (*oidcDiscovery, error) {
 	req.Header.Set("Accept", "application/json")
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("%w: discovery: %v", ErrUpstream, err)
+		return nil, fmt.Errorf("%w: discovery: %w", ErrUpstream, err)
 	}
 	defer func() { _ = resp.Body.Close() }()
 	body, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
@@ -332,7 +332,7 @@ func (c *OIDCClient) userInfo(ctx context.Context, disc *oidcDiscovery, accessTo
 	req.Header.Set("Accept", "application/json, application/jwt")
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
-		return Identity{}, fmt.Errorf("%w: userinfo: %v", ErrUpstream, err)
+		return Identity{}, fmt.Errorf("%w: userinfo: %w", ErrUpstream, err)
 	}
 	defer func() { _ = resp.Body.Close() }()
 	body, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))

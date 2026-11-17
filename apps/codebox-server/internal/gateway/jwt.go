@@ -70,7 +70,7 @@ func (c *OIDCClient) fetchJWKS(ctx context.Context, jwksURL string) (map[string]
 	req.Header.Set("Accept", "application/json")
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("%w: jwks: %v", ErrUpstream, err)
+		return nil, fmt.Errorf("%w: jwks: %w", ErrUpstream, err)
 	}
 	defer func() { _ = resp.Body.Close() }()
 	body, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
