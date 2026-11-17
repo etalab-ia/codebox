@@ -112,6 +112,8 @@ run_installer() {
 	FAKE_FAIL_REPLACE=$fail_replace \
 	FAKE_SETUP_EXIT=$setup_exit \
 	FAKE_TARGET="$home_dir/.local/bin/codebox" \
+	CODEBOX_NIXOS_MARKER="${FAKE_NIXOS_MARKER:-$temp_root/absent-nixos-marker}" \
+	CODEBOX_NIX_LD_LOADER="${FAKE_NIX_LD_LOADER:-$temp_root/absent-nix-ld-loader}" \
 	REAL_MV="$real_mv" \
 	HOME="$home_dir" PATH="$fake_bin:$PATH" \
 		"$installer"
@@ -150,6 +152,56 @@ arm_home="$temp_root/linux arm home"
 mkdir -p "$arm_home"
 run_installer "$arm_home" "$good_sums" 0 0 0 Linux aarch64 codebox-linux-arm64 > "$temp_root/arm.out"
 cmp -s "$arm_home/.local/bin/codebox" "$fake_binary" || { printf 'Linux arm64 asset mapping failed\n' >&2; exit 1; }
+
+# NixOS without nix-ld: the installer must stop BEFORE downloading anything
+# and print the exact configuration line and rebuild command, instead of
+# letting `codebox setup` die on the stub-ld error. Nothing may be installed.
+nixos_marker="$temp_root/NIXOS"
+printf 'nixos\n' > "$nixos_marker"
+nix_home="$temp_root/nixos home"
+mkdir -p "$nix_home"
+rm -f "$temp_root/setup-called"
+: > "$temp_root/urls"
+# The subshell exports in these cases are deliberate: a per-call flag must
+# not leak into the calling shell (env-prefix assignments before shell
+# functions persist on macOS /bin/sh). SC2030/SC2031 flag that intended scoping.
+# shellcheck disable=SC2030,SC2031
+if ( export FAKE_NIXOS_MARKER="$nixos_marker"; run_installer "$nix_home" "$good_sums" 0 0 0 ) > "$temp_root/nixos.out" 2>&1; then
+	printf 'NixOS install without nix-ld unexpectedly succeeded\n' >&2
+	exit 1
+fi
+[ ! -e "$nix_home/.local/bin/codebox" ] || { printf 'NixOS refusal still installed a binary\n' >&2; exit 1; }
+[ ! -s "$temp_root/urls" ] || { printf 'NixOS refusal happened after a download\n' >&2; exit 1; }
+[ ! -e "$temp_root/setup-called" ] || { printf 'setup ran on NixOS without nix-ld\n' >&2; exit 1; }
+grep -F 'programs.nix-ld.enable = true;' "$temp_root/nixos.out" >/dev/null || { printf 'NixOS refusal omitted the configuration line\n' >&2; exit 1; }
+grep -F 'sudo nixos-rebuild switch' "$temp_root/nixos.out" >/dev/null || { printf 'NixOS refusal omitted the rebuild command\n' >&2; exit 1; }
+grep -F 'nix.dev/permalink/stub-ld' "$temp_root/nixos.out" >/dev/null || { printf 'NixOS refusal omitted the documentation link\n' >&2; exit 1; }
+
+# NixOS WITH nix-ld (the loader symlink exists): installation proceeds
+# normally, without the NixOS refusal.
+nix_ld_loader="$temp_root/ld.so"
+printf 'loader\n' > "$nix_ld_loader"
+nix_ok_home="$temp_root/nixos nix-ld home"
+mkdir -p "$nix_ok_home"
+# shellcheck disable=SC2030,SC2031
+( export FAKE_NIXOS_MARKER="$nixos_marker" FAKE_NIX_LD_LOADER="$nix_ld_loader"; run_installer "$nix_ok_home" "$good_sums" 0 0 0 ) > "$temp_root/nixos-ld.out"
+cmp -s "$nix_ok_home/.local/bin/codebox" "$fake_binary" || { printf 'NixOS with nix-ld did not install\n' >&2; exit 1; }
+if grep -F 'nix-ld' "$temp_root/nixos-ld.out" >/dev/null; then
+	printf 'NixOS refusal printed even though nix-ld is present\n' >&2
+	exit 1
+fi
+
+# A dangling loader symlink (nix-ld enabled then removed without rebuild)
+# must count as absent: the kernel cannot exec through a broken link.
+nix_broken_home="$temp_root/nixos broken loader home"
+mkdir -p "$nix_broken_home"
+ln -sf "$temp_root/no-such-loader" "$temp_root/broken-ld.so"
+# shellcheck disable=SC2031
+if ( export FAKE_NIXOS_MARKER="$nixos_marker" FAKE_NIX_LD_LOADER="$temp_root/broken-ld.so"; run_installer "$nix_broken_home" "$good_sums" 0 0 0 ) > "$temp_root/nixos-broken.out" 2>&1; then
+	printf 'NixOS install with a dangling loader unexpectedly succeeded\n' >&2
+	exit 1
+fi
+grep -F 'programs.nix-ld.enable = true;' "$temp_root/nixos-broken.out" >/dev/null || { printf 'dangling-loader refusal omitted the configuration line\n' >&2; exit 1; }
 
 target="$home/.local/bin/codebox"
 printf 'keep me\n' > "$target"
