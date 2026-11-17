@@ -14,16 +14,18 @@ tmpdir=$(mktemp -d)
 trap 'rm -rf "$tmpdir"' EXIT
 mkdir -p "$tmpdir/bin"
 
-# Stub gh: records every call and answers the two queries the script makes.
+# Stub gh: records every call and answers the GitHub operations the script makes.
 cat > "$tmpdir/bin/gh" <<'STUB'
 #!/usr/bin/env bash
 printf 'GH-CALLED: %s\n' "$*" >> "$GH_CALLS"
 if [[ "$1" == "issue" && "$2" == "list" ]]; then
   printf '%s' "${GH_LIST_RESULT:-}"
 elif [[ "$1" == "release" && "$2" == "verify" ]]; then
-  # The script redirects this into attestation.json, so the fixture goes to
+  # The script redirects this into its attestation path, so the fixture goes to
   # stdout rather than being named in the environment.
   cat "${GH_ATTESTATION:?}"
+elif [[ "$1" == "issue" && "$2" == "create" ]]; then
+  printf '%s\n' "${GH_ISSUE_URL:-https://github.com/etalab-ia/codebox/issues/481}"
 fi
 STUB
 chmod +x "$tmpdir/bin/gh"
@@ -54,16 +56,18 @@ run_script() {
   ( cd "$tmpdir" && env PATH="$tmpdir/bin:$PATH" \
       GH_CALLS="$tmpdir/calls" \
       GH_ATTESTATION="${GH_ATTESTATION_OVERRIDE:-$attestation}" \
+      GITHUB_OUTPUT="$tmpdir/github-output" \
       UPSTREAM_REPO=superradcompany/microsandbox \
       EXPECTED_ASSETS="${EXPECTED_ASSETS_OVERRIDE:-$ALL_ASSETS}" \
       "$@" bash "$TARGET" )
 }
 
-reset_calls() { : > "$tmpdir/calls"; rm -f "$tmpdir/issue-body.md"; }
+reset_calls() { : > "$tmpdir/calls"; : > "$tmpdir/github-output"; rm -f "$tmpdir/issue-body.md"; }
 
 fail() { printf 'not ok - %s\n' "$1" >&2; exit 1; }
 
-# 1. An open issue for the detected version suppresses the whole step.
+# 1. An open issue suppresses duplicate creation but not attestation
+#    verification, and its number is exported for the update PR.
 check_skips_when_issue_exists() {
   reset_calls
   local out
@@ -72,8 +76,14 @@ check_skips_when_issue_exists() {
     *"already open (#481)"*) : ;;
     *) fail "expected the skip message, got: $out" ;;
   esac
+  if ! grep -q 'release verify v1.2.3' "$tmpdir/calls"; then
+    fail "an existing issue bypassed release verification"
+  fi
   if grep -q 'issue create' "$tmpdir/calls"; then
     fail "created an issue despite one already being open"
+  fi
+  if ! grep -q '^issue_number=481$' "$tmpdir/github-output"; then
+    fail "did not export the existing issue number"
   fi
   checks=$((checks + 1))
 }
@@ -94,6 +104,9 @@ check_creates_issue_from_verified_digests() {
   fi
   if ! grep -q 'v1.2.3' "$tmpdir/issue-body.md"; then
     fail "issue body does not name the upstream version"
+  fi
+  if ! grep -q '^issue_number=481$' "$tmpdir/github-output"; then
+    fail "did not export the created issue number"
   fi
   checks=$((checks + 1))
 }
@@ -136,5 +149,31 @@ check_workflow_gates_on_version_mismatch() {
 }
 
 check_workflow_gates_on_version_mismatch
+
+# 5. Automatic PR creation stays signed, idempotent and inexpensive. Paid
+#    hardware qualification lives only in its separate manual workflow.
+check_automatic_pr_boundaries() {
+  local workflow
+  workflow=$(cat "$SCRIPT_DIR/../workflows/msb-runtime-watch.yml")
+  # Single quotes intentionally keep the GitHub expression literal.
+  # shellcheck disable=SC2016
+  for required in 'sign-commits: true' 'draft: always-true' "steps.existing-pr.outputs.pr_number == ''" 'MSB_ISSUE_BODY_PATH: ${{ runner.temp }}'; do
+    if ! grep -Fq "$required" <<<"$workflow"; then
+      fail "automatic update workflow lost $required"
+    fi
+  done
+  if grep -Eiq 'self-hosted|scaleway|SCW_|msb-hardware' <<<"$workflow"; then
+    fail "automatic update workflow gained a paid hardware path"
+  fi
+  local required_workflow
+  for required_workflow in ci.yml gitleaks.yml osv-scanner.yml; do
+    if ! grep -Fq 'ready_for_review' "$SCRIPT_DIR/../workflows/$required_workflow"; then
+      fail "$required_workflow will not run when a bot-created draft becomes ready"
+    fi
+  done
+  checks=$((checks + 1))
+}
+
+check_automatic_pr_boundaries
 
 printf 'ok - %d msb_runtime_watch_issue checks passed\n' "$checks"

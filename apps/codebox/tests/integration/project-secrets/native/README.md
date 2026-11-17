@@ -2,12 +2,13 @@
 
 v3 adds an independently authorized third binding and removed-binding re-add/next-boot lifecycle gates. The parent reported all v1 native assertions PASS with `TMPDIR=/tmp`, and all v2 native assertions PASS with the built-in short root. No v3 native pass is claimed here. The established v1 fixture defect was the long default macOS temp path: runtime Unix socket derivation exceeded its <104-byte limit. The runner explicitly creates `/tmp/jcp0-*` with mode 0700 and a conservative MSB_HOME length preflight, ignoring host TMPDIR. Results metadata includes `kit=v3` alongside pinned source, SDK, runtime, and archive hash. v2 diagnostics and isolation remain intact; no earlier assertion has been removed or weakened.
 
-Pinned codebox source: `684ea414de08a30e2456d3aab24b453b2eec1641` (Microsandbox v0.7.14 pin update).
-Go SDK: `github.com/superradcompany/microsandbox/sdk/go v0.7.14`.
-Runtime source is the pinned commit's `internal/codebox/msb_runtime_install.go`, darwin/arm64:
+Candidate Go SDK: `github.com/superradcompany/microsandbox/sdk/go v0.7.14`.
+Candidate runtime archive, darwin/arm64:
 
 - URL: https://github.com/superradcompany/microsandbox/releases/download/v0.7.14/microsandbox-darwin-aarch64.tar.gz
 - SHA256: `9cc2bd2874cc1aa98cb139429a9482830b1e64b48255aa9f40a25b8979a23a9f`
+
+The last qualified source and runtime remain recorded in [evidence/README.md](evidence/README.md). Updating the candidate kit does not claim a new native pass. A real run must set `CODEBOX_QUALIFICATION_SOURCE` to the exact 40-character candidate commit SHA; the probe refuses to emit evidence without it.
 
 Nothing here changes codebox, upgrades the user's msb 0.7.0, installs global tools, imports credentials, changes host DNS, or installs a CA into host trust. Do not run against a user MSB_HOME. No native pass is claimed from Cloud.
 
@@ -41,8 +42,11 @@ From the extracted kit directory:
 
 ```sh
 GOWORK=off go test ./...
-python3 run.py --ip "$(ipconfig getifaddr en0)" --tls 18443 --dns 15354
+CODEBOX_QUALIFICATION_SOURCE='<candidate-commit-sha>' \
+  python3 run.py --ip "$(ipconfig getifaddr en0)" --tls 18443 --dns 15354
 ```
+
+Replace `<candidate-commit-sha>` with the exact full 40-character commit being qualified. The source pin is deliberately supplied at run time so a mechanical runtime update cannot inherit a stale source SHA and attribute evidence to the wrong tree.
 
 `run.py` creates and prints `RUN_DIR=/tmp/jcp0-...`, downloads only the official pinned tarball, verifies SHA256 before extracting two regular runtime files, checks `msb --version`, creates a one-day temporary CA/server cert, binds the lab's ports without reuse, then invokes native `go run .`. A prebuilt copy is retained only for independent emergency cleanup. It sets all of:
 

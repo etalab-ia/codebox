@@ -18,9 +18,9 @@ updates:
     # the five archive digests in apps/codebox/internal/codebox/msb_runtime_install.go have to
     # move with apps/codebox/go.mod, and TestMSBRuntimeVersionMatchesSDK fails CI whenever SDK
     # version and runtime version drift apart, so an isolated Dependabot bump is
-    # always red. Upstream releases are detected and turned into a tracked issue by
-    # .github/workflows/msb-runtime-watch.yml, which carries the procedure for the
-    # coordinated reviewed bump (see issue #158).
+    # always red. Upstream releases are detected by
+    # .github/workflows/msb-runtime-watch.yml, which prepares the coordinated
+    # signed draft PR from verified attestation subjects (see issue #419).
     # The name is written exactly as declared in go.mod so the match is guaranteed;
     # add the new name here too if the module path ever changes (for example to
     # .../microsandbox/sdk/go/v2).
@@ -28,8 +28,8 @@ updates:
     # Consequence to know about: an ignore by dependency-name also suppresses
     # Dependabot *security update* pull requests for this dependency, not only
     # version updates. Dependabot alerts and .github/workflows/osv-scanner.yml
-    # still report a vulnerable SDK version; the response is the coordinated manual
-    # bump, never an automatic PR.
+    # still report a vulnerable SDK version; the response is the coordinated
+    # watcher-prepared PR, with paid hardware qualification left manual.
     ignore:
       - dependency-name: "github.com/superradcompany/microsandbox/sdk/go"
     groups:
