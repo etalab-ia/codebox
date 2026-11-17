@@ -130,7 +130,8 @@ CONTAINER_ARGS=(
   "image=$IMAGE_REFERENCE"
   'port=8080'
   'mvcpu-limit=512'
-  'memory-limit-bytes=268435456'
+  # The API requires 512-2048 MB for 512 mvCPU (deployment run 44034337838).
+  'memory-limit-bytes=1GB'
   'min-scale=1'
   'max-scale=1'
   'privacy=public'

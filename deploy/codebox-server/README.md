@@ -21,8 +21,8 @@ Configure these repository settings before the first run:
 | `SCW_SECRET_KEY` | secret | Secret key of that deploy IAM application |
 | `SCW_ORGANIZATION_ID` | variable | Scaleway organization UUID containing the dedicated project |
 | `SCW_PROJECT_ID` | variable | Dedicated project UUID, not its name |
-| `TF_VAR_PROCONNECT_CLIENT_ID` | secret | ProConnect sandbox client ID |
-| `TF_VAR_PROCONNECT_CLIENT_SECRET` | secret | Regenerated ProConnect sandbox client secret |
+| `PROCONNECT_CLIENT_ID` | secret | ProConnect sandbox client ID |
+| `PROCONNECT_CLIENT_SECRET` | secret | Regenerated ProConnect sandbox client secret |
 | `SCW_REGISTRY_NAMESPACE` | variable | Registry namespace name, such as `codebox` |
 | `CODEBOX_SERVER_URL` | variable | Final public HTTPS origin; leave unset for the bootstrap run |
 | `CODEBOX_SERVER_ALLOWED_SIRETS` | variable | Optional comma-separated project-creation allowlist |
