@@ -2,11 +2,11 @@
 
 v3 adds an independently authorized third binding and removed-binding re-add/next-boot lifecycle gates. The parent reported all v1 native assertions PASS with `TMPDIR=/tmp`, and all v2 native assertions PASS with the built-in short root. No v3 native pass is claimed here. The established v1 fixture defect was the long default macOS temp path: runtime Unix socket derivation exceeded its <104-byte limit. The runner explicitly creates `/tmp/jcp0-*` with mode 0700 and a conservative MSB_HOME length preflight, ignoring host TMPDIR. Results metadata includes `kit=v3` alongside pinned source, SDK, runtime, and archive hash. v2 diagnostics and isolation remain intact; no earlier assertion has been removed or weakened.
 
-Candidate Go SDK: `github.com/superradcompany/microsandbox/sdk/go v0.7.14`.
+Candidate Go SDK: `github.com/superradcompany/microsandbox/sdk/go v0.7.15`.
 Candidate runtime archive, darwin/arm64:
 
-- URL: https://github.com/superradcompany/microsandbox/releases/download/v0.7.14/microsandbox-darwin-aarch64.tar.gz
-- SHA256: `9cc2bd2874cc1aa98cb139429a9482830b1e64b48255aa9f40a25b8979a23a9f`
+- URL: https://github.com/superradcompany/microsandbox/releases/download/v0.7.15/microsandbox-darwin-aarch64.tar.gz
+- SHA256: `99b1b0e1d5a30a30e12b4371a339e1683e57f7d12a57be32e63198c8809e1f3d`
 
 The last qualified source and runtime remain recorded in [evidence/README.md](evidence/README.md). Updating the candidate kit does not claim a new native pass. A real run must set `CODEBOX_QUALIFICATION_SOURCE` to the exact 40-character candidate commit SHA; the probe refuses to emit evidence without it.
 

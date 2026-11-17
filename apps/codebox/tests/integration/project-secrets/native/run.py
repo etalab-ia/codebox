@@ -3,7 +3,7 @@
 import argparse, ipaddress, os, pathlib, platform, re, shutil, signal, socket, subprocess, sys, tempfile, time
 
 HERE=pathlib.Path(__file__).resolve().parent
-SDK_VERSION='0.7.14'
+SDK_VERSION='0.7.15'
 META_PATTERN=(r'META kit=v3 source=[0-9a-f]{40} sdk='+re.escape(SDK_VERSION)+
               r' runtime='+re.escape(SDK_VERSION)+r' archive_sha256=[0-9a-f]{64} go=go[0-9.]+')
 
