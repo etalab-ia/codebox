@@ -33,6 +33,8 @@ jobs:
           fi
       - name: Test platform CI classifier
         run: bash .github/scripts/test-platform-ci-scope.sh
+      - name: Test msb runtime watch issue script
+        run: bash .github/scripts/test-msb-runtime-watch-issue.sh
 
   check:
     runs-on: ubuntu-latest
