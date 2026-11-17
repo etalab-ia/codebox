@@ -11,12 +11,15 @@ import unittest
 
 ROOT = Path(__file__).resolve().parents[2]
 DEPLOY_SCRIPT = ROOT / ".github/scripts/deploy-codebox-server.sh"
+VERIFY_IMAGE_SCRIPT = ROOT / ".github/scripts/verify-codebox-server-image.sh"
 WORKFLOW = ROOT / ".github/workflows/deploy-codebox-server.yml"
 RELEASE_WORKFLOW = ROOT / ".github/workflows/release-please.yml"
 RELEASE_CONFIG = ROOT / "release-please-config.json"
 PROJECT_ID = "11111111-1111-4111-8111-111111111111"
 ORGANIZATION_ID = "22222222-2222-4222-8222-222222222222"
 DOMAIN = "codeboxsecretsgateway.functions.fnc.fr-par.scw.cloud"
+IMAGE_DIGEST = "sha256:" + "a" * 64
+OTHER_IMAGE_DIGEST = "sha256:" + "b" * 64
 
 FAKE_SCW = r'''#!/usr/bin/env python3
 import json
@@ -203,6 +206,39 @@ else:
     fail("unsupported fake command: " + " ".join(command))
 '''
 
+FAKE_CURL = r'''#!/usr/bin/env python3
+import json
+import os
+from pathlib import Path
+import sys
+
+log = os.environ.get("FAKE_CURL_LOG")
+if log:
+    with Path(log).open("a") as stream:
+        stream.write(json.dumps(sys.argv[1:]) + "\n")
+if os.environ.get("FAKE_CURL_FAIL") == "1":
+    sys.exit(22)
+print(os.environ.get("FAKE_HEALTH_JSON", '{"status":"ok","store":"scaleway"}'))
+'''
+
+FAKE_DOCKER = r'''#!/usr/bin/env python3
+import json
+import os
+from pathlib import Path
+import sys
+
+args = sys.argv[1:]
+Path(os.environ["FAKE_DOCKER_LOG"]).write_text(json.dumps(args))
+expected = [
+    "buildx", "imagetools", "inspect", os.environ["IMAGE_REFERENCE"],
+    "--format", "{{json .Manifest}}",
+]
+if args != expected:
+    print("unexpected docker arguments: " + repr(args), file=sys.stderr)
+    sys.exit(2)
+print(json.dumps({"digest": os.environ["FAKE_IMAGE_DIGEST"]}))
+'''
+
 
 def empty_state():
     return {
@@ -218,6 +254,56 @@ def empty_state():
     }
 
 
+class ImageDigestTest(unittest.TestCase):
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        self.directory = Path(self.temp.name)
+        self.fake_docker = self.directory / "docker"
+        self.fake_docker.write_text(FAKE_DOCKER)
+        self.fake_docker.chmod(0o755)
+        self.docker_log = self.directory / "docker-log"
+        self.env = os.environ.copy()
+        self.env.update({
+            "DOCKER_CLI": str(self.fake_docker),
+            "EXPECTED_IMAGE_DIGEST": IMAGE_DIGEST,
+            "FAKE_IMAGE_DIGEST": IMAGE_DIGEST,
+            "FAKE_DOCKER_LOG": str(self.docker_log),
+            "IMAGE_REFERENCE": "rg.fr-par.scw.cloud/codebox/codebox-server:codebox-server-v0.3.0",
+        })
+
+    def run_verify(self, overrides=None, expected=0):
+        env = self.env.copy()
+        if overrides:
+            env.update(overrides)
+        result = subprocess.run(
+            ["bash", str(VERIFY_IMAGE_SCRIPT)], env=env, text=True,
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False,
+        )
+        self.assertEqual(
+            expected, result.returncode,
+            f"stdout:\n{result.stdout}\nstderr:\n{result.stderr}",
+        )
+        return result
+
+    def test_matching_digest_passes_and_inspects_the_release_tag(self):
+        result = self.run_verify()
+        self.assertIn("Verified", result.stdout)
+        args = json.loads(self.docker_log.read_text())
+        self.assertEqual(self.env["IMAGE_REFERENCE"], args[3])
+        self.assertEqual("{{json .Manifest}}", args[-1])
+
+    def test_mismatched_digest_fails(self):
+        result = self.run_verify({"FAKE_IMAGE_DIGEST": OTHER_IMAGE_DIGEST}, expected=1)
+        self.assertIn("Image digest mismatch", result.stderr)
+        self.assertIn(OTHER_IMAGE_DIGEST, result.stderr)
+
+    def test_invalid_expected_digest_fails_before_registry_access(self):
+        result = self.run_verify({"EXPECTED_IMAGE_DIGEST": "invalid"}, expected=1)
+        self.assertIn("must be a lowercase sha256 digest", result.stderr)
+        self.assertFalse(self.docker_log.exists())
+
+
 class DeploymentTest(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
@@ -228,12 +314,20 @@ class DeploymentTest(unittest.TestCase):
         self.fake_path = self.directory / "scw"
         self.fake_path.write_text(FAKE_SCW)
         self.fake_path.chmod(0o755)
+        self.fake_curl = self.directory / "curl"
+        self.fake_curl.write_text(FAKE_CURL)
+        self.fake_curl.chmod(0o755)
+        self.curl_log = self.directory / "curl-log"
         self.env = os.environ.copy()
         self.env.update({
             "PATH": str(self.directory) + os.pathsep + self.env["PATH"],
             "FAKE_SCW_STATE": str(self.state_path),
             "GITHUB_OUTPUT": str(self.output_path),
             "SCW_CLI": "scw",
+            "CURL_CLI": str(self.fake_curl),
+            "FAKE_CURL_LOG": str(self.curl_log),
+            "HEALTHCHECK_ATTEMPTS": "2",
+            "HEALTHCHECK_INTERVAL_SECONDS": "0",
             "SCW_ACCESS_KEY": "test-access-key",
             "SCW_SECRET_KEY": "test-scw-secret",
             "SCW_DEFAULT_ORGANIZATION_ID": ORGANIZATION_ID,
@@ -280,7 +374,11 @@ class DeploymentTest(unittest.TestCase):
         self.assertEqual(1, initial["version_creations"])
         self.assertEqual("https://bootstrap.invalid", initial["containers"][0]["environment_variables"]["GATEWAY_PUBLIC_URL"])
         self.assertTrue(initial["containers"][0]["https_connections_only"])
+        self.assertEqual(512, initial["containers"][0]["mvcpu_limit"])
+        self.assertEqual("1GB", initial["containers"][0]["memory_limit_bytes"])
         self.assertIn("native endpoint: https://" + DOMAIN, first.stdout)
+        health_args = json.loads(self.curl_log.read_text().splitlines()[0])
+        self.assertEqual("https://" + DOMAIN + "/healthz", health_args[-1])
         self.assert_no_unmasked_secrets(first, seed)
 
         second = self.run_deploy()
@@ -404,6 +502,15 @@ class DeploymentTest(unittest.TestCase):
         self.assertEqual(1, recovered["container_creations"])
         self.assertEqual(1, len(recovered["containers"]))
 
+    def test_unhealthy_gateway_response_fails_after_retries(self):
+        result = self.run_deploy(
+            {"FAKE_HEALTH_JSON": '{"status":"ok","store":"memory"}'},
+            expected=1,
+        )
+        self.assertIn("did not return a healthy Scaleway response", result.stderr)
+        self.assertEqual(2, len(self.curl_log.read_text().splitlines()))
+        self.assertEqual(1, self.state()["container_creations"])
+
     def test_release_component_and_image_are_renamed(self):
         config = json.loads(RELEASE_CONFIG.read_text())
         self.assertEqual("codebox-server", config["packages"]["apps/codebox-server"]["component"])
@@ -413,17 +520,60 @@ class DeploymentTest(unittest.TestCase):
         self.assertNotIn("codebox-server-* | codebox-server-*)", workflow)
         self.assertIn("/codebox-server:${{ needs.release-please.outputs.codebox_server_tag_name }}", workflow)
 
-    def test_workflow_is_manual_only_and_serialized(self):
+    def test_release_deploys_only_new_server_images(self):
+        workflow = RELEASE_WORKFLOW.read_text()
+        self.assertIn("image_digest: ${{ steps.image.outputs.digest }}", workflow)
+        self.assertIn("- id: image\n        uses: docker/build-push-action@v7", workflow)
+        deploy = workflow.split("  deploy-codebox-server:\n", 1)[1].split(
+            "\n  notify-codebox-server-deployment-failure:", 1
+        )[0]
+        for snippet in (
+            "needs: [release-please, build-codebox-server-container]",
+            "github.event_name == 'push' &&",
+            "needs.release-please.outputs.codebox_server_release_created == 'true' &&",
+            "needs.build-codebox-server-container.result == 'success'",
+            "uses: ./.github/workflows/deploy-codebox-server.yml",
+            "image_tag: ${{ needs.release-please.outputs.codebox_server_tag_name }}",
+            "image_digest: ${{ needs.build-codebox-server-container.outputs.image_digest }}",
+            "SCW_ACCESS_KEY: ${{ secrets.SCW_ACCESS_KEY }}",
+            "SCW_SECRET_KEY: ${{ secrets.SCW_SECRET_KEY }}",
+            "PROCONNECT_CLIENT_ID: ${{ secrets.PROCONNECT_CLIENT_ID }}",
+            "PROCONNECT_CLIENT_SECRET: ${{ secrets.PROCONNECT_CLIENT_SECRET }}",
+        ):
+            self.assertIn(snippet, deploy)
+        self.assertNotIn("secrets: inherit", deploy)
+
+        notification = workflow.split("  notify-codebox-server-deployment-failure:", 1)[1]
+        self.assertIn("always() &&", notification)
+        self.assertIn("github.event_name == 'push' &&", notification)
+        self.assertIn("needs.deploy-codebox-server.result == 'failure'", notification)
+        self.assertIn("issues: write", notification)
+        self.assertIn("gh issue create", notification)
+        self.assertNotIn("SCW_", notification)
+
+    def test_workflow_is_reusable_and_serialized(self):
         workflow = WORKFLOW.read_text()
         self.assertIn("name: Deploy codebox server", workflow)
         self.assertIn("workflow_dispatch:", workflow)
-        self.assertIn("group: codebox-server-deploy", workflow)
+        self.assertIn("workflow_call:", workflow)
+        self.assertIn("environment: codebox-server", workflow)
+        self.assertIn("    concurrency:\n      group: codebox-server-deploy", workflow)
         self.assertIn("cancel-in-progress: false", workflow)
-        self.assertIn("if: github.ref == 'refs/heads/main'", workflow)
-        self.assertIn("SCW_DEFAULT_ORGANIZATION_ID: ${{ vars.CODEBOX_SCW_ORGANIZATION_ID }}", workflow)
+        self.assertNotIn("if: github.ref", workflow)
+        self.assertIn("SCW_DEFAULT_ORGANIZATION_ID: ${{ vars.SCW_ORGANIZATION_ID }}", workflow)
+        self.assertIn("SCW_ACCESS_KEY: ${{ secrets.SCW_ACCESS_KEY }}", workflow)
+        self.assertIn("SCW_SECRET_KEY: ${{ secrets.SCW_SECRET_KEY }}", workflow)
+        self.assertIn("SCW_DEFAULT_PROJECT_ID: ${{ vars.SCW_PROJECT_ID }}", workflow)
+        self.assertIn("PROCONNECT_CLIENT_ID: ${{ secrets.PROCONNECT_CLIENT_ID }}", workflow)
+        self.assertIn("PROCONNECT_CLIENT_SECRET: ${{ secrets.PROCONNECT_CLIENT_SECRET }}", workflow)
         self.assertIn("uses: scaleway/action-scw@2e34a1eb35cf3cac627f24643a101fea269cbd83", workflow)
         self.assertIn("version: v2.66.0", workflow)
         self.assertIn('description: "Immutable codebox-server release tag"', workflow)
+        self.assertIn('description: "Optional expected sha256 image digest"', workflow)
+        self.assertIn("if: github.event_name == 'push' && inputs.image_digest == ''", workflow)
+        self.assertEqual(3, workflow.count("if: inputs.image_digest != ''"))
+        self.assertIn("bash .github/scripts/verify-codebox-server-image.sh", workflow)
+        self.assertNotIn("secrets: inherit", workflow)
         self.assertNotIn('default: "codebox-server-v', workflow)
         for trigger in ("\n  push:", "\n  pull_request:", "\n  schedule:"):
             self.assertNotIn(trigger, workflow)

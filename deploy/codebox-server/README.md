@@ -4,33 +4,53 @@ The container is deployed into a dedicated, otherwise empty Scaleway project.
 It holds no production infrastructure and no CI/CD secrets. The gateway's IAM
 application is scoped to that project only.
 
+## Automated release deployment
+
+A `codebox-server-vX.Y.Z` release created on `main` builds and pushes its image,
+then calls the reusable **Deploy codebox server** workflow with the release tag
+and the image digest returned by the build. CLI releases and manual rebuilds of
+existing tags do not deploy automatically. Deployment verifies that the registry
+tag still resolves to the build digest before changing infrastructure.
+
+The deploy job uses the `codebox-server` GitHub Environment and shares the
+`codebox-server-deploy` concurrency group with manual runs. After reconciliation,
+it requires the container to be ready and `/healthz` to return `status: "ok"`
+with `store: "scaleway"`. An automatic deployment failure opens a GitHub issue
+with the release tag and run URL; the notification job receives no Scaleway
+secrets.
+
 ## Deploy from the GitHub UI
 
-The default deployment path is the **Deploy codebox server** GitHub Actions
-workflow. It has only a `workflow_dispatch` trigger, serializes concurrent runs,
-and installs a pinned, SHA256-verified Scaleway CLI through the official
-`scaleway/action-scw` action, itself pinned to an immutable commit. Run it from
-`main` after the workflow is merged; it is not automatically tested against real
-infrastructure by a pull request.
+The manual **Deploy codebox server** path remains available for bootstrap,
+PR-branch validation, recovery, and rollback. It accepts an immutable image tag
+and an optional expected digest, installs a pinned, SHA256-verified Scaleway CLI,
+and performs the same health checks as automatic deployment.
 
 Configure these repository settings before the first run:
 
 | Name | Kind | Meaning |
 | --- | --- | --- |
-| `CODEBOX_SCW_ACCESS_KEY` | secret | Access key of the deploy IAM application scoped to the dedicated project |
-| `CODEBOX_SCW_SECRET_KEY` | secret | Secret key of that deploy IAM application |
-| `CODEBOX_SCW_ORGANIZATION_ID` | variable | Scaleway organization UUID containing the dedicated project |
-| `CODEBOX_SCW_PROJECT_ID` | variable | Dedicated project UUID, not its name |
-| `TF_VAR_PROCONNECT_CLIENT_ID` | secret | ProConnect sandbox client ID |
-| `TF_VAR_PROCONNECT_CLIENT_SECRET` | secret | Regenerated ProConnect sandbox client secret |
+| `SCW_ACCESS_KEY` | secret | Access key of the deploy IAM application scoped to the dedicated project |
+| `SCW_SECRET_KEY` | secret | Secret key of that deploy IAM application |
+| `SCW_ORGANIZATION_ID` | variable | Scaleway organization UUID containing the dedicated project |
+| `SCW_PROJECT_ID` | variable | Dedicated project UUID, not its name |
+| `PROCONNECT_CLIENT_ID` | secret | ProConnect sandbox client ID |
+| `PROCONNECT_CLIENT_SECRET` | secret | Regenerated ProConnect sandbox client secret |
 | `SCW_REGISTRY_NAMESPACE` | variable | Registry namespace name, such as `codebox` |
 | `CODEBOX_SERVER_URL` | variable | Final public HTTPS origin; leave unset for the bootstrap run |
 | `CODEBOX_SERVER_ALLOWED_SIRETS` | variable | Optional comma-separated project-creation allowlist |
 
 The deploy application needs `ContainersFullAccess`,
 `ContainerRegistryReadOnly`, and `SecretManagerFullAccess` on the dedicated
-project. Release CI can keep its separate `SCW_REGISTRY_SECRET_KEY` with
-`ContainerRegistryFullAccess`; the deploy key does not need to push images.
+project. Release CI keeps its separate `SCW_REGISTRY_SECRET_KEY` with
+`ContainerRegistryFullAccess`; the deploy key can inspect images but cannot push
+them. Only `SCW_ACCESS_KEY`, `SCW_SECRET_KEY`, `PROCONNECT_CLIENT_ID`, and
+`PROCONNECT_CLIENT_SECRET` are passed explicitly to the reusable workflow.
+
+The `codebox-server` Environment can hold deployment secrets and variables;
+repository-level values remain the fallback. Optional environment branch rules
+also apply to manual validation runs, so a `main`-only policy disables PR-branch
+deployment unless an explicit branch exception is configured.
 
 Use this two-run bootstrap sequence:
 
@@ -52,7 +72,10 @@ Use this two-run bootstrap sequence:
 
 Reruns converge to the selected image and configuration without creating
 additional namespaces, containers, or token-seed versions. The workflow never
-updates ProConnect or GitHub repository settings automatically.
+updates ProConnect or GitHub repository settings automatically. To roll back,
+dispatch the manual workflow with the previous immutable tag; automatic rollback
+is deliberately not attempted. Manually rebuilding an existing release image
+also leaves the running container unchanged until the deploy workflow is called.
 
 ## Build and publish
 

@@ -7,21 +7,71 @@ on:
         description: "Immutable codebox-server release tag"
         required: true
         type: string
+      image_digest:
+        description: "Optional expected sha256 image digest"
+        required: false
+        default: ""
+        type: string
+  workflow_call:
+    inputs:
+      image_tag:
+        description: "Immutable codebox-server release tag"
+        required: true
+        type: string
+      image_digest:
+        description: "Optional expected sha256 image digest"
+        required: false
+        default: ""
+        type: string
+    secrets:
+      SCW_ACCESS_KEY:
+        required: true
+      SCW_SECRET_KEY:
+        required: true
+      PROCONNECT_CLIENT_ID:
+        required: true
+      PROCONNECT_CLIENT_SECRET:
+        required: true
 
 permissions:
   contents: read
 
-concurrency:
-  group: codebox-server-deploy
-  cancel-in-progress: false
-
 jobs:
   deploy:
-    if: github.ref == 'refs/heads/main'
+    environment: codebox-server
+    # Manual dispatch may target a PR branch for pre-merge deployment validation.
+    concurrency:
+      group: codebox-server-deploy
+      cancel-in-progress: false
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Require the build digest for automatic deployment
+        if: github.event_name == 'push' && inputs.image_digest == ''
+        run: |
+          printf '::error::Automatic release deployment requires the image build digest.\n'
+          exit 1
+
+      - name: Set up Docker Buildx for digest verification
+        if: inputs.image_digest != ''
+        uses: docker/setup-buildx-action@v4
+
+      - name: Log in to the Scaleway registry for digest verification
+        if: inputs.image_digest != ''
+        uses: docker/login-action@v4
+        with:
+          registry: rg.fr-par.scw.cloud/${{ vars.SCW_REGISTRY_NAMESPACE }}
+          username: nologin
+          password: ${{ secrets.SCW_SECRET_KEY }}
+
+      - name: Verify the release image digest
+        if: inputs.image_digest != ''
+        env:
+          EXPECTED_IMAGE_DIGEST: ${{ inputs.image_digest }}
+          IMAGE_REFERENCE: rg.fr-par.scw.cloud/${{ vars.SCW_REGISTRY_NAMESPACE }}/codebox-server:${{ inputs.image_tag }}
+        run: bash .github/scripts/verify-codebox-server-image.sh
 
       - name: Install the pinned Scaleway CLI
         uses: scaleway/action-scw@2e34a1eb35cf3cac627f24643a101fea269cbd83 # v0.0.3
@@ -41,14 +91,14 @@ jobs:
         id: deploy
         env:
           SCW_CLI: scw
-          SCW_ACCESS_KEY: ${{ secrets.CODEBOX_SCW_ACCESS_KEY }}
-          SCW_SECRET_KEY: ${{ secrets.CODEBOX_SCW_SECRET_KEY }}
-          SCW_DEFAULT_ORGANIZATION_ID: ${{ vars.CODEBOX_SCW_ORGANIZATION_ID }}
-          SCW_DEFAULT_PROJECT_ID: ${{ vars.CODEBOX_SCW_PROJECT_ID }}
+          SCW_ACCESS_KEY: ${{ secrets.SCW_ACCESS_KEY }}
+          SCW_SECRET_KEY: ${{ secrets.SCW_SECRET_KEY }}
+          SCW_DEFAULT_ORGANIZATION_ID: ${{ vars.SCW_ORGANIZATION_ID }}
+          SCW_DEFAULT_PROJECT_ID: ${{ vars.SCW_PROJECT_ID }}
           SCW_DEFAULT_REGION: fr-par
           SCW_REGISTRY_NAMESPACE: ${{ vars.SCW_REGISTRY_NAMESPACE }}
-          PROCONNECT_CLIENT_ID: ${{ secrets.TF_VAR_PROCONNECT_CLIENT_ID }}
-          PROCONNECT_CLIENT_SECRET: ${{ secrets.TF_VAR_PROCONNECT_CLIENT_SECRET }}
+          PROCONNECT_CLIENT_ID: ${{ secrets.PROCONNECT_CLIENT_ID }}
+          PROCONNECT_CLIENT_SECRET: ${{ secrets.PROCONNECT_CLIENT_SECRET }}
           CODEBOX_SERVER_URL: ${{ vars.CODEBOX_SERVER_URL }}
           GATEWAY_ALLOWED_SIRETS: ${{ vars.CODEBOX_SERVER_ALLOWED_SIRETS }}
           IMAGE_TAG: ${{ inputs.image_tag }}
@@ -69,9 +119,9 @@ jobs:
             printf -- '- Native endpoint: %s\n' "$NATIVE_ORIGIN"
             printf -- '- Configured public URL: %s\n\n' "$PUBLIC_URL"
             if [[ "$PUBLIC_URL" == 'https://bootstrap.invalid' ]]; then
-              printf 'Bootstrap complete. Set CODEBOX_SERVER_URL to %s, register %s/auth/callback in ProConnect, then rerun this workflow from the GitHub UI.\n' \
+              printf 'Bootstrap complete and health checked. Set CODEBOX_SERVER_URL to %s, register %s/auth/callback in ProConnect, then rerun this workflow from the GitHub UI.\n' \
                 "$NATIVE_ORIGIN" "$NATIVE_ORIGIN"
             else
-              printf 'Final public URL applied. Health endpoint: %s/healthz.\n' "$NATIVE_ORIGIN"
+              printf 'Final public URL applied and health checked. Health endpoint: %s/healthz.\n' "$NATIVE_ORIGIN"
             fi
           } >>"$GITHUB_STEP_SUMMARY"
