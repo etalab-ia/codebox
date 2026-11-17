@@ -151,8 +151,15 @@ function Install-Codebox {
 		$checksumPath = Join-Path $tempDirectory 'SHA256SUMS'
 		$binaryUri = "$script:CodeboxDownload/$tag/$asset"
 		$checksumUri = "$script:CodeboxDownload/$tag/SHA256SUMS"
-		Save-CodeboxReleaseAsset -Uri $binaryUri -Path $binaryPath
-		Save-CodeboxReleaseAsset -Uri $checksumUri -Path $checksumPath
+		# The release exists (its tag was just resolved) but an asset can be
+		# missing while binaries are still being published. Name the release
+		# and the retry path instead of surfacing a bare request error.
+		try {
+			Save-CodeboxReleaseAsset -Uri $binaryUri -Path $binaryPath
+			Save-CodeboxReleaseAsset -Uri $checksumUri -Path $checksumPath
+		} catch {
+			throw "Download from release $tag failed: $($_.Exception.Message). If the release was just announced, its binaries may still be publishing: retry in a few minutes. Release files: https://github.com/$script:CodeboxRepository/releases/tag/$tag"
+		}
 
 		$checksumText = [System.IO.File]::ReadAllText($checksumPath, [System.Text.Encoding]::ASCII)
 		$rows = @([regex]::Matches($checksumText, '(?m)^(?<hash>[0-9a-fA-F]{64})\s+\*?(?<name>\S+)\s*$') | Where-Object {

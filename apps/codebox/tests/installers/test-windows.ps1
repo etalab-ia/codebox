@@ -17,6 +17,7 @@ $global:InstallerTestUris = @()
 $global:InstallerSetupInvoked = $false
 $global:InstallerSetupExitCode = 0
 $global:InstallerFailDownload = $false
+$global:InstallerMissingAsset = $false
 $global:InstallerReleaseCalls = 0
 
 function Assert-InstallerTest {
@@ -39,6 +40,9 @@ function Save-CodeboxReleaseAsset {
 	if ($global:InstallerFailDownload) {
 		[System.IO.File]::WriteAllBytes($Path, [byte[]]@(1, 2, 3))
 		throw 'simulated interrupted download'
+	}
+	if ($global:InstallerMissingAsset) {
+		throw 'The remote server returned an error: (404) Not Found.'
 	}
 	[System.IO.File]::WriteAllBytes($Path, $global:InstallerTestBinary)
 }
@@ -103,6 +107,22 @@ try {
 	$global:InstallerFailDownload = $false
 	Assert-InstallerTest $downloadFailed 'partial download unexpectedly succeeded'
 	Assert-InstallerTest ([System.IO.File]::ReadAllText($target) -eq 'must remain') 'partial download changed the current binary'
+
+	# A release whose binaries are not (yet) uploaded: the tag resolves but
+	# the asset 404s. The error must name the release, suggest a retry and
+	# link the release page; the current binary must stay untouched.
+	$global:InstallerMissingAsset = $true
+	$global:InstallerSetupInvoked = $false
+	$missingAssetFailed = $false
+	$missingAssetMessage = ''
+	try { Install-Codebox -InstallDirectory $installDirectory -Architecture AMD64 } catch { $missingAssetFailed = $true; $missingAssetMessage = $_.Exception.Message }
+	$global:InstallerMissingAsset = $false
+	Assert-InstallerTest $missingAssetFailed 'missing release asset unexpectedly succeeded'
+	Assert-InstallerTest ($missingAssetMessage -match [regex]::Escape($global:InstallerTestTag)) 'missing-asset error did not name the release'
+	Assert-InstallerTest ($missingAssetMessage -match 'retry in a few minutes') 'missing-asset error did not suggest a retry'
+	Assert-InstallerTest ($missingAssetMessage -match [regex]::Escape("releases/tag/$global:InstallerTestTag")) 'missing-asset error did not link the release page'
+	Assert-InstallerTest ([System.IO.File]::ReadAllText($target) -eq 'must remain') 'missing-asset failure changed the current binary'
+	Assert-InstallerTest (-not $global:InstallerSetupInvoked) 'setup ran after a missing-asset failure'
 
 	$blockedPath = Join-Path $tempRoot 'not a directory'
 	[System.IO.File]::WriteAllText($blockedPath, 'blocking file')
