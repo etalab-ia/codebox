@@ -315,6 +315,8 @@ jobs:
     if: needs.release-please.outputs.codebox_server_release_created == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    outputs:
+      image_digest: ${{ steps.image.outputs.digest }}
     permissions:
       contents: read
     steps:
@@ -329,7 +331,8 @@ jobs:
           registry: rg.fr-par.scw.cloud/${{ vars.SCW_REGISTRY_NAMESPACE }}
           username: nologin
           password: ${{ secrets.SCW_REGISTRY_SECRET_KEY }}
-      - uses: docker/build-push-action@v7
+      - id: image
+        uses: docker/build-push-action@v7
         with:
           context: .
           file: deploy/codebox-server/Dockerfile
@@ -337,3 +340,42 @@ jobs:
           push: true
           tags: |
             rg.fr-par.scw.cloud/${{ vars.SCW_REGISTRY_NAMESPACE }}/codebox-server:${{ needs.release-please.outputs.codebox_server_tag_name }}
+
+  deploy-codebox-server:
+    needs: [release-please, build-codebox-server-container]
+    if: >-
+      github.event_name == 'push' &&
+      needs.release-please.outputs.codebox_server_release_created == 'true' &&
+      needs.build-codebox-server-container.result == 'success'
+    uses: ./.github/workflows/deploy-codebox-server.yml
+    with:
+      image_tag: ${{ needs.release-please.outputs.codebox_server_tag_name }}
+      image_digest: ${{ needs.build-codebox-server-container.outputs.image_digest }}
+    secrets:
+      SCW_ACCESS_KEY: ${{ secrets.SCW_ACCESS_KEY }}
+      SCW_SECRET_KEY: ${{ secrets.SCW_SECRET_KEY }}
+      PROCONNECT_CLIENT_ID: ${{ secrets.PROCONNECT_CLIENT_ID }}
+      PROCONNECT_CLIENT_SECRET: ${{ secrets.PROCONNECT_CLIENT_SECRET }}
+    permissions:
+      contents: read
+
+  notify-codebox-server-deployment-failure:
+    needs: [release-please, deploy-codebox-server]
+    if: >-
+      always() &&
+      github.event_name == 'push' &&
+      needs.release-please.outputs.codebox_server_release_created == 'true' &&
+      needs.deploy-codebox-server.result == 'failure'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      issues: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      TAG: ${{ needs.release-please.outputs.codebox_server_tag_name }}
+      RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+    steps:
+      - name: Open a deployment failure issue
+        run: |
+          gh issue create --title "codebox-server deployment failed: $TAG" --body "Automatic deployment of $TAG failed. See $RUN_URL for logs."
