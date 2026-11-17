@@ -32,7 +32,7 @@ another owner).
    (`Shell` / `FS().Write`). The probe asserts byte-exact content, marker-only
    values, no canary on disk, and no leftover temp files.
 4. **Real guest apps, real loaders, real substitution.** Inside the guest,
-   a Node app using **dotenv@18.0.9 + dotenv-expand@13.0.0** and a Python app
+   a Node app using **dotenv@18.0.10 + dotenv-expand@13.0.0** and a Python app
    using **python-dotenv==1.2.4** each read their dotenv file and send the
    value as an HTTPS header to the lab. The probe asserts each app parsed the
    FILE's marker (not its environment), and that the lab received the
@@ -251,10 +251,12 @@ variable name without mixing.
 ### Re-qualification run (2026-11-09)
 
 The recorded pair above was captured against the loader set of its day, and the
-guest manifests have moved three times since. The kit was re-run on the current
-pins (#348): twice on macOS arm64 (Apple Silicon, macOS 27.2, Go 1.27.3) with
-`dotenv` 18.0.9 + `dotenv-expand` 13.0.0 and `python-dotenv` 1.2.4, **all 19
-assertions passing both times**, byte-identical between runs.
+guest manifests had moved three times since. The kit was re-run on the
+then-current pins (#348): twice on macOS arm64 (Apple Silicon, macOS 27.2, Go
+1.27.3) with `dotenv` 18.0.9 + `dotenv-expand` 13.0.0 and `python-dotenv`
+1.2.4, **all 19 assertions passing both times**, byte-identical between runs.
+The fixture's later `dotenv` 18.0.10 patch bump (#404) passes the host-side
+contract suite; no new native run is claimed for it.
 
 A third run is kept as a negative control: the same flow with the guest
 manifest pinned to a `dotenv` version that does not exist. It fails

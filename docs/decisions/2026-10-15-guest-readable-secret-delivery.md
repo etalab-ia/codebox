@@ -6,14 +6,14 @@ Tracking: #145; phase 4 #151
 
 > Pin note: the dependency list below records the versions in force when the
 > contract was measured (Node `dotenv` 16.4.7, `dotenv-expand` 12.0.2,
-> `python-dotenv` 1.2.2). The fixtures now pin `dotenv` 18.0.9,
+> `python-dotenv` 1.2.2). The fixtures now pin `dotenv` 18.0.10,
 > `dotenv-expand` 13.0.0 and `python-dotenv` 1.2.4. The behaviour assertions
 > that established this contract — quoted apostrophes, raw multiline values,
 > carriage returns, `$` and `#` — run on the current pins in the
 > `fixture-contracts` CI job and pass unchanged. The end-to-end guest transcript
-> has since been re-qualified on the current pins: the 2026-11-09 macOS arm64
-> run (`darwin-arm64-run-3` / `-4`, with a negative control) exercises
-> `dotenv` 18.0.9, `dotenv-expand` 13.0.0 and `python-dotenv` 1.2.4, while the
+> was re-qualified on 2026-11-09 (`darwin-arm64-run-3` / `-4`, with a negative
+> control) using `dotenv` 18.0.9, `dotenv-expand` 13.0.0 and `python-dotenv`
+> 1.2.4. The later 18.0.10 patch bump has host-side coverage only. The
 > 2026-10-15 pair remains the record for the versions named below (see
 > `tests/integration/project-secrets/native-phase3/evidence/README.md`).
 
