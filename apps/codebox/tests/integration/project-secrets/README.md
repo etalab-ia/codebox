@@ -24,18 +24,18 @@ tests clear the environment temporarily, and Go uses `Unmarshal` only.
 
 | Loader | Version | Opaque marker | Dollar marker |
 |---|---|---|---|
-| Node dotenv | 18.0.9 | Preserved, unquoted/single/double quoted | Preserved by parse alone |
+| Node dotenv | 18.0.10 | Preserved, unquoted/single/double quoted | Preserved by parse alone |
 | Node dotenv-expand | 13.0.0 | Preserved in all tested quote modes | Undefined `$MSB_...` erased, including after quoted parsing |
 | Python python-dotenv | 1.2.4 | Preserved in all tested quote/interpolation modes | Bare `$MSB_...` preserved; `${MSB_...}` erased with interpolation |
 | Go godotenv | 1.5.1 | Preserved in all tested quote modes | Unquoted undefined `$MSB_...` erased |
 
 First measured 2026-10-14 on Node 16.4.7 / expand 12.0.2 / Python 1.2.2, and
 re-measured 2026-10-25 after the fixture bump, on the set then pinned (Node
-16.6.1 / expand 12.0.3 / Python 1.2.4), then again 2026-11-09 on the `dotenv`
-18.0.9 direct pin (`dotenv-expand` 13.0.0 unchanged): the behaviour of every row
-is unchanged. The suites grew since the first run; Node now reports 46 tests and
-Python 16, all passing. Two component fixtures use the same application key with
-distinct markers.
+16.6.1 / expand 12.0.3 / Python 1.2.4), then on 2026-11-09 on `dotenv` 18.0.9
+and on 2026-11-17 on `dotenv` 18.0.10 (`dotenv-expand` 13.0.0 unchanged for
+both): the behaviour of every row is unchanged. The suites grew since the first
+run; Node now reports 46 tests and Python 16, all passing. Two component
+fixtures use the same application key with distinct markers.
 
 Two majors were evaluated rather than applied blindly.
 
@@ -80,6 +80,10 @@ a candidate of its own: it is the version `dotenv-expand` 13.0.0 keeps for
 itself in the lockfile.) #344 re-measures the host-side suite on 18.0.9 and
 moves the direct pin; the native gap it left open is closed by the 2026-11-09
 re-run (#348), which qualifies that pin end to end.
+
+`dotenv` 18.0.10, applied by Dependabot #404, passes the same 46 Node tests
+against `dotenv-expand` 13.0.0. The native transcripts remain tied to 18.0.9;
+no new end-to-end qualification is claimed for this patch bump.
 
 ## Design Consequence and Remaining Gate
 
