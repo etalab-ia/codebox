@@ -2,6 +2,9 @@ name: CI
 
 on:
   pull_request:
+    # GITHUB_TOKEN-created update PRs stay draft until review; ready_for_review
+    # is their first CI trigger because bot pushes cannot start new workflows.
+    types: [opened, synchronize, reopened, ready_for_review]
   push:
     branches: [main]
 
@@ -35,6 +38,10 @@ jobs:
         run: bash .github/scripts/test-platform-ci-scope.sh
       - name: Test msb runtime watch issue script
         run: bash .github/scripts/test-msb-runtime-watch-issue.sh
+      - name: Test msb runtime update preparer
+        run: python3 .github/scripts/test_msb_runtime_update.py
+      - name: Test manual msb hardware watchdog
+        run: bash .github/scripts/test-msb-hardware-watchdog.sh
 
   check:
     runs-on: ubuntu-latest

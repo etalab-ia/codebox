@@ -1,0 +1,65 @@
+name: msb-hardware-qualification
+
+# Paid hardware is deliberately manual. Provision a Linux self-hosted runner
+# with the custom `scaleway` label before dispatching the candidate ref, and
+# tear it down afterwards. This workflow has no Scaleway credentials and never
+# creates, starts, stops, or destroys infrastructure.
+on:
+  workflow_dispatch:
+
+permissions:
+  # The hosted watchdog lists this run's jobs and cancels the run if the paid
+  # job remains queued. Repository administration permission is not required.
+  actions: write
+  contents: read
+
+concurrency:
+  group: msb-hardware-qualification
+  cancel-in-progress: false
+
+jobs:
+  qualify:
+    runs-on: [self-hosted, linux, scaleway]
+    timeout-minutes: 15
+    steps:
+      - name: Verify the paid hardware boundary
+        run: |
+          set -euo pipefail
+          test "${GITHUB_EVENT_NAME}" = workflow_dispatch
+          test "${RUNNER_ENVIRONMENT}" = self-hosted
+          test "$(uname -s)" = Linux
+          test -r /dev/kvm -a -w /dev/kvm
+          printf 'Manual KVM qualification runner: %s / %s\n' "$(uname -m)" "${RUNNER_NAME}"
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: apps/codebox/go.mod
+          cache: true
+          cache-dependency-path: apps/codebox/go.sum
+
+      - name: Run the real Microsandbox hardware smoke test
+        env:
+          CODEBOX_MSB_HARDWARE_QUALIFICATION: "1"
+          MSB_BACKEND: local
+        run: go -C apps/codebox test ./internal/codebox -run '^TestMSBHardwareQualification$' -count=1 -v -timeout=9m
+
+  watchdog:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 4
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Bound the self-hosted runner acquisition wait
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          GITHUB_RUN_ID: ${{ github.run_id }}
+          QUALIFY_JOB_NAME: qualify
+          WAIT_SECONDS: "120"
+          POLL_INTERVAL: "10"
+        run: bash .github/scripts/msb-hardware-watchdog.sh
