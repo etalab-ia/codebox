@@ -77,11 +77,12 @@ names the same commit in every transcript, so it cannot separate two sets (issue
 | `darwin-arm64-run-3.txt`, `darwin-arm64-run-4.txt` | 2026-11-09, go1.27.3 | Node `dotenv` 18.0.9 + `dotenv-expand` 13.0.0, `python-dotenv` 1.2.4 (manifests at `d1f6020`) |
 | `darwin-arm64-run-negative-control.txt` | 2026-11-09, go1.27.3 | as `-run-3`, with the guest `dotenv` pin replaced by a version that does not exist |
 
-The pair `-run-3` / `-run-4` re-runs the kit on the current pins, so the native
-qualification now covers what the fixtures carry: all 19 cases pass, twice in a
-row, and the two transcripts are byte-identical (issue #348; macOS 27.2 on
-Apple Silicon, Go 1.27.3). The 2026-10-15 pair still stands for the set named in
-its row, which is no longer the current one.
+The pair `-run-3` / `-run-4` re-runs the kit on the pins current on 2026-11-09:
+all 19 cases pass, twice in a row, and the two transcripts are byte-identical
+(issue #348; macOS 27.2 on Apple Silicon, Go 1.27.3). The 2026-10-15 pair still
+stands for the set named in its row. The fixture's later `dotenv` 18.0.10 patch
+bump (#404) is covered by the host-side loader suites, not by a new native
+transcript.
 
 The negative control is what keeps the pair meaningful. With the guest manifest
 pinned to `dotenv@99.99.99`, the run fails
