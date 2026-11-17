@@ -1,11 +1,17 @@
 package gateway
 
 import (
+	"bytes"
+	"context"
+	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"log/slog"
+	"net"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"testing"
 	"time"
@@ -260,6 +266,118 @@ func TestLoginRequiresLoopbackPort(t *testing.T) {
 		ts.server.Handler().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, target, nil))
 		if rec.Code != http.StatusBadRequest {
 			t.Errorf("missing or malformed loopback state %q status = %d, want 400", target, rec.Code)
+		}
+	}
+}
+
+// TestLoginStartFailureAuditsErrorClass covers the 2026-11-17 production
+// incident: every login failed with an identical identity_provider_unavailable
+// audit line while the real cause (a blackholed destination) was only
+// discoverable by swapping the issuer env var. The audit event must name the
+// failure class without ever emitting the wrapped error text, which can embed
+// request URLs or provider detail.
+func TestLoginStartFailureAuditsErrorClass(t *testing.T) {
+	timeoutErr := &net.OpError{Op: "dial", Net: "tcp", Err: context.DeadlineExceeded}
+	cases := []struct {
+		name  string
+		err   error
+		class string
+	}{
+		{
+			name:  "discovery connect timeout",
+			err:   fmt.Errorf("%w: discovery: %w", ErrUpstream, &url.Error{Op: "Get", URL: "https://issuer.example/.well-known/openid-configuration", Err: timeoutErr}),
+			class: "discovery_timeout",
+		},
+		{
+			name:  "discovery dns failure",
+			err:   fmt.Errorf("%w: discovery: %w", ErrUpstream, &net.DNSError{Err: "no such host", Name: "issuer.example"}),
+			class: "discovery_dns",
+		},
+		{
+			name:  "discovery http status",
+			err:   fmt.Errorf("%w: discovery returned HTTP 502", ErrUpstream),
+			class: "discovery_http_status",
+		},
+		{
+			name:  "non-upstream error",
+			err:   errors.New("attempt store exhausted"),
+			class: "internal",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			var logs bytes.Buffer
+			ts := newTestServer(t, Identity{})
+			ts.server.logger = slog.New(slog.NewJSONHandler(&logs, nil))
+			ts.provider.authorizeErr = tc.err
+
+			rec := httptest.NewRecorder()
+			ts.server.Handler().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/auth/login?mode=terminal", nil))
+			if rec.Code != http.StatusServiceUnavailable {
+				t.Fatalf("status = %d, want 503 (body %s)", rec.Code, rec.Body.String())
+			}
+
+			var event map[string]any
+			if err := json.Unmarshal(logs.Bytes(), &event); err != nil {
+				t.Fatalf("audit log is not one JSON event (%q): %v", logs.String(), err)
+			}
+			if event["event"] != "login.start_failed" {
+				t.Fatalf("event = %v, want login.start_failed", event["event"])
+			}
+			if event["reason"] != "identity_provider_unavailable" {
+				t.Fatalf("reason = %v, want the stable identity_provider_unavailable", event["reason"])
+			}
+			if event["error_class"] != tc.class {
+				t.Fatalf("error_class = %v, want %s", event["error_class"], tc.class)
+			}
+			// The wrapped text must never reach the log: it can carry the
+			// request URL and provider response detail.
+			for _, forbidden := range []string{"issuer.example", "i/o timeout", "no such host", "attempt store exhausted"} {
+				if strings.Contains(logs.String(), forbidden) {
+					t.Fatalf("audit log leaks error detail %q: %s", forbidden, logs.String())
+				}
+			}
+		})
+	}
+}
+
+// TestUpstreamErrorClassNamesEveryLeg checks the classifier against the actual
+// wrap shapes in oidc.go and jwt.go, including the typed network causes that
+// fmt.Errorf("%v") flattens in the message but preserves in the chain.
+func TestUpstreamErrorClassNamesEveryLeg(t *testing.T) {
+	// url.Error is the shape http.Client.Do actually returns; it is the
+	// net.Error in the chain, mirroring what production wraps.
+	dialTimeout := &url.Error{Op: "Get", URL: "https://issuer.example", Err: &net.OpError{Op: "dial", Net: "tcp", Err: context.DeadlineExceeded}}
+	dnsFailure := &url.Error{Op: "Get", URL: "https://issuer.example", Err: &net.DNSError{Err: "server misbehaving", Name: "issuer.example"}}
+	cases := []struct {
+		err   error
+		class string
+	}{
+		{fmt.Errorf("%w: discovery: %w", ErrUpstream, dialTimeout), "discovery_timeout"},
+		{fmt.Errorf("%w: discovery: %w", ErrUpstream, dnsFailure), "discovery_dns"},
+		{fmt.Errorf("%w: discovery returned HTTP 404", ErrUpstream), "discovery_http_status"},
+		{fmt.Errorf("%w: discovery payload is not valid JSON", ErrUpstream), "discovery_bad_payload"},
+		{fmt.Errorf("%w: discovery payload is missing required endpoints", ErrUpstream), "discovery_invalid_discovery"},
+		{fmt.Errorf("%w: discovery issuer %q does not match the configured issuer", ErrUpstream, "https://other"), "discovery_invalid_discovery"},
+		{fmt.Errorf("%w: token endpoint: %w", ErrUpstream, dialTimeout), "token_timeout"},
+		{fmt.Errorf("%w: token response unreadable", ErrUpstream), "token_bad_payload"},
+		{fmt.Errorf("%w: token endpoint returned HTTP 500", ErrUpstream), "token_http_status"},
+		{fmt.Errorf("%w: token response is not a valid OIDC payload", ErrUpstream), "token_bad_payload"},
+		{fmt.Errorf("%w: jwks: %w", ErrUpstream, dialTimeout), "jwks_timeout"},
+		{fmt.Errorf("%w: jwks returned HTTP 503", ErrUpstream), "jwks_http_status"},
+		{fmt.Errorf("%w: jwks payload is not valid JSON", ErrUpstream), "jwks_bad_payload"},
+		{fmt.Errorf("%w: jwks contains no keys", ErrUpstream), "jwks_other"},
+		{fmt.Errorf("%w: id token nonce mismatch", ErrUpstream), "id_token_other"},
+		{fmt.Errorf("%w: userinfo: %w", ErrUpstream, dialTimeout), "userinfo_timeout"},
+		{fmt.Errorf("%w: userinfo returned HTTP 401", ErrUpstream), "userinfo_http_status"},
+		{fmt.Errorf("%w: userinfo payload is neither JSON nor a signed JWT", ErrUpstream), "userinfo_bad_payload"},
+		{fmt.Errorf("%w: UserInfo subject does not match the ID token subject", ErrUpstream), "userinfo_invalid_discovery"},
+		{fmt.Errorf("%w: ProConnect identity carries no email claim", ErrUpstream), "provider_other"},
+		{errors.New("not an upstream failure"), "internal"},
+	}
+	for _, tc := range cases {
+		if got := upstreamErrorClass(tc.err); got != tc.class {
+			t.Errorf("upstreamErrorClass(%v) = %s, want %s", tc.err, got, tc.class)
 		}
 	}
 }

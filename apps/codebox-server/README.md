@@ -88,4 +88,10 @@ secret resolution. Records carry the client IP, a hashed subject, the project
 identifier, counts and revision numbers. **They never carry a secret value, a
 secret name, an OAuth code, or a bearer token**; a canary test enforces this.
 
+A failed login start (`login.start_failed`) also carries an `error_class`
+naming the failure leg and kind — for example `discovery_timeout` (connection
+to the issuer blackholed or filtered), `discovery_dns`, `token_http_status`,
+`jwks_bad_payload`. The class is derived from the error chain; the wrapped
+error text, which can embed request URLs or provider detail, is never logged.
+
 Log retention is the platform's responsibility. The gateway keeps nothing.
