@@ -88,7 +88,16 @@ printf 'Installation de codebox\n\n'
 download() {
 	url=$1
 	destination=$2
-	curl --fail --silent --show-error --location --output "$destination" "$url" || die "téléchargement impossible : $url"
+	if ! curl --fail --silent --show-error --location --output "$destination" "$url"; then
+		# La release existe (l'étiquette vient d'être résolue) mais l'asset
+		# manque : cas typique d'une release dont les binaires ne sont pas
+		# encore publiés. Un dump d'URL brut n'apprend rien à l'utilisateur ;
+		# lui dire quoi faire.
+		die "téléchargement impossible : $url
+La release $tag existe mais ce fichier n'y est pas (encore) disponible.
+Si la release vient d'être annoncée, ses binaires sont peut-être en cours de publication : réessayez dans quelques minutes.
+Sinon, vérifiez les fichiers de la release : $RELEASE_PREFIX$tag"
+	fi
 	[ -s "$destination" ] || die "téléchargement vide : $url"
 }
 
