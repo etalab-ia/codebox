@@ -443,12 +443,13 @@ func (m *MicrosandboxRuntime) verifyProjectSkills(ctx context.Context) error {
 	for _, skill := range m.cfg.ProjectSkills {
 		expected[skill.Name] = true
 	}
-	// Right after a cold start, OpenCode 2.2.5 can answer /api/skill with an
-	// empty list before its skill index is ready (upstream anomalycoco/opencode
-	// #61669). That empty result is a startup race, not a failed install, so the
-	// query is retried with the bounded guest-agent backoff when a pinned skill
-	// is reported missing. A genuine command error, a malformed response, or a
-	// duplicated report stays a hard failure: none of those resolve by waiting.
+	// Right after a cold start, the persistent OpenCode 2.2.5 service can answer
+	// /api/skill before its skill index is ready (upstream anomalyco/opencode
+	// #57524). That incomplete result is a startup race, not a failed install, so
+	// the same service is queried again with the bounded guest-agent backoff when
+	// a pinned skill is reported missing. A genuine command error, a malformed
+	// response, or a duplicated report stays a hard failure: none of those resolve
+	// by waiting.
 	delay := m.launchRetryDelay
 	if delay == 0 {
 		delay = msbLaunchRetryDelay
@@ -480,17 +481,17 @@ func (m *MicrosandboxRuntime) verifyProjectSkills(ctx context.Context) error {
 	return problem
 }
 
-// queryOpenCodeSkillDiscovery asks OpenCode what skills it discovered and
-// returns the pinned skills that were not reported (missing) and the full set
-// of reported names (returned). Command, exit and JSON errors are returned as
-// hard errors.
+// queryOpenCodeSkillDiscovery asks the persistent OpenCode service what skills
+// it discovered and returns the pinned skills that were not reported (missing)
+// and the full set of reported names (returned). Command, exit and JSON errors
+// are returned as hard errors.
 func (m *MicrosandboxRuntime) queryOpenCodeSkillDiscovery(ctx context.Context, expected map[string]bool) (missing, returned []string, err error) {
-	stdout, stderr, code, err := m.Client.ExecCapture(ctx, m.InstanceName(), "opencode api --standalone GET /api/skill")
+	stdout, stderr, code, err := m.Client.ExecCapture(ctx, m.InstanceName(), "opencode api GET /api/skill")
 	if err != nil {
 		return nil, nil, fmt.Errorf("verify guest skill discovery: %w", err)
 	}
 	if code != 0 {
-		return nil, nil, fmt.Errorf("verify guest skill discovery: opencode api --standalone GET /api/skill exited %d: %s", code, strings.TrimSpace(stderr))
+		return nil, nil, fmt.Errorf("verify guest skill discovery: opencode api GET /api/skill exited %d: %s", code, strings.TrimSpace(stderr))
 	}
 	var response struct {
 		Data []struct {

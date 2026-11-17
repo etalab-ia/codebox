@@ -276,7 +276,7 @@ func TestMicrosandboxInstallsPinnedSkillInOpenCodeGlobalDirectory(t *testing.T) 
 	if strings.Contains(installCommand, "/workspace/.opencode/skills") {
 		t.Fatalf("guest skill was installed in the agent checkout: %s", installCommand)
 	}
-	if !hasCall(client, "execcapture "+m.InstanceName()+" opencode api --standalone GET /api/skill") {
+	if !hasCall(client, "execcapture "+m.InstanceName()+" opencode api GET /api/skill") {
 		t.Fatal("startup did not verify that OpenCode discovered the installed skill")
 	}
 }
@@ -388,7 +388,7 @@ func TestEmptySelectionFailsClosedWhenGuestInventoryIsMissing(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "project-skill inventory") {
 		t.Fatalf("empty selection should reject an orphaned managed directory, got %v", err)
 	}
-	if len(client.written) != 0 || hasCall(client, "execcapture "+m.InstanceName()+" opencode api --standalone GET /api/skill") {
+	if len(client.written) != 0 || hasCall(client, "execcapture "+m.InstanceName()+" opencode api GET /api/skill") {
 		t.Fatalf("reconciliation continued despite missing inventory: writes=%+v calls=%+v", client.written, client.calls)
 	}
 	if len(client.calls) != 1 || !strings.Contains(client.calls[0], "for marker in ") || !strings.Contains(client.calls[0], ".codebox-source") {
@@ -459,6 +459,18 @@ func TestProjectSkillInstallRecoversAfterInventoryCommit(t *testing.T) {
 	}
 }
 
+func TestVerifyProjectSkillsWithoutSkillsSkipsDiscovery(t *testing.T) {
+	client := &fakeMSBClient{}
+	m := NewMicrosandboxRuntime(Config{})
+	m.Client = client
+	if err := m.verifyProjectSkills(context.Background()); err != nil {
+		t.Fatalf("no-skill verification should succeed without a guest query: %v", err)
+	}
+	if len(client.calls) != 0 {
+		t.Fatalf("no-skill verification queried the guest: %v", client.calls)
+	}
+}
+
 func TestVerifyProjectSkillsRejectsDuplicateDiscovery(t *testing.T) {
 	client := &fakeMSBClient{execCaptureResults: []fakeMSBExecCaptureResult{{
 		stdout: `{"data":[{"name":"rgaa"},{"name":"rgaa"}]}`,
@@ -471,23 +483,23 @@ func TestVerifyProjectSkillsRejectsDuplicateDiscovery(t *testing.T) {
 	}
 }
 
-func TestVerifyProjectSkillsRetriesTransientEmptyDiscovery(t *testing.T) {
-	// OpenCode 2.2.5 can answer /api/skill with an empty list right after a
-	// cold start (upstream anomalycoco/opencode #61669). The verification must
-	// retry that race and succeed once discovery catches up, rather than
-	// declaring the pinned skill missing.
+func TestVerifyProjectSkillsRetriesTransientMissingSkillOnPersistentService(t *testing.T) {
+	// The persistent OpenCode 2.2.5 service can answer /api/skill before its
+	// skill index is ready (upstream anomalyco/opencode #57524). Retrying the
+	// same service lets discovery catch up without booting a new server per try.
 	client := &fakeMSBClient{execCaptureResults: []fakeMSBExecCaptureResult{
-		{stdout: `{"data":[]}`},
-		{stdout: `{"data":[{"name":"rgaa"}]}`},
+		{stdout: `{"data":[{"name":"builtin"}]}`},
+		{stdout: `{"data":[{"name":"builtin"},{"name":"rgaa"}]}`},
 	}}
 	m := NewMicrosandboxRuntime(Config{ProjectSkills: []SkillPackage{{Name: "rgaa"}}})
 	m.Client = client
 	m.launchRetryDelay = time.Millisecond
 	if err := m.verifyProjectSkills(context.Background()); err != nil {
-		t.Fatalf("transient empty discovery should be retried: %v", err)
+		t.Fatalf("transient missing skill should be retried: %v", err)
 	}
-	if len(client.calls) != 2 {
-		t.Fatalf("discovery attempts = %d, want 2: %v", len(client.calls), client.calls)
+	expectedCall := "execcapture " + m.InstanceName() + " opencode api GET /api/skill"
+	if !reflect.DeepEqual(client.calls, []string{expectedCall, expectedCall}) {
+		t.Fatalf("discovery calls = %v, want two persistent-service queries", client.calls)
 	}
 }
 

@@ -401,7 +401,7 @@ func TestReconcileNoOpInstallsNewProjectSkills(t *testing.T) {
 	if len(client.written) != 2 || countCalls(client, "create") != 0 || countCalls(client, "start") != 0 {
 		t.Fatalf("no-op reconcile did not install skills without restarting the guest: writes=%d calls=%v", len(client.written), client.calls)
 	}
-	if !hasCall(client, "execcapture "+m.InstanceName()+" opencode api --standalone GET /api/skill") {
+	if !hasCall(client, "execcapture "+m.InstanceName()+" opencode api GET /api/skill") {
 		t.Fatal("no-op reconcile returned before verifying OpenCode skill discovery")
 	}
 	_ = os.Remove(statePath)
