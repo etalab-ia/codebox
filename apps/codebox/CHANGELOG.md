@@ -1,5 +1,30 @@
 # Changelog
 
+## [0.19.0](https://github.com/etalab-ia/codebox/compare/codebox-v0.18.0...codebox-v0.19.0) (2026-11-17)
+
+
+### Features
+
+* **installer:** detect NixOS and guide nix-ld setup before downloading ([0a4465f](https://github.com/etalab-ia/codebox/commit/0a4465f601dde134adbc779eb39d9ae8e8f3f712))
+* **installer:** detect NixOS and guide nix-ld setup before downloading ([e44aee5](https://github.com/etalab-ia/codebox/commit/e44aee5751f73369acb698d9dafaf41ebfec0b20))
+
+
+### Bug Fixes
+
+* **release:** publish releases only after binaries are uploaded ([902b073](https://github.com/etalab-ia/codebox/commit/902b07369dae38bb0e4953be4d8cb3268ddeb09a))
+* **release:** publish releases only after binaries are uploaded ([b578482](https://github.com/etalab-ia/codebox/commit/b57848271e961b07180c6277c73578c68eb4bc82))
+* **test:** scope FAKE_MISSING_ASSET to a subshell, drop diagnostics ([16dc162](https://github.com/etalab-ia/codebox/commit/16dc162da39db80443bd6fa131df7a7cd629cff0))
+
+
+### Miscellaneous Chores
+
+* **deps:** Bump dotenv in /apps/codebox/tests/integration/project-secrets ([0bf90fc](https://github.com/etalab-ia/codebox/commit/0bf90fc9061eaa0acc8fc5461468666292b493c3))
+* **deps:** Bump the go-codebox group in /apps/codebox with 3 updates ([8281835](https://github.com/etalab-ia/codebox/commit/8281835d68629456ace6b3873aaaabacd33e24ca))
+* **deps:** sync dotenv fixture contracts ([725fe83](https://github.com/etalab-ia/codebox/commit/725fe8312f42b8a035db3c5681675c06cbcd949e))
+* **msb:** update Microsandbox runtime to v0.7.15 ([426b1d0](https://github.com/etalab-ia/codebox/commit/426b1d097d8b4956cb78336218cb7e7e98295f60))
+* **msb:** update Microsandbox runtime to v0.7.15 ([23e1740](https://github.com/etalab-ia/codebox/commit/23e174018911eb181e25e1b9e92bff682ee40ff4))
+* **test:** temporary diagnostics for macOS rollback assertion ([e6ffa4c](https://github.com/etalab-ia/codebox/commit/e6ffa4cab4158ad19840f57a0c2e6d1bffb2ff40))
+
 ## [0.18.0](https://github.com/etalab-ia/codebox/compare/codebox-v0.17.2...codebox-v0.18.0) (2026-11-17)
 
 
