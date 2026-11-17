@@ -23,8 +23,8 @@ import (
 
 var source = os.Getenv("CODEBOX_QUALIFICATION_SOURCE")
 
-const runtimeVersion = "0.7.14"
-const archiveSHA = "9cc2bd2874cc1aa98cb139429a9482830b1e64b48255aa9f40a25b8979a23a9f"
+const runtimeVersion = "0.7.15"
+const archiveSHA = "99b1b0e1d5a30a30e12b4371a339e1683e57f7d12a57be32e63198c8809e1f3d"
 const markerA = "__CODEBOX_SECRET_a01__"
 const markerB = "__CODEBOX_SECRET_b02__"
 const markerC = "__CODEBOX_SECRET_c03__"
