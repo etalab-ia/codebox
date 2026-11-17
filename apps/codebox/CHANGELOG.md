@@ -1,5 +1,30 @@
 # Changelog
 
+## [0.18.0](https://github.com/etalab-ia/codebox/compare/codebox-v0.17.2...codebox-v0.18.0) (2026-11-17)
+
+
+### Features
+
+* **secrets:** add manifest v7 and unified CLI project-secret resolution ([aa56499](https://github.com/etalab-ia/codebox/commit/aa56499e64d4c3f1d370f03b0c9d43ad36556329))
+* **secrets:** add manifest v7 and unified CLI project-secret resolution ([7e48972](https://github.com/etalab-ia/codebox/commit/7e489724d8ea825401ec12ed78cd96435ad94ac7))
+* **secrets:** add zero-console CLI commands and gateway resolver ([98c171a](https://github.com/etalab-ia/codebox/commit/98c171a87e6d5c850b7961112020b71b60093355))
+* **secrets:** add zero-console CLI commands and gateway resolver ([ffeb7ec](https://github.com/etalab-ia/codebox/commit/ffeb7ec1228d266964d39aec1b7f1e0b9bf7c078))
+
+
+### Bug Fixes
+
+* **secrets:** accept guest-readable remote approvals at launch ([5c55d89](https://github.com/etalab-ia/codebox/commit/5c55d8920d0416310e12a684159f6e7442c0f3d3))
+* **secrets:** bind loopback login and gateway redirects ([7dd96a2](https://github.com/etalab-ia/codebox/commit/7dd96a2d4c8532f81c430b68b97b9a450d116361))
+* **secrets:** carry gateway revisions into reconciliation state ([16d9afc](https://github.com/etalab-ia/codebox/commit/16d9afc1ab31383fddbabf049070cffeb0d71e2c))
+* **secrets:** enforce approval gate on direct creation paths ([e7952f7](https://github.com/etalab-ia/codebox/commit/e7952f7d0ea0bc3e4e1f6be9314739615194d8b9))
+* **secrets:** fail closed on declared sources, share one set, narrow recovery ([641dd13](https://github.com/etalab-ia/codebox/commit/641dd1343e707aadb35fee962531315d32e58738))
+* **secrets:** include gateway project identity in reconcile markers ([9054f33](https://github.com/etalab-ia/codebox/commit/9054f3386b911f5d318b41c41d907d107889eba1))
+* **secrets:** let revoked bindings reconcile before create gate ([e19c39b](https://github.com/etalab-ia/codebox/commit/e19c39b8eb1333d671c514f836287723da4456ac))
+* **secrets:** preserve recovery compatibility gate and schema 7 test ([7c501f4](https://github.com/etalab-ia/codebox/commit/7c501f4e8f0d5be1773ffb1acd38aa44b85311ad))
+* **secrets:** refuse empty discovered bundle on push ([6f19395](https://github.com/etalab-ia/codebox/commit/6f19395c3dc5052c3cda65a66560be9f5e86df98))
+* **secrets:** remote approvals, production filter, hint destinations ([74bce77](https://github.com/etalab-ia/codebox/commit/74bce774afd8555ccc9797d1b86ee6cfffc0f391))
+* **secrets:** skip project metadata for non-project recovery ([6a2a272](https://github.com/etalab-ia/codebox/commit/6a2a272b1b7e81efbdd9fd1bff615afb369c5bc6))
+
 ## [0.17.2](https://github.com/etalab-ia/codebox/compare/codebox-v0.17.1...codebox-v0.17.2) (2026-11-14)
 
 
