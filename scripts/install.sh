@@ -6,6 +6,10 @@ RELEASE_PAGE="https://github.com/$REPOSITORY/releases/latest"
 RELEASE_PREFIX="https://github.com/$REPOSITORY/releases/tag/"
 DOWNLOAD_PREFIX="https://github.com/$REPOSITORY/releases/download"
 SUPPORTED_HOSTS='macOS Apple Silicon, Linux arm64 et Linux x64 (Windows : utilisez install.ps1)'
+# Overridable only so the installer test suite can simulate a NixOS host;
+# on real systems these files are created by NixOS itself.
+NIXOS_MARKER=${CODEBOX_NIXOS_MARKER:-/etc/NIXOS}
+NIX_LD_LOADER=${CODEBOX_NIX_LD_LOADER:-/run/current-system/sw/share/nix-ld/lib/ld.so}
 
 die() {
 	printf 'codebox : %s\n' "$1" >&2
@@ -40,6 +44,23 @@ Postes pris en charge : $SUPPORTED_HOSTS."
 Postes pris en charge : $SUPPORTED_HOSTS."
 		;;
 esac
+
+# NixOS has no standard glibc loader (/lib64/ld-linux-...): without nix-ld,
+# codebox AND the Microsandbox runtime it downloads would die on the stub-ld
+# error. Fail before downloading, with the fix instead of the cryptic error.
+# The marker is the ld.so symlink that programs.nix-ld.enable creates; it
+# also covers equivalent setups that provide that loader.
+if [ "$system" = 'Linux' ] && [ -e "$NIXOS_MARKER" ] && [ ! -e "$NIX_LD_LOADER" ]; then
+	die "NixOS détecté sans chargeur dynamique compatible (nix-ld).
+Les binaires codebox et le runtime Microsandbox sont liés à la glibc et ne
+peuvent pas s'exécuter tels quels sur NixOS.
+Activez nix-ld dans votre configuration (configuration.nix) :
+  programs.nix-ld.enable = true;
+puis appliquez-la :
+  sudo nixos-rebuild switch
+Déconnectez-vous puis reconnectez-vous (une seule fois), et relancez cet installateur.
+Détails : https://nix.dev/permalink/stub-ld"
+fi
 
 if [ -z "${HOME:-}" ]; then
 	die 'la variable HOME n'"'"'est pas définie ; impossible de choisir un répertoire d'"'"'installation.'

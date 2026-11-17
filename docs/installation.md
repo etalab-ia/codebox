@@ -59,6 +59,26 @@ Les binaires macOS ne sont ni signés ni notariés, et portent une signature ad-
 
 Le mode manuel (`MSB_PATH`) et les prérequis plateforme de Microsandbox sont détaillés dans [Runtime Microsandbox](runtime-microsandbox.md).
 
+## NixOS : activer nix-ld avant l'installation
+
+Les binaires Linux publiés (codebox, la bibliothèque FFI du SDK Microsandbox et le runtime `msb` téléchargé au premier démarrage) sont liés dynamiquement à la glibc. NixOS ne fournit pas le chargeur dynamique aux emplacements standard (`/lib64/...`) : sans préparation, l'exécution échoue avec le message « NixOS cannot run dynamically linked executables intended for generic linux environments out of the box » ([explication](https://nix.dev/permalink/stub-ld)).
+
+La solution est [nix-ld](https://github.com/nix-community/nix-ld), un module NixOS prévu pour exécuter ce type de binaires. Il fournit le chargeur et un jeu de bibliothèques par défaut qui couvre toute la chaîne codebox + Microsandbox (glibc, libgcc) : une seule activation suffit, aucune bibliothèque supplémentaire n'est à déclarer.
+
+1. Ajouter à votre configuration (le plus souvent `/etc/nixos/configuration.nix`) :
+
+   ```nix
+   programs.nix-ld.enable = true;
+   ```
+
+2. Appliquer la configuration : `sudo nixos-rebuild switch`.
+3. Se déconnecter puis se reconnecter à la session (une seule fois, pour propager les variables d'environnement de nix-ld).
+4. Lancer l'installateur (ou relancer `~/.local/bin/codebox setup` si codebox est déjà installé).
+
+L'installateur détecte NixOS (`/etc/NIXOS`) et s'arrête avant tout téléchargement si le chargeur nix-ld est absent, en rappelant ces étapes. Si une erreur « cannot open shared object file » apparaît malgré tout, la bibliothèque manquante peut être ajoutée via `programs.nix-ld.libraries`.
+
+Alternative sans modifier la configuration système (dépannage, plus lourd) : `nix-shell -p steam-run --run "steam-run ~/.local/bin/codebox"`.
+
 ## Depuis les sources (contributeurs)
 
 Prérequis : [Go](https://go.dev) >= 1.22 et une chaîne C native (Xcode Command Line Tools sur macOS, `gcc` sur Linux, MinGW-w64 x64 ou LLVM-MinGW sur Windows ; sous Windows arm64, la chaîne doit cibler `aarch64-w64-mingw32`).
