@@ -6,6 +6,9 @@ set +x
 umask 077
 
 SCW_CLI=${SCW_CLI:-scw}
+CURL_CLI=${CURL_CLI:-curl}
+HEALTHCHECK_ATTEMPTS=${HEALTHCHECK_ATTEMPTS:-12}
+HEALTHCHECK_INTERVAL_SECONDS=${HEALTHCHECK_INTERVAL_SECONDS:-5}
 REGION=${SCW_DEFAULT_REGION:-fr-par}
 NAMESPACE_NAME=codebox-server
 CONTAINER_NAME=codebox-server
@@ -39,7 +42,7 @@ require_env \
   PROCONNECT_CLIENT_SECRET \
   IMAGE_TAG
 
-for tool in "$SCW_CLI" jq openssl; do
+for tool in "$SCW_CLI" "$CURL_CLI" jq openssl; do
   command -v "$tool" >/dev/null 2>&1 || fail "Required tool is not installed: $tool"
 done
 
@@ -57,6 +60,10 @@ esac
   fail 'IMAGE_TAG must be an immutable codebox-server release tag'
 [[ "$PUBLIC_URL" =~ ^https://[A-Za-z0-9.-]+(:[0-9]+)?$ ]] || \
   fail 'CODEBOX_SERVER_URL must be an HTTPS origin without a path or trailing slash'
+[[ "$HEALTHCHECK_ATTEMPTS" =~ ^[1-9][0-9]*$ ]] || \
+  fail 'HEALTHCHECK_ATTEMPTS must be a positive integer'
+[[ "$HEALTHCHECK_INTERVAL_SECONDS" =~ ^[0-9]+$ ]] || \
+  fail 'HEALTHCHECK_INTERVAL_SECONDS must be a non-negative integer'
 
 IMAGE_REFERENCE="rg.$REGION.scw.cloud/$SCW_REGISTRY_NAMESPACE/codebox-server:$IMAGE_TAG"
 WORK_DIR=$(mktemp -d)
@@ -172,6 +179,24 @@ case "$CONTAINER_DOMAIN" in
   https://* | http://*) NATIVE_ORIGIN="$CONTAINER_DOMAIN" ;;
   *) NATIVE_ORIGIN="https://$CONTAINER_DOMAIN" ;;
 esac
+
+HEALTH_URL="$NATIVE_ORIGIN/healthz"
+HEALTHY=false
+for ((attempt = 1; attempt <= HEALTHCHECK_ATTEMPTS; attempt++)); do
+  if HEALTH_JSON=$("$CURL_CLI" --fail --silent --show-error \
+    --connect-timeout 5 --max-time 10 "$HEALTH_URL"); then
+    if jq -e '.status == "ok" and .store == "scaleway"' <<<"$HEALTH_JSON" >/dev/null 2>&1; then
+      HEALTHY=true
+      break
+    fi
+  fi
+  if (( attempt < HEALTHCHECK_ATTEMPTS )); then
+    sleep "$HEALTHCHECK_INTERVAL_SECONDS"
+  fi
+done
+[[ "$HEALTHY" == true ]] || \
+  fail "Gateway did not return a healthy Scaleway response after $HEALTHCHECK_ATTEMPTS attempts"
+printf 'Gateway health check passed: %s\n' "$HEALTH_URL"
 
 if [[ -n "${GITHUB_OUTPUT:-}" ]]; then
   {
