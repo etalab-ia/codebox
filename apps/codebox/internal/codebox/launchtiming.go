@@ -153,7 +153,7 @@ func (s *LaunchTimingStore) Observe(key string, kind LaunchKind, took time.Durat
 		return err
 	}
 	if err := s.fs.MkdirAll(s.dir, 0o700); err != nil {
-		return fmt.Errorf("create the launch timing directory: %w", err)
+		return fmt.Errorf("création du répertoire des durées de démarrage : %w", err)
 	}
 	return atomicWrite(s.fs, s.path(), append(data, '\n'), 0o600)
 }

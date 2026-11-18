@@ -57,7 +57,7 @@ func piGuestConfigScript(overlay ManagedOverlay) (string, error) {
 		return "", err
 	}
 	return strings.Join([]string{
-		`if [ -z "$HOME" ]; then echo "HOME is not set in the guest" >&2; exit 1; fi`,
+		`if [ -z "$HOME" ]; then echo "HOME n'est pas défini dans la machine isolée" >&2; exit 1; fi`,
 		`mkdir -p "$HOME/.pi/agent"`,
 		`printf '%s\n' ` + shellQuote(models) + ` > "$HOME/.pi/agent/models.json"`,
 		`printf '%s\n' ` + shellQuote(settings) + ` > "$HOME/.pi/agent/settings.json"`,

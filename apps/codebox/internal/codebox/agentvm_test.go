@@ -129,7 +129,7 @@ func TestAgentVMCreateVMRollsBackOnEditFailure(t *testing.T) {
 	if !runner.hasCall("limactl delete " + DefaultAgentVMVM + " --force") {
 		t.Errorf("expected rollback delete after edit failure, calls: %v", runner.calls)
 	}
-	if !strings.Contains(err.Error(), "removed") {
+	if !strings.Contains(err.Error(), "supprimé") {
 		t.Errorf("error should mention the rollback: %v", err)
 	}
 }

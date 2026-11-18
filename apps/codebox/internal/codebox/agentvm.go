@@ -120,7 +120,7 @@ func (a *AgentVM) limaList(ctx context.Context) (map[string]bool, error) {
 		return nil, err
 	}
 	if res.ExitCode != 0 {
-		return nil, fmt.Errorf("limactl list failed (exit %d): %s", res.ExitCode, res.Stderr)
+		return nil, fmt.Errorf("échec de limactl list (code de sortie %d) : %s", res.ExitCode, res.Stderr)
 	}
 	return ParseLimaList(res.Stdout), nil
 }
@@ -180,7 +180,7 @@ func (a *AgentVM) BaseTemplateSpec() BaseTemplateSpec {
 // instead, pointing at the variable that named it.
 func (a *AgentVM) ensureBaseTemplate(ctx context.Context) error {
 	if !a.ownsBaseTemplate() {
-		return fmt.Errorf("base template %s not found; build it with 'agent-vm setup' or point AGENT_VM_TEMPLATE at an existing template", a.Config.AgentVMTemplate)
+		return fmt.Errorf("template de base %s introuvable ; construisez-le avec 'agent-vm setup' ou pointez AGENT_VM_TEMPLATE vers un template existant", a.Config.AgentVMTemplate)
 	}
 	if a.Config.AgentVMResourcesErr != nil {
 		return a.Config.AgentVMResourcesErr
@@ -239,13 +239,13 @@ func mountsJSON(workspaceDir string) string {
 // workspace mount, mirroring agent-vm's clone-then-edit flow. Editing is
 // only allowed on a stopped instance, so it happens right after the clone.
 func (a *AgentVM) createVM(ctx context.Context) error {
-	fmt.Printf("Cloning %s to %s...\n", a.Config.AgentVMTemplate, a.VMName())
+	fmt.Printf("Clonage de %s vers %s...\n", a.Config.AgentVMTemplate, a.VMName())
 	res, err := a.Runner.Run(ctx, "limactl", "clone", a.Config.AgentVMTemplate, a.VMName(), "--tty=false")
 	if err != nil {
 		return err
 	}
 	if res.ExitCode != 0 {
-		return fmt.Errorf("limactl clone failed (exit %d): %s", res.ExitCode, res.Stderr)
+		return fmt.Errorf("échec de limactl clone (code de sortie %d) : %s", res.ExitCode, res.Stderr)
 	}
 	res, err = a.Runner.Run(ctx, "limactl", "edit", a.VMName(), "--tty=false",
 		"--set", ".mounts = "+mountsJSON(a.Config.WorkspaceDir))
@@ -256,13 +256,13 @@ func (a *AgentVM) createVM(ctx context.Context) error {
 		// Roll back the incomplete clone: a registered VM without the
 		// workspace mount is unusable, and Start would treat it as a valid
 		// existing instance instead of re-creating it.
-		fmt.Printf("limactl edit (mounts) failed (exit %d): %s\n", res.ExitCode, res.Stderr)
-		fmt.Printf("Removing the incomplete clone %s...\n", a.VMName())
+		fmt.Printf("échec de limactl edit (montages) (code de sortie %d) : %s\n", res.ExitCode, res.Stderr)
+		fmt.Printf("Suppression du clone incomplet %s...\n", a.VMName())
 		if _, delErr := a.Runner.Run(ctx, "limactl", "delete", a.VMName(), "--force"); delErr != nil {
-			return fmt.Errorf("limactl edit (mounts) failed (exit %d): %s; cleanup also failed: %v (run 'limactl delete %s --force' manually)",
+			return fmt.Errorf("échec de limactl edit (montages) (code de sortie %d) : %s ; le nettoyage a aussi échoué : %v (lancez 'limactl delete %s --force' manuellement)",
 				res.ExitCode, res.Stderr, delErr, a.VMName())
 		}
-		return fmt.Errorf("limactl edit (mounts) failed (exit %d): %s (the incomplete clone was removed; retry the start)",
+		return fmt.Errorf("échec de limactl edit (montages) (code de sortie %d) : %s (le clone incomplet a été supprimé ; relancez le démarrage)",
 			res.ExitCode, res.Stderr)
 	}
 	return nil
@@ -290,7 +290,7 @@ func (a *AgentVM) waitForAgent(ctx context.Context) error {
 		}
 		time.Sleep(time.Second)
 	}
-	return fmt.Errorf("timed out waiting for %s guest agent", a.VMName())
+	return fmt.Errorf("délai dépassé en attendant l'agent invité de %s", a.VMName())
 }
 
 // StopBackend terminates a stale opencode process inside the VM: SIGTERM via
@@ -310,7 +310,7 @@ func (a *AgentVM) StopBackend(ctx context.Context) error {
 			break // process exited
 		}
 		if i+1 >= a.KillMaxPolls {
-			fmt.Fprintln(os.Stderr, "opencode ignored SIGTERM; force-killing...")
+			fmt.Fprintln(os.Stderr, "opencode a ignoré SIGTERM ; arrêt forcé...")
 			_, _ = a.Runner.Run(ctx, "limactl", "shell", vm, "pkill", "-9", "-x", "opencode")
 			break
 		}
@@ -322,7 +322,7 @@ func (a *AgentVM) StopBackend(ctx context.Context) error {
 		return err
 	}
 	if res.ExitCode == 0 {
-		return fmt.Errorf("failed to stop the previous opencode process; refusing to relaunch")
+		return fmt.Errorf("impossible d'arrêter le processus opencode précédent ; relance refusée")
 	}
 	return nil
 }
@@ -380,14 +380,14 @@ func (a *AgentVM) ensureOpenCode(ctx context.Context) error {
 		return nil
 	}
 	if a.Config.AgentVMTemplate != DefaultAgentVMTemplate {
-		return fmt.Errorf("custom agent-vm template requires OpenCode v%s; install @opencode/cli@%s in the guest before starting codebox", OpenCodeVersion, OpenCodeVersion)
+		return fmt.Errorf("un template agent-vm personnalisé requiert OpenCode v%s ; installez @opencode/cli@%s dans la machine isolée avant de démarrer codebox", OpenCodeVersion, OpenCodeVersion)
 	}
-	fmt.Println("Updating managed OpenCode inside agent-vm (sessions are retained)...")
+	fmt.Println("Mise à jour d'OpenCode géré dans agent-vm (les sessions sont conservées)...")
 	if err := a.guestRun(ctx, "sh", "-c", "curl -fsSL https://opencode.ai/v2/install | bash -s -- --version "+OpenCodeVersion+" --no-modify-path"); err != nil {
 		return err
 	}
 	if !probe() {
-		return fmt.Errorf("agent-vm must provide OpenCode v%s after installation; check the guest PATH", OpenCodeVersion)
+		return fmt.Errorf("agent-vm doit fournir OpenCode v%s après l'installation ; vérifiez le PATH de la machine isolée", OpenCodeVersion)
 	}
 	return nil
 }
@@ -399,7 +399,7 @@ func (a *AgentVM) launchBackend(ctx context.Context) error {
 		return err
 	}
 	vm := a.VMName()
-	fmt.Printf("Launching OpenCode server inside %s...\n", vm)
+	fmt.Printf("Lancement du serveur OpenCode dans %s...\n", vm)
 	if err := os.MkdirAll(a.StateDir, 0o755); err != nil {
 		return err
 	}
@@ -440,8 +440,8 @@ func (a *AgentVM) launchBackend(ctx context.Context) error {
 // #74); the warning stays so the choice is visible on every start.
 func (a *AgentVM) validateConfig(ctx context.Context) error {
 	if !a.Config.GuestCredentialsAcknowledged {
-		return fmt.Errorf("agent-vm hands the inference credentials to the guest in plaintext, where any process (the agent included) can read them; " +
-			"pass --acknowledge-guest-credentials to accept this, or use --microsandbox, which keeps the credential behind the secret proxy")
+		return fmt.Errorf("agent-vm transmet les identifiants d'inférence à la machine isolée en clair, où n'importe quel processus (l'agent compris) peut les lire ; " +
+			"passez --acknowledge-guest-credentials pour l'accepter, ou utilisez --microsandbox, qui garde l'identifiant derrière le proxy de secrets")
 	}
 	if _, err := ResolveProviderKeysWith(readStoredWith, ctx, a.Config, ""); err != nil {
 		return err
@@ -476,7 +476,7 @@ func (a *AgentVM) Start(ctx context.Context) error {
 			return err
 		}
 		if cfg.Isolation == IsolationFull {
-			fmt.Printf("%s is running (isolation full; the TUI runs inside the VM).\n", vm)
+			fmt.Printf("%s est en cours d'exécution (isolation full ; le TUI tourne dans la VM).\n", vm)
 			return nil
 		}
 		endpoint, err := a.Endpoint(ctx)
@@ -485,10 +485,10 @@ func (a *AgentVM) Start(ctx context.Context) error {
 		}
 		client := &http.Client{Timeout: 5 * time.Second}
 		if ProbeHealth(ctx, client, endpoint, cfg.Username, cfg.Password).Healthy {
-			fmt.Printf("%s is running with a healthy OpenCode backend.\n", vm)
+			fmt.Printf("%s est en cours d'exécution avec un backend OpenCode sain.\n", vm)
 			return nil
 		}
-		fmt.Printf("%s is running but OpenCode is not healthy; restarting backend...\n", vm)
+		fmt.Printf("%s est en cours d'exécution mais OpenCode n'est pas sain ; redémarrage du backend...\n", vm)
 		if err := a.StopBackend(ctx); err != nil {
 			return err
 		}
@@ -514,7 +514,7 @@ func (a *AgentVM) Start(ctx context.Context) error {
 		}
 	}
 
-	fmt.Printf("Starting %s with Lima...\n", vm)
+	fmt.Printf("Démarrage de %s avec Lima...\n", vm)
 	if err := a.startVM(ctx); err != nil {
 		return err
 	}
@@ -522,7 +522,7 @@ func (a *AgentVM) Start(ctx context.Context) error {
 		return err
 	}
 	if cfg.Isolation == IsolationFull {
-		fmt.Printf("%s is running (isolation full; the TUI runs inside the VM).\n", vm)
+		fmt.Printf("%s est en cours d'exécution (isolation full ; le TUI tourne dans la VM).\n", vm)
 		return nil
 	}
 	return a.launchBackend(ctx)
@@ -562,16 +562,16 @@ func (a *AgentVM) StopInstance(ctx context.Context, vm string) error {
 		return err
 	}
 	if !vms[vm] {
-		fmt.Printf("%s is not running.\n", vm)
+		fmt.Printf("%s n'est pas en cours d'exécution.\n", vm)
 		return nil
 	}
-	fmt.Printf("Stopping %s...\n", vm)
+	fmt.Printf("Arrêt de %s...\n", vm)
 	res, err := a.Runner.Run(ctx, "limactl", "stop", vm)
 	if err != nil {
 		return err
 	}
 	if res.ExitCode != 0 {
-		return fmt.Errorf("limactl stop failed (exit %d): %s", res.ExitCode, res.Stderr)
+		return fmt.Errorf("échec de limactl stop (code de sortie %d) : %s", res.ExitCode, res.Stderr)
 	}
 	return nil
 }
@@ -584,7 +584,7 @@ func (a *AgentVM) StopAll(ctx context.Context) error {
 		return err
 	}
 	if len(vms) == 0 {
-		fmt.Println("No codebox agent-vm VM is running.")
+		fmt.Println("Aucune machine isolée agent-vm codebox n'est en cours d'exécution.")
 		return nil
 	}
 	var firstErr error
@@ -613,7 +613,7 @@ func (a *AgentVM) Clean(ctx context.Context) error {
 		return err
 	}
 	if !exists {
-		fmt.Printf("%s does not exist.\n", vm)
+		fmt.Printf("%s n'existe pas.\n", vm)
 		// The staged secrets env (Albert API key, HTTP password) is host-side
 		// state and must go even when the VM was already deleted manually.
 		_ = os.RemoveAll(a.StageDir())
@@ -621,16 +621,16 @@ func (a *AgentVM) Clean(ctx context.Context) error {
 	}
 	// Deleting is destructive: say so before and after, so a silent success
 	// can never be mistaken for "nothing happened".
-	fmt.Printf("Deleting %s (VM and local state)...\n", vm)
+	fmt.Printf("Suppression de %s (VM et état local)...\n", vm)
 	res, err := a.Runner.Run(ctx, "limactl", "delete", vm, "--force")
 	if err != nil {
 		return err
 	}
 	if res.ExitCode != 0 {
-		return fmt.Errorf("limactl delete failed (exit %d): %s", res.ExitCode, res.Stderr)
+		return fmt.Errorf("échec de limactl delete (code de sortie %d) : %s", res.ExitCode, res.Stderr)
 	}
 	_ = os.RemoveAll(a.StageDir())
-	fmt.Printf("%s deleted.\n", vm)
+	fmt.Printf("%s supprimé.\n", vm)
 	return nil
 }
 
@@ -640,12 +640,12 @@ func (a *AgentVM) Doctor(ctx context.Context) error {
 	res, err := a.Runner.Run(ctx, "limactl", "--version")
 	if err != nil {
 		if commandNotFound(err) {
-			return fmt.Errorf("limactl is not installed; install Lima from https://lima-vm.io and build the base template with 'agent-vm setup'")
+			return fmt.Errorf("limactl n'est pas installé ; installez Lima depuis https://lima-vm.io et construisez le template de base avec 'agent-vm setup'")
 		}
 		return err
 	}
 	if res.ExitCode != 0 {
-		return fmt.Errorf("limactl is not installed")
+		return fmt.Errorf("limactl n'est pas installé")
 	}
 	fmt.Print(res.Stdout)
 	templateOK, err := a.templateExists(ctx)
@@ -665,12 +665,12 @@ func (a *AgentVM) Doctor(ctx context.Context) error {
 			if err := ValidateBaseTemplateImage(ctx, a.Runner, a.Config.AgentVMImage); err != nil {
 				return err
 			}
-			fmt.Printf("base template %s is not ready; it will be built on the next start from %s.\n", a.Config.AgentVMTemplate, a.Config.AgentVMImage)
+			fmt.Printf("le template de base %s n'est pas prêt ; il sera construit au prochain démarrage à partir de %s.\n", a.Config.AgentVMTemplate, a.Config.AgentVMImage)
 			return nil
 		}
-		return fmt.Errorf("base template %s not found; build it with 'agent-vm setup' or point AGENT_VM_TEMPLATE at an existing template", a.Config.AgentVMTemplate)
+		return fmt.Errorf("template de base %s introuvable ; construisez-le avec 'agent-vm setup' ou pointez AGENT_VM_TEMPLATE vers un template existant", a.Config.AgentVMTemplate)
 	}
-	fmt.Printf("agent-vm runtime is ready (template %s).\n", a.Config.AgentVMTemplate)
+	fmt.Printf("Runtime agent-vm prêt (template %s).\n", a.Config.AgentVMTemplate)
 	return nil
 }
 
@@ -693,7 +693,7 @@ func (a *AgentVM) Restart(ctx context.Context) error {
 // Recreate is the explicit destructive rebuild of the VM (P07). It names the
 // loss before and after. No lifecycle path reaches it implicitly.
 func (a *AgentVM) Recreate(ctx context.Context) error {
-	fmt.Printf("Recreating %s. This DESTROYS: guest sessions, tools installed in the guest, and guest-only files.\n", a.VMName())
+	fmt.Printf("Recréation de %s. Cela DÉTRUIT : les sessions de la machine isolée, les outils installés dans l'invité et les fichiers propres à l'invité.\n", a.VMName())
 	if err := a.RestartPreflights(ctx); err != nil {
 		return err
 	}
@@ -703,7 +703,7 @@ func (a *AgentVM) Recreate(ctx context.Context) error {
 	if err := a.Start(ctx); err != nil {
 		return err
 	}
-	fmt.Printf("%s recreated.\n", a.VMName())
+	fmt.Printf("%s recréé.\n", a.VMName())
 	return nil
 }
 
@@ -769,7 +769,7 @@ func (a *AgentVM) RunAgent(ctx context.Context) error {
 	if err != nil {
 		listErr = err
 	} else if sessions.ExitCode != 0 {
-		listErr = fmt.Errorf("OpenCode session list exited with code %d", sessions.ExitCode)
+		listErr = fmt.Errorf("la liste des sessions OpenCode s'est terminée avec le code %d", sessions.ExitCode)
 	}
 	hasSessions := false
 	if listErr == nil {
@@ -783,14 +783,14 @@ func (a *AgentVM) RunAgent(ctx context.Context) error {
 		if err != nil {
 			helpErr = err
 		} else if help.ExitCode != 0 {
-			helpErr = fmt.Errorf("OpenCode help exited with code %d", help.ExitCode)
+			helpErr = fmt.Errorf("l'aide OpenCode s'est terminée avec le code %d", help.ExitCode)
 		} else {
 			helpOutput = help.Stdout + "\n" + help.Stderr
 		}
 	}
 	resumeArgs, warn := OpenCodeResumeArgs(hasSessions, listErr, helpOutput, helpErr)
 	if warn {
-		WarnOpenCodeResumeUnavailable("dans le guest agent-vm")
+		WarnOpenCodeResumeUnavailable("dans la machine isolée agent-vm")
 	}
 	resumeFlag := strings.Join(resumeArgs, " ")
 	if resumeFlag != "" {
@@ -869,16 +869,16 @@ func (a *AgentVM) Status(ctx context.Context) (string, error) {
 		return "", err
 	}
 	if running {
-		return fmt.Sprintf("%s is running", a.VMName()), nil
+		return fmt.Sprintf("%s est en cours d'exécution", a.VMName()), nil
 	}
 	exists, err := a.vmExists(ctx)
 	if err != nil {
 		return "", err
 	}
 	if exists {
-		return fmt.Sprintf("%s is stopped", a.VMName()), nil
+		return fmt.Sprintf("%s est arrêté", a.VMName()), nil
 	}
-	return fmt.Sprintf("%s does not exist", a.VMName()), nil
+	return fmt.Sprintf("%s n'existe pas", a.VMName()), nil
 }
 
 // IsRunning reports whether the managed VM is running.

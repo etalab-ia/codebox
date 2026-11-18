@@ -208,26 +208,26 @@ func (m TransferManifest) Summary() string {
 	var b strings.Builder
 	included := m.Included()
 	excluded := m.Excluded()
-	fmt.Fprintf(&b, "Transfer into the sealed guest: %d file(s), %s\n", len(included), FormatByteSize(m.TotalBytes()))
+	fmt.Fprintf(&b, "Transfert vers la machine isolée scellée : %d fichier(s), %s\n", len(included), FormatByteSize(m.TotalBytes()))
 	if m.GitManaged {
-		b.WriteString("Source set: the Git working tree (tracked, untracked, and ignored files; .git metadata is not transferred).\n")
+		b.WriteString("Ensemble source : l'arbre de travail Git (fichiers suivis, non suivis et ignorés ; les métadonnées .git ne sont pas transférées).\n")
 	} else {
-		b.WriteString("Source set: the directory tree (no Git repository at this root).\n")
+		b.WriteString("Ensemble source : l'arborescence de répertoires (aucun dépôt Git à cette racine).\n")
 	}
 	if m.GitleaksMissing {
-		b.WriteString("Warning: secret detection did not run; the dotenv name filter still applied.\n")
+		b.WriteString("Avertissement : la détection de secrets n'a pas pu s'exécuter ; le filtre sur les noms de fichiers .env s'est appliqué.\n")
 	}
 	if len(m.UnmappedFindings) > 0 {
-		b.WriteString("Warning: these secret-detection findings could not be attributed to a file; the transfer is refused while they are unresolved:\n")
+		b.WriteString("Avertissement : ces résultats de détection de secrets n'ont pas pu être associés à un fichier ; le transfert est refusé tant qu'ils ne sont pas résolus :\n")
 		for _, f := range m.UnmappedFindings {
 			fmt.Fprintf(&b, "  %s\n", f)
 		}
 	}
 	for _, w := range m.Warnings {
-		fmt.Fprintf(&b, "Note: %s\n", w)
+		fmt.Fprintf(&b, "Remarque : %s\n", w)
 	}
 	if len(excluded) > 0 {
-		b.WriteString("\nExcluded by the default-deny filter:\n")
+		b.WriteString("\nExclus par le filtre par défaut :\n")
 		for _, e := range excluded {
 			fmt.Fprintf(&b, "  %s (%s)\n", e.Rel, e.Reason)
 		}
@@ -301,7 +301,7 @@ func ResolveTransferSet(ctx context.Context, root string, opts TransferOptions) 
 			if err != nil {
 				// An unreadable path is a resolution note, not a failure:
 				// the file simply does not cross.
-				man.Warnings = append(man.Warnings, fmt.Sprintf("skipped unreadable path %s: %v", relTo(abs, path), err))
+				man.Warnings = append(man.Warnings, fmt.Sprintf("chemin illisible ignoré %s : %v", relTo(abs, path), err))
 				if d != nil && d.IsDir() {
 					return fs.SkipDir
 				}
@@ -332,7 +332,7 @@ func ResolveTransferSet(ctx context.Context, root string, opts TransferOptions) 
 		seen[c.rel] = true
 		entry, err := classifyTransferCandidate(abs, c.rel, c.ignored, man.GitManaged, findingsByPath[c.rel], opts)
 		if err != nil {
-			man.Warnings = append(man.Warnings, fmt.Sprintf("skipped %s: %v", c.rel, err))
+			man.Warnings = append(man.Warnings, fmt.Sprintf("ignoré %s : %v", c.rel, err))
 			continue
 		}
 		man.Entries = append(man.Entries, entry)
@@ -358,10 +358,10 @@ func classifyTransferCandidate(root, rel string, ignored, gitManaged bool, findi
 		// rather than emitting an opaque skip.
 		if gitManaged {
 			entry.Exclusion = TransferExclusionSubmodule
-			entry.Reason = "submodule (gitlink); its own repository is not transferred"
+			entry.Reason = "sous-module (gitlink) ; son propre dépôt n'est pas transféré"
 			return entry, nil
 		}
-		return entry, fmt.Errorf("directory entry")
+		return entry, fmt.Errorf("entrée de répertoire")
 	}
 	entry.Size = info.Size()
 	entry.Mode = info.Mode().Perm()
@@ -379,7 +379,7 @@ func classifyTransferCandidate(root, rel string, ignored, gitManaged bool, findi
 		if optIn && overridable {
 			entry.Included = true
 			entry.OptIn = true
-			entry.Reason = "re-included by an explicit per-file decision; filter rule was: " + reason
+			entry.Reason = "réintégré par une décision explicite fichier par fichier ; la règle du filtre était : " + reason
 			return entry, nil
 		}
 		entry.Exclusion = category
@@ -390,27 +390,27 @@ func classifyTransferCandidate(root, rel string, ignored, gitManaged bool, findi
 	name := filepath.Base(rel)
 	switch {
 	case info.Mode()&os.ModeSymlink != 0:
-		return exclude(TransferExclusionSymlink, "symlink; not transferred into the sealed guest", false)
+		return exclude(TransferExclusionSymlink, "lien symbolique ; non transféré dans la machine isolée scellée", false)
 	case !info.Mode().IsRegular():
 		// A FIFO, socket or device node: reading it can block forever, and
 		// none of them carries project content worth transferring.
-		return exclude(TransferExclusionIrregular, "not a regular file (socket, device or FIFO); not transferred", false)
+		return exclude(TransferExclusionIrregular, "fichier non ordinaire (socket, périphérique ou FIFO) ; non transféré", false)
 	case name == ".git" || strings.HasPrefix(rel, ".git/"):
-		return exclude(TransferExclusionGitMetadata, "Git metadata; the guest repository is created inside the guest", false)
+		return exclude(TransferExclusionGitMetadata, "métadonnées Git ; le dépôt de la machine isolée est créé à l'intérieur de celle-ci", false)
 	case isDotenvName(name):
-		return exclude(TransferExclusionDotenv, "dotenv file (default-deny)", true)
+		return exclude(TransferExclusionDotenv, "fichier .env (refusé par défaut)", true)
 	case len(findings) > 0:
 		// The rule identifier stays (it says what was found); the tool that
 		// reported it does not (the user decides about secrets, not about a
 		// scanner, issue #172).
-		return exclude(TransferExclusionSecret, fmt.Sprintf("secret detected: %s", findings[0].RuleID), true)
+		return exclude(TransferExclusionSecret, fmt.Sprintf("secret détecté : %s", findings[0].RuleID), true)
 	case ignored:
-		return exclude(TransferExclusionGitIgnored, "git-ignored (local or derived state); re-include explicitly if the guest needs it", true)
+		return exclude(TransferExclusionGitIgnored, "ignoré par Git (état local ou dérivé) ; réintégrez-le explicitement si la machine isolée en a besoin", true)
 	case info.Size() > opts.MaxFileBytes:
-		return exclude(TransferExclusionSizeCap, fmt.Sprintf("above the per-file transfer cap (%s)", FormatByteSize(opts.MaxFileBytes)), false)
+		return exclude(TransferExclusionSizeCap, fmt.Sprintf("au-dessus de la limite de transfert par fichier (%s)", FormatByteSize(opts.MaxFileBytes)), false)
 	}
 	entry.Included = true
-	entry.Reason = "included"
+	entry.Reason = "inclus"
 	return entry, nil
 }
 
@@ -426,7 +426,7 @@ func gitListFiles(ctx context.Context, root string, flags ...string) ([]string, 
 	cmd.Env = append(os.Environ(), "GIT_OPTIONAL_LOCKS=0")
 	out, err := cmd.Output()
 	if err != nil {
-		return nil, fmt.Errorf("git ls-files in %s: %w", root, err)
+		return nil, fmt.Errorf("git ls-files dans %s : %w", root, err)
 	}
 	var paths []string
 	for _, p := range strings.Split(string(out), "\x00") {
@@ -644,10 +644,10 @@ func BuildTransferArchive(man TransferManifest) ([]byte, error) {
 			return nil, err
 		}
 		if !info.Mode().IsRegular() {
-			return nil, fmt.Errorf("transfer %s: the path is no longer a regular file (%s)", e.Rel, info.Mode().Type())
+			return nil, fmt.Errorf("transfert %s : le chemin n'est plus un fichier ordinaire (%s)", e.Rel, info.Mode().Type())
 		}
 		if info.Size() != e.Size {
-			return nil, fmt.Errorf("transfer %s: the file changed size since the transfer set was resolved (%d -> %d bytes); re-run the sync", e.Rel, e.Size, info.Size())
+			return nil, fmt.Errorf("transfert %s : la taille du fichier a changé depuis la résolution de l'ensemble de transfert (%d -> %d octets) ; relancez la synchronisation", e.Rel, e.Size, info.Size())
 		}
 		file, err := os.Open(abs)
 		if err != nil {
@@ -729,7 +729,7 @@ func (s TransferOptInStore) Load() (map[string]TransferOptInRecord, error) {
 	}
 	var raw transferOptInFile
 	if err := json.Unmarshal(data, &raw); err != nil {
-		return nil, fmt.Errorf("transfer opt-in file %s: %w", s.Path, err)
+		return nil, fmt.Errorf("fichier de réintégration de transfert %s : %w", s.Path, err)
 	}
 	for _, r := range raw.Paths {
 		if r.Rel != "" {

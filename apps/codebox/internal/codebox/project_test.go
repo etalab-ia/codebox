@@ -186,7 +186,7 @@ func TestRegistryRefusesInstanceCollision(t *testing.T) {
 		t.Fatal(err)
 	}
 	err := r.Register("/proj/b", "cb-a-11111")
-	if err == nil || !strings.Contains(err.Error(), "duplicate") {
+	if err == nil || !strings.Contains(err.Error(), "en double") {
 		t.Fatalf("err = %v, want duplicate-registration refusal", err)
 	}
 }
@@ -198,7 +198,7 @@ func TestRegistryRefusesSilentRebind(t *testing.T) {
 		t.Fatal(err)
 	}
 	err := r.Register("/proj/a", "cb-a-22222")
-	if err == nil || !strings.Contains(err.Error(), "explicit rebind") {
+	if err == nil || !strings.Contains(err.Error(), "rebind explicite") {
 		t.Fatalf("err = %v, want silent-rebind refusal", err)
 	}
 	// Explicit rebind is allowed.
@@ -217,7 +217,7 @@ func TestRegistryRejectsNewerSchema(t *testing.T) {
 	r := NewProjectRegistry("/reg/registry.json")
 	r.FS = fs
 	_, _, err := r.Lookup("/proj/a")
-	if err == nil || !strings.Contains(err.Error(), "newer than this build supports") {
+	if err == nil || !strings.Contains(err.Error(), "plus récent que ce que cette version prend en charge") {
 		t.Fatalf("err = %v, want schema refusal", err)
 	}
 }
@@ -329,7 +329,7 @@ func TestProjectLockAcquireReturnsPermanentReadError(t *testing.T) {
 	// Windows the exclusive create on a directory fails directly), so
 	// assert on what the code owns: the actionable error, not a generic
 	// timeout.
-	if strings.Contains(err.Error(), "timed out") {
+	if strings.Contains(err.Error(), "délai dépassé") {
 		t.Fatalf("error = %v; want the underlying read error, not a generic timeout", err)
 	}
 	if elapsed := time.Since(started); elapsed > time.Second {

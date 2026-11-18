@@ -29,7 +29,7 @@ type ProjectDotenv struct {
 // and we never attach source text to a message.
 func ParseProjectDotenv(data []byte) (ProjectDotenv, error) {
 	if len(data) > MaxProjectDotenvBytes {
-		return ProjectDotenv{}, fmt.Errorf("dotenv file is %d bytes, over the %d-byte import limit", len(data), MaxProjectDotenvBytes)
+		return ProjectDotenv{}, fmt.Errorf("le fichier dotenv fait %d octets, au-delà de la limite d'import de %d octets", len(data), MaxProjectDotenvBytes)
 	}
 	// go-rotini strips a leading UTF-8 BOM before parsing and reports all
 	// positions relative to the stripped source; strip it here so every offset
@@ -43,21 +43,21 @@ func ParseProjectDotenv(data []byte) (ProjectDotenv, error) {
 	if !utf8.Valid(data) {
 		off := firstInvalidUTF8Byte(data)
 		if name := attributeByteToKey(data, off); name != "" && safeNameToEcho(name) {
-			return ProjectDotenv{}, fmt.Errorf("%s: the value is not valid UTF-8; dotenv files must be UTF-8", name)
+			return ProjectDotenv{}, fmt.Errorf("%s : la valeur n'est pas un texte UTF-8 valide ; les fichiers dotenv doivent être en UTF-8", name)
 		}
-		return ProjectDotenv{}, fmt.Errorf("the dotenv file contains text no loader can decode: the value is not valid UTF-8")
+		return ProjectDotenv{}, fmt.Errorf("le fichier dotenv contient du texte qu'aucun loader ne peut décoder : la valeur n'est pas un texte UTF-8 valide")
 	}
 	if i := bytes.IndexByte(data, 0); i >= 0 {
 		if name := attributeByteToKey(data, i); name != "" && safeNameToEcho(name) {
-			return ProjectDotenv{}, fmt.Errorf("%s: the value contains a NUL byte, which no dotenv loader accepts", name)
+			return ProjectDotenv{}, fmt.Errorf("%s : la valeur contient un octet NUL, qu'aucun loader dotenv n'accepte", name)
 		}
-		return ProjectDotenv{}, fmt.Errorf("the dotenv file contains a NUL byte, which no dotenv loader accepts")
+		return ProjectDotenv{}, fmt.Errorf("le fichier dotenv contient un octet NUL, qu'aucun loader dotenv n'accepte")
 	}
 
 	f, err := dotenv.Parse(data, dotenv.WithMaxFileSize(MaxProjectDotenvBytes), dotenv.WithMaxLineLength(MaxProjectDotenvBytes))
 	if err != nil {
 		if errors.Is(err, dotenv.ErrFileTooLarge) || errors.Is(err, dotenv.ErrLineTooLong) {
-			return ProjectDotenv{}, fmt.Errorf("dotenv file is over the %d-byte import limit", MaxProjectDotenvBytes)
+			return ProjectDotenv{}, fmt.Errorf("le fichier dotenv dépasse la limite d'import de %d octets", MaxProjectDotenvBytes)
 		}
 		var pe *dotenv.ParseError
 		if errors.As(err, &pe) {
@@ -75,24 +75,24 @@ func ParseProjectDotenv(data []byte) (ProjectDotenv, error) {
 				if name == "" {
 					// The split is real but the preceding assignment's name is
 					// not safe to echo; stay generic rather than guess.
-					return ProjectDotenv{}, fmt.Errorf("dotenv syntax is invalid or unsupported; the offending line is not quoted here because it may contain a secret value")
+					return ProjectDotenv{}, fmt.Errorf("syntaxe dotenv invalide ou non prise en charge ; la ligne fautive n'est pas citée ici car elle peut contenir une valeur secrète")
 				}
-				return ProjectDotenv{}, fmt.Errorf("%s: the value contains a carriage return, which ends the assignment early, so the rest of the line is read as a separate statement that is not a valid assignment; remove the carriage return from the value, or make the remainder a complete assignment", name)
+				return ProjectDotenv{}, fmt.Errorf("%s : la valeur contient un retour chariot, qui termine l'affectation trop tôt ; le reste de la ligne est alors lu comme une instruction séparée qui n'est pas une affectation valide ; supprimez le retour chariot de la valeur, ou faites du reste une affectation complète", name)
 			}
 			if rerr := nameScanRefusal(data, pe); rerr != nil {
 				return ProjectDotenv{}, rerr
 			}
 		}
-		return ProjectDotenv{}, fmt.Errorf("dotenv syntax is invalid or unsupported; the offending line is not quoted here because it may contain a secret value")
+		return ProjectDotenv{}, fmt.Errorf("syntaxe dotenv invalide ou non prise en charge ; la ligne fautive n'est pas citée ici car elle peut contenir une valeur secrète")
 	}
 
 	values := f.ToMap()
 	for key := range values {
 		if !validSecretIdentifier(key) {
 			if safeNameToEcho(key) {
-				return ProjectDotenv{}, fmt.Errorf("variable name %q is not supported; names may use letters, digits and underscore, may not start with a digit, and are limited to 128 characters", key)
+				return ProjectDotenv{}, fmt.Errorf("le nom de variable %q n'est pas pris en charge ; les noms peuvent contenir des lettres, des chiffres et des traits de soulignement, ne peuvent pas commencer par un chiffre et sont limités à 128 caractères", key)
 			}
-			return ProjectDotenv{}, fmt.Errorf("the dotenv file contains a variable name that is not supported; names may use letters, digits and underscore, may not start with a digit, and are limited to 128 characters")
+			return ProjectDotenv{}, fmt.Errorf("le fichier dotenv contient un nom de variable non pris en charge ; les noms peuvent contenir des lettres, des chiffres et des traits de soulignement, ne peuvent pas commencer par un chiffre et sont limités à 128 caractères")
 		}
 	}
 
@@ -288,12 +288,12 @@ func nameScanRefusal(data []byte, pe *dotenv.ParseError) error {
 	// left of the statement's delimiter.
 	name, hasDelim := statementName(data, off)
 	if !hasDelim || name == "" {
-		return fmt.Errorf("the dotenv file contains text that is not a named assignment; every entry must be an assignment like KEY=value")
+		return fmt.Errorf("le fichier dotenv contient du texte qui n'est pas une affectation nommée ; chaque entrée doit être une affectation du type KEY=value")
 	}
 	if safeNameToEcho(name) {
-		return fmt.Errorf("variable name %q is not supported; names may use letters, digits and underscore, may not start with a digit, and are limited to 128 characters", name)
+		return fmt.Errorf("le nom de variable %q n'est pas pris en charge ; les noms peuvent contenir des lettres, des chiffres et des traits de soulignement, ne peuvent pas commencer par un chiffre et sont limités à 128 caractères", name)
 	}
-	return fmt.Errorf("the dotenv file contains a variable name that is not supported; names may use letters, digits and underscore, may not start with a digit, and are limited to 128 characters")
+	return fmt.Errorf("le fichier dotenv contient un nom de variable non pris en charge ; les noms peuvent contenir des lettres, des chiffres et des traits de soulignement, ne peuvent pas commencer par un chiffre et sont limités à 128 caractères")
 }
 
 // backtickRefusal classifies go-rotini's backtick-value refusal: the library
@@ -316,9 +316,9 @@ func backtickRefusal(data []byte, pe *dotenv.ParseError) error {
 	// key scan that succeeded, so the statement always carries a delimiter.
 	name, _ := statementName(data, off)
 	if safeNameToEcho(name) {
-		return fmt.Errorf("%s: the value starts with a backtick, which is not a supported quoting form; use double or single quotes, or remove the backticks", name)
+		return fmt.Errorf("%s : la valeur commence par un accent grave, qui n'est pas une forme de citation prise en charge ; utilisez des guillemets doubles ou simples, ou retirez les accents graves", name)
 	}
-	return fmt.Errorf("the dotenv file contains a value that starts with a backtick, which is not a supported quoting form; use double or single quotes, or remove the backticks")
+	return fmt.Errorf("le fichier dotenv contient une valeur qui commence par un accent grave, ce qui n'est pas une forme de citation prise en charge ; utilisez des guillemets doubles ou simples, ou retirez les accents graves")
 }
 
 // safeNameToEcho reports whether a rejected secret name is safe to include in a

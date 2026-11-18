@@ -39,4 +39,4 @@ func CodeboxServerURL() (string, error) {
 // ErrInvalidCodeboxServerURL is returned for a non-HTTPS or malformed gateway
 // URL. The gateway carries session tokens and secret values, so plaintext or
 // userinfo-bearing URLs are refused rather than truncated.
-var ErrInvalidCodeboxServerURL = errors.New("CODEBOX_SERVER_URL must be an absolute https URL without credentials, query or fragment")
+var ErrInvalidCodeboxServerURL = errors.New("CODEBOX_SERVER_URL doit être une URL https absolue sans identifiants, paramètres de requête ni fragment")

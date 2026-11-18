@@ -20,7 +20,7 @@ func statsCmd(args []string) (int, error) {
 	if len(args) > 0 {
 		sub = args[0]
 		if len(args) > 1 {
-			return 2, fmt.Errorf("unknown stats argument: %s (expected on, off or show)", args[1])
+			return 2, fmt.Errorf("argument stats inconnu : %s (attendu : on, off ou show)", args[1])
 		}
 	}
 	path, err := codebox.UserSettingsPath()
@@ -40,7 +40,7 @@ func statsCmd(args []string) (int, error) {
 			j.StatsEnabled = true
 			j.StatsConsentAsked = true
 			if err := codebox.WriteSetupJournal(fs, stateDir, j); err != nil {
-				return 1, fmt.Errorf("cannot record the consent opt-in in the setup journal: %w", err)
+				return 1, fmt.Errorf("impossible de consigner l'acceptation du consentement dans le journal de configuration : %w", err)
 			}
 		}
 		fmt.Println("Statistiques d'usage : partagées.")
@@ -60,7 +60,7 @@ func statsCmd(args []string) (int, error) {
 			j.StatsEnabled = false
 			j.StatsConsentAsked = true
 			if err := codebox.WriteSetupJournal(fs, stateDir, j); err != nil {
-				return 1, fmt.Errorf("cannot record the consent withdrawal in the setup journal: %w", err)
+				return 1, fmt.Errorf("impossible de consigner le retrait du consentement dans le journal de configuration : %w", err)
 			}
 		}
 		if err := codebox.ClearStatsQueue(fs, stateDir); err != nil {
@@ -71,7 +71,7 @@ func statsCmd(args []string) (int, error) {
 	case "show":
 		return statsShowCmd(fs, stateDir, path)
 	default:
-		return 2, fmt.Errorf("Unknown stats command: %s (expected on, off or show)", sub)
+		return 2, fmt.Errorf("commande stats inconnue : %s (attendu : on, off ou show)", sub)
 	}
 }
 

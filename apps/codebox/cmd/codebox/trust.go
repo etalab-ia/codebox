@@ -68,7 +68,7 @@ func approveLaunchInputs(root string, inputs []codebox.UnapprovedInput) error {
 //	trust approve   # record approval for the current content of every input
 func trustCmd(args []string, projectRoot string) (int, error) {
 	if len(args) == 0 {
-		fmt.Fprintln(os.Stderr, "Usage: codebox trust status | approve")
+		fmt.Fprintln(os.Stderr, "Usage : codebox trust status | approve")
 		return 2, nil
 	}
 	switch args[0] {
@@ -78,11 +78,11 @@ func trustCmd(args []string, projectRoot string) (int, error) {
 		if err := codebox.ApproveExecutionInputs(codebox.DefaultFS, codebox.DefaultStateDir(), projectRoot); err != nil {
 			return 1, err
 		}
-		fmt.Println("Approved the current content of every execution input this project declares.")
-		fmt.Println("The record is host-local and never travels with the repository; a changed file needs a new approval.")
+		fmt.Println("Contenu actuel de chaque entrée d'exécution déclarée par ce projet approuvé.")
+		fmt.Println("La consignation reste locale au poste et ne voyage jamais avec le dépôt ; un fichier modifié exige une nouvelle approbation.")
 		return 0, nil
 	default:
-		return 2, fmt.Errorf("Unknown trust command: %s (expected status or approve)", args[0])
+		return 2, fmt.Errorf("commande trust inconnue : %s (attendu : status ou approve)", args[0])
 	}
 }
 
@@ -98,36 +98,36 @@ func trustStatusCmd(projectRoot string) (int, error) {
 		return 1, err
 	}
 	if len(inputs.ExecutionInputPaths(projectRoot)) == 0 {
-		fmt.Println("No execution-relevant inputs found in this project.")
+		fmt.Println("Aucune entrée pertinente pour l'exécution trouvée dans ce projet.")
 		return 0, nil
 	}
-	fmt.Println("Execution-relevant inputs in this project:")
+	fmt.Println("Entrées pertinentes pour l'exécution dans ce projet :")
 	if inputs.ConfigPath != "" && (len(inputs.Plugins) > 0 || len(inputs.MCPCommands) > 0) {
 		for _, p := range inputs.Plugins {
-			fmt.Printf("  plugin declared in the project config: %s\n", p)
+			fmt.Printf("  greffon déclaré dans la configuration du projet : %s\n", p)
 		}
 		for _, c := range inputs.MCPCommands {
-			fmt.Printf("  MCP server command declared in the project config: %s\n", c)
+			fmt.Printf("  commande de serveur MCP déclarée dans la configuration du projet : %s\n", c)
 		}
-		fmt.Printf("  (approved as the config file %s at its content hash)\n", inputs.ConfigPath)
+		fmt.Printf("  (approuvé en tant que fichier de configuration %s à son empreinte de contenu)\n", inputs.ConfigPath)
 	}
 	for _, p := range inputs.AutoDiscoveredPlugins {
-		fmt.Printf("  auto-discovered plugin (executes without declaration): %s\n", p)
+		fmt.Printf("  greffon auto-découvert (s'exécute sans déclaration) : %s\n", p)
 	}
 	if inputs.PiProjectConfig != "" {
-		fmt.Printf("  project-local Pi settings (can declare extensions and packages): %s\n", inputs.PiProjectConfig)
+		fmt.Printf("  réglages Pi locaux au projet (peuvent déclarer des extensions et des paquets) : %s\n", inputs.PiProjectConfig)
 	}
 	for _, p := range inputs.PiAutoDiscoveredExtensions {
-		fmt.Printf("  Pi extension (executes at launch without declaration): %s\n", p)
+		fmt.Printf("  extension Pi (s'exécute au lancement sans déclaration) : %s\n", p)
 	}
 	for _, p := range inputs.PiDeclaredCodeFiles {
-		fmt.Printf("  Pi code declared in the project settings (extension or local package): %s\n", p)
+		fmt.Printf("  code Pi déclaré dans les réglages du projet (extension ou paquet local) : %s\n", p)
 	}
 	if len(unapproved) == 0 {
-		fmt.Println("All inputs are approved at their current content.")
+		fmt.Println("Toutes les entrées sont approuvées dans leur contenu actuel.")
 		return 0, nil
 	}
-	fmt.Println("Needs approval (run 'codebox trust approve' after reviewing):")
+	fmt.Println("Approbation requise (lancez 'codebox trust approve' après examen) :")
 	for _, u := range unapproved {
 		fmt.Printf("  %s (%s)\n", u.Path, u.Reason)
 	}

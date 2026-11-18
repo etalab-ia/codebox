@@ -78,7 +78,7 @@ func (m *MicrosandboxRuntime) ProvisionGuestWorkspace(ctx context.Context, opts 
 	if provisioned {
 		return nil
 	}
-	return m.transferIntoGuest(ctx, opts, "Provisioning the sealed guest workspace")
+	return m.transferIntoGuest(ctx, opts, "Provisionnement de l'espace de travail scellé de la machine isolée")
 }
 
 // SyncGuestWorkspace refreshes the guest working tree from the host checkout.
@@ -102,11 +102,11 @@ func (m *MicrosandboxRuntime) SyncGuestWorkspace(ctx context.Context, opts SyncO
 		// to preserve, so the first transfer is what it needs. (A guest with
 		// a repository probes as provisioned, which is where the dirty check
 		// below applies.)
-		return m.transferIntoGuest(ctx, opts, "Provisioning the sealed guest workspace")
+		return m.transferIntoGuest(ctx, opts, "Provisionnement de l'espace de travail scellé de la machine isolée")
 	}
 	base := m.guestDiffBase()
 	if base == "HEAD" {
-		return fmt.Errorf("the guest workspace predates recovery-base tracking, so a refresh could hide committed work; push or recover that work and recreate the guest before refreshing")
+		return fmt.Errorf("l'espace de travail de la machine isolée est antérieur au suivi de la base de récupération : une actualisation pourrait masquer du travail commité ; poussez ou récupérez ce travail, puis recréez la machine isolée avant d'actualiser")
 	}
 	preserveBase := false
 	dirty, err := m.guestWorkingTreeDirty(ctx)
@@ -115,8 +115,8 @@ func (m *MicrosandboxRuntime) SyncGuestWorkspace(ctx context.Context, opts SyncO
 	}
 	if dirty != "" {
 		if !opts.Force {
-			return fmt.Errorf("the guest workspace has uncommitted changes, so a refresh could overwrite them; "+
-				"export them first ('codebox workspace export') or pass --force to refresh anyway:\n%s", dirty)
+			return fmt.Errorf("l'espace de travail de la machine isolée contient des modifications non commitées qu'une actualisation pourrait écraser ; "+
+				"exportez-les d'abord ('codebox workspace export') ou passez --force pour actualiser quand même :\n%s", dirty)
 		}
 		preserveBase = true
 	}
@@ -126,13 +126,13 @@ func (m *MicrosandboxRuntime) SyncGuestWorkspace(ctx context.Context, opts SyncO
 	}
 	if changed {
 		if !opts.Force {
-			return fmt.Errorf("the guest workspace has committed changes since the last host transfer; " +
-				"export or apply them first ('codebox workspace export' or 'codebox workspace apply'), push them, or pass --force to refresh anyway")
+			return fmt.Errorf("l'espace de travail de la machine isolée contient des modifications commitées depuis le dernier transfert depuis le poste ; " +
+				"exportez-les ou récupérez-les d'abord ('codebox workspace export' ou 'codebox workspace apply'), poussez-les, ou passez --force pour actualiser quand même")
 		}
 		preserveBase = true
 	}
 	opts.preserveRecoveryBase = preserveBase
-	return m.transferIntoGuest(ctx, opts, "Refreshing the sealed guest workspace")
+	return m.transferIntoGuest(ctx, opts, "Actualisation de l'espace de travail scellé de la machine isolée")
 }
 
 // mergeRecordedOptIn folds the persisted per-file re-inclusions into the
@@ -150,7 +150,7 @@ func (m *MicrosandboxRuntime) mergeRecordedOptIn(given map[string]bool) map[stri
 		// fail closed by refusing to transfer at all is wrong here (the rules
 		// only ever ADD files), so the caller is told and the default-deny
 		// policy still applies to everything else.
-		fmt.Fprintf(os.Stderr, "Warning: cannot read the recorded transfer re-inclusions for %s (%v); only the default-deny filter applies\n", m.InstanceName(), err)
+		fmt.Fprintf(os.Stderr, "Avertissement : impossible de lire les réintégrations de transfert enregistrées pour %s (%v) ; seul le filtre par défaut s'applique\n", m.InstanceName(), err)
 		return out
 	}
 	for rel := range records {
@@ -178,8 +178,8 @@ func (m *MicrosandboxRuntime) transferIntoGuest(ctx context.Context, opts SyncOp
 	// named cannot be excluded, and proceeding would mean guessing that it is
 	// harmless.
 	if len(manifest.UnmappedFindings) > 0 {
-		return fmt.Errorf("the secret detector reported %d finding(s) whose paths could not be matched to a file in %s, so the filter cannot tell which candidate to exclude: "+
-			"inspect 'codebox workspace status' and resolve the unmatched findings before retrying",
+		return fmt.Errorf("le détecteur de secrets a signalé %d résultat(s) dont le chemin n'a pas pu être associé à un fichier dans %s : le filtre ne peut pas déterminer quel candidat exclure : "+
+			"inspectez 'codebox workspace status' et résolvez les résultats non associés avant de réessayer",
 			len(manifest.UnmappedFindings), manifest.Root)
 	}
 	included := manifest.Included()
@@ -188,10 +188,10 @@ func (m *MicrosandboxRuntime) transferIntoGuest(ctx context.Context, opts SyncOp
 			// Nothing to send: the source directory holds no files at all.
 			// That is an empty project, not a filter decision, so the guest
 			// still gets a repository it can work in.
-			opts.print(fmt.Sprintf("The transfer source %s holds no files; the guest workspace will be an empty repository.\n", manifest.Root))
+			opts.print(fmt.Sprintf("La source de transfert %s ne contient aucun fichier ; l'espace de travail de la machine isolée sera un dépôt vide.\n", manifest.Root))
 		} else {
-			return fmt.Errorf("the transfer filter excluded all %d candidate file(s) in %s, so the guest would start with an empty workspace; "+
-				"re-include what the project needs with 'codebox workspace allow <path>' (see 'codebox workspace status' for the reasons)",
+			return fmt.Errorf("le filtre de transfert a exclu les %d fichier(s) candidat(s) de %s : la machine isolée démarrerait avec un espace de travail vide ; "+
+				"réintégrez ce dont le projet a besoin avec 'codebox workspace allow <path>' (voir 'codebox workspace status' pour les raisons)",
 				manifest.CandidateCount(), manifest.Root)
 		}
 	}
@@ -199,9 +199,9 @@ func (m *MicrosandboxRuntime) transferIntoGuest(ctx context.Context, opts SyncOp
 	if err != nil {
 		return err
 	}
-	opts.print(fmt.Sprintf("%s: writing %s to the guest...\n", headline, FormatByteSize(int64(len(payload)))))
+	opts.print(fmt.Sprintf("%s : écriture de %s dans la machine isolée...\n", headline, FormatByteSize(int64(len(payload)))))
 	if err := m.Client.WriteFile(ctx, m.InstanceName(), msbTransferArchivePath, payload); err != nil {
-		return fmt.Errorf("writing the transfer payload into the guest failed: %w", err)
+		return fmt.Errorf("l'écriture de la charge de transfert dans la machine isolée a échoué : %w", err)
 	}
 	// Extraction is the only thing that creates content in /workspace, and it
 	// consumes the payload built from the filtered set above. A base-preserving
@@ -210,7 +210,7 @@ func (m *MicrosandboxRuntime) transferIntoGuest(ctx context.Context, opts SyncOp
 	if opts.preserveRecoveryBase {
 		base := m.guestDiffBase()
 		if !isCommitSHA(base) {
-			return fmt.Errorf("the guest recovery base changed before the refresh; push or recover guest work and recreate the guest before refreshing")
+			return fmt.Errorf("la base de récupération de la machine isolée a changé avant l'actualisation ; poussez ou récupérez le travail de la machine isolée et recréez-la avant d'actualiser")
 		}
 		stdout, stderr, code, err := m.Client.ExecCapture(ctx, m.InstanceName(), guestRecoveryRefreshScript(
 			msbGuestWorkspace, msbTransferArchivePath, base, m.gitIdentityName(), m.gitIdentityEmail()))
@@ -218,7 +218,7 @@ func (m *MicrosandboxRuntime) transferIntoGuest(ctx context.Context, opts SyncOp
 			return err
 		}
 		if code != 0 {
-			return fmt.Errorf("refreshing the guest workspace while preserving its changes failed: %s", strings.TrimSpace(stderr))
+			return fmt.Errorf("l'actualisation de l'espace de travail de la machine isolée en préservant ses modifications a échoué : %s", strings.TrimSpace(stderr))
 		}
 		refreshedBase := ""
 		for _, line := range strings.Split(stdout, "\n") {
@@ -227,7 +227,7 @@ func (m *MicrosandboxRuntime) transferIntoGuest(ctx context.Context, opts SyncOp
 			}
 		}
 		if !isCommitSHA(refreshedBase) {
-			return fmt.Errorf("the guest refresh did not return a valid recovery comparison base")
+			return fmt.Errorf("l'actualisation de la machine isolée n'a pas renvoyé de base de comparaison de récupération valide")
 		}
 		// Store the comparison snapshot before repository initialization: even
 		// when the GitHub publication guard refuses a snapshot commit, the host
@@ -239,7 +239,7 @@ func (m *MicrosandboxRuntime) transferIntoGuest(ctx context.Context, opts SyncOp
 		script := fmt.Sprintf("mkdir -p %s && tar -xzf %s -C %s && rm -f %s",
 			shellQuote(msbGuestWorkspace), shellQuote(msbTransferArchivePath), shellQuote(msbGuestWorkspace), shellQuote(msbTransferArchivePath))
 		if err := m.guestShell(ctx, script); err != nil {
-			return fmt.Errorf("extracting the transfer payload inside the guest failed: %w", err)
+			return fmt.Errorf("l'extraction de la charge de transfert dans la machine isolée a échoué : %w", err)
 		}
 	}
 	if err := m.ensureGuestRepository(ctx); err != nil {
@@ -256,7 +256,7 @@ func (m *MicrosandboxRuntime) transferIntoGuest(ctx context.Context, opts SyncOp
 			return err
 		}
 	}
-	opts.print(fmt.Sprintf("Guest workspace ready: %d file(s) in %s.\n", len(included), msbGuestWorkspace))
+	opts.print(fmt.Sprintf("Espace de travail de la machine isolée prêt : %d fichier(s) dans %s.\n", len(included), msbGuestWorkspace))
 	return nil
 }
 
@@ -271,7 +271,7 @@ const guestRecoveryBaseRef = "refs/codebox/recovery-base"
 func guestRecoveryRefreshScript(workspace, archivePath, base, gitName, gitEmail string) string {
 	changedPath := "/tmp/codebox-refresh-changed"
 	incomingPath := "/tmp/codebox-refresh-incoming"
-	conflictMessage := "The refreshed host snapshot conflicts with the guest work. The pre-refresh state was restored."
+	conflictMessage := "L’instantané du poste actualisé entre en conflit avec le travail de la machine isolée. L’état d’avant l’actualisation a été restauré."
 	applyProgram := "set -e; for file do" +
 		" if git diff --quiet \"$BACKUP\" -- \":(literal)$file\"; then :; else" +
 		" patch=$(mktemp /tmp/codebox-refresh-file.XXXXXX)" +
@@ -294,28 +294,28 @@ func guestRecoveryRefreshScript(workspace, archivePath, base, gitName, gitEmail 
 		"; git add -A" +
 		"; TREE=$(git write-tree)" +
 		"; BACKUP=$(git -c user.name=" + shellQuote(gitName) + " -c user.email=" + shellQuote(gitEmail) +
-		" commit-tree \"$TREE\" -p HEAD -m " + shellQuote("codebox: pre-refresh recovery backup") + ")" +
+		" commit-tree \"$TREE\" -p HEAD -m " + shellQuote("codebox : sauvegarde de récupération avant actualisation") + ")" +
 		"; rollback() { git reset --hard \"$BACKUP\" && git clean -fd && git reset --mixed \"$ORIGINAL_HEAD\"; }" +
 		// Capture guest paths before extraction can overwrite any of them.
 		"; git diff --name-only --diff-filter=ADMT --no-renames -z " + shellQuote(base) + " > " + shellQuote(changedPath) +
 		"; rm -rf " + shellQuote(incomingPath) + "; mkdir " + shellQuote(incomingPath) +
 		"; if ! tar -xzf " + shellQuote(archivePath) + " -C " + shellQuote(incomingPath) +
-		"; then rollback; printf '%s\\n' 'The refreshed host snapshot could not be read. The pre-refresh state was restored.' >&2; exit 1; fi" +
+		"; then rollback; printf '%s\\n' 'L’instantané du poste actualisé n’a pas pu être lu. L’état d’avant l’actualisation a été restauré.' >&2; exit 1; fi" +
 		"; if ! mkdir -p " + shellQuote(workspace) + " || ! tar -xzf " + shellQuote(archivePath) + " -C " + shellQuote(workspace) +
-		"; then rollback; printf '%s\\n' 'The refreshed host snapshot could not be extracted. The pre-refresh state was restored.' >&2; exit 1; fi" +
+		"; then rollback; printf '%s\\n' 'L’instantané du poste actualisé n’a pas pu être extrait. L’état d’avant l’actualisation a été restauré.' >&2; exit 1; fi" +
 		"; rm -f " + shellQuote(archivePath) +
 		// Additive extraction leaves guest content in place when the archive
 		// omits a path. Restore omitted paths to their base state, or remove
 		// additions, so leftover guest content cannot prove its own recovery.
 		"; if ! INCOMING=" + shellQuote(incomingPath) + " BASE=" + shellQuote(base) + " xargs -0 -n 50 sh -c 'set -e; for file do if [ ! -e \"$INCOMING/$file\" ] && [ ! -L \"$INCOMING/$file\" ]; then if git cat-file -e \"$BASE:$file\" 2>/dev/null; then git restore --source=\"$BASE\" --worktree -- \":(literal)$file\"; else rm -f -- \"$file\"; fi; fi; done' sh < " + shellQuote(changedPath) +
-		"; then rollback; rm -rf " + shellQuote(incomingPath) + "; printf '%s\\n' 'The guest changes could not be compared with the refreshed host snapshot. The pre-refresh state was restored.' >&2; exit 1; fi" +
+		"; then rollback; rm -rf " + shellQuote(incomingPath) + "; printf '%s\\n' 'Les modifications de la machine isolée n’ont pas pu être comparées à l’instantané actualisé du poste. L’état d’avant l’actualisation a été restauré.' >&2; exit 1; fi" +
 		// The comparison base describes the refreshed host tree before guest
 		// work is reapplied. Later edits to refreshed files therefore remain
 		// visible while outstanding guest work stays distinguishable.
 		"; git add -A" +
 		"; HOST_TREE=$(git write-tree)" +
 		"; REFRESH_BASE=$(git -c user.name=" + shellQuote(gitName) + " -c user.email=" + shellQuote(gitEmail) +
-		" commit-tree \"$HOST_TREE\" -p " + shellQuote(base) + " -m " + shellQuote("codebox: refreshed recovery comparison snapshot") + ")" +
+		" commit-tree \"$HOST_TREE\" -p " + shellQuote(base) + " -m " + shellQuote("codebox : instantané de comparaison de récupération actualisé") + ")" +
 		"; git add -A -N" +
 		// Apply each file independently: a host may already contain some, but
 		// not all, of the guest changes. Skip recovered content, then use a
@@ -355,11 +355,11 @@ func isCommitSHA(s string) bool {
 func (m *MicrosandboxRuntime) recordRecoveryBase(ctx context.Context) error {
 	head, err := m.guestOutput(ctx, "git rev-parse HEAD")
 	if err != nil {
-		return fmt.Errorf("recording the guest recovery base: %w", err)
+		return fmt.Errorf("enregistrement de la base de récupération de la machine isolée : %w", err)
 	}
 	sha := strings.TrimSpace(head)
 	if !isCommitSHA(sha) {
-		return fmt.Errorf("recording the guest recovery base: unexpected HEAD %q", sha)
+		return fmt.Errorf("enregistrement de la base de récupération de la machine isolée : HEAD inattendu %q", sha)
 	}
 	return m.storeRecoveryBase(sha)
 }
@@ -367,7 +367,7 @@ func (m *MicrosandboxRuntime) recordRecoveryBase(ctx context.Context) error {
 // storeRecoveryBase persists a validated guest commit as the comparison base.
 func (m *MicrosandboxRuntime) storeRecoveryBase(sha string) error {
 	if !isCommitSHA(sha) {
-		return fmt.Errorf("recording the guest recovery base: unexpected commit %q", sha)
+		return fmt.Errorf("enregistrement de la base de récupération de la machine isolée : commit inattendu %q", sha)
 	}
 	path := recoveryBasePath(m.stateDirOrDefault(), m.InstanceName())
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
@@ -425,7 +425,7 @@ func guestRepositoryBootstrapScript(workspace, gitName, gitEmail string) string 
 		"; if ! git rev-parse --git-dir >/dev/null 2>&1; then git init -q; git symbolic-ref HEAD refs/heads/main; fi" +
 		"; git add -A" +
 		"; git -c user.name=" + shellQuote(gitName) + " -c user.email=" + shellQuote(gitEmail) +
-		" commit -q -m " + shellQuote("codebox: initial guest snapshot from the host working tree") + " --allow-empty"
+		" commit -q -m " + shellQuote("codebox : instantané initial de la machine isolée depuis l’arbre de travail du poste") + " --allow-empty"
 }
 
 func (m *MicrosandboxRuntime) ensureGuestRepository(ctx context.Context) error {
@@ -468,7 +468,7 @@ func (m *MicrosandboxRuntime) guestWorkspaceProvisioned(ctx context.Context) (bo
 		return false, err
 	}
 	if code != 0 {
-		return false, fmt.Errorf("cannot determine whether the guest workspace is provisioned")
+		return false, fmt.Errorf("impossible de déterminer si l'espace de travail de la machine isolée est provisionné")
 	}
 	return strings.TrimSpace(stdout) == "yes", nil
 }
@@ -486,9 +486,9 @@ func (m *MicrosandboxRuntime) guestWorkingTreeDirty(ctx context.Context) (string
 	if code != 0 {
 		detail := strings.TrimSpace(stderr)
 		if detail == "" {
-			detail = "git status failed in the guest workspace"
+			detail = "git status a échoué dans l'espace de travail de la machine isolée"
 		}
-		return "", fmt.Errorf("cannot read the state of the guest workspace: %s", detail)
+		return "", fmt.Errorf("impossible de lire l'état de l'espace de travail de la machine isolée : %s", detail)
 	}
 	return strings.TrimSpace(stdout), nil
 }
@@ -508,7 +508,7 @@ func (m *MicrosandboxRuntime) guestChangesSinceBase(ctx context.Context, base st
 	case 1:
 		return true, nil
 	default:
-		return false, fmt.Errorf("cannot compare the guest workspace with its recovery base: %s", strings.TrimSpace(stderr))
+		return false, fmt.Errorf("impossible de comparer l'espace de travail de la machine isolée à sa base de récupération : %s", strings.TrimSpace(stderr))
 	}
 }
 
@@ -519,7 +519,7 @@ func (m *MicrosandboxRuntime) guestShell(ctx context.Context, command string) er
 		return err
 	}
 	if code != 0 {
-		return fmt.Errorf("guest command exited %d: %s", code, strings.TrimSpace(stderr))
+		return fmt.Errorf("la commande dans la machine isolée s'est terminée avec le code %d : %s", code, strings.TrimSpace(stderr))
 	}
 	return nil
 }
@@ -548,7 +548,7 @@ func (m *MicrosandboxRuntime) ExportGuestChanges(ctx context.Context, outPath st
 		return "", err
 	}
 	if code != 0 {
-		return "", fmt.Errorf("the guest could not produce a diff (exit %d): %s", code, strings.TrimSpace(stderr))
+		return "", fmt.Errorf("la machine isolée n'a pas pu produire de diff (code %d) : %s", code, strings.TrimSpace(stderr))
 	}
 	if strings.TrimSpace(stdout) == "" {
 		return "", nil

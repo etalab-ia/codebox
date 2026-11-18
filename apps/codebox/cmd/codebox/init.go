@@ -57,7 +57,7 @@ func initCmd(args []string) (int, error) {
 			return code, err
 		}
 		if !printInitIntro(opts.Root, in) {
-			return 1, fmt.Errorf("cancelled; nothing was written")
+			return 1, fmt.Errorf("annulé ; rien n'a été écrit")
 		}
 		return initRun(opts, in, tty)
 	}
@@ -196,13 +196,13 @@ func parseInitArgs(args []string) (initOptions, error) {
 		a := args[i]
 		value := func() (string, error) {
 			if i+1 >= len(args) {
-				return "", fmt.Errorf("%s needs a value", a)
+				return "", fmt.Errorf("%s exige une valeur", a)
 			}
 			// A following flag is not a value: `init --root --yes` must be
 			// reported as a missing value rather than as a root named
 			// "--yes", which would fail later as an incomprehensible path.
 			if strings.HasPrefix(args[i+1], "-") {
-				return "", fmt.Errorf("%s needs a value, got the flag %q", a, args[i+1])
+				return "", fmt.Errorf("%s exige une valeur ; l'option %q a été fournie", a, args[i+1])
 			}
 			i++
 			return args[i], nil
@@ -222,13 +222,13 @@ func parseInitArgs(args []string) (initOptions, error) {
 				return opts, err
 			}
 			if opts.Set["clear-skills"] {
-				return opts, fmt.Errorf("--skill and --clear-skills cannot be used together")
+				return opts, fmt.Errorf("les options --skill et --clear-skills sont incompatibles")
 			}
 			opts.Skills = append(opts.Skills, v)
 			opts.Set["skills"] = true
 		case a == "--clear-skills":
 			if opts.Set["skills"] {
-				return opts, fmt.Errorf("--skill and --clear-skills cannot be used together")
+				return opts, fmt.Errorf("les options --skill et --clear-skills sont incompatibles")
 			}
 			opts.Set["clear-skills"], opts.Set["skills"] = true, true
 		case a == "--mcp":
@@ -237,18 +237,18 @@ func parseInitArgs(args []string) (initOptions, error) {
 				return opts, err
 			}
 			if opts.Set["clear-mcps"] {
-				return opts, fmt.Errorf("--mcp and --clear-mcps cannot be used together")
+				return opts, fmt.Errorf("les options --mcp et --clear-mcps sont incompatibles")
 			}
 			opts.MCPConnectors = append(opts.MCPConnectors, v)
 			opts.Set["mcps"] = true
 		case a == "--clear-mcps":
 			if opts.Set["mcps"] {
-				return opts, fmt.Errorf("--mcp and --clear-mcps cannot be used together")
+				return opts, fmt.Errorf("les options --mcp et --clear-mcps sont incompatibles")
 			}
 			opts.Set["clear-mcps"], opts.Set["mcps"] = true, true
 		case a == "--local-only-skills" || a == "--versioned-skills":
 			if opts.Set["skills-storage"] {
-				return opts, fmt.Errorf("choose only one skill storage mode")
+				return opts, fmt.Errorf("choisissez un seul mode de stockage des skills")
 			}
 			opts.Set["skills-storage"] = true
 			opts.SkillsLocalOnly = a == "--local-only-skills"
@@ -304,7 +304,7 @@ func parseInitArgs(args []string) (initOptions, error) {
 			}
 			n, err := strconv.Atoi(v)
 			if err != nil {
-				return opts, fmt.Errorf("--cpus must be a whole number, got %q", v)
+				return opts, fmt.Errorf("--cpus exige un nombre entier, reçu %q", v)
 			}
 			opts.CPUs, opts.Set["cpus"] = n, true
 		case a == "--memory-mb":
@@ -318,7 +318,7 @@ func parseInitArgs(args []string) (initOptions, error) {
 			}
 			opts.MemoryMB, opts.Set["memory-mb"] = n, true
 		default:
-			return opts, fmt.Errorf("unknown init option %q (see 'codebox help')", a)
+			return opts, fmt.Errorf("option inconnue pour 'codebox init' : %q (voir 'codebox help')", a)
 		}
 	}
 	return opts, nil
@@ -402,10 +402,10 @@ func initRun(opts initOptions, in *bufio.Reader, tty bool) (code int, err error)
 	}
 	hostResources, hostErr := detectHostResourcesFn()
 	if hostErr != nil {
-		return 1, fmt.Errorf("cannot determine host CPU and memory capacity; cannot enforce the guest resource limit: %v", hostErr)
+		return 1, fmt.Errorf("impossible de déterminer la capacité du poste en processeurs et en mémoire ; impossible d'appliquer la limite de ressources de la machine isolée : %v", hostErr)
 	}
 	if hostResources.CPUs <= 0 || hostResources.MemoryMB <= 0 {
-		return 1, fmt.Errorf("host resource detection returned incomplete CPU or memory capacity; cannot enforce the guest resource limit")
+		return 1, fmt.Errorf("la détection des ressources du poste a renvoyé une capacité incomplète en processeurs ou en mémoire ; impossible d'appliquer la limite de ressources de la machine isolée")
 	}
 	wizardHostResources = hostResources
 	opts.hostCPUs = hostResources.CPUs
@@ -413,23 +413,23 @@ func initRun(opts initOptions, in *bufio.Reader, tty bool) (code int, err error)
 	opts.maxCPUs = codebox.MaxGuestCPUs(hostResources.CPUs)
 	opts.maxMemoryMB = codebox.MaxGuestMemoryMB(hostResources.MemoryMB)
 	if opts.maxCPUs < 1 {
-		return 1, fmt.Errorf("host resource detection reported no logical CPUs available for the guest")
+		return 1, fmt.Errorf("la détection des ressources du poste n'a trouvé aucun processeur logique à allouer à la machine isolée")
 	}
 	if opts.maxMemoryMB < 1 {
-		return 1, fmt.Errorf("host memory is too small to allocate guest memory")
+		return 1, fmt.Errorf("la mémoire du poste est trop faible pour allouer de la mémoire à la machine isolée")
 	}
 	if opts.Set["cpus"] && opts.CPUs > opts.maxCPUs {
-		return 2, fmt.Errorf("--cpus %d exceeds detected host capacity of %d logical CPUs", opts.CPUs, opts.maxCPUs)
+		return 2, fmt.Errorf("--cpus %d dépasse la capacité détectée du poste : %d processeurs logiques", opts.CPUs, opts.maxCPUs)
 	}
 	if opts.Set["memory-mb"] && opts.MemoryMB > opts.maxMemoryMB {
-		return 2, fmt.Errorf("--memory-mb %s exceeds detected host capacity of %s", codebox.FormatMemorySize(opts.MemoryMB), codebox.FormatMemorySize(opts.maxMemoryMB))
+		return 2, fmt.Errorf("--memory-mb %s dépasse la capacité détectée du poste : %s", codebox.FormatMemorySize(opts.MemoryMB), codebox.FormatMemorySize(opts.maxMemoryMB))
 	}
 	if !opts.Set["cpus"] && opts.maxCPUs == 1 {
 		if answers.CPUs > opts.maxCPUs {
 			answers.CPUs = 0
 		}
 		if tty && !opts.Yes {
-			fmt.Println("Only one whole guest CPU is available; selected 1 CPU automatically.")
+			fmt.Println("Un seul processeur complet est disponible pour la machine isolée ; 1 processeur a été sélectionné automatiquement.")
 		}
 	}
 	var plan codebox.InitPlan
@@ -516,14 +516,14 @@ func initRun(opts initOptions, in *bufio.Reader, tty bool) (code int, err error)
 			var blocked error
 			switch {
 			case !status.HasOrigin:
-				blocked = fmt.Errorf("the project has no readable origin remote; configure a GitHub.com origin to allow the agent to push")
+				blocked = fmt.Errorf("le projet n'a pas d'origine distante lisible ; configurez une origine GitHub.com pour permettre à l'agent de pousser")
 			case status.TokenError != nil:
 				// A store that cannot be read is not a missing token: the
 				// remedy is to unlock it, and saying "add a token" would send
 				// the user down the wrong path.
-				blocked = fmt.Errorf("the GitHub credential store could not be read: %w", status.TokenError)
+				blocked = fmt.Errorf("le trousseau d'identifiants GitHub n'a pas pu être lu : %w", status.TokenError)
 			case !status.HasToken:
-				blocked = fmt.Errorf("no GitHub token is stored on this machine; add one with 'codebox auth add github'")
+				blocked = fmt.Errorf("aucun jeton GitHub n'est enregistré sur ce poste ; ajoutez-en un avec 'codebox auth add github'")
 			case status.Rights != codebox.GitHubRepoRightsOK:
 				blocked = errors.New(gitHubRightsMessage(status))
 			}
@@ -559,7 +559,7 @@ func initRun(opts initOptions, in *bufio.Reader, tty bool) (code int, err error)
 		if !tty && !opts.Yes {
 			resourceWarnings := codebox.GuestResourceWarnings(hostResources, plan.GuestCPUs, plan.GuestMemoryMB)
 			if len(resourceWarnings) > 0 {
-				return 1, fmt.Errorf("non-interactive setup with high resource allocation requires explicit confirmation; rerun with --yes")
+				return 1, fmt.Errorf("la configuration sans terminal avec une allocation de ressources élevée exige une confirmation explicite ; relancez avec --yes")
 			}
 		}
 		if !tty || opts.Yes {
@@ -592,7 +592,7 @@ func initRun(opts initOptions, in *bufio.Reader, tty bool) (code int, err error)
 		instance := codebox.InstanceName(plan.Answers.Root, filepath.Base(plan.Answers.Root))
 		path := codebox.BindingApprovalsPath(mcpBindingStateDirFn(), instance)
 		if err := codebox.RevokeBindingApproval(codebox.DefaultFS, path, codebox.CredentialContext7); err != nil {
-			return 1, fmt.Errorf("Context7 credential approval could not be revoked; project selection was not changed: %w", err)
+			return 1, fmt.Errorf("l'approbation de l'identifiant Context7 n'a pas pu être révoquée ; la sélection du projet n'a pas été modifiée : %w", err)
 		}
 		// The revoke is attempted regardless of the recorded runtime: the
 		// recorded runtime can lag a runtime switch, and a preserved sandbox
@@ -612,28 +612,28 @@ func initRun(opts initOptions, in *bufio.Reader, tty bool) (code int, err error)
 				context7Revoked, context7Live = false, false
 				err = nil
 			} else {
-				return 1, fmt.Errorf("Context7 host approval was revoked, but the Microsandbox credential could not be revoked; project selection was not changed: %w", err)
+				return 1, fmt.Errorf("l'approbation de ce poste pour Context7 a été révoquée, mais l'identifiant Microsandbox n'a pas pu être révoqué ; la sélection du projet n'a pas été modifiée : %w", err)
 			}
 		}
 	}
 	if err := wizard.Apply(plan, opts.Replace); err != nil {
 		if revokeContext7 {
-			return 1, fmt.Errorf("project configuration was not written; Context7 authorization was revoked: %w", err)
+			return 1, fmt.Errorf("la configuration du projet n'a pas été écrite ; l'autorisation Context7 a été révoquée : %w", err)
 		}
 		return 1, err
 	}
 	if revokeContext7 {
 		if context7Revoked && context7Live {
-			fmt.Println("Context7 credential approval revoked and removed from the running guest.")
+			fmt.Println("Approbation de l'identifiant Context7 révoquée et retirée de la machine isolée en cours d'exécution.")
 		} else if context7Revoked {
-			fmt.Println("Context7 credential approval revoked and removed from the stopped guest.")
+			fmt.Println("Approbation de l'identifiant Context7 révoquée et retirée de la machine isolée arrêtée.")
 		} else {
-			fmt.Println("Context7 credential approval revoked on this host.")
+			fmt.Println("Approbation de l'identifiant Context7 révoquée sur ce poste.")
 		}
 	}
 	if plan.Answers.GitHubWorkflow {
 		if err := approveGitHubForProjectFn(plan.Answers.Root); err != nil {
-			return 1, fmt.Errorf("project configuration was written, but GitHub approval was not recorded; run 'codebox bindings approve github': %w", err)
+			return 1, fmt.Errorf("la configuration du projet a été écrite, mais l'accord GitHub n'a pas été enregistré ; lancez 'codebox bindings approve github' : %w", err)
 		}
 		fmt.Println("Accord GitHub enregistré pour ce projet sur ce poste ; il n'est pas écrit dans le projet.")
 	}
@@ -925,10 +925,10 @@ func validateInitOptions(opts initOptions) error {
 	// An explicit zero is not "use the default": the flag being present means
 	// the caller wants to set the value, and 0 is outside the supported range.
 	if opts.Set["cpus"] && (opts.CPUs < 1 || opts.CPUs > codebox.MaxSandboxCPUs) {
-		return fmt.Errorf("--cpus must be 1 to %d, got %d", codebox.MaxSandboxCPUs, opts.CPUs)
+		return fmt.Errorf("--cpus doit être un entier de 1 à %d, reçu %d", codebox.MaxSandboxCPUs, opts.CPUs)
 	}
 	if opts.Set["memory-mb"] && (opts.MemoryMB < 1 || opts.MemoryMB > codebox.MaxSandboxMemoryMB) {
-		return fmt.Errorf("--memory-mb must be 1 to %d, got %d", codebox.MaxSandboxMemoryMB, opts.MemoryMB)
+		return fmt.Errorf("--memory-mb doit être un entier de 1 à %d, reçu %d", codebox.MaxSandboxMemoryMB, opts.MemoryMB)
 	}
 	if opts.Set["mcps"] {
 		if _, err := codebox.ValidateMCPNewSelection(opts.MCPConnectors); err != nil {
@@ -1005,12 +1005,12 @@ func askVMStepLine(in *bufio.Reader, opts initOptions, answers codebox.InitAnswe
 // settings (isolation, resources, credential reference) are not asked here:
 // they open with --advanced (#333).
 func askInitQuestions(in *bufio.Reader, opts initOptions, answers codebox.InitAnswers) (codebox.InitAnswers, error) {
-	fmt.Println("codebox init — project configuration")
+	fmt.Println("codebox init — configuration du projet")
 	fmt.Println()
 	if !opts.Set["root"] {
 		currentRoot := answers.Root
-		fmt.Printf("Project root [%s]:\n", answers.Root)
-		answer, ok := promptLine(in, "  root: ")
+		fmt.Printf("Racine du projet [%s] :\n", answers.Root)
+		answer, ok := promptLine(in, "  racine : ")
 		if !ok {
 			return answers, errInitNoAnswer
 		}
@@ -1047,7 +1047,7 @@ func askInitQuestions(in *bufio.Reader, opts initOptions, answers codebox.InitAn
 		if !answers.SkillsSet {
 			current, err := currentProjectSkillSelection(answers.Root)
 			if err != nil {
-				return answers, fmt.Errorf("read current project skills: %w", err)
+				return answers, fmt.Errorf("impossible de lire les skills actuelles du projet : %w", err)
 			}
 			answers.Skills = current
 			if catalogueErr == nil && len(current) == 0 && !projectManifestExists(answers.Root) && initSkillInCatalogue(catalogue, "official/securite-developpement") {
@@ -1129,7 +1129,7 @@ func askInitQuestions(in *bufio.Reader, opts initOptions, answers codebox.InitAn
 			case "poste", "sur ce poste uniquement", "local-only":
 				answers.SkillsLocalOnly = true
 			default:
-				return answers, fmt.Errorf("storage must be 'projet' or 'poste'")
+				return answers, fmt.Errorf("le stockage doit être 'projet' ou 'poste'")
 			}
 		}
 		answers.SkillsLocalOnlySet = true
@@ -1164,7 +1164,7 @@ func askInitQuestions(in *bufio.Reader, opts initOptions, answers codebox.InitAn
 			if currentLabel == "" {
 				currentLabel = "none"
 			}
-			answer, ok := promptLine(in, "  MCP IDs ["+currentLabel+"] (IDs séparés par des virgules ; Entrée garde la sélection, `none` efface tout) : ")
+			answer, ok := promptLine(in, "  IDs MCP ["+currentLabel+"] (IDs séparés par des virgules ; Entrée garde la sélection, `none` efface tout) : ")
 			if !ok {
 				return answers, errInitNoAnswer
 			}
@@ -1573,7 +1573,7 @@ func parseInitSkillSelection(input string) ([]string, error) {
 		name = strings.TrimSpace(name)
 		id, ok := byName[name]
 		if !ok {
-			return nil, fmt.Errorf("unknown skill %q; choose one of the six listed names", name)
+			return nil, fmt.Errorf("skill %q inconnue ; choisissez l'un des six noms proposés", name)
 		}
 		if !seen[id] {
 			selected = append(selected, id)
@@ -1587,7 +1587,7 @@ func confirmNoInitSkills(in *bufio.Reader) (bool, error) {
 	fmt.Println("Aucune skill sélectionnée. Continuer sans skill ? (O/n)")
 	answer, ok := promptLine(in, "  ")
 	if !ok {
-		return false, errors.New("no answer for the empty skill selection confirmation")
+		return false, errors.New("aucune réponse à la confirmation de sélection vide de skills")
 	}
 	answer = strings.TrimSpace(answer)
 	return answer == "" || strings.EqualFold(answer, "o") || strings.EqualFold(answer, "oui") || strings.EqualFold(answer, "y") || strings.EqualFold(answer, "yes"), nil
@@ -1771,7 +1771,7 @@ func gitHubYesDefault(in *bufio.Reader) (bool, error) {
 		// hint, so the prompt stays empty rather than asking twice.
 		answer, ok := promptLine(in, "")
 		if !ok {
-			return false, fmt.Errorf("no answer; nothing was written")
+			return false, fmt.Errorf("aucune réponse ; rien n'a été écrit")
 		}
 		switch strings.ToLower(strings.TrimSpace(answer)) {
 		case "", "o", "oui", "y", "yes":
@@ -1790,7 +1790,7 @@ func gitHubContinueLoop(in *bufio.Reader) (bool, error) {
 	for {
 		answer, ok := promptLine(in, gitHubNoOriginPrompt)
 		if !ok {
-			return false, fmt.Errorf("no answer; nothing was written")
+			return false, fmt.Errorf("aucune réponse ; rien n'a été écrit")
 		}
 		switch strings.ToLower(strings.TrimSpace(answer)) {
 		case "", "c", "continuer", "continuer sans github":
@@ -1809,7 +1809,7 @@ func gitHubTokenLoop(in *bufio.Reader) (bool, error) {
 	for {
 		answer, ok := promptLine(in, gitHubNoTokenPrompt)
 		if !ok {
-			return false, fmt.Errorf("no answer; nothing was written")
+			return false, fmt.Errorf("aucune réponse ; rien n'a été écrit")
 		}
 		switch strings.ToLower(strings.TrimSpace(answer)) {
 		case "", "p", "plus tard":
@@ -1828,7 +1828,7 @@ func gitHubRightsLoop(in *bufio.Reader) (bool, error) {
 	for {
 		answer, ok := promptLine(in, gitHubRightsPrompt)
 		if !ok {
-			return false, fmt.Errorf("no answer; nothing was written")
+			return false, fmt.Errorf("aucune réponse ; rien n'a été écrit")
 		}
 		switch strings.ToLower(strings.TrimSpace(answer)) {
 		case "r", "revérifier", "reverifier":
@@ -1867,11 +1867,11 @@ var githubInitProbeFn = func(root string) codebox.GitHubProjectStatus {
 // inherit a real keychain or repository remote.
 var githubInitPreflightFn = func(root string) (codebox.GitHubRemote, error) {
 	if _, err := codebox.ReadStoredCredential(context.Background(), codebox.CredentialGithub); err != nil {
-		return codebox.GitHubRemote{}, fmt.Errorf("GitHub workflow requires a stored GitHub credential; add one with 'codebox auth add github': %w", err)
+		return codebox.GitHubRemote{}, fmt.Errorf("le flux GitHub exige un identifiant GitHub enregistré ; ajoutez-en un avec 'codebox auth add github' : %w", err)
 	}
 	remote, err := codebox.GitHubOriginForProject(context.Background(), root)
 	if err != nil {
-		return codebox.GitHubRemote{}, fmt.Errorf("GitHub workflow requires a GitHub.com origin remote: %w", err)
+		return codebox.GitHubRemote{}, fmt.Errorf("le flux GitHub exige une origine distante GitHub.com : %w", err)
 	}
 	return remote, nil
 }
@@ -1936,7 +1936,7 @@ func catalogueModelWarningForRoot(projectRoot, model string) (string, error) {
 	if !ok {
 		// A listed miss is the user's answer being wrong, not a validation
 		// outage: stop so the answer can change.
-		return "", fmt.Errorf("the model %q is not in the Albert catalogue; run 'codebox models' for the valid ids", model)
+		return "", fmt.Errorf("le modèle %q ne figure pas dans le catalogue Albert ; lancez 'codebox models' pour connaître les identifiants valides", model)
 	}
 	chat := false
 	for _, candidate := range catalogue.TextGenerationModels() {
@@ -1946,7 +1946,7 @@ func catalogueModelWarningForRoot(projectRoot, model string) (string, error) {
 		}
 	}
 	if !chat {
-		return "", fmt.Errorf("the model %q is not a chat model in the Albert catalogue; run 'codebox models' for the valid ids", model)
+		return "", fmt.Errorf("le modèle %q n'est pas un modèle de conversation du catalogue Albert ; lancez 'codebox models' pour connaître les identifiants valides", model)
 	}
 	return "", nil
 }
@@ -1954,38 +1954,39 @@ func catalogueModelWarningForRoot(projectRoot, model string) (string, error) {
 // initUsage is the init-specific help, kept next to the flags it documents so
 // the two cannot drift.
 func initUsage() {
-	fmt.Print(`Usage: codebox init [options]
+	fmt.Print(`Usage : codebox init [options]
 
-Configure this project: where the agent runs, which model it uses, how much
-machine it gets, which remote MCPs it may use, and which credential it may use. The result is
-.codebox/project.json (plus lock.json), read by the launch path.
+Configurez ce projet : où l'agent s'exécute, quel modèle il utilise, de quelle
+machine il dispose, quels MCP distants il peut employer, et quel identifiant il
+peut utiliser. Le résultat est .codebox/project.json (plus lock.json), lu par le
+chemin de lancement.
 
-Options:
-  --root <dir>            project directory (default: the current directory;
-                          a Git worktree root is used when the directory is
-                          inside one)
-  --runtime <name>        microsandbox (default), tart or agent-vm
-  --isolation <level>     full (default) or backend
-  --harness <name>        opencode (default) or pi; pi requires full isolation
-  --model <id>            OpenCode model; empty keeps the built-in default
-  --small-model <id>      Lightweight model for OpenCode titles (for example
-                          ministral-3-8b-instruct-2512); empty or 'default'
-                          follows the main model
-  --cpus <n>              guest CPUs (max detected host capacity)
-  --memory-mb <size>      guest memory in MiB or GiB (e.g. 4096, 4G, 2.5G; max detected host RAM)
-  --credential-ref <ref>  project credential reference (default: the global one)
-  --github                enable pushing changes to the project's GitHub repository
-  --skill <id>            select an exact catalogue skill (repeatable; e.g. official/rgaa)
-  --clear-skills          remove all managed project skills
-  --mcp <id>              select data-gouv or context7 (repeatable)
-  --clear-mcps            remove all managed remote MCPs
-  --local-only-skills     keep skill selection and pins in host state, not the checkout
-  --versioned-skills      store skill selection and pins in .codebox/
-  --replace               allow replacing an existing manifest
-  --yes, -y               accept the review without asking
+Options :
+  --root <dir>            dossier du projet (par défaut : le dossier courant ;
+                          la racine d'un worktree Git est utilisée quand le
+                          dossier se trouve à l'intérieur d'un worktree)
+  --runtime <name>        microsandbox (par défaut), tart ou agent-vm
+  --isolation <level>     full (par défaut) ou backend
+  --harness <name>        opencode (par défaut) ou pi ; pi exige l'isolation complète
+  --model <id>            modèle OpenCode ; vide conserve le défaut intégré
+  --small-model <id>      modèle léger pour les titres OpenCode (par exemple
+                          ministral-3-8b-instruct-2512) ; vide ou 'default'
+                          suit le modèle principal
+  --cpus <n>              processeurs de la machine isolée (maximum : la capacité détectée du poste)
+  --memory-mb <size>      mémoire de la machine isolée en MiB ou GiB (ex. 4096, 4G, 2.5G ; maximum : la RAM détectée du poste)
+  --credential-ref <ref>  référence d'identifiant du projet (par défaut : la référence globale)
+  --github                autoriser l'envoi des modifications vers le dépôt GitHub du projet
+  --skill <id>            sélectionner une skill exacte du catalogue (répétable ; ex. official/rgaa)
+  --clear-skills          retirer toutes les skills gérées du projet
+  --mcp <id>              sélectionner data-gouv ou context7 (répétable)
+  --clear-mcps            retirer tous les MCP distants gérés
+  --local-only-skills     garder la sélection et les épinglages de skills dans l'état du poste, pas dans le dépôt
+  --versioned-skills      enregistrer la sélection et les épinglages de skills dans .codebox/
+  --replace               autoriser le remplacement d'un manifeste existant
+  --yes, -y               accepter la revue sans demander
 
-With no terminal, the command never waits: it fails and names the inputs it is
-missing, so a script can supply them on the next run.
+Sans terminal, la commande n'attend jamais : elle échoue et nomme les entrées
+manquantes, afin qu'un script puisse les fournir à l'exécution suivante.
 `)
 }
 

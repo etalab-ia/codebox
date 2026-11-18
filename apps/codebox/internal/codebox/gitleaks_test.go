@@ -259,7 +259,7 @@ func TestEnsureGitleaksRejectsTamperedArchive(t *testing.T) {
 
 	stateDir := t.TempDir()
 	_, err := ensureGitleaksFor(context.Background(), nil, stateDir, artifact)
-	if err == nil || !strings.Contains(err.Error(), "integrity verification") {
+	if err == nil || !strings.Contains(err.Error(), "vérification d'intégrité") {
 		t.Fatalf("expected an integrity failure, got %v", err)
 	}
 	if _, statErr := os.Stat(gitleaksBinaryPath(stateDir, artifact)); statErr == nil {
@@ -279,7 +279,7 @@ func TestEnsureGitleaksRejectsMismatchedBinary(t *testing.T) {
 
 	stateDir := t.TempDir()
 	_, err := ensureGitleaksFor(context.Background(), nil, stateDir, artifact)
-	if err == nil || !strings.Contains(err.Error(), "integrity verification") {
+	if err == nil || !strings.Contains(err.Error(), "vérification d'intégrité") {
 		t.Fatalf("expected the executable digest to be refused, got %v", err)
 	}
 	if _, statErr := os.Stat(gitleaksBinaryPath(stateDir, artifact)); statErr == nil {
@@ -370,7 +370,7 @@ func TestEnsureGitleaksRefusesRelativeStateDir(t *testing.T) {
 		t.Fatal(err)
 	}
 	_, err = ensureGitleaksFor(context.Background(), nil, filepath.Join(".local", "state", "codebox"), artifact)
-	if err == nil || !strings.Contains(err.Error(), "absolute state directory") {
+	if err == nil || !strings.Contains(err.Error(), "dossier d'état absolu") {
 		t.Fatalf("expected a refusal, got %v", err)
 	}
 }
@@ -411,7 +411,7 @@ func TestExtractGitleaksRejectsHostileArchives(t *testing.T) {
 		)
 		archive, size := openArchive(t, payload)
 		_, err := extractGitleaks(archive, size, t.TempDir(), gitleaksArtifact{binary: "gitleaks", binarySHA256: digest})
-		if err == nil || !strings.Contains(err.Error(), "duplicate") {
+		if err == nil || !strings.Contains(err.Error(), "plusieurs éléments") {
 			t.Fatalf("expected a duplicate refusal, got %v", err)
 		}
 	})
@@ -424,7 +424,7 @@ func TestExtractGitleaksRejectsHostileArchives(t *testing.T) {
 		archive, size := openArchive(t, payload)
 		artifact := gitleaksArtifact{binary: "gitleaks.exe", binarySHA256: digestOf([]byte("MZ one\n")), zip: true}
 		_, err := extractGitleaks(archive, size, t.TempDir(), artifact)
-		if err == nil || !strings.Contains(err.Error(), "duplicate") {
+		if err == nil || !strings.Contains(err.Error(), "plusieurs éléments") {
 			t.Fatalf("expected a duplicate refusal, got %v", err)
 		}
 	})
@@ -433,7 +433,7 @@ func TestExtractGitleaksRejectsHostileArchives(t *testing.T) {
 		payload := fakeTarGz(t, tarEntry{name: "gitleaks", typeflag: tar.TypeSymlink, linkname: "/bin/sh"})
 		archive, size := openArchive(t, payload)
 		_, err := extractGitleaks(archive, size, t.TempDir(), gitleaksArtifact{binary: "gitleaks", binarySHA256: digest})
-		if err == nil || !strings.Contains(err.Error(), "not a regular file") {
+		if err == nil || !strings.Contains(err.Error(), "n'est pas un fichier régulier") {
 			t.Fatalf("expected a symlink refusal, got %v", err)
 		}
 	})
@@ -442,7 +442,7 @@ func TestExtractGitleaksRejectsHostileArchives(t *testing.T) {
 		payload := fakeTarGz(t, tarEntry{name: "LICENSE", content: "MIT\n"})
 		archive, size := openArchive(t, payload)
 		_, err := extractGitleaks(archive, size, t.TempDir(), gitleaksArtifact{binary: "gitleaks", binarySHA256: digest})
-		if err == nil || !strings.Contains(err.Error(), "exactly one") {
+		if err == nil || !strings.Contains(err.Error(), "exactement un") {
 			t.Fatalf("expected a missing-member refusal, got %v", err)
 		}
 	})

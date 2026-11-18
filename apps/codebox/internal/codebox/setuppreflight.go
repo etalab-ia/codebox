@@ -106,7 +106,7 @@ func (p SetupPreflighter) RunPreflight(ctx context.Context) SetupPreflight {
 		}
 	} else {
 		out.Fatal = true
-		out.DiskDetail = "the runtime state home could not be resolved (HOME is unset); set HOME and re-run"
+		out.DiskDetail = "le dossier d'état du runtime n'a pas pu être résolu (HOME n'est pas défini) ; définissez HOME et relancez"
 	}
 	return out
 }
@@ -129,13 +129,13 @@ func probeVirtualizationPrimitive() (bool, string) {
 		return false, probeKVMFailure()
 	case "darwin":
 		if _, err := os.Stat("/System/Library/Frameworks/Hypervisor.framework"); err == nil {
-			return true, "Hypervisor framework present"
+			return true, "framework Hypervisor présent"
 		}
-		return false, "Hypervisor.framework not found"
+		return false, "Hypervisor.framework introuvable"
 	default:
 		// Unknown platform: not fatal from the primitive alone; the runtime
 		// doctor decides after installation.
-		return true, "virtualization will be checked by the runtime doctor after installation"
+		return true, "la virtualisation sera vérifiée par le diagnostic du runtime après l'installation"
 	}
 }
 
@@ -146,7 +146,7 @@ func runRuntimeDoctor(ctx context.Context, path string) (string, error) {
 		return "", err
 	}
 	if res.ExitCode != 0 {
-		return "", fmt.Errorf("runtime doctor failed (exit %d): %s", res.ExitCode, strings.TrimSpace(res.Stderr))
+		return "", fmt.Errorf("le diagnostic du runtime a échoué (code %d) : %s", res.ExitCode, strings.TrimSpace(res.Stderr))
 	}
 	return res.Stdout, nil
 }

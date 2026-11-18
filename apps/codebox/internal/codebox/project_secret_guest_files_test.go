@@ -583,7 +583,7 @@ func TestAForgeableHeaderIsNotTreatedAsOurs(t *testing.T) {
 		_, err := m.syncGuestSecretFiles(t.Context(), []ProjectSecretDelivery{
 			testDelivery(".env", "API_KEY", "JC_API_KEY", "__CODEBOX_SECRET_aaa__", "api.example.com"),
 		}, nil)
-		if err == nil || !strings.Contains(err.Error(), "were not written by codebox") {
+		if err == nil || !strings.Contains(err.Error(), "sans avoir été écrit par codebox") {
 			t.Fatalf("%s: the publish must be refused, not treated as ours: %v", name, err)
 		}
 		if client.files[guestPath] != content {
@@ -610,7 +610,7 @@ func TestSyncGuestSecretFilesRefusesToClobberProjectFile(t *testing.T) {
 	_, err := m.syncGuestSecretFiles(t.Context(), []ProjectSecretDelivery{
 		testDelivery(".env", "API_KEY", "JC_API_KEY", "__CODEBOX_SECRET_aaa__", "api.example.com"),
 	}, nil)
-	if err == nil || !strings.Contains(err.Error(), "were not written by codebox") {
+	if err == nil || !strings.Contains(err.Error(), "sans avoir été écrit par codebox") {
 		t.Fatalf("the publish must be refused: %v", err)
 	}
 	if client.files[guestPath] != own {

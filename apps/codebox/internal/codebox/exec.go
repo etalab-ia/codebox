@@ -109,7 +109,7 @@ func (OSStarter) Start(stdin io.Reader, logPath string, name string, args ...str
 			return err
 		}
 		if len(payload) > maxStdinPayload {
-			return fmt.Errorf("stdin payload exceeds %d bytes", maxStdinPayload)
+			return fmt.Errorf("la charge utile sur stdin dépasse %d octets", maxStdinPayload)
 		}
 		pr, pw, err := os.Pipe()
 		if err != nil {
@@ -157,7 +157,7 @@ func runOK(r Runner, ctx context.Context, name string, args ...string) error {
 		return err
 	}
 	if res.ExitCode != 0 {
-		return fmt.Errorf("%s %s failed (exit %d)", name, strings.Join(args, " "), res.ExitCode)
+		return fmt.Errorf("%s %s a échoué (code %d)", name, strings.Join(args, " "), res.ExitCode)
 	}
 	return nil
 }
@@ -176,7 +176,7 @@ func runStdinOK(r Runner, ctx context.Context, stdin io.Reader, name string, arg
 		return err
 	}
 	if res.ExitCode != 0 {
-		return fmt.Errorf("%s %s failed (exit %d)", name, strings.Join(args, " "), res.ExitCode)
+		return fmt.Errorf("%s %s a échoué (code %d)", name, strings.Join(args, " "), res.ExitCode)
 	}
 	return nil
 }
@@ -188,7 +188,7 @@ func runEnvOK(r Runner, ctx context.Context, env []string, name string, args ...
 		return err
 	}
 	if res.ExitCode != 0 {
-		return fmt.Errorf("%s %s failed (exit %d)", name, strings.Join(args, " "), res.ExitCode)
+		return fmt.Errorf("%s %s a échoué (code %d)", name, strings.Join(args, " "), res.ExitCode)
 	}
 	return nil
 }
@@ -231,10 +231,10 @@ func ValidateOpenCodeBackend(cfg Config) error {
 		return nil
 	}
 	if cfg.Username != "" && cfg.Username != DefaultUsername {
-		return fmt.Errorf("OpenCode v2 requires OPENCODE_SERVER_USERNAME=opencode; custom backend usernames are no longer supported")
+		return fmt.Errorf("OpenCode v2 exige OPENCODE_SERVER_USERNAME=opencode ; les noms d'utilisateur de backend personnalisés ne sont plus pris en charge")
 	}
 	if cfg.Password == "" {
-		return fmt.Errorf("OpenCode v2 requires a non-empty OPENCODE_SERVER_PASSWORD; unauthenticated backend mode is no longer supported")
+		return fmt.Errorf("OpenCode v2 exige un OPENCODE_SERVER_PASSWORD non vide ; le mode backend sans authentification n'est plus pris en charge")
 	}
 	return nil
 }
@@ -264,11 +264,11 @@ func OpenCodeHasSessions(output string) (bool, error) {
 		ID string `json:"id"`
 	}
 	if err := json.Unmarshal([]byte(output), &sessions); err != nil {
-		return false, fmt.Errorf("parse OpenCode session list: %w", err)
+		return false, fmt.Errorf("analyse de la liste des sessions OpenCode : %w", err)
 	}
 	for _, session := range sessions {
 		if !strings.HasPrefix(session.ID, "ses") {
-			return false, fmt.Errorf("OpenCode session list contains an invalid session ID")
+			return false, fmt.Errorf("la liste des sessions OpenCode contient un identifiant de session invalide")
 		}
 	}
 	return len(sessions) > 0, nil
@@ -284,43 +284,43 @@ func OpenCodeRemoteHasSessions(ctx context.Context, endpoint, username, password
 		} `json:"project"`
 	}
 	if err := FetchJSON(ctx, client, endpoint, username, password, "/api/location", &location); err != nil {
-		return false, fmt.Errorf("resolve remote OpenCode project: %w", err)
+		return false, fmt.Errorf("résolution du projet OpenCode distant : %w", err)
 	}
 	if location.Project.ID == "" {
-		return false, fmt.Errorf("remote OpenCode location has no project ID")
+		return false, fmt.Errorf("l'emplacement OpenCode distant n'a pas d'identifiant de projet")
 	}
 	target, err := url.JoinPath(endpoint, "api/session")
 	if err != nil {
-		return false, fmt.Errorf("build OpenCode session URL: %w", err)
+		return false, fmt.Errorf("construction de l'URL de session OpenCode : %w", err)
 	}
 	query := url.Values{"project": {location.Project.ID}, "parentID": {"null"}, "limit": {"1"}, "order": {"desc"}}
 	target += "?" + query.Encode()
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, target, nil)
 	if err != nil {
-		return false, fmt.Errorf("create OpenCode session request: %w", err)
+		return false, fmt.Errorf("création de la requête de session OpenCode : %w", err)
 	}
 	req.SetBasicAuth(username, password)
 	resp, err := client.Do(req)
 	if err != nil {
-		return false, fmt.Errorf("list remote OpenCode sessions: %w", err)
+		return false, fmt.Errorf("liste des sessions OpenCode distantes : %w", err)
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		return false, fmt.Errorf("list remote OpenCode sessions: HTTP %d", resp.StatusCode)
+		return false, fmt.Errorf("liste des sessions OpenCode distantes : HTTP %d", resp.StatusCode)
 	}
 	const maxSessionListBytes = 1 << 20
 	body, err := io.ReadAll(io.LimitReader(resp.Body, maxSessionListBytes+1))
 	if err != nil {
-		return false, fmt.Errorf("read remote OpenCode sessions: %w", err)
+		return false, fmt.Errorf("lecture des sessions OpenCode distantes : %w", err)
 	}
 	if len(body) > maxSessionListBytes {
-		return false, fmt.Errorf("remote OpenCode session list exceeds %d bytes", maxSessionListBytes)
+		return false, fmt.Errorf("la liste des sessions OpenCode distantes dépasse %d octets", maxSessionListBytes)
 	}
 	var page struct {
 		Data json.RawMessage `json:"data"`
 	}
 	if err := json.Unmarshal(body, &page); err != nil || len(page.Data) == 0 || string(page.Data) == "null" {
-		return false, fmt.Errorf("invalid OpenCode v2 session page")
+		return false, fmt.Errorf("page de sessions OpenCode v2 invalide")
 	}
 	return OpenCodeHasSessions(string(page.Data))
 }

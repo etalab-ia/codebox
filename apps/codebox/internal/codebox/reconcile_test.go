@@ -290,7 +290,7 @@ func TestInstanceStateRoundTripAndSchemaGuard(t *testing.T) {
 	if err := os.WriteFile(path, data, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := ReadInstanceState(DefaultFS, path); err == nil || !strings.Contains(err.Error(), "newer than this build supports") {
+	if _, err := ReadInstanceState(DefaultFS, path); err == nil || !strings.Contains(err.Error(), "est plus récent que ce que cette version prend en charge") {
 		t.Fatalf("newer schema must refuse, got: %v", err)
 	}
 }
@@ -751,7 +751,7 @@ func TestReconcileRefusesCredentialOpsWhenUnresolved(t *testing.T) {
 	}()
 
 	err := m.Reconcile(context.Background())
-	if err == nil || !strings.Contains(err.Error(), "credential set could not be resolved") {
+	if err == nil || !strings.Contains(err.Error(), "l'ensemble d'identifiants n'a pas pu être résolu") {
 		t.Fatalf("an unresolved credential set must refuse the credential ops: %v", err)
 	}
 	// The message must name the cause. A reused `err` variable printed
@@ -840,7 +840,7 @@ func TestReconcileProceedsWithDotenvInTheCheckout(t *testing.T) {
 			}
 		}
 	})
-	if !strings.Contains(stderr, "excluded from transfer") {
+	if !strings.Contains(stderr, "exclu du transfert") {
 		t.Fatalf("the hygiene advice must still be shown: %q", stderr)
 	}
 	for _, call := range client.calls {

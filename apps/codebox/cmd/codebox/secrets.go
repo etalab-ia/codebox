@@ -40,7 +40,7 @@ var projectSecretsCredentialStoreFn = func(fallback bool) (codebox.CredentialSto
 	}
 	store := codebox.DefaultCredentialStore()
 	if store == nil {
-		return nil, fmt.Errorf("no native credential store is available; use --fallback only after consenting to the owner-only plaintext store")
+		return nil, fmt.Errorf("aucun trousseau natif n'est disponible ; n'utilisez --fallback qu'après avoir accepté le magasin en clair réservé à votre utilisateur")
 	}
 	return store, nil
 }
@@ -54,19 +54,19 @@ func parseProjectSecretsImportArgs(args []string) (projectSecretsImportOptions, 
 		switch a {
 		case "--root", "--profile", "--file":
 			if i+1 >= len(args) || strings.HasPrefix(args[i+1], "-") {
-				return opts, fmt.Errorf("%s requires a value", a)
+				return opts, fmt.Errorf("%s exige une valeur", a)
 			}
 			i++
 			value := args[i]
 			switch a {
 			case "--root":
 				if seen[a] {
-					return opts, fmt.Errorf("--root may be given only once")
+					return opts, fmt.Errorf("--root ne peut être indiqué qu'une fois")
 				}
 				opts.Root = value
 			case "--profile":
 				if seen[a] {
-					return opts, fmt.Errorf("--profile may be given only once")
+					return opts, fmt.Errorf("--profile ne peut être indiqué qu'une fois")
 				}
 				opts.Profile = value
 			case "--file":
@@ -75,7 +75,7 @@ func parseProjectSecretsImportArgs(args []string) (projectSecretsImportOptions, 
 			seen[a] = true
 		case "--apply", "--yes", "--fallback":
 			if seen[a] {
-				return opts, fmt.Errorf("%s may be given only once", a)
+				return opts, fmt.Errorf("%s ne peut être indiqué qu'une fois", a)
 			}
 			seen[a] = true
 			switch a {
@@ -87,11 +87,11 @@ func parseProjectSecretsImportArgs(args []string) (projectSecretsImportOptions, 
 				opts.Fallback = true
 			}
 		default:
-			return opts, fmt.Errorf("unknown secrets import option %q", a)
+			return opts, fmt.Errorf("option inconnue de secrets import %q", a)
 		}
 	}
 	if opts.Yes && !opts.Apply {
-		return opts, fmt.Errorf("--yes requires --apply")
+		return opts, fmt.Errorf("--yes exige --apply")
 	}
 	return opts, nil
 }
@@ -111,19 +111,19 @@ func secretsCmd(args []string) (int, error) {
 	case "login", "logout", "check", "init", "push", "members":
 		return secretsRemoteCmd(args)
 	default:
-		return 2, fmt.Errorf("unknown secrets command %q", args[0])
+		return 2, fmt.Errorf("commande inconnue de secrets %q", args[0])
 	}
 }
 
 func printSecretsUsage() {
-	fmt.Println("Usage: codebox secrets import [--root PATH] --profile NAME [--file PATH ...] [--apply [--yes]] [--fallback]")
+	fmt.Println("Usage : codebox secrets import [--root PATH] --profile NAME [--file PATH ...] [--apply [--yes]] [--fallback]")
 	fmt.Println("       codebox secrets bindings list | approve <profile> <component> <NAME> --destination <host> | revoke <profile> <component> <NAME>")
 	fmt.Println("       codebox secrets profile <name> | --clear")
 	fmt.Println("       codebox secrets login [--terminal] | logout | check | init | push | members <list|add|remove>")
-	fmt.Println("Preview is read-only. --apply stores literal values in the selected project/profile/file scope; it does not approve or deliver them to the guest.")
-	fmt.Println("Approving a binding (secrets bindings approve) is the separate host-local step that lets the sandbox proxy expose one imported value toward specific destinations.")
-	fmt.Println("Shared development secrets use ProConnect and the codebox-server; production secrets are out of scope.")
-	fmt.Println("Without --file, an interactive terminal offers bounded dotenv-file discovery. Non-interactive use must name each --file.")
+	fmt.Println("L'aperçu est en lecture seule. --apply enregistre les valeurs littérales dans le périmètre projet/profil/fichier sélectionné ; il n'approuve ni ne livre aucune valeur à la machine isolée.")
+	fmt.Println("Approuver une liaison (secrets bindings approve) est l'étape distincte, locale au poste, qui autorise le proxy de la machine isolée à exposer une valeur importée vers des destinations précises.")
+	fmt.Println("Les secrets de développement partagés passent par ProConnect et le codebox-server ; les secrets de production sont hors périmètre.")
+	fmt.Println("Sans --file, un terminal interactif propose une découverte bornée des fichiers dotenv. Un usage non interactif doit nommer chaque --file.")
 }
 
 func projectSecretsImportCmd(args []string) (int, error) {
@@ -139,10 +139,10 @@ func projectSecretsImportCmd(args []string) (int, error) {
 	}
 	tty := projectSecretsTTYFn()
 	if !opts.Apply && opts.Yes {
-		return 2, fmt.Errorf("--yes requires --apply")
+		return 2, fmt.Errorf("--yes exige --apply")
 	}
 	if opts.Apply && !opts.Yes && !tty {
-		return 2, fmt.Errorf("non-interactive apply requires explicit --yes")
+		return 2, fmt.Errorf("l'application non interactive exige --yes explicitement")
 	}
 	project, err := codebox.DiscoverProject(opts.Root)
 	if err != nil {
@@ -150,7 +150,7 @@ func projectSecretsImportCmd(args []string) (int, error) {
 	}
 	if opts.Profile == "" {
 		if !tty {
-			return 2, fmt.Errorf("non-interactive import requires --profile NAME")
+			return 2, fmt.Errorf("l'import non interactif exige --profile NAME")
 		}
 		opts.Profile, err = projectSecretsAskProfile()
 		if err != nil {
@@ -158,17 +158,17 @@ func projectSecretsImportCmd(args []string) (int, error) {
 		}
 	}
 	if !codebox.IsValidProjectSecretProfile(opts.Profile) {
-		return 2, fmt.Errorf("profile must use 1–64 ASCII letters, digits, hyphens or underscores")
+		return 2, fmt.Errorf("le profil doit se composer de 1 à 64 lettres ASCII, chiffres, tirets ou tirets bas")
 	}
 	if strings.EqualFold(opts.Profile, "production") || strings.EqualFold(opts.Profile, "prod") {
-		fmt.Fprintln(os.Stderr, "Warning: production profile selected explicitly; verify that these are the intended project credentials.")
+		fmt.Fprintln(os.Stderr, "Attention : profil de production sélectionné explicitement ; vérifiez qu'il s'agit bien des identifiants du projet voulus.")
 	}
 	if opts.Apply && opts.Fallback {
-		fmt.Fprintln(os.Stderr, "Warning: --fallback stores values in a local plaintext-equivalent JSON file; codebox does not encrypt that file.")
+		fmt.Fprintln(os.Stderr, "Attention : --fallback enregistre les valeurs dans un fichier JSON local équivalent à du texte en clair ; codebox ne chiffre pas ce fichier.")
 	}
 	if len(opts.Files) == 0 {
 		if !tty {
-			return 2, fmt.Errorf("non-interactive import requires one or more --file PATH arguments")
+			return 2, fmt.Errorf("l'import non interactif exige un ou plusieurs arguments --file PATH")
 		}
 		candidates, err := discoverProjectDotenvFiles(project.Root)
 		if err != nil {
@@ -197,33 +197,33 @@ func projectSecretsImportCmd(args []string) (int, error) {
 		// journal and cleanup. Apply runs that recovery before showing a new
 		// preview; preview-only commands remain read-only.
 		if err := store.Recover(ctx); err != nil {
-			return 1, fmt.Errorf("recover the previous project-secret operation before previewing: %w", err)
+			return 1, fmt.Errorf("récupérez l'opération précédente sur les secrets du projet avant l'aperçu : %w", err)
 		}
 	}
 	for i := range files {
 		file := &files[i]
 		preview, err := store.Preview(ctx, opts.Profile, file.Component, file.Parsed.Values)
 		if err != nil {
-			return 1, fmt.Errorf("preview %s: %w", file.Component, err)
+			return 1, fmt.Errorf("aperçu %s : %w", file.Component, err)
 		}
 		file.Preview = preview
 		printProjectSecretsPreview(project.Root, opts.Profile, *file, preview)
 	}
 	if !opts.Apply {
-		fmt.Println("Preview only. No credential values were displayed or stored. Use --apply to continue.")
+		fmt.Println("Aperçu uniquement. Aucune valeur d'identifiant n'a été affichée ni enregistrée. Utilisez --apply pour continuer.")
 		return 0, nil
 	}
 	if !opts.Yes {
-		description := "The source files stay unchanged. This does not approve runtime delivery."
+		description := "Les fichiers sources restent inchangés. Cela n'approuve pas la livraison par le runtime."
 		if opts.Fallback {
-			description += " The selected file store is plaintext-equivalent and protected only by filesystem permissions."
+			description += " Le magasin de fichiers sélectionné équivaut à du texte en clair et n'est protégé que par les permissions du système de fichiers."
 		}
-		confirm, err := projectSecretsConfirmFn("Store these values?", description, false)
+		confirm, err := projectSecretsConfirmFn("Enregistrer ces valeurs ?", description, false)
 		if err != nil {
 			return 1, err
 		}
 		if !confirm {
-			fmt.Println("Cancelled. No credentials stored.")
+			fmt.Println("Annulé. Aucun identifiant enregistré.")
 			return 0, nil
 		}
 	}
@@ -231,11 +231,11 @@ func projectSecretsImportCmd(args []string) (int, error) {
 	// Re-read every source and fail closed before the first store write.
 	freshFiles, err := readProjectSecretsFiles(project.Root, opts.Files)
 	if err != nil {
-		return 1, fmt.Errorf("recheck the selected dotenv files: %w", err)
+		return 1, fmt.Errorf("revérifiez les fichiers dotenv sélectionnés : %w", err)
 	}
 	for i := range files {
 		if i >= len(freshFiles) || files[i].Component != freshFiles[i].Component || files[i].Fingerprint != freshFiles[i].Fingerprint {
-			return 1, fmt.Errorf("%s changed after preview; run the import again to review its current contents", files[i].Component)
+			return 1, fmt.Errorf("%s a changé après l'aperçu ; relancez l'import pour en revoir le contenu actuel", files[i].Component)
 		}
 		freshFiles[i].Preview = files[i].Preview
 	}
@@ -244,27 +244,27 @@ func projectSecretsImportCmd(args []string) (int, error) {
 		result, err := store.ImportIfRevision(ctx, opts.Profile, file.Component, file.Parsed.Values, file.Preview.Revision)
 		if err != nil {
 			if result.Committed {
-				return 1, fmt.Errorf("stored %s, but cleanup is pending: %w", file.Component, err)
+				return 1, fmt.Errorf("%s enregistré, mais le nettoyage est en attente : %w", file.Component, err)
 			}
-			return 1, fmt.Errorf("import %s failed; earlier listed files may already be stored: %w", file.Component, err)
+			return 1, fmt.Errorf("échec de l'import de %s ; les fichiers listés avant peuvent déjà être enregistrés : %w", file.Component, err)
 		}
-		fmt.Printf("Stored %s (%d added, %d changed, %d unchanged, %d removed).\n", file.Component, result.Added, result.Replaced, result.Unchanged, result.Removed)
+		fmt.Printf("%s enregistré (%d valeurs ajoutées, %d modifiées, %d inchangées, %d supprimées).\n", file.Component, result.Added, result.Replaced, result.Unchanged, result.Removed)
 	}
-	fmt.Println("Secrets stored for this project/profile. Runtime delivery remains disabled until separately configured.")
+	fmt.Println("Secrets enregistrés pour ce projet/profil. La livraison par le runtime reste désactivée tant qu'elle n'est pas configurée séparément.")
 	return 0, nil
 }
 
 func projectSecretsAskProfile() (string, error) {
 	var profile string
 	err := huhRun(huh.NewForm(huh.NewGroup(
-		huh.NewInput().Title("Environment profile").Description("Use development/test by default. Production is only selected explicitly.").Value(&profile),
+		huh.NewInput().Title("Profil d'environnement").Description("Utilisez development/test par défaut. La production n'est choisie qu'explicitement.").Value(&profile),
 	)))
 	return strings.TrimSpace(profile), err
 }
 
 func projectSecretsSelectFiles(candidates []string) ([]string, error) {
 	if len(candidates) == 0 {
-		return nil, fmt.Errorf("no dotenv candidates found in the project")
+		return nil, fmt.Errorf("aucun fichier dotenv candidat trouvé dans le projet")
 	}
 	options := make([]huh.Option[string], len(candidates))
 	for i, candidate := range candidates {
@@ -278,7 +278,7 @@ func projectSecretsSelectFiles(candidates []string) ([]string, error) {
 		return nil, err
 	}
 	if len(selected) == 0 {
-		return nil, fmt.Errorf("no dotenv files selected")
+		return nil, fmt.Errorf("aucun fichier dotenv sélectionné")
 	}
 	return selected, nil
 }
@@ -288,7 +288,7 @@ func projectSecretsSelectFiles(candidates []string) ([]string, error) {
 // confirms the list.
 func newDotenvFilesMultiSelect(options []huh.Option[string], value *[]string) *huh.MultiSelect[string] {
 	return huh.NewMultiSelect[string]().
-		Title("Dotenv files").
+		Title("Fichiers dotenv").
 		Description("Choisissez les fichiers du projet dont vous voulez importer les secrets ; la détection ne les lit ni ne les importe automatiquement. Espace ou x pour cocher/décocher ; Entrée pour valider la liste.").
 		Options(options...).
 		Value(value)
@@ -309,7 +309,7 @@ func discoverProjectDotenvFiles(root string) ([]string, error) {
 		}
 		scanned++
 		if scanned > maxScannedEntries {
-			return fmt.Errorf("project file discovery exceeded %d entries; select dotenv files explicitly with --file", maxScannedEntries)
+			return fmt.Errorf("la découverte des fichiers du projet a dépassé %d entrées ; sélectionnez les fichiers dotenv explicitement avec --file", maxScannedEntries)
 		}
 		if entry.IsDir() {
 			if path != root && skipDirs[strings.ToLower(entry.Name())] {
@@ -335,12 +335,12 @@ func discoverProjectDotenvFiles(root string) ([]string, error) {
 		}
 		candidates = append(candidates, filepath.ToSlash(rel))
 		if len(candidates) > maxCandidates {
-			return fmt.Errorf("project contains more than %d dotenv candidates; select files explicitly with --file", maxCandidates)
+			return fmt.Errorf("le projet contient plus de %d fichiers dotenv candidats ; sélectionnez les fichiers explicitement avec --file", maxCandidates)
 		}
 		return nil
 	})
 	if err != nil {
-		return nil, fmt.Errorf("discover dotenv candidates: %w", err)
+		return nil, fmt.Errorf("découverte des fichiers dotenv candidats : %w", err)
 	}
 	sort.Strings(candidates)
 	return candidates, nil
@@ -351,7 +351,7 @@ func readProjectSecretsFiles(root string, inputs []string) ([]projectSecretsFile
 	files := make([]projectSecretsFile, 0, len(inputs))
 	for _, input := range inputs {
 		if input == "" {
-			return nil, fmt.Errorf("dotenv path must not be empty")
+			return nil, fmt.Errorf("le chemin dotenv ne doit pas être vide")
 		}
 		path := input
 		if !filepath.IsAbs(path) {
@@ -359,55 +359,55 @@ func readProjectSecretsFiles(root string, inputs []string) ([]projectSecretsFile
 		}
 		abs, err := filepath.Abs(path)
 		if err != nil {
-			return nil, fmt.Errorf("resolve dotenv path: %w", err)
+			return nil, fmt.Errorf("résolution du chemin dotenv : %w", err)
 		}
 		before, err := os.Lstat(abs)
 		if err != nil {
-			return nil, fmt.Errorf("read selected dotenv file %s: %w", input, err)
+			return nil, fmt.Errorf("lecture du fichier dotenv sélectionné %s : %w", input, err)
 		}
 		if before.Mode()&os.ModeSymlink != 0 || !before.Mode().IsRegular() {
-			return nil, fmt.Errorf("selected dotenv file %s must be a regular non-symlink file", input)
+			return nil, fmt.Errorf("le fichier dotenv sélectionné %s doit être un fichier ordinaire, sans lien symbolique", input)
 		}
 		canonical, err := filepath.EvalSymlinks(abs)
 		if err != nil {
-			return nil, fmt.Errorf("resolve selected dotenv file %s: %w", input, err)
+			return nil, fmt.Errorf("résolution du fichier dotenv sélectionné %s : %w", input, err)
 		}
 		rel, err := filepath.Rel(root, canonical)
 		if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) || filepath.IsAbs(rel) {
-			return nil, fmt.Errorf("selected dotenv file must resolve inside the project root")
+			return nil, fmt.Errorf("le fichier dotenv sélectionné doit se résoudre à l'intérieur de la racine du projet")
 		}
 		component := filepath.ToSlash(rel)
 		if seen[component] {
-			return nil, fmt.Errorf("dotenv file %s was selected more than once", component)
+			return nil, fmt.Errorf("le fichier dotenv %s a été sélectionné plusieurs fois", component)
 		}
 		if !codebox.IsProjectDotenvName(filepath.Base(component)) {
-			return nil, fmt.Errorf("selected file %s is not in the dotenv filename family", component)
+			return nil, fmt.Errorf("le fichier sélectionné %s n'appartient pas à la famille de noms dotenv", component)
 		}
 		file, err := os.Open(abs)
 		if err != nil {
-			return nil, fmt.Errorf("open selected dotenv file %s: %w", component, err)
+			return nil, fmt.Errorf("ouverture du fichier dotenv sélectionné %s : %w", component, err)
 		}
 		afterOpen, statErr := file.Stat()
 		afterLstat, lstatErr := os.Lstat(abs)
 		if statErr != nil || lstatErr != nil || afterLstat.Mode()&os.ModeSymlink != 0 || !os.SameFile(before, afterOpen) || !os.SameFile(afterLstat, afterOpen) || !afterOpen.Mode().IsRegular() {
 			file.Close()
-			return nil, fmt.Errorf("selected dotenv file changed while being opened")
+			return nil, fmt.Errorf("le fichier dotenv sélectionné a changé pendant son ouverture")
 		}
 		if afterOpen.Size() > codebox.MaxProjectDotenvBytes {
 			file.Close()
-			return nil, fmt.Errorf("selected dotenv file %s exceeds the 1 MiB import limit", component)
+			return nil, fmt.Errorf("le fichier dotenv sélectionné %s dépasse la limite d'import de 1 MiB", component)
 		}
 		data, readErr := io.ReadAll(io.LimitReader(file, codebox.MaxProjectDotenvBytes+1))
 		closeErr := file.Close()
 		if readErr != nil || closeErr != nil {
-			return nil, fmt.Errorf("read selected dotenv file %s failed", component)
+			return nil, fmt.Errorf("échec de la lecture du fichier dotenv sélectionné %s", component)
 		}
 		if len(data) > codebox.MaxProjectDotenvBytes {
-			return nil, fmt.Errorf("selected dotenv file %s exceeds the 1 MiB import limit", component)
+			return nil, fmt.Errorf("le fichier dotenv sélectionné %s dépasse la limite d'import de 1 MiB", component)
 		}
 		parsed, err := codebox.ParseProjectDotenv(data)
 		if err != nil {
-			return nil, fmt.Errorf("parse %s: %w", component, err)
+			return nil, fmt.Errorf("analyse de %s : %w", component, err)
 		}
 		seen[component] = true
 		files = append(files, projectSecretsFile{Component: component, Parsed: parsed, Fingerprint: sha256.Sum256(data)})
@@ -422,11 +422,11 @@ func printProjectSecretsPreview(root, profile string, file projectSecretsFile, r
 		keys = append(keys, key)
 	}
 	sort.Strings(keys)
-	fmt.Printf("Project %s | profile %s | %s\n", displayProjectPath(root), profile, file.Component)
-	fmt.Printf("  Variables: %s\n", strings.Join(keys, ", "))
-	fmt.Printf("  Plan: %d added, %d changed, %d unchanged, %d removed\n", result.Added, result.Replaced, result.Unchanged, result.Removed)
+	fmt.Printf("Projet %s | profil %s | %s\n", displayProjectPath(root), profile, file.Component)
+	fmt.Printf("  Variables : %s\n", strings.Join(keys, ", "))
+	fmt.Printf("  Plan : %d valeurs ajoutées, %d modifiées, %d inchangées, %d supprimées\n", result.Added, result.Replaced, result.Unchanged, result.Removed)
 	if len(file.Parsed.Duplicates) > 0 {
-		fmt.Printf("  Duplicate assignments (last definition wins): %s\n", strings.Join(file.Parsed.Duplicates, ", "))
+		fmt.Printf("  Affectations en double (la dernière définition l'emporte) : %s\n", strings.Join(file.Parsed.Duplicates, ", "))
 	}
 }
 

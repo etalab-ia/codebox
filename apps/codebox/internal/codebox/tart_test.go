@@ -209,7 +209,7 @@ func TestStopBackendRefusesWhenStillRunning(t *testing.T) {
 	tt := newTestTart(t, r)
 	tt.KillMaxPolls = 2
 	err := tt.StopBackend(context.Background())
-	if err == nil || !strings.Contains(err.Error(), "refusing to relaunch") {
+	if err == nil || !strings.Contains(err.Error(), "relance refusée") {
 		t.Fatalf("expected refuse error, got %v", err)
 	}
 }

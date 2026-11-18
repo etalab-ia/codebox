@@ -154,10 +154,10 @@ func statsHTTPClient() *http.Client {
 	return &http.Client{
 		CheckRedirect: func(req *http.Request, via []*http.Request) error {
 			if len(via) >= 10 {
-				return fmt.Errorf("stopped after 10 redirects")
+				return fmt.Errorf("arrêt après 10 redirections")
 			}
 			if !statsEndpointSecure(req.URL.String()) {
-				return fmt.Errorf("refusing redirect to an insecure endpoint: %s", req.URL.Redacted())
+				return fmt.Errorf("redirection vers un point de terminaison non sécurisé refusée : %s", req.URL.Redacted())
 			}
 			return nil
 		},
@@ -383,7 +383,7 @@ func statsMachineID(fs FS, stateDir string) (string, error) {
 	}
 	id := statsRandomID()
 	if id == "" {
-		return "", fmt.Errorf("cannot generate the local statistics identifier")
+		return "", fmt.Errorf("impossible de générer l'identifiant local de statistiques")
 	}
 	if err := fs.MkdirAll(statsDir(stateDir), 0o700); err != nil {
 		return "", err
@@ -423,7 +423,7 @@ func statsProjectID(fs FS, stateDir, root string) (string, error) {
 	}
 	id := statsRandomID()
 	if id == "" {
-		return "", fmt.Errorf("cannot generate the project statistics identifier")
+		return "", fmt.Errorf("impossible de générer l'identifiant de statistiques du projet")
 	}
 	if err := fs.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return "", err
@@ -478,7 +478,7 @@ func PendingStatsEvents(fs FS, stateDir string) ([]StatsEvent, error) {
 	}
 	var events []StatsEvent
 	if err := json.Unmarshal(data, &events); err != nil {
-		return nil, fmt.Errorf("parse statistics queue: %w", err)
+		return nil, fmt.Errorf("analyse de la file de statistiques : %w", err)
 	}
 	return events, nil
 }
@@ -588,7 +588,7 @@ func FlushStats(ctx context.Context, fs FS, stateDir string) error {
 	// endpoint must stop the flush outright. Letting it fall through to the
 	// other transport would still send the events over the same plaintext URL.
 	if !statsEndpointSecure(endpoint) {
-		return fmt.Errorf("statistics endpoint is not secure: %s", endpoint)
+		return fmt.Errorf("le point de terminaison des statistiques n'est pas sécurisé : %s", endpoint)
 	}
 	events, err := PendingStatsEvents(fs, stateDir)
 	if err != nil || len(events) == 0 {
@@ -619,7 +619,7 @@ func FlushStats(ctx context.Context, fs FS, stateDir string) error {
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return fmt.Errorf("statistics endpoint returned HTTP %d", resp.StatusCode)
+		return fmt.Errorf("le point de terminaison des statistiques a renvoyé HTTP %d", resp.StatusCode)
 	}
 	sent := make(map[string]bool, len(events))
 	for _, event := range events {
@@ -707,7 +707,7 @@ func flushStatsToGrist(ctx context.Context, endpoint string, fs FS, stateDir str
 			// whole dataset while reporting nothing, and the events become
 			// deliverable again as soon as the table is corrected.
 			if firstErr == nil {
-				firstErr = fmt.Errorf("statistics endpoint returned HTTP %d: %s", status, statsGristErrorSummary(respBody))
+				firstErr = fmt.Errorf("le point de terminaison des statistiques a renvoyé HTTP %d : %s", status, statsGristErrorSummary(respBody))
 			}
 			continue
 		}
@@ -777,7 +777,7 @@ const statsGristMaxErrorBody = 4 << 10
 // what to fix ("Invalid column \"x\"") instead of only the status code.
 func statsGristErrorSummary(body []byte) string {
 	if len(body) == 0 {
-		return "no response body"
+		return "aucun corps de réponse"
 	}
 	var parsed struct {
 		Error string `json:"error"`

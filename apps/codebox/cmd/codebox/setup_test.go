@@ -1316,7 +1316,7 @@ func TestSetupWizardFlowIsKeyThenModelsThenGitHub(t *testing.T) {
 		}
 	})
 	keyAt := strings.Index(out, "[1/3] Clé Albert API")
-	modelAt := strings.Index(out, "Models (comma-separated")
+	modelAt := strings.Index(out, "Modèles (références séparées")
 	githubAt := strings.Index(out, "[3/3] GitHub (facultatif)")
 	if keyAt < 0 || modelAt < 0 || githubAt < 0 {
 		t.Fatalf("flow markers missing (key=%d model=%d github=%d); output:\n%s", keyAt, modelAt, githubAt, out)

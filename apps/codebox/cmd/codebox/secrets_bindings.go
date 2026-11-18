@@ -40,7 +40,7 @@ func parseProjectSecretBindingsArgs(args []string) (projectSecretBindingsOptions
 		switch a {
 		case "--root", "--profile", "--component", "--name", "--guest-env", "--destination", "--delivery":
 			if i+1 >= len(args) || strings.HasPrefix(args[i+1], "-") {
-				return opts, fmt.Errorf("%s requires a value", a)
+				return opts, fmt.Errorf("%s exige une valeur", a)
 			}
 			i++
 			value := args[i]
@@ -59,14 +59,14 @@ func parseProjectSecretBindingsArgs(args []string) (projectSecretBindingsOptions
 				opts.Destin = append(opts.Destin, value)
 			case "--delivery":
 				if value != codebox.ProjectSecretDeliveryProxy && value != codebox.ProjectSecretDeliveryGuest {
-					return opts, fmt.Errorf("--delivery must be %q or %q", codebox.ProjectSecretDeliveryProxy, codebox.ProjectSecretDeliveryGuest)
+					return opts, fmt.Errorf("--delivery doit valoir %q ou %q", codebox.ProjectSecretDeliveryProxy, codebox.ProjectSecretDeliveryGuest)
 				}
 				opts.Delivery = value
 			}
 			seen[a] = true
 		case "--clear", "--fallback", "--yes":
 			if seen[a] {
-				return opts, fmt.Errorf("%s may be given only once", a)
+				return opts, fmt.Errorf("%s ne peut être indiqué qu'une fois", a)
 			}
 			seen[a] = true
 			switch a {
@@ -79,7 +79,7 @@ func parseProjectSecretBindingsArgs(args []string) (projectSecretBindingsOptions
 			}
 		default:
 			if strings.HasPrefix(a, "-") {
-				return opts, fmt.Errorf("unknown secrets bindings option %q", a)
+				return opts, fmt.Errorf("option inconnue de secrets bindings %q", a)
 			}
 			positional = append(positional, a)
 		}
@@ -99,7 +99,7 @@ func parseProjectSecretBindingsArgs(args []string) (projectSecretBindingsOptions
 		positional = positional[1:]
 	}
 	if len(positional) > 0 {
-		return opts, fmt.Errorf("unexpected argument %q", positional[0])
+		return opts, fmt.Errorf("argument inattendu %q", positional[0])
 	}
 	return opts, nil
 }
@@ -143,7 +143,7 @@ func secretsProfileCmd(args []string) (int, error) {
 		return 2, err
 	}
 	if opts.Clear && opts.Profile != "" {
-		return 2, fmt.Errorf("give either a profile name or --clear, not both")
+		return 2, fmt.Errorf("indiquez soit un nom de profil, soit --clear, mais pas les deux")
 	}
 	store, err := projectSecretStoreForCLI(opts.Root, opts.Fallback)
 	if err != nil {
@@ -153,19 +153,19 @@ func secretsProfileCmd(args []string) (int, error) {
 		return 1, err
 	}
 	if opts.Clear {
-		fmt.Println("Cleared the active project-secret profile. No project secret is delivered until a profile is selected again.")
+		fmt.Println("Profil de secrets de projet actif effacé. Aucun secret de projet n'est livré tant qu'un profil n'est pas sélectionné à nouveau.")
 		return 0, nil
 	}
-	fmt.Printf("Active project-secret profile for %s: %s.\n", store.Root(), opts.Profile)
-	fmt.Println("Approved bindings for this profile are delivered at the next start.")
+	fmt.Printf("Profil de secrets de projet actif pour %s : %s.\n", store.Root(), opts.Profile)
+	fmt.Println("Les liaisons approuvées pour ce profil sont livrées au prochain démarrage.")
 	return 0, nil
 }
 
 func secretsBindingsCmd(args []string) (int, error) {
 	if len(args) == 0 {
-		fmt.Fprintln(os.Stderr, "Usage: codebox secrets bindings <list|approve|revoke> [--root PATH] [--profile NAME] [--fallback]")
-		fmt.Fprintln(os.Stderr, "  --fallback selects the owner-only file store, for hosts with no usable native store (headless Linux without a Secret Service session)")
-		fmt.Fprintln(os.Stderr, "  approve asks for confirmation unless --yes is given; a non-interactive approval requires --yes")
+		fmt.Fprintln(os.Stderr, "Usage : codebox secrets bindings <list|approve|revoke> [--root PATH] [--profile NAME] [--fallback]")
+		fmt.Fprintln(os.Stderr, "  --fallback sélectionne le magasin de fichiers réservé à votre utilisateur, pour les postes sans magasin natif utilisable (Linux sans session, sans Secret Service)")
+		fmt.Fprintln(os.Stderr, "  approve demande confirmation sauf avec --yes ; une approbation non interactive exige --yes")
 		return 2, nil
 	}
 	switch args[0] {
@@ -176,7 +176,7 @@ func secretsBindingsCmd(args []string) (int, error) {
 	case "revoke":
 		return secretsBindingsRevokeCmd(args[1:])
 	default:
-		return 2, fmt.Errorf("unknown secrets bindings command %q (expected list, approve or revoke)", args[0])
+		return 2, fmt.Errorf("commande inconnue de secrets bindings %q (attendu : list, approve ou revoke)", args[0])
 	}
 }
 
@@ -195,36 +195,36 @@ func secretsBindingsListCmd(args []string) (int, error) {
 	}
 	profile := record.Profile
 	if profile == "" {
-		profile = "(none selected)"
+		profile = "(aucun sélectionné)"
 	}
-	fmt.Printf("Project secret bindings for %s (profile: %s)\n", store.Root(), profile)
+	fmt.Printf("Liaisons de secrets de projet pour %s (profil : %s)\n", store.Root(), profile)
 	if len(record.Bindings) == 0 {
-		fmt.Println("  No approved binding.")
+		fmt.Println("  Aucune liaison approuvée.")
 	} else {
 		guestReadable := 0
 		for _, b := range record.Bindings {
 			if b.GuestReadable() {
 				guestReadable++
-				fmt.Printf("  %s#%s -> READABLE INSIDE THE SANDBOX (written to %s)\n", b.Component, b.Name, b.Component)
-				fmt.Printf("      the real value is delivered as a file; the agent and anything it runs can read it\n")
+				fmt.Printf("  %s#%s -> LISIBLE DANS LA MACHINE ISOLÉE (écrit dans %s)\n", b.Component, b.Name, b.Component)
+				fmt.Printf("      la valeur réelle est livrée sous forme de fichier ; l'agent et tout ce qu'il exécute peuvent la lire\n")
 				continue
 			}
-			fmt.Printf("  %s#%s -> %s (proxy-protected)\n", b.Component, b.Name, b.GuestEnv)
-			fmt.Printf("      destinations: %s (host-local approval, never versioned)\n", strings.Join(b.Destinations, ", "))
+			fmt.Printf("  %s#%s -> %s (protégé par le proxy)\n", b.Component, b.Name, b.GuestEnv)
+			fmt.Printf("      destinations : %s (approbation locale au poste, jamais versionnée)\n", strings.Join(b.Destinations, ", "))
 		}
 		if guestReadable > 0 {
-			fmt.Printf("  %d binding(s) deliver a real value inside the sandbox; a snapshot taken while they are delivered captures them.\n", guestReadable)
+			fmt.Printf("  %d liaison(s) livrent une valeur réelle dans la machine isolée ; un instantané pris pendant la livraison les capture.\n", guestReadable)
 		}
 	}
 	if record.Pending != "" {
-		fmt.Printf("  NOT DELIVERABLE: %s\n", record.Pending)
+		fmt.Printf("  NON LIVRABLE : %s\n", record.Pending)
 	}
 	if len(record.Undelivered) > 0 {
 		sort.Strings(record.Undelivered)
-		fmt.Printf("  Imported but not delivered: %s\n", strings.Join(record.Undelivered, ", "))
-		fmt.Println("  Approve one with: codebox secrets bindings approve <profile> <component> <NAME> --destination <host>")
+		fmt.Printf("  Importés mais non livrés : %s\n", strings.Join(record.Undelivered, ", "))
+		fmt.Println("  Approuvez-en une avec : codebox secrets bindings approve <profile> <component> <NAME> --destination <host>")
 	}
-	fmt.Println("Values are never shown here, and approving a binding does not display or copy any value.")
+	fmt.Println("Aucune valeur n'est jamais affichée ici, et approuver une liaison n'affiche ni ne copie aucune valeur.")
 	return 0, nil
 }
 
@@ -234,18 +234,18 @@ func secretsBindingsApproveCmd(args []string) (int, error) {
 		return 2, err
 	}
 	if opts.Profile == "" || opts.Component == "" || opts.Name == "" {
-		return 2, fmt.Errorf("usage: codebox secrets bindings approve <profile> <component> <NAME> " +
+		return 2, fmt.Errorf("usage : codebox secrets bindings approve <profile> <component> <NAME> " +
 			"[--destination <host> ...] [--guest-env NAME] [--delivery proxy|guest]")
 	}
 	guestReadable := opts.Delivery == codebox.ProjectSecretDeliveryGuest
 	if !guestReadable && len(opts.Destin) == 0 {
-		return 2, fmt.Errorf("at least one --destination is required: approving a destination is what allows the value to be substituted toward it")
+		return 2, fmt.Errorf("au moins une --destination est requise : approuver une destination est ce qui autorise la substitution de la valeur vers celle-ci")
 	}
 	if guestReadable && len(opts.Destin) > 0 {
-		return 2, fmt.Errorf("--delivery guest takes no --destination: the value is read inside the sandbox, not substituted toward a host")
+		return 2, fmt.Errorf("--delivery guest n'accepte pas --destination : la valeur est lue dans la machine isolée, elle n'est pas substituée vers un poste")
 	}
 	if guestReadable && opts.GuestEnv != "" {
-		return 2, fmt.Errorf("--delivery guest takes no --guest-env: the value is delivered as a file, not as an environment placeholder")
+		return 2, fmt.Errorf("--delivery guest n'accepte pas --guest-env : la valeur est livrée sous forme de fichier, pas comme marqueur d'environnement")
 	}
 	// Confirmation was declared by --yes but never read, so the flag promised
 	// a prompt that did not exist — including for --delivery guest, the action
@@ -258,7 +258,7 @@ func secretsBindingsApproveCmd(args []string) (int, error) {
 	// the credential store, unlock a collection, or fail with an unrelated
 	// lookup error instead of the --yes requirement.
 	if !opts.ConfirmYes && !projectSecretsTTYFn() {
-		return 2, fmt.Errorf("non-interactive approval requires explicit --yes")
+		return 2, fmt.Errorf("l'approbation non interactive exige --yes explicitement")
 	}
 	store, err := projectSecretStoreForCLI(opts.Root, opts.Fallback)
 	if err != nil {
@@ -287,26 +287,26 @@ func secretsBindingsApproveCmd(args []string) (int, error) {
 		// otherwise refuse every start until it is withdrawn.
 		value, err := store.Get(context.Background(), binding.Profile, binding.Component, binding.Name)
 		if err != nil {
-			return 1, fmt.Errorf("cannot read %s (%s) to check that it can be delivered: %w", binding.Name, binding.Component, err)
+			return 1, fmt.Errorf("impossible de lire %s (%s) pour vérifier qu'elle peut être livrée : %w", binding.Name, binding.Component, err)
 		}
 		if err := codebox.CheckGuestReadableValue(value); err != nil {
-			return 1, fmt.Errorf("%s (%s) cannot be delivered as a guest-readable dotenv value: %w\n"+
-				"Use the default proxy delivery if the application reaches the service over the network, or wait for standalone file delivery for this one.",
+			return 1, fmt.Errorf("%s (%s) ne peut pas être livrée comme valeur dotenv lisible dans la machine isolée : %w\n"+
+				"Utilisez la livraison proxy par défaut si l'application joint le service par le réseau, ou attendez la livraison en fichier autonome pour celle-ci.",
 				binding.Name, binding.Component, err)
 		}
 	}
 	if guestReadable {
-		fmt.Printf("Approving %s#%s for %s as GUEST-READABLE (written to %s)\n",
+		fmt.Printf("Approbation de %s#%s pour %s en LISIBLE DANS LA MACHINE ISOLÉE (écrit dans %s)\n",
 			binding.Component, binding.Name, binding.Profile, binding.Component)
-		fmt.Println("This is not the protected mode. The real value is written into the sandbox so an application can read it locally, which means:")
-		fmt.Println("  - everything running in that sandbox, including the agent, can read the value;")
-		fmt.Println("  - it stays readable for as long as the sandbox holds it;")
-		fmt.Println("  - a snapshot taken while it is delivered captures it, and deleting it later does not clean that snapshot.")
-		fmt.Println("Use this only for values an application must consume locally (a database password, a signing key). Protect anything reached over the network with the default delivery instead.")
+		fmt.Println("Ce n'est pas le mode protégé. La valeur réelle est écrite dans la machine isolée pour qu'une application puisse la lire localement, ce qui signifie :")
+		fmt.Println("  - tout ce qui tourne dans cette machine isolée, y compris l'agent, peut lire la valeur ;")
+		fmt.Println("  - elle reste lisible aussi longtemps que la machine isolée la détient ;")
+		fmt.Println("  - un instantané pris pendant qu'elle est livrée la capture, et la supprimer ensuite ne nettoie pas cet instantané.")
+		fmt.Println("Réservez ce mode aux valeurs qu'une application doit consommer localement (un mot de passe de base de données, une clé de signature). Protégez plutôt par la livraison par défaut tout ce qui est joint par le réseau.")
 	} else {
-		fmt.Printf("Approving %s#%s for %s -> guest %s, destinations: %s\n",
+		fmt.Printf("Approbation de %s#%s pour %s -> variable invitée %s, destinations : %s\n",
 			binding.Component, binding.Name, binding.Profile, binding.GuestEnv, strings.Join(binding.Destinations, ", "))
-		fmt.Println("The value stays in the credential store; only its placeholder enters the guest, and it is substituted toward those destinations alone.")
+		fmt.Println("La valeur reste dans le trousseau ; seul son marqueur entre dans la machine isolée, et il n'est substitué que vers ces destinations.")
 	}
 	// Validate before writing. Approving used to record the binding and switch
 	// the active profile first, then check that it resolves — so a binding that
@@ -316,10 +316,10 @@ func secretsBindingsApproveCmd(args []string) (int, error) {
 	// created. Nothing is written until the resolution question is answered.
 	if !remoteProject {
 		if err := store.ValidateBindingAgainst(binding, opts.Profile); err != nil {
-			return 1, fmt.Errorf("this approval would not resolve, so nothing was recorded: %w", err)
+			return 1, fmt.Errorf("cette approbation ne se résoudrait pas, donc rien n'a été enregistré : %w", err)
 		}
 	} else if err := validateRemoteBindingAgainstManifest(opts.Root, binding); err != nil {
-		return 1, fmt.Errorf("this remote approval does not match the project declaration, so nothing was recorded: %w", err)
+		return 1, fmt.Errorf("cette approbation distante ne correspond pas à la déclaration du projet, donc rien n'a été enregistré : %w", err)
 	}
 	// An approval already in effect is reported as such: approvals are
 	// upserted, so declining a re-run that only changes a destination or the
@@ -337,18 +337,18 @@ func secretsBindingsApproveCmd(args []string) (int, error) {
 		}
 	}
 	if !opts.ConfirmYes {
-		description := "The value stays in the credential store; this records which guest variable or file receives it."
+		description := "La valeur reste dans le trousseau ; cela enregistre quelle variable invitée ou quel fichier la reçoit."
 		if guestReadable {
-			description = "This makes the real value readable inside the sandbox, where any process including the agent can read it."
+			description = "Cela rend la valeur réelle lisible dans la machine isolée, où tout processus, y compris l'agent, peut la lire."
 		}
-		confirm, err := projectSecretsConfirmFn("Approve this binding?", description, false)
+		confirm, err := projectSecretsConfirmFn("Approuver cette liaison ?", description, false)
 		if err != nil {
 			return 1, err
 		}
 		if !confirm {
-			fmt.Println("Cancelled. No approval recorded.")
+			fmt.Println("Annulé. Aucune approbation enregistrée.")
 			if replacesExisting {
-				fmt.Println("Note: the previous approval for this binding is unchanged and remains in effect.")
+				fmt.Println("Remarque : l'approbation précédente de cette liaison est inchangée et reste en vigueur.")
 			}
 			return 0, nil
 		}
@@ -366,9 +366,9 @@ func secretsBindingsApproveCmd(args []string) (int, error) {
 	// means the write itself did not land as intended and must not be reported
 	// as a working approval.
 	if _, _, err := store.ApprovedDeliveries(); err != nil {
-		return 1, fmt.Errorf("the approval was recorded but does not resolve: %w", err)
+		return 1, fmt.Errorf("l'approbation a été enregistrée mais ne se résout pas : %w", err)
 	}
-	fmt.Println("Approved. It takes effect at the next start of this project's sandbox.")
+	fmt.Println("Approuvé. Cela prend effet au prochain démarrage de la machine isolée de ce projet.")
 	return 0, nil
 }
 
@@ -378,7 +378,7 @@ func secretsBindingsRevokeCmd(args []string) (int, error) {
 		return 2, err
 	}
 	if opts.Profile == "" || opts.Component == "" || opts.Name == "" {
-		return 2, fmt.Errorf("usage: codebox secrets bindings revoke <profile> <component> <NAME>")
+		return 2, fmt.Errorf("usage : codebox secrets bindings revoke <profile> <component> <NAME>")
 	}
 	store, err := projectSecretStoreForCLI(opts.Root, opts.Fallback)
 	if err != nil {
@@ -401,15 +401,15 @@ func secretsBindingsRevokeCmd(args []string) (int, error) {
 		return 1, err
 	}
 	if !removed {
-		fmt.Printf("No approval matched %s#%s for profile %s; nothing changed.\n", opts.Component, opts.Name, opts.Profile)
+		fmt.Printf("Aucune approbation ne correspond à %s#%s pour le profil %s ; rien n'a changé.\n", opts.Component, opts.Name, opts.Profile)
 		return 0, nil
 	}
-	fmt.Printf("Revoked the %s#%s project secret binding. The imported value stays in the credential store.\n", opts.Component, opts.Name)
+	fmt.Printf("Liaison de secret de projet %s#%s révoquée. La valeur importée reste dans le trousseau.\n", opts.Component, opts.Name)
 	if wasGuestReadable {
-		fmt.Println("The real value is still readable inside the running sandbox until the next start applies the revocation. Run 'codebox start' (it reconciles the delivery) or 'codebox restart'.")
-		fmt.Println("A snapshot taken while it was delivered still holds it; revoking here cannot reach that copy.")
+		fmt.Println("La valeur réelle reste lisible dans la machine isolée en cours jusqu'à ce que le prochain démarrage applique la révocation. Lancez 'codebox start' (il réconcilie la livraison) ou 'codebox restart'.")
+		fmt.Println("Un instantané pris pendant qu'elle était livrée la détient toujours ; révoquer ici ne peut pas atteindre cette copie.")
 	} else {
-		fmt.Println("Run 'codebox restart' (or 'codebox start') to unregister it from the running sandbox: the proxy registration is dropped at the next apply, and the guest keeps an inert placeholder until it restarts.")
+		fmt.Println("Lancez 'codebox restart' (ou 'codebox start') pour la désinscrire de la machine isolée en cours : l'inscription proxy est retirée à la prochaine application, et la machine isolée conserve un marqueur inerte jusqu'à son redémarrage.")
 	}
 	return 0, nil
 }

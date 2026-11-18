@@ -284,29 +284,29 @@ func ValidateProjectSecretsManifest(s *ProjectSecretsManifest) error {
 		return nil
 	}
 	if !validCanonicalUUIDv4(s.ProjectID) {
-		return fmt.Errorf("project secrets: projectId must be a canonical lowercase UUIDv4")
+		return fmt.Errorf("secrets de projet : projectId doit être un UUIDv4 canonique en minuscules")
 	}
 	seen := map[string]bool{}
 	for _, hint := range s.Bindings {
 		if err := ValidateComponentPathForManifest(hint.Component); err != nil {
-			return fmt.Errorf("project secrets binding: %w", err)
+			return fmt.Errorf("liaison de secrets de projet : %w", err)
 		}
 		if !validSecretIdentifier(hint.Name) {
-			return fmt.Errorf("project secrets binding: invalid variable name %q", hint.Name)
+			return fmt.Errorf("liaison de secrets de projet : nom de variable invalide %q", hint.Name)
 		}
 		id := hint.Component + "\x00" + hint.Name
 		if seen[id] {
-			return fmt.Errorf("project secrets binding: duplicate %s in %s", hint.Name, hint.Component)
+			return fmt.Errorf("liaison de secrets de projet : %s en double dans %s", hint.Name, hint.Component)
 		}
 		seen[id] = true
 		switch hint.Delivery {
 		case "", "proxy":
 		case "guest":
 			if len(hint.Destinations) > 0 || hint.GuestEnv != "" {
-				return fmt.Errorf("project secrets binding %s (%s): guest delivery must not declare destinations or guestEnv", hint.Name, hint.Component)
+				return fmt.Errorf("liaison de secrets de projet %s (%s) : la livraison vers la machine isolée ne doit déclarer ni destinations ni guestEnv", hint.Name, hint.Component)
 			}
 		default:
-			return fmt.Errorf("project secrets binding %s (%s): unsupported delivery %q", hint.Name, hint.Component, hint.Delivery)
+			return fmt.Errorf("liaison de secrets de projet %s (%s) : livraison non prise en charge %q", hint.Name, hint.Component, hint.Delivery)
 		}
 	}
 	return nil
@@ -316,16 +316,16 @@ func ValidateProjectSecretsManifest(s *ProjectSecretsManifest) error {
 // without importing the shared secrets module into the CLI config model.
 func ValidateComponentPathForManifest(p string) error {
 	if p == "" || len(p) > 256 || p == "." || path.IsAbs(p) || path.Clean(p) != p || strings.ContainsAny(p, "\\:") {
-		return fmt.Errorf("invalid dotenv component path %q", p)
+		return fmt.Errorf("chemin de composant dotenv invalide %q", p)
 	}
 	for _, seg := range strings.Split(p, "/") {
 		if seg == "" || seg == "." || seg == ".." {
-			return fmt.Errorf("invalid dotenv component path %q", p)
+			return fmt.Errorf("chemin de composant dotenv invalide %q", p)
 		}
 	}
 	for _, r := range p {
 		if r < 32 || r == 127 {
-			return fmt.Errorf("invalid control character in component path")
+			return fmt.Errorf("caractère de contrôle invalide dans le chemin du composant")
 		}
 	}
 	return nil
@@ -363,10 +363,10 @@ func validCanonicalUUIDv4(id string) bool {
 // shared by all three file formats so the failure mode is uniform.
 func checkSchemaVersion(kind string, got, max int) error {
 	if got < 1 {
-		return fmt.Errorf("%s: schemaVersion missing or invalid (%d)", kind, got)
+		return fmt.Errorf("%s : schemaVersion manquant ou invalide (%d)", kind, got)
 	}
 	if got > max {
-		return fmt.Errorf("%s: schemaVersion %d is newer than this build supports (%d); upgrade codebox to read it", kind, got, max)
+		return fmt.Errorf("%s : schemaVersion %d est plus récent que ce que cette version prend en charge (%d) ; mettez à jour codebox pour le lire", kind, got, max)
 	}
 	return nil
 }
@@ -469,7 +469,7 @@ func checkNoSecretFields(kind string, raw map[string]any) error {
 		return nil
 	}
 	sort.Strings(offenders)
-	return fmt.Errorf("%s: %s must not appear in a managed file; use credentialRef to name a stored credential", kind, strings.Join(offenders, ", "))
+	return fmt.Errorf("%s : %s ne doit pas apparaître dans un fichier géré ; utilisez credentialRef pour nommer un identifiant stocké", kind, strings.Join(offenders, ", "))
 }
 
 // ExplainEntry is one row of the `config explain` output.

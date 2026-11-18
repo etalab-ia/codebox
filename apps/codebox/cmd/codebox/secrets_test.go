@@ -136,7 +136,7 @@ func TestProjectSecretsImportCLIIsPreviewFirstAndNeverPrintsValues(t *testing.T)
 			t.Fatalf("preview: code=%d err=%v", code, err)
 		}
 	})
-	if strings.Contains(output, secret) || strings.Contains(output, "$LITERAL") || !strings.Contains(output, "API_KEY") || !strings.Contains(output, "Preview only") {
+	if strings.Contains(output, secret) || strings.Contains(output, "$LITERAL") || !strings.Contains(output, "API_KEY") || !strings.Contains(output, "Aperçu uniquement") {
 		t.Fatalf("preview leaked values or omitted names (output=%q)", output)
 	}
 	if len(store.values) != 0 {
@@ -164,7 +164,7 @@ func TestProjectSecretsImportCLIIsPreviewFirstAndNeverPrintsValues(t *testing.T)
 			t.Fatalf("second preview: code=%d err=%v", code, err)
 		}
 	})
-	if !strings.Contains(output, "0 added, 0 changed, 2 unchanged, 0 removed") || strings.Contains(output, secret) {
+	if !strings.Contains(output, "0 valeurs ajoutées, 0 modifiées, 2 inchangées, 0 supprimées") || strings.Contains(output, secret) {
 		t.Fatalf("reimport preview failed to identify unchanged values or leaked: %q", output)
 	}
 }
@@ -219,7 +219,7 @@ func TestProjectSecretsApplyRefusesSourceChangedAfterPreview(t *testing.T) {
 		projectSecretsTTYFn, projectSecretsStateDirFn, projectSecretsCredentialStoreFn, projectSecretsStoreFactoryFn, projectSecretsConfirmFn = originalTTY, originalState, originalCredential, originalFactory, originalConfirm
 	})
 	code, err := projectSecretsImportCmd([]string{"--root", root, "--profile", "development", "--file", ".env", "--apply"})
-	if code != 1 || err == nil || !strings.Contains(err.Error(), "changed after preview") {
+	if code != 1 || err == nil || !strings.Contains(err.Error(), "changé après l'aperçu") {
 		t.Fatalf("source change must invalidate preview: code=%d err=%v", code, err)
 	}
 	if len(store.values) != 0 {

@@ -24,7 +24,7 @@ func TestSecretsBindingsApproveGuestReadable(t *testing.T) {
 			t.Fatalf("approve guest: code=%d err=%v", code, err)
 		}
 	})
-	for _, want := range []string{"GUEST-READABLE", "including the agent", "snapshot"} {
+	for _, want := range []string{"LISIBLE DANS LA MACHINE ISOLÉE", "y compris l'agent", "instantané"} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("the warning must mention %q: %q", want, out)
 		}
@@ -51,7 +51,7 @@ func TestSecretsBindingsApproveGuestReadable(t *testing.T) {
 			t.Fatalf("list: code=%d err=%v", code, err)
 		}
 	})
-	if !strings.Contains(out, "READABLE INSIDE THE SANDBOX") || !strings.Contains(out, "snapshot") {
+	if !strings.Contains(out, "LISIBLE DANS LA MACHINE ISOLÉE") || !strings.Contains(out, "instantané") {
 		t.Fatalf("the listing must show the delivery mode and its consequence: %q", out)
 	}
 
@@ -91,10 +91,10 @@ func TestRevokeMessageMatchesTheDeliveryMode(t *testing.T) {
 			t.Fatalf("revoke guest: code=%d err=%v", code, err)
 		}
 	})
-	if !strings.Contains(out, "still readable inside the running sandbox") || !strings.Contains(out, "snapshot") {
+	if !strings.Contains(out, "reste lisible dans la machine isolée en cours") || !strings.Contains(out, "instantané") {
 		t.Fatalf("a guest-readable revocation must state what actually remains: %q", out)
 	}
-	if strings.Contains(out, "inert placeholder") {
+	if strings.Contains(out, "marqueur inerte") {
 		t.Fatalf("the guest-readable revocation must not reuse the proxy wording: %q", out)
 	}
 
@@ -103,7 +103,7 @@ func TestRevokeMessageMatchesTheDeliveryMode(t *testing.T) {
 			t.Fatalf("revoke proxy: code=%d err=%v", code, err)
 		}
 	})
-	if !strings.Contains(out, "inert placeholder") {
+	if !strings.Contains(out, "marqueur inerte") {
 		t.Fatalf("a proxy revocation keeps its own wording: %q", out)
 	}
 }

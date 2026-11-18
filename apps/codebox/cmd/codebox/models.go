@@ -24,7 +24,7 @@ func modelsCmd(args []string) (int, error) {
 	case "list":
 		return modelsListCmd()
 	default:
-		return 2, fmt.Errorf("Unknown models command: %s (expected list)", args[0])
+		return 2, fmt.Errorf("commande models inconnue : %s (attendu : list)", args[0])
 	}
 }
 
@@ -67,18 +67,18 @@ func modelsListProvider(ctx context.Context, provider codebox.InferenceProvider,
 		}
 		catalogue, fresh, loadErr := cache.Load(ctx)
 		if loadErr != nil {
-			return fmt.Errorf("cannot load the Albert model catalogue and no last-known-good cache exists: %w", loadErr)
+			return fmt.Errorf("impossible de charger le catalogue de modèles Albert et aucun cache de dernier état connu n'existe : %w", loadErr)
 		}
 		models = catalogue.TextGenerationModels()
 		if !fresh {
 			source = "last-known-good"
-			fmt.Fprintln(os.Stderr, "Warning: the Albert catalogue could not be fetched; showing the last-known-good list.")
+			fmt.Fprintln(os.Stderr, "Attention : le catalogue Albert n'a pas pu être récupéré ; affichage de la dernière liste connue.")
 		}
 		if selection != "" {
 			kind, _ := codebox.ProviderModelID(selection)
 			if kind == codebox.ProviderAlbert {
 				if _, ok := catalogue.Find(selection); !ok && len(models) > 0 {
-					fmt.Fprintf(os.Stderr, "Warning: the selected model %q is not in the Albert catalogue; it may have been removed.\n", selection)
+					fmt.Fprintf(os.Stderr, "Attention : le modèle sélectionné %q ne figure pas dans le catalogue Albert ; il a peut-être été retiré.\n", selection)
 				}
 			}
 		}
@@ -86,20 +86,20 @@ func modelsListProvider(ctx context.Context, provider codebox.InferenceProvider,
 			kind, _ := codebox.ProviderModelID(small)
 			if kind == codebox.ProviderAlbert {
 				if _, ok := catalogue.Find(canonicalAlbertModelID(small)); !ok && len(models) > 0 {
-					fmt.Fprintf(os.Stderr, "Warning: the selected small model %q is not in the Albert catalogue; it may have been removed.\n", small)
+					fmt.Fprintf(os.Stderr, "Attention : le petit modèle sélectionné %q ne figure pas dans le catalogue Albert ; il a peut-être été retiré.\n", small)
 				}
 			}
 		}
 	} else {
 		apiKey, keyErr := resolveProviderKeyForCatalogue(provider)
 		if keyErr != nil {
-			fmt.Fprintf(os.Stderr, "Warning: %s: %v\n", provider.Name, keyErr)
+			fmt.Fprintf(os.Stderr, "Attention : %s : %v\n", provider.Name, keyErr)
 			models = providerFallbackModels(settings.Models, provider)
 			source = "selection"
 		} else {
 			fetched, fetchErr := codebox.FetchProviderModels(ctx, nil, provider, apiKey)
 			if fetchErr != nil {
-				fmt.Fprintf(os.Stderr, "Warning: the %s catalogue could not be fetched; showing the current selection.\n", provider.Name)
+				fmt.Fprintf(os.Stderr, "Attention : le catalogue %s n'a pas pu être récupéré ; affichage de la sélection actuelle.\n", provider.Name)
 				models = providerFallbackModels(settings.Models, provider)
 				source = "selection"
 			} else {
@@ -107,9 +107,9 @@ func modelsListProvider(ctx context.Context, provider codebox.InferenceProvider,
 			}
 		}
 	}
-	fmt.Printf("%s models (%s):\n", provider.Name, source)
+	fmt.Printf("modèles %s (%s) :\n", provider.Name, source)
 	if len(models) == 0 {
-		fmt.Println("  (none)")
+		fmt.Println("  (aucun)")
 		return nil
 	}
 	for _, model := range models {
@@ -128,7 +128,7 @@ func modelsListProvider(ctx context.Context, provider codebox.InferenceProvider,
 		if checked {
 			marker = "->"
 		}
-		fmt.Printf("%s %-36s context: %d\n", marker, model.ID, model.MaxContextLength)
+		fmt.Printf("%s %-36s contexte : %d\n", marker, model.ID, model.MaxContextLength)
 	}
 	fmt.Println()
 	return nil
@@ -193,7 +193,7 @@ func resolveAlbertKeyForCredentialRef(credentialRef string) (string, error) {
 	cfg := codebox.Config{CredentialRef: credentialRef, APIKey: os.Getenv("ALBERT_API_KEY")}
 	v, _, _, _, err := codebox.ResolveAlbert(ctxForCatalogue(), cfg, "")
 	if err != nil {
-		return "", fmt.Errorf("an Albert credential is needed to fetch the model catalogue: %w", err)
+		return "", fmt.Errorf("un identifiant Albert est nécessaire pour récupérer le catalogue de modèles : %w", err)
 	}
 	return v, nil
 }

@@ -66,7 +66,7 @@ func TestDispatcherRunningAndMultiple(t *testing.T) {
 	if len(running) != 3 || running[0] != RuntimeMicrosandbox || running[1] != RuntimeTart || running[2] != RuntimeAgentVM {
 		t.Fatalf("Running = %v", running)
 	}
-	if _, err := d.SingleRunning(context.Background()); err == nil || !strings.Contains(err.Error(), "multiple") {
+	if _, err := d.SingleRunning(context.Background()); err == nil || !strings.Contains(err.Error(), "plusieurs runtimes codebox") {
 		t.Fatalf("SingleRunning expected multiple error, got %v", err)
 	}
 }
@@ -244,12 +244,12 @@ func TestDispatcherCheckReportsConfiguredPortReachability(t *testing.T) {
 	if checkErr != nil {
 		t.Fatalf("a dead preview port must not fail check: %v", checkErr)
 	}
-	reachable := "port " + strconv.Itoa(live) + " (guest 8080): reachable (200 OK)"
+	reachable := "port " + strconv.Itoa(live) + " (machine isolée 8080) : joignable (200 OK)"
 	if !strings.Contains(out, reachable) {
 		t.Fatalf("reachable port was not reported: %q", out)
 	}
-	unreachable := "port " + strconv.Itoa(int(dead)) + " (guest 8081): no answer from the host forward"
-	if !strings.Contains(out, unreachable) || !strings.Contains(out, "must bind 0.0.0.0 inside the guest") {
+	unreachable := "port " + strconv.Itoa(int(dead)) + " (machine isolée 8081) : aucune réponse de la redirection du poste"
+	if !strings.Contains(out, unreachable) || !strings.Contains(out, "doit se lier à 0.0.0.0 dans la machine isolée") {
 		t.Fatalf("unreachable port hint was not reported: %q", out)
 	}
 }
@@ -274,7 +274,7 @@ func TestDispatcherCheckProbesPortsEvenWhenHealthFails(t *testing.T) {
 		checkErr = d.Check(context.Background(), nil)
 	})
 	_ = checkErr // the health result is owned by CheckBackend's own tests
-	if !strings.Contains(out, "no answer from the host forward") {
+	if !strings.Contains(out, "aucune réponse de la redirection du poste") {
 		t.Fatalf("port probe output missing while the health endpoint was down: %q", out)
 	}
 }
@@ -306,7 +306,7 @@ func TestDispatcherCheckDoesNotProbePortsOnOtherRuntimes(t *testing.T) {
 	if checkErr != nil {
 		t.Fatalf("tart check failed: %v", checkErr)
 	}
-	if strings.Contains(out, "host forward") || strings.Contains(out, "reachable (") {
+	if strings.Contains(out, "redirection du poste") || strings.Contains(out, "joignable (") {
 		t.Fatalf("port probe must not run on tart: %q", out)
 	}
 }
@@ -373,24 +373,24 @@ func TestDispatcherCheckProbesOnlyAppliedPortMappings(t *testing.T) {
 	if checkErr != nil {
 		t.Fatal(checkErr)
 	}
-	if got := "port " + strconv.Itoa(livePort) + " (guest 8080): reachable (200 OK)"; !strings.Contains(out, got) {
+	if got := "port " + strconv.Itoa(livePort) + " (machine isolée 8080) : joignable (200 OK)"; !strings.Contains(out, got) {
 		t.Fatalf("applied mapping was not probed: %q", out)
 	}
-	if got := "port " + strconv.Itoa(int(dead)) + " (guest 8082): no answer from the host forward"; !strings.Contains(out, got) {
+	if got := "port " + strconv.Itoa(int(dead)) + " (machine isolée 8082) : aucune réponse de la redirection du poste"; !strings.Contains(out, got) {
 		t.Fatalf("applied dead mapping was not probed: %q", out)
 	}
-	if got := "port " + strconv.Itoa(unrelatedPort) + " (guest 8081): configured but not forwarded by the running sandbox; run 'codebox recreate --microsandbox' to apply."; !strings.Contains(out, got) {
+	if got := "port " + strconv.Itoa(unrelatedPort) + " (machine isolée 8081) : configuré mais non transmis par la machine isolée en cours d'exécution ; lancez 'codebox recreate --microsandbox' pour l'appliquer."; !strings.Contains(out, got) {
 		t.Fatalf("pending mapping was not reported as pending: %q", out)
 	}
-	if strings.Contains(out, "port "+strconv.Itoa(unrelatedPort)+" (guest 8081): reachable") {
+	if strings.Contains(out, "port "+strconv.Itoa(unrelatedPort)+" (machine isolée 8081) : joignable") {
 		t.Fatalf("a mapping without a forward must not be reported reachable: %q", out)
 	}
-	if got := "port " + strconv.Itoa(int(stale)) + " (guest 3000): still forwarded until the sandbox is recreated"; !strings.Contains(out, got) {
+	if got := "port " + strconv.Itoa(int(stale)) + " (machine isolée 3000) : encore transmis jusqu'à la recréation de la machine isolée"; !strings.Contains(out, got) {
 		t.Fatalf("stale applied mapping was not reported: %q", out)
 	}
 	// Match the reported line shape, not the bare digits: an ephemeral port
 	// such as 40967 contains "4096" and made this assertion fail at random.
-	if strings.Contains(out, fmt.Sprintf("port %d (guest %d):", DefaultPort, DefaultPort)) {
+	if strings.Contains(out, fmt.Sprintf("port %d (machine isolée %d):", DefaultPort, DefaultPort)) {
 		t.Fatalf("the OpenCode server forward must not be reported as a preview mapping: %q", out)
 	}
 }
@@ -436,10 +436,10 @@ func TestDispatcherCheckPortProbeBudgetBoundsStalledChecks(t *testing.T) {
 	if elapsed := time.Since(start); elapsed > 2*time.Second {
 		t.Fatalf("three stalled probes took %s; the budget did not bind", elapsed)
 	}
-	if got := fmt.Sprintf("port %d (guest 8080): no answer from the host forward", hangPort); !strings.Contains(out, got) {
+	if got := fmt.Sprintf("port %d (machine isolée 8080) : aucune réponse de la redirection du poste", hangPort); !strings.Contains(out, got) {
 		t.Fatalf("first stalled mapping was not probed: %q", out)
 	}
-	if got := fmt.Sprintf("port %d (guest 8082): not probed; the port-probe budget", hangPort); !strings.Contains(out, got) {
+	if got := fmt.Sprintf("port %d (machine isolée 8082) : non testé ; le budget de test des ports", hangPort); !strings.Contains(out, got) {
 		t.Fatalf("mapping beyond the budget was not reported as not probed: %q", out)
 	}
 }
@@ -469,10 +469,10 @@ func TestDispatcherCheckSkipsPortProbesWhenAppliedMappingsUnreadable(t *testing.
 	if checkErr != nil {
 		t.Fatal(checkErr)
 	}
-	if !strings.Contains(out, "could not read the running sandbox's applied mappings") {
+	if !strings.Contains(out, "impossible de lire les mappages appliqués de la machine isolée en cours d'exécution") {
 		t.Fatalf("missing applied-mappings failure note: %q", out)
 	}
-	if strings.Contains(out, "no answer from the host forward") {
+	if strings.Contains(out, "aucune réponse de la redirection du poste") {
 		t.Fatalf("ports must not be probed while applied mappings are unreadable: %q", out)
 	}
 }
@@ -506,12 +506,12 @@ func TestDispatcherCheckReportsStaleForwardAfterLastMappingRemoved(t *testing.T)
 	if checkErr != nil {
 		t.Fatal(checkErr)
 	}
-	if got := "port " + strconv.Itoa(int(stale)) + " (guest 3000): still forwarded until the sandbox is recreated"; !strings.Contains(out, got) {
+	if got := "port " + strconv.Itoa(int(stale)) + " (machine isolée 3000) : encore transmis jusqu'à la recréation de la machine isolée"; !strings.Contains(out, got) {
 		t.Fatalf("stale forward after the last mapping was removed was not reported: %q", out)
 	}
 	// See the note in TestDispatcherCheckProbesOnlyAppliedPortMappings: the
 	// bare digits match unrelated ephemeral ports by coincidence.
-	if strings.Contains(out, fmt.Sprintf("port %d (guest %d):", DefaultPort, DefaultPort)) {
+	if strings.Contains(out, fmt.Sprintf("port %d (machine isolée %d):", DefaultPort, DefaultPort)) {
 		t.Fatalf("the OpenCode server forward must not be reported as a preview mapping: %q", out)
 	}
 }
@@ -546,7 +546,7 @@ func TestDispatcherCheckTreatsRedirectAnswerAsReachable(t *testing.T) {
 	if checkErr != nil {
 		t.Fatalf("a redirecting preview port must not fail check: %v", checkErr)
 	}
-	if !strings.Contains(out, "port "+strconv.Itoa(live)+" (guest 8080): reachable (302 Found)") {
+	if !strings.Contains(out, "port "+strconv.Itoa(live)+" (machine isolée 8080) : joignable (302 Found)") {
 		t.Fatalf("redirect answer was not reported as reachable: %q", out)
 	}
 }
@@ -567,7 +567,7 @@ func TestDispatcherCheckDoesNotProbeLegacyPortRange(t *testing.T) {
 	if checkErr != nil {
 		t.Fatalf("check without configured ports failed: %v", checkErr)
 	}
-	if strings.Contains(out, "host forward") || strings.Contains(out, "reachable (") {
+	if strings.Contains(out, "redirection du poste") || strings.Contains(out, "joignable (") {
 		t.Fatalf("legacy port range was probed: %q", out)
 	}
 }

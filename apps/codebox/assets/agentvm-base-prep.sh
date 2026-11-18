@@ -30,7 +30,7 @@ NRCONF
 # comes from NodeSource rather than apt.
 NODE_MAJOR=24
 
-echo "codebox: installing base packages..."
+echo "codebox : installation des paquets de base…"
 # unzip and tar are required by the OpenCode installer; ca-certificates and
 # curl by NodeSource and by the installer's own downloads.
 $SUDO apt-get update
@@ -61,12 +61,12 @@ export PATH
 PROFILE
 $SUDO chmod 0644 /etc/profile.d/codebox.sh
 
-echo "codebox: installing Node.js ${NODE_MAJOR}..."
+echo "codebox : installation de Node.js ${NODE_MAJOR}…"
 # `sudo -E` keeps DEBIAN_FRONTEND set for the setup script's apt calls.
 curl -fsSL "https://deb.nodesource.com/setup_${NODE_MAJOR}.x" | $SUDO -E bash -
 $SUDO apt-get install -y --no-install-recommends nodejs
 
-echo "codebox: installing OpenCode..."
+echo "codebox : installation d'OpenCode…"
 # --no-modify-path: codebox owns PATH below. Letting the installer edit shell
 # rc files would tie the install to the installer's shell detection.
 curl -fsSL https://opencode.ai/v2/install | bash -s -- --version 2.2.5 --no-modify-path
@@ -75,7 +75,7 @@ curl -fsSL https://opencode.ai/v2/install | bash -s -- --version 2.2.5 --no-modi
 # OpenCode is unusable, and the failure would otherwise surface much later as
 # an opaque health timeout.
 if [ ! -x "$HOME/.opencode/bin/opencode" ]; then
-  echo "codebox: OpenCode did not install to \$HOME/.opencode/bin/opencode" >&2
+  echo "codebox : OpenCode n'a pas été installé dans \$HOME/.opencode/bin/opencode" >&2
   exit 1
 fi
 
@@ -89,8 +89,8 @@ $SUDO ln -sf "$HOME/.opencode/bin/opencode" /usr/local/bin/opencode
 # Verify the system-wide path resolves, not just the private one: this is the
 # one the backend actually uses.
 if ! command -v opencode > /dev/null 2>&1; then
-  echo "codebox: opencode is not resolvable on the system PATH after install" >&2
+  echo "codebox : opencode est introuvable dans le PATH système après l'installation" >&2
   exit 1
 fi
 
-echo "codebox: base template provisioning complete."
+echo "codebox : provisionnement du template de base terminé."

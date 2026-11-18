@@ -110,7 +110,10 @@ try {
 
 	# A release whose binaries are not (yet) uploaded: the tag resolves but
 	# the asset 404s. The error must name the release, suggest a retry and
-	# link the release page; the current binary must stay untouched.
+	# link the release page; the current binary must stay untouched. The retry
+	# hint is matched without accents so this test file stays ASCII: it is
+	# sourced by Windows PowerShell 5.1 too, which would misread an accented
+	# literal in a BOM-less file.
 	$global:InstallerMissingAsset = $true
 	$global:InstallerSetupInvoked = $false
 	$missingAssetFailed = $false
@@ -119,7 +122,7 @@ try {
 	$global:InstallerMissingAsset = $false
 	Assert-InstallerTest $missingAssetFailed 'missing release asset unexpectedly succeeded'
 	Assert-InstallerTest ($missingAssetMessage -match [regex]::Escape($global:InstallerTestTag)) 'missing-asset error did not name the release'
-	Assert-InstallerTest ($missingAssetMessage -match 'retry in a few minutes') 'missing-asset error did not suggest a retry'
+	Assert-InstallerTest ($missingAssetMessage -match 'quelques minutes') 'missing-asset error did not suggest a retry'
 	Assert-InstallerTest ($missingAssetMessage -match [regex]::Escape("releases/tag/$global:InstallerTestTag")) 'missing-asset error did not link the release page'
 	Assert-InstallerTest ([System.IO.File]::ReadAllText($target) -eq 'must remain') 'missing-asset failure changed the current binary'
 	Assert-InstallerTest (-not $global:InstallerSetupInvoked) 'setup ran after a missing-asset failure'

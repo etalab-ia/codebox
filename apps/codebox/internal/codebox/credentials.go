@@ -96,9 +96,9 @@ type StoreError struct {
 }
 
 func (e *StoreError) Error() string {
-	msg := fmt.Sprintf("credential store (%s) %s: %s", e.Kind, e.Op, e.State)
+	msg := fmt.Sprintf("magasin d'identifiants (%s) %s : %s", e.Kind, e.Op, e.State)
 	if e.Err != nil {
-		msg += ": " + e.Err.Error()
+		msg += " : " + e.Err.Error()
 	}
 	return msg
 }
@@ -113,7 +113,7 @@ func storeErrorf(op, kind, state, format string, args ...any) *StoreError {
 // ErrCredentialNotFound is returned by Get and Remove when no credential of
 // the requested kind is stored. It is a normal outcome (an empty store is
 // not an error), so callers report it as a status, not a failure.
-var ErrCredentialNotFound = errors.New("credential not found")
+var ErrCredentialNotFound = errors.New("identifiant introuvable")
 
 // CredentialStore is the minimal P08 surface: put, get, remove and a
 // verification probe. Implementations must never log or expose the value
@@ -237,7 +237,7 @@ func readCredentialGenerations(fs FS, stateDir string) (credentialGenerations, e
 		return data, err
 	}
 	if err := json.Unmarshal(raw, &data); err != nil {
-		return data, fmt.Errorf("credential generations: %w", err)
+		return data, fmt.Errorf("générations d'identifiants : %w", err)
 	}
 	if data.Generations == nil {
 		data.Generations = map[string]int{}
@@ -282,5 +282,5 @@ func classifyExecError(op, kind string, res ExecResult, launchErr error) *StoreE
 	if launchErr != nil {
 		return &StoreError{Op: op, Kind: kind, State: "unavailable", Err: launchErr}
 	}
-	return storeErrorf(op, kind, "unavailable", "exit %d: %s", res.ExitCode, strings.TrimSpace(res.Stderr))
+	return storeErrorf(op, kind, "unavailable", "code %d : %s", res.ExitCode, strings.TrimSpace(res.Stderr))
 }

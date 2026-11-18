@@ -94,7 +94,7 @@ func TestSecretsLogoutRemovesSession(t *testing.T) {
 	if _, ok := store.values[codebox.CredentialCodeboxServer]; ok {
 		t.Fatal("session token was not removed")
 	}
-	if !strings.Contains(buf.String(), "Logged out") {
+	if !strings.Contains(buf.String(), "Déconnecté") {
 		t.Fatalf("output = %q", buf.String())
 	}
 }
@@ -216,7 +216,7 @@ func TestEnsureDeclaredBindingApprovalsFailsClosed(t *testing.T) {
 		projectSecretsStateDirFn, projectSecretsTTYFn, projectSecretsConfirmFn = oldState, oldTTY, oldConfirm
 	})
 
-	if err := ensureDeclaredBindingApprovals(root); err == nil || !strings.Contains(err.Error(), "not approved") {
+	if err := ensureDeclaredBindingApprovals(root); err == nil || !strings.Contains(err.Error(), "pas approuvées") {
 		t.Fatalf("error = %v, want fail-closed approval error", err)
 	}
 }
@@ -355,7 +355,7 @@ func TestSecretsPushRefusesEmptyDiscoveredBundle(t *testing.T) {
 	if err == nil || code == 0 {
 		t.Fatalf("secretsPushCmd = %d, %v; want refusal", code, err)
 	}
-	if !strings.Contains(err.Error(), "empty bundle") && !strings.Contains(err.Error(), "no development dotenv") {
+	if !strings.Contains(err.Error(), "lot vide") && !strings.Contains(err.Error(), "aucun fichier dotenv de développement") {
 		t.Fatalf("unexpected error = %v", err)
 	}
 }

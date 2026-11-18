@@ -89,7 +89,7 @@ func ResolveHarness(value string) (Harness, error) {
 	case HarnessOpenCode, HarnessPi:
 		return Harness(value), nil
 	default:
-		return "", fmt.Errorf("expected a harness of opencode or pi, got %q", value)
+		return "", fmt.Errorf("harness attendu : opencode ou pi, obtenu %q", value)
 	}
 }
 
@@ -115,7 +115,7 @@ func HarnessRequiresFullIsolation(h Harness) bool {
 // the wizard and the launch path cannot drift apart.
 func ValidateHarnessIsolation(h Harness, iso Isolation) error {
 	if HarnessRequiresFullIsolation(h) && iso != IsolationFull {
-		return fmt.Errorf("%s requires full isolation: it has no server mode, so there is no backend for the host to attach to; use --isolation full", h)
+		return fmt.Errorf("%s nécessite l'isolation full : il n'a pas de mode serveur, donc aucun backend auquel le poste puisse se rattacher ; utilisez --isolation full", h)
 	}
 	return nil
 }

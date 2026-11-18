@@ -71,7 +71,7 @@ func gitleaksArtifactFor(goos, goarch string) (gitleaksArtifact, error) {
 	case "arm64":
 		platform = "arm64"
 	default:
-		return gitleaksArtifact{}, fmt.Errorf("unsupported architecture for the secret scanner: %s", goarch)
+		return gitleaksArtifact{}, fmt.Errorf("architecture non prise en charge pour le scanner de secrets : %s", goarch)
 	}
 
 	artifact := gitleaksArtifact{
@@ -102,7 +102,7 @@ func gitleaksArtifactFor(goos, goarch string) (gitleaksArtifact, error) {
 		artifact.binary = "gitleaks.exe"
 		artifact.zip = true
 	default:
-		return gitleaksArtifact{}, fmt.Errorf("unsupported platform for the secret scanner: %s/%s", goos, goarch)
+		return gitleaksArtifact{}, fmt.Errorf("plateforme non prise en charge pour le scanner de secrets : %s/%s", goos, goarch)
 	}
 	if artifact.zip {
 		artifact.name += ".zip"
@@ -147,7 +147,7 @@ func ensureGitleaksFor(ctx context.Context, client *http.Client, stateDir string
 	// current working directory — a project could then ship its own "trusted"
 	// scanner. Refuse rather than install somewhere a checkout can reach.
 	if !filepath.IsAbs(stateDir) {
-		return "", fmt.Errorf("secret scanner needs an absolute state directory, got %q", stateDir)
+		return "", fmt.Errorf("le scanner de secrets exige un dossier d'état absolu, reçu %q", stateDir)
 	}
 	if managedGitleaksTrusted(stateDir, artifact) {
 		return gitleaksBinaryPath(stateDir, artifact), nil
@@ -155,7 +155,7 @@ func ensureGitleaksFor(ctx context.Context, client *http.Client, stateDir string
 
 	dir := gitleaksInstallDir(stateDir)
 	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return "", fmt.Errorf("create secret scanner directory: %w", err)
+		return "", fmt.Errorf("création du dossier du scanner de secrets : %w", err)
 	}
 	if client == nil {
 		client = &http.Client{Timeout: gitleaksHTTPTimeout}
@@ -168,21 +168,21 @@ func ensureGitleaksFor(ctx context.Context, client *http.Client, stateDir string
 
 	archive, err := os.Open(archivePath)
 	if err != nil {
-		return "", fmt.Errorf("open secret scanner archive: %w", err)
+		return "", fmt.Errorf("ouverture de l'archive du scanner de secrets : %w", err)
 	}
 	defer archive.Close()
 	info, err := archive.Stat()
 	if err != nil {
-		return "", fmt.Errorf("inspect secret scanner archive: %w", err)
+		return "", fmt.Errorf("inspection de l'archive du scanner de secrets : %w", err)
 	}
 	// Hash the descriptor, then rewind it and extract from the SAME
 	// descriptor: verifying by path and reopening would let a local writer
 	// swap the bytes in between.
 	if err := verifySHA256(io.LimitReader(archive, gitleaksMaxArchive+1), artifact.sha256); err != nil {
-		return "", fmt.Errorf("secret scanner archive failed integrity verification")
+		return "", fmt.Errorf("échec de la vérification d'intégrité de l'archive du scanner de secrets")
 	}
 	if _, err := archive.Seek(0, io.SeekStart); err != nil {
-		return "", fmt.Errorf("rewind secret scanner archive: %w", err)
+		return "", fmt.Errorf("rembobinage de l'archive du scanner de secrets : %w", err)
 	}
 
 	staged, err := extractGitleaks(archive, info.Size(), dir, artifact)
@@ -198,7 +198,7 @@ func ensureGitleaksFor(ctx context.Context, client *http.Client, stateDir string
 		return "", err
 	}
 	if !managedGitleaksTrusted(stateDir, artifact) {
-		return "", fmt.Errorf("secret scanner failed integrity verification after installation")
+		return "", fmt.Errorf("échec de la vérification d'intégrité du scanner de secrets après installation")
 	}
 	return gitleaksBinaryPath(stateDir, artifact), nil
 }
@@ -206,7 +206,7 @@ func ensureGitleaksFor(ctx context.Context, client *http.Client, stateDir string
 func downloadGitleaksArchive(ctx context.Context, client *http.Client, dir string, artifact gitleaksArtifact) (string, error) {
 	file, err := os.CreateTemp(dir, ".scanner-download-*")
 	if err != nil {
-		return "", fmt.Errorf("create secret scanner download: %w", err)
+		return "", fmt.Errorf("création du téléchargement du scanner de secrets : %w", err)
 	}
 	archivePath := file.Name()
 	cleanup := func() {
@@ -225,21 +225,21 @@ func downloadGitleaksArchive(ctx context.Context, client *http.Client, dir strin
 	resp, err := client.Do(req)
 	if err != nil {
 		cleanup()
-		return "", fmt.Errorf("secret scanner download failed: %s", transportDetail(err))
+		return "", fmt.Errorf("échec du téléchargement du scanner de secrets : %s", transportDetail(err))
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
 		cleanup()
-		return "", fmt.Errorf("secret scanner download failed: HTTP %d", resp.StatusCode)
+		return "", fmt.Errorf("échec du téléchargement du scanner de secrets : HTTP %d", resp.StatusCode)
 	}
 	n, err := io.Copy(file, io.LimitReader(resp.Body, gitleaksMaxArchive+1))
 	if err != nil {
 		cleanup()
-		return "", fmt.Errorf("secret scanner download failed: %s", transportDetail(err))
+		return "", fmt.Errorf("échec du téléchargement du scanner de secrets : %s", transportDetail(err))
 	}
 	if n > gitleaksMaxArchive {
 		cleanup()
-		return "", fmt.Errorf("secret scanner archive exceeds %d bytes", gitleaksMaxArchive)
+		return "", fmt.Errorf("l'archive du scanner de secrets dépasse %d octets", gitleaksMaxArchive)
 	}
 	if err := file.Close(); err != nil {
 		os.Remove(archivePath)
@@ -266,7 +266,7 @@ func transportDetail(err error) string {
 func extractGitleaks(archive io.ReaderAt, size int64, dir string, artifact gitleaksArtifact) (string, error) {
 	staged, err := os.CreateTemp(dir, ".scanner-bin-*")
 	if err != nil {
-		return "", fmt.Errorf("create staged secret scanner: %w", err)
+		return "", fmt.Errorf("création du scanner de secrets en préparation : %w", err)
 	}
 	stagedPath := staged.Name()
 	cleanup := func() {
@@ -286,7 +286,7 @@ func extractGitleaks(archive io.ReaderAt, size int64, dir string, artifact gitle
 	}
 	if copies != 1 {
 		cleanup()
-		return "", fmt.Errorf("secret scanner archive must contain exactly one %s (found %d)", artifact.binary, copies)
+		return "", fmt.Errorf("l'archive du scanner de secrets doit contenir exactement un %s (%d trouvé(s))", artifact.binary, copies)
 	}
 	if err := staged.Close(); err != nil {
 		os.Remove(stagedPath)
@@ -294,7 +294,7 @@ func extractGitleaks(archive io.ReaderAt, size int64, dir string, artifact gitle
 	}
 	if got := hex.EncodeToString(hasher.Sum(nil)); got != artifact.binarySHA256 {
 		os.Remove(stagedPath)
-		return "", fmt.Errorf("secret scanner executable failed integrity verification")
+		return "", fmt.Errorf("échec de la vérification d'intégrité de l'exécutable du scanner de secrets")
 	}
 	return stagedPath, nil
 }
@@ -303,7 +303,7 @@ func copyGitleaksFromTar(archive io.ReaderAt, dst io.Writer, artifact gitleaksAr
 	section := io.NewSectionReader(archive, 0, gitleaksMaxArchive)
 	gz, err := gzip.NewReader(section)
 	if err != nil {
-		return 0, fmt.Errorf("secret scanner archive is not valid gzip")
+		return 0, fmt.Errorf("l'archive du scanner de secrets n'est pas un gzip valide")
 	}
 	defer gz.Close()
 
@@ -315,19 +315,19 @@ func copyGitleaksFromTar(archive io.ReaderAt, dst io.Writer, artifact gitleaksAr
 			return copies, nil
 		}
 		if err != nil {
-			return copies, fmt.Errorf("secret scanner archive is corrupt")
+			return copies, fmt.Errorf("l'archive du scanner de secrets est corrompue")
 		}
 		if archiveBaseName(header.Name) != artifact.binary {
 			continue
 		}
 		if header.Typeflag != tar.TypeReg {
-			return copies, fmt.Errorf("secret scanner archive member %s is not a regular file", artifact.binary)
+			return copies, fmt.Errorf("l'élément %s de l'archive du scanner de secrets n'est pas un fichier régulier", artifact.binary)
 		}
 		if copies > 0 {
-			return copies, fmt.Errorf("secret scanner archive contains duplicate %s members", artifact.binary)
+			return copies, fmt.Errorf("l'archive du scanner de secrets contient plusieurs éléments %s", artifact.binary)
 		}
 		if header.Size < 0 || header.Size > gitleaksMaxBinary {
-			return copies, fmt.Errorf("secret scanner executable exceeds %d bytes", gitleaksMaxBinary)
+			return copies, fmt.Errorf("l'exécutable du scanner de secrets dépasse %d octets", gitleaksMaxBinary)
 		}
 		if _, err := copyBounded(dst, tarReader, gitleaksMaxBinary); err != nil {
 			return copies, err
@@ -339,7 +339,7 @@ func copyGitleaksFromTar(archive io.ReaderAt, dst io.Writer, artifact gitleaksAr
 func copyGitleaksFromZip(archive io.ReaderAt, size int64, dst io.Writer, artifact gitleaksArtifact) (int, error) {
 	reader, err := zip.NewReader(archive, size)
 	if err != nil {
-		return 0, fmt.Errorf("secret scanner archive is not a valid zip")
+		return 0, fmt.Errorf("l'archive du scanner de secrets n'est pas un zip valide")
 	}
 	copies := 0
 	for _, entry := range reader.File {
@@ -347,17 +347,17 @@ func copyGitleaksFromZip(archive io.ReaderAt, size int64, dst io.Writer, artifac
 			continue
 		}
 		if !entry.Mode().IsRegular() {
-			return copies, fmt.Errorf("secret scanner archive member %s is not a regular file", artifact.binary)
+			return copies, fmt.Errorf("l'élément %s de l'archive du scanner de secrets n'est pas un fichier régulier", artifact.binary)
 		}
 		if copies > 0 {
-			return copies, fmt.Errorf("secret scanner archive contains duplicate %s members", artifact.binary)
+			return copies, fmt.Errorf("l'archive du scanner de secrets contient plusieurs éléments %s", artifact.binary)
 		}
 		if entry.UncompressedSize64 > gitleaksMaxBinary {
-			return copies, fmt.Errorf("secret scanner executable exceeds %d bytes", gitleaksMaxBinary)
+			return copies, fmt.Errorf("l'exécutable du scanner de secrets dépasse %d octets", gitleaksMaxBinary)
 		}
 		body, err := entry.Open()
 		if err != nil {
-			return copies, fmt.Errorf("secret scanner archive is corrupt")
+			return copies, fmt.Errorf("l'archive du scanner de secrets est corrompue")
 		}
 		_, copyErr := copyBounded(dst, body, gitleaksMaxBinary)
 		body.Close()
@@ -374,10 +374,10 @@ func copyGitleaksFromZip(archive io.ReaderAt, size int64, dst io.Writer, artifac
 func copyBounded(dst io.Writer, src io.Reader, limit int64) (int64, error) {
 	n, err := io.Copy(dst, io.LimitReader(src, limit+1))
 	if err != nil {
-		return n, fmt.Errorf("unpack secret scanner: %w", err)
+		return n, fmt.Errorf("extraction du scanner de secrets : %w", err)
 	}
 	if n > limit {
-		return n, fmt.Errorf("secret scanner executable exceeds %d bytes", limit)
+		return n, fmt.Errorf("l'exécutable du scanner de secrets dépasse %d octets", limit)
 	}
 	return n, nil
 }
@@ -386,10 +386,10 @@ func copyBounded(dst io.Writer, src io.Reader, limit int64) (int64, error) {
 // a concurrent reader sees either no executable or the complete one.
 func publishGitleaks(staged, destination string) error {
 	if err := os.Chmod(staged, 0o755); err != nil {
-		return fmt.Errorf("prepare secret scanner executable: %w", err)
+		return fmt.Errorf("préparation de l'exécutable du scanner de secrets : %w", err)
 	}
 	if err := os.Rename(staged, destination); err != nil {
-		return fmt.Errorf("publish secret scanner executable: %w", err)
+		return fmt.Errorf("publication de l'exécutable du scanner de secrets : %w", err)
 	}
 	return nil
 }

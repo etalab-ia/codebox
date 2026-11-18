@@ -47,7 +47,7 @@ type ProjectSecretValueSource interface {
 // source but this build has no resolver installed. It fails closed rather than
 // falling back to local OS-store values that may be stale or belong to another
 // project.
-var ErrProjectSecretValueSourceUnconfigured = errors.New("project declares remote secrets but no secret value resolver is configured")
+var ErrProjectSecretValueSourceUnconfigured = errors.New("le projet déclare des secrets distants mais aucun résolveur de valeurs de secrets n'est configuré")
 
 // resolvedSecretSet is the one value-resolution result shared by start,
 // guest-readable dotenv delivery, and recovery within a single runtime call.
@@ -60,7 +60,7 @@ type resolvedSecretSet struct {
 func (s resolvedSecretSet) get(identity ProjectSecretIdentity) (ProjectSecretValue, error) {
 	value, ok := s.values[identity]
 	if !ok {
-		return ProjectSecretValue{}, fmt.Errorf("resolved secret set has no value for %s", identity.String())
+		return ProjectSecretValue{}, fmt.Errorf("l'ensemble de secrets résolu n'a pas de valeur pour %s", identity.String())
 	}
 	return value, nil
 }
@@ -105,7 +105,7 @@ func (m *MicrosandboxRuntime) resolveProjectSecretValueSet(ctx context.Context, 
 		for _, req := range requests {
 			value, ok := values[req.Identity]
 			if !ok {
-				return resolvedSecretSet{}, fmt.Errorf("remote secret source did not resolve %s", req.Identity.String())
+				return resolvedSecretSet{}, fmt.Errorf("la source de secrets distante n'a pas résolu %s", req.Identity.String())
 			}
 			if value.Reference == "" {
 				value.Reference = req.Reference
@@ -127,7 +127,7 @@ func (m *MicrosandboxRuntime) resolveProjectSecretValueSet(ctx context.Context, 
 			if isNotFound(err) {
 				return resolvedSecretSet{}, fmt.Errorf("%w (%s)", ErrProjectSecretImportMissing, id.String())
 			}
-			return resolvedSecretSet{}, fmt.Errorf("cannot read project secret %s: %w", id.String(), err)
+			return resolvedSecretSet{}, fmt.Errorf("impossible de lire le secret de projet %s : %w", id.String(), err)
 		}
 		values[id] = ProjectSecretValue{Value: value, Source: store.Kind(), Reference: req.Reference}
 	}

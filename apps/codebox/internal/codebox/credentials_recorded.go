@@ -63,7 +63,7 @@ func readRecordedCredentialStores(fs FS, stateDir string) (recordedCredentialSto
 		return data, err
 	}
 	if err := json.Unmarshal(raw, &data); err != nil {
-		return data, fmt.Errorf("credential store record: %w", err)
+		return data, fmt.Errorf("enregistrement du magasin d'identifiants : %w", err)
 	}
 	if data.Stores == nil {
 		data.Stores = map[string]string{}

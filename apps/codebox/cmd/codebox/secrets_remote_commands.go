@@ -17,7 +17,7 @@ import (
 // in the project. It never writes a value into the manifest.
 func secretsInitCmd(args []string) (int, error) {
 	if len(args) != 0 {
-		return 2, fmt.Errorf("secrets init takes no arguments")
+		return 2, fmt.Errorf("secrets init n'accepte aucun argument")
 	}
 	root, err := os.Getwd()
 	if err != nil {
@@ -28,7 +28,7 @@ func secretsInitCmd(args []string) (int, error) {
 		return 1, err
 	}
 	if manifest.Secrets != nil {
-		return 1, fmt.Errorf("this project already declares shared secrets (%s); refusing to replace it", manifest.Secrets.ProjectID)
+		return 1, fmt.Errorf("ce projet déclare déjà des secrets partagés (%s) ; refus de le remplacer", manifest.Secrets.ProjectID)
 	}
 	client, err := gatewayClient()
 	if err != nil {
@@ -50,8 +50,8 @@ func secretsInitCmd(args []string) (int, error) {
 	if err := codebox.WriteProjectManifest(codebox.DefaultFS, codebox.ProjectManifestPath(root), *manifest); err != nil {
 		return 1, err
 	}
-	fmt.Printf("Shared development secrets initialised for project %s.\n", created.ProjectID)
-	fmt.Println("Commit .codebox/project.json, then run codebox secrets push to upload a development bundle.")
+	fmt.Printf("Secrets de développement partagés initialisés pour le projet %s.\n", created.ProjectID)
+	fmt.Println("Commitez .codebox/project.json, puis lancez codebox secrets push pour téléverser un lot de développement.")
 	return 0, nil
 }
 
@@ -89,7 +89,7 @@ func deriveSecretBindingHints(root string) ([]codebox.ProjectSecretBindingHint, 
 // component bundle, and pushes it to the gateway at the current revision.
 func secretsPushCmd(args []string) (int, error) {
 	if len(args) != 0 {
-		return 2, fmt.Errorf("secrets push takes no arguments")
+		return 2, fmt.Errorf("secrets push n'accepte aucun argument")
 	}
 	root, err := os.Getwd()
 	if err != nil {
@@ -116,7 +116,7 @@ func secretsPushCmd(args []string) (int, error) {
 		return 1, err
 	}
 	if len(files) == 0 {
-		return 1, fmt.Errorf("no development dotenv file found; refusing to replace the shared bundle with an empty bundle")
+		return 1, fmt.Errorf("aucun fichier dotenv de développement trouvé ; refus de remplacer le lot partagé par un lot vide")
 	}
 	components := map[string]map[string]string{}
 	for _, file := range files {
@@ -137,13 +137,13 @@ func secretsPushCmd(args []string) (int, error) {
 	if err != nil {
 		return 1, err
 	}
-	fmt.Printf("Pushed %d dotenv component(s) as revision %d. No secret value was printed.\n", len(components), resp.Revision)
+	fmt.Printf("%d composant(s) dotenv téléversé(s) en révision %d. Aucune valeur de secret n'a été affichée.\n", len(components), resp.Revision)
 	return 0, nil
 }
 
 func secretsMembersCmd(args []string) (int, error) {
 	if len(args) == 0 {
-		return 2, fmt.Errorf("usage: codebox secrets members <list|add|remove> [email]")
+		return 2, fmt.Errorf("usage : codebox secrets members <list|add|remove> [email]")
 	}
 	root, err := os.Getwd()
 	if err != nil {
@@ -163,14 +163,14 @@ func secretsMembersCmd(args []string) (int, error) {
 	}
 	switch args[0] {
 	case "list":
-		fmt.Printf("Project %s members (revision %d):\n", projectID, current.Revision)
+		fmt.Printf("Membres du projet %s (révision %d) :\n", projectID, current.Revision)
 		for _, entry := range current.Entries {
 			fmt.Printf("  %s: %s\n", entry.Kind, entry.Value)
 		}
 		return 0, nil
 	case "add", "remove":
 		if len(args) != 2 {
-			return 2, fmt.Errorf("usage: codebox secrets members %s <email|siret:14-digits>", args[0])
+			return 2, fmt.Errorf("usage : codebox secrets members %s <email|siret:14-chiffres>", args[0])
 		}
 		kind, value, err := parseACLEntry(args[1])
 		if err != nil {
@@ -195,10 +195,10 @@ func secretsMembersCmd(args []string) (int, error) {
 		}); err != nil {
 			return 1, err
 		}
-		fmt.Printf("Updated project members. The owner list is unchanged by %s.\n", args[0])
+		fmt.Printf("Membres du projet mis à jour. La liste des propriétaires n'est pas modifiée par %s.\n", args[0])
 		return 0, nil
 	default:
-		return 2, fmt.Errorf("unknown secrets members command %q", args[0])
+		return 2, fmt.Errorf("commande inconnue de secrets members %q", args[0])
 	}
 }
 
@@ -293,10 +293,10 @@ func ensureDeclaredBindingApprovals(root string) error {
 			return err
 		}
 		if !ok {
-			return fmt.Errorf("shared secrets declarations are not approved on this host")
+			return fmt.Errorf("les déclarations de secrets partagés ne sont pas approuvées sur ce poste")
 		}
 	}
-	return fmt.Errorf("shared secrets declarations are not approved on this host (%d missing, %d changed); run codebox secrets bindings approve", len(missing), len(changed))
+	return fmt.Errorf("les déclarations de secrets partagés ne sont pas approuvées sur ce poste (%d manquantes, %d modifiées) ; lancez codebox secrets bindings approve", len(missing), len(changed))
 }
 
 func projectDeclaresSharedSecrets(root string) bool {
@@ -310,7 +310,7 @@ func validateRemoteBindingAgainstManifest(root string, binding codebox.ProjectSe
 		return err
 	}
 	if manifest.Secrets == nil {
-		return fmt.Errorf("this project does not declare shared secrets")
+		return fmt.Errorf("ce projet ne déclare aucun secret partagé")
 	}
 	for _, hint := range manifest.Secrets.Bindings {
 		if hint.Component != binding.Component || hint.Name != binding.Name {
@@ -318,20 +318,20 @@ func validateRemoteBindingAgainstManifest(root string, binding codebox.ProjectSe
 		}
 		wantGuest := hint.Delivery == codebox.ProjectSecretDeliveryGuest
 		if binding.GuestReadable() != wantGuest {
-			return fmt.Errorf("delivery mode for %s#%s does not match the declaration", binding.Component, binding.Name)
+			return fmt.Errorf("le mode de livraison de %s#%s ne correspond pas à la déclaration", binding.Component, binding.Name)
 		}
 		if wantGuest {
 			return nil
 		}
 		if len(hint.Destinations) > 0 && !codebox.EqualStringSets(binding.Destinations, hint.Destinations) {
-			return fmt.Errorf("destinations for %s#%s do not match the declaration", binding.Component, binding.Name)
+			return fmt.Errorf("les destinations de %s#%s ne correspondent pas à la déclaration", binding.Component, binding.Name)
 		}
 		if len(binding.Destinations) == 0 {
-			return fmt.Errorf("at least one destination is required for %s#%s", binding.Component, binding.Name)
+			return fmt.Errorf("au moins une destination est requise pour %s#%s", binding.Component, binding.Name)
 		}
 		return codebox.ValidateProjectSecretBindingForRemote("", binding)
 	}
-	return fmt.Errorf("%s#%s is not declared by this project's shared-secrets manifest", binding.Component, binding.Name)
+	return fmt.Errorf("%s#%s n'est pas déclaré par le manifeste de secrets partagés de ce projet", binding.Component, binding.Name)
 }
 
 // filterDevelopmentDotenvPaths rejects production-named dotenv files. Shared
@@ -343,7 +343,7 @@ func filterDevelopmentDotenvPaths(paths []string) ([]string, error) {
 		base := strings.ToLower(filepath.Base(path))
 		for _, forbidden := range []string{".env.production", ".env.prod", "production.env", "prod.env", "prd.env"} {
 			if base == forbidden || strings.HasPrefix(base, forbidden+".") {
-				return nil, fmt.Errorf("refusing to upload production-named dotenv file %s; shared secrets support development files only", path)
+				return nil, fmt.Errorf("refus de téléverser le fichier dotenv %s nommé comme un fichier de production ; les secrets partagés ne prennent en charge que les fichiers de développement", path)
 			}
 		}
 		out = append(out, path)

@@ -142,8 +142,8 @@ func TestValidateProviderKeyClassifiesHTTPFailures(t *testing.T) {
 		{name: "429 is temporary", status: 429, wantUnreach: true, wantDetailPart: "429"},
 		{name: "500 is temporary", status: 500, wantUnreach: true, wantDetailPart: "500"},
 		{name: "502 is temporary", status: 502, wantUnreach: true, wantDetailPart: "502"},
-		{name: "200 without a data array is incompatible", status: 200, body: `{"models":[]}`, wantIncompat: true, wantDetailPart: "data array"},
-		{name: "200 with invalid JSON is incompatible", status: 200, body: `<html>portal</html>`, wantIncompat: true, wantDetailPart: "not a models listing"},
+		{name: "200 without a data array is incompatible", status: 200, body: `{"models":[]}`, wantIncompat: true, wantDetailPart: "tableau de données"},
+		{name: "200 with invalid JSON is incompatible", status: 200, body: `<html>portal</html>`, wantIncompat: true, wantDetailPart: "pas une liste de modèles"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -254,7 +254,7 @@ func TestValidateProviderKeyTransportFailuresStayUnreachable(t *testing.T) {
 		if !probe.Unreachable || probe.Incompatible {
 			t.Fatalf("a timeout must be unreachable, got %+v", probe)
 		}
-		if !strings.Contains(probe.Detail, "timeout") {
+		if !strings.Contains(probe.Detail, "délai dépassé") {
 			t.Fatalf("the timeout must be identifiable in the detail: %q", probe.Detail)
 		}
 	})

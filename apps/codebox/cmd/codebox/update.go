@@ -32,7 +32,7 @@ func updateCmd(args []string, projectRoot string) (int, error) {
 			return 0, nil
 		case "--skill":
 			if i+1 >= len(args) || strings.HasPrefix(args[i+1], "-") {
-				return 2, fmt.Errorf("--skill requires a catalogue ID such as official/rgaa")
+				return 2, fmt.Errorf("--skill exige un identifiant de catalogue tel que official/rgaa")
 			}
 			i++
 			selected = append(selected, args[i])
@@ -43,15 +43,15 @@ func updateCmd(args []string, projectRoot string) (int, error) {
 		case "--rollback":
 			rollback = true
 		default:
-			return 2, fmt.Errorf("unknown update option %q", args[i])
+			return 2, fmt.Errorf("option de mise à jour inconnue %q", args[i])
 		}
 	}
 	if rollback && !recover {
-		return 2, fmt.Errorf("--rollback requires --recover")
+		return 2, fmt.Errorf("--rollback exige --recover")
 	}
 	if recover {
 		if len(selected) > 0 {
-			return 2, fmt.Errorf("--recover cannot be combined with --skill")
+			return 2, fmt.Errorf("--recover ne peut pas être combiné avec --skill")
 		}
 		if !rollback {
 			if err := codebox.RecoverProjectUpdate(codebox.DefaultFS, projectRoot); err != nil {
@@ -80,7 +80,7 @@ func updateCmd(args []string, projectRoot string) (int, error) {
 		return 0, nil
 	}
 	if err := codebox.RecoverProjectUpdate(codebox.DefaultFS, projectRoot); err != nil {
-		return 1, fmt.Errorf("recover project update: %w", err)
+		return 1, fmt.Errorf("récupérer la mise à jour du projet : %w", err)
 	}
 	manifest, err := codebox.ReadProjectManifest(codebox.DefaultFS, codebox.ProjectManifestPath(projectRoot))
 	if err != nil {
@@ -95,7 +95,7 @@ func updateCmd(args []string, projectRoot string) (int, error) {
 			return 1, err
 		}
 		if !plan.NoOp {
-			return 1, fmt.Errorf("unexpected update plan for a project without versioned skills")
+			return 1, fmt.Errorf("plan de mise à jour inattendu pour un projet sans skills versionnées")
 		}
 		fmt.Println("Aucune skill de projet versionnée n'est sélectionnée ; rien à mettre à jour.")
 		return 0, nil
@@ -144,7 +144,7 @@ func updateCmd(args []string, projectRoot string) (int, error) {
 	}
 	managedDiff, err := plan.ManagedInstructionsDiff()
 	if err != nil {
-		return 1, fmt.Errorf("prepare managed-instructions preview: %w", err)
+		return 1, fmt.Errorf("préparer l'aperçu des instructions gérées : %w", err)
 	}
 	if managedDiff != "" {
 		fmt.Print(managedDiff)

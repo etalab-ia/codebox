@@ -27,10 +27,10 @@ func TestBindingsApproveRecordsNothingWhenItCannotResolve(t *testing.T) {
 		t.Fatalf("approving an unimported variable must fail: code=%d err=%v", code, err)
 	}
 	// The message must not claim an approval was recorded.
-	if strings.Contains(err.Error(), "the approval was recorded") {
+	if strings.Contains(err.Error(), "l'approbation a été enregistrée") {
 		t.Fatalf("nothing was recorded, so the message must not say it was: %v", err)
 	}
-	if !strings.Contains(err.Error(), "nothing was recorded") {
+	if !strings.Contains(err.Error(), "rien n'a été enregistré") {
 		t.Fatalf("the refusal must state that no state changed: %v", err)
 	}
 

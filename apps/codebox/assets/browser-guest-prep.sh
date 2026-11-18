@@ -22,7 +22,7 @@ if [ ! -f "$toolchain_marker" ]; then
       chromium_version=$CODEBOX_CHROMIUM_VERSION_ARM64
       ;;
     *)
-      echo "Chromium is not qualified for $(uname -m)" >&2
+      echo "Chromium n'est pas qualifié pour $(uname -m)" >&2
       exit 1
       ;;
   esac
@@ -41,7 +41,7 @@ if [ ! -f "$toolchain_marker" ]; then
       node_sha256=$CODEBOX_NODE_SHA256_ARM64
       ;;
     *)
-      echo "Node.js ${CODEBOX_NODE_VERSION} is not qualified for $(uname -m)" >&2
+      echo "Node.js ${CODEBOX_NODE_VERSION} n'est pas qualifié pour $(uname -m)" >&2
       exit 1
       ;;
   esac

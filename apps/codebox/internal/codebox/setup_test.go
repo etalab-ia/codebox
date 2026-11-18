@@ -85,7 +85,7 @@ func TestSetupJournalCorruptFileNamesPathAndRemedy(t *testing.T) {
 	if err == nil {
 		t.Fatal("a corrupt journal must fail")
 	}
-	if !stringsContainsLower(err.Error(), "remove") || !stringsContainsLower(err.Error(), SetupJournalPath(dir)) {
+	if !stringsContainsLower(err.Error(), "supprimez") || !stringsContainsLower(err.Error(), SetupJournalPath(dir)) {
 		t.Fatalf("the error must name the path and the remedy: %v", err)
 	}
 }

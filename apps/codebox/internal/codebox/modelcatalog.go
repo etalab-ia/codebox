@@ -161,11 +161,11 @@ func FetchCatalogue(ctx context.Context, client *http.Client, apiKey, url string
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		return Catalogue{}, fmt.Errorf("model catalogue request failed: HTTP %d", resp.StatusCode)
+		return Catalogue{}, fmt.Errorf("échec de la requête au catalogue de modèles : HTTP %d", resp.StatusCode)
 	}
 	var raw catalogueJSON
 	if err := json.NewDecoder(io.LimitReader(resp.Body, 4<<20)).Decode(&raw); err != nil {
-		return Catalogue{}, fmt.Errorf("parse model catalogue: %w", err)
+		return Catalogue{}, fmt.Errorf("analyse du catalogue de modèles : %w", err)
 	}
 	return catalogueFromEntries(raw.Data), nil
 }
@@ -237,7 +237,7 @@ func (c CatalogueCache) readCache() (Catalogue, error) {
 	}
 	var raw cacheRecordJSON
 	if err := json.Unmarshal(data, &raw); err != nil {
-		return Catalogue{}, fmt.Errorf("parse catalogue cache: %w", err)
+		return Catalogue{}, fmt.Errorf("analyse du cache du catalogue : %w", err)
 	}
 	return catalogueFromEntries(raw.Models), nil
 }

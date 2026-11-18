@@ -47,7 +47,7 @@ func (m *MicrosandboxRuntime) installProjectSkills(ctx context.Context) error {
 		}
 		indexArchive := "/tmp/codebox-project-skills.json"
 		if err := m.Client.WriteFile(ctx, m.InstanceName(), indexArchive, append(data, '\n')); err != nil {
-			return fmt.Errorf("stage project skill inventory in the guest: %w", err)
+			return fmt.Errorf("préparation de l'inventaire des skills du projet dans la machine isolée : %w", err)
 		}
 		if err := m.commitGuestSkillInventory(ctx, entries, indexArchive); err != nil {
 			return err
@@ -58,10 +58,10 @@ func (m *MicrosandboxRuntime) installProjectSkills(ctx context.Context) error {
 		skill := packages[id]
 		archivePath := "/tmp/codebox-skill-" + skill.Name + "-" + skill.Lock.SHA256 + ".tar.gz"
 		if err := m.Client.WriteFile(ctx, m.InstanceName(), archivePath, skill.Archive); err != nil {
-			return fmt.Errorf("copy skill %s into the guest: %w", skill.ID, err)
+			return fmt.Errorf("copie du skill %s dans la machine isolée : %w", skill.ID, err)
 		}
 		if err := m.installOneProjectSkill(ctx, skill, archivePath); err != nil {
-			return fmt.Errorf("install pinned skill %s in the guest: %w", skill.ID, err)
+			return fmt.Errorf("installation du skill épinglé %s dans la machine isolée : %w", skill.ID, err)
 		}
 	}
 	return m.verifyProjectSkills(ctx)
@@ -74,7 +74,7 @@ func (m *MicrosandboxRuntime) preflightProjectSkills(ctx context.Context) (guest
 		return guestSkillInventory{}, nil, nil
 	}
 	if err := validateSkillIDs(m.cfg.ProjectSkillIDs, nil); err != nil {
-		return guestSkillInventory{}, nil, fmt.Errorf("invalid project skill selection: %w", err)
+		return guestSkillInventory{}, nil, fmt.Errorf("sélection de skills du projet invalide : %w", err)
 	}
 	packages, err := skillPackagesBySelection(m.cfg.ProjectSkillIDs, m.cfg.ProjectSkills)
 	if err != nil {
@@ -101,24 +101,24 @@ func (m *MicrosandboxRuntime) preflightProjectSkills(ctx context.Context) (guest
 func (m *MicrosandboxRuntime) preflightLocalOnlySkillInstructions(ctx context.Context) error {
 	stdout, stderr, code, err := m.execCaptureWithGuestAgentRetry(ctx, readGuestManagedInstructionsScript())
 	if err != nil {
-		return fmt.Errorf("inspect guest managed skill instructions: %w", err)
+		return fmt.Errorf("inspection des instructions de skills gérés dans la machine isolée : %w", err)
 	}
 	if code != 0 {
-		return fmt.Errorf("inspect guest managed skill instructions exited %d: %s", code, strings.TrimSpace(stderr))
+		return fmt.Errorf("l'inspection des instructions de skills gérés dans la machine isolée s'est terminée avec le code %d : %s", code, strings.TrimSpace(stderr))
 	}
 	if len(stdout) > 1<<20 {
-		return fmt.Errorf("guest AGENTS.md exceeds 1 MiB; refusing to inspect managed skill instructions")
+		return fmt.Errorf("AGENTS.md de la machine isolée dépasse 1 Mio ; refus d'inspecter les instructions de skills gérés")
 	}
 	zone, err := managedSkillZone(stdout)
 	if err != nil {
-		return fmt.Errorf("inspect guest managed skill instructions: %w", err)
+		return fmt.Errorf("inspection des instructions de skills gérés dans la machine isolée : %w", err)
 	}
 	// The standing guidance alone is not a pin: only leftover pinned skills
 	// mean versioned instructions survived the switch to host-local skills.
 	if managedZoneHasSkillPins(zone) {
-		return fmt.Errorf("the guest workspace still contains versioned managed skill instructions, but this project now keeps skills host-local; " +
-			"export guest-local changes first with 'codebox workspace export', then run 'codebox workspace sync' while the guest is running. " +
-			"If the host AGENTS.md is missing or excluded from sync, recreate with 'codebox recreate'")
+		return fmt.Errorf("l'espace de travail de la machine isolée contient encore des instructions de skills gérés versionnées, mais ce projet conserve désormais les skills localement sur le poste ; " +
+			"exportez d'abord les modifications locales de la machine isolée avec 'codebox workspace export', puis lancez 'codebox workspace sync' pendant que la machine isolée tourne. " +
+			"Si l'AGENTS.md du poste est absent ou exclu de la synchronisation, recréez avec 'codebox recreate'")
 	}
 	return nil
 }
@@ -127,8 +127,8 @@ func readGuestManagedInstructionsScript() string {
 	target := shellQuote(msbGuestWorkspace + "/AGENTS.md")
 	return "set -eu\n" +
 		"target=" + target + "\n" +
-		"if [ -L \"$target\" ]; then echo 'AGENTS.md is a symlink; refusing to inspect managed instructions' >&2; exit 1; fi\n" +
-		"if [ -e \"$target\" ] && [ ! -f \"$target\" ]; then echo 'AGENTS.md is not a regular file; refusing to inspect managed instructions' >&2; exit 1; fi\n" +
+		"if [ -L \"$target\" ]; then echo 'AGENTS.md est un lien symbolique ; refus d’inspecter les instructions gérées' >&2; exit 1; fi\n" +
+		"if [ -e \"$target\" ] && [ ! -f \"$target\" ]; then echo 'AGENTS.md n’est pas un fichier ordinaire ; refus d’inspecter les instructions gérées' >&2; exit 1; fi\n" +
 		"if [ -f \"$target\" ]; then cat -- \"$target\"; fi\n"
 }
 
@@ -149,12 +149,12 @@ func ensureGuestSkillSelectionCompatible(old guestSkillInventory, desired map[st
 		return nil
 	}
 	if len(old.Skills) != len(desired) {
-		return fmt.Errorf("project skill selection changed; run 'codebox recreate' after exporting guest changes")
+		return fmt.Errorf("la sélection des skills du projet a changé ; lancez 'codebox recreate' après avoir exporté les modifications de la machine isolée")
 	}
 	for _, installed := range old.Skills {
 		pkg, ok := desired[installed.ID]
 		if !ok || pkg.Name != installed.Name || pkg.Lock.Revision != installed.Revision || pkg.Lock.SHA256 != installed.SHA256 {
-			return fmt.Errorf("project skill selection changed; run 'codebox recreate' after exporting guest changes")
+			return fmt.Errorf("la sélection des skills du projet a changé ; lancez 'codebox recreate' après avoir exporté les modifications de la machine isolée")
 		}
 	}
 	return nil
@@ -162,7 +162,7 @@ func ensureGuestSkillSelectionCompatible(old guestSkillInventory, desired map[st
 
 func skillPackagesBySelection(ids []string, packages []SkillPackage) (map[string]SkillPackage, error) {
 	if len(ids) > maxProjectSkills || len(packages) != len(ids) {
-		return nil, fmt.Errorf("project skill selection and resolved archives do not match")
+		return nil, fmt.Errorf("la sélection des skills du projet et les archives résolues ne correspondent pas")
 	}
 	byID := make(map[string]SkillPackage, len(packages))
 	names := make(map[string]string, len(packages))
@@ -170,31 +170,31 @@ func skillPackagesBySelection(ids []string, packages []SkillPackage) (map[string
 	for _, pkg := range packages {
 		if !skillNamePattern.MatchString(pkg.Name) || pkg.ID == "" || !isGitRevision(pkg.Lock.Revision) ||
 			pkg.Lock.Repository != projectSkillsRepository || !isSHA256(pkg.Lock.SHA256) {
-			return nil, fmt.Errorf("invalid resolved project skill %q", pkg.ID)
+			return nil, fmt.Errorf("skill de projet résolu invalide %q", pkg.ID)
 		}
 		if _, duplicate := byID[pkg.ID]; duplicate {
-			return nil, fmt.Errorf("duplicate resolved project skill %q", pkg.ID)
+			return nil, fmt.Errorf("skill de projet résolu en double %q", pkg.ID)
 		}
 		if previous, duplicate := names[pkg.Name]; duplicate {
-			return nil, fmt.Errorf("skills %s and %s share the guest install name %q", previous, pkg.ID, pkg.Name)
+			return nil, fmt.Errorf("les skills %s et %s partagent le nom d'installation %q dans la machine isolée", previous, pkg.ID, pkg.Name)
 		}
 		digest := sha256.Sum256(pkg.Archive)
 		if hex.EncodeToString(digest[:]) != pkg.Lock.SHA256 {
-			return nil, fmt.Errorf("resolved project skill %s failed its SHA-256 integrity check", pkg.ID)
+			return nil, fmt.Errorf("le skill de projet résolu %s a échoué à sa vérification d'intégrité SHA-256", pkg.ID)
 		}
 		totalBytes += int64(len(pkg.Archive))
 		if totalBytes > maxSkillSetBytes {
-			return nil, fmt.Errorf("selected skills exceed the %d-byte guest payload limit", maxSkillSetBytes)
+			return nil, fmt.Errorf("les skills sélectionnés dépassent la limite de charge utile de %d octets pour la machine isolée", maxSkillSetBytes)
 		}
 		if err := validateNormalizedSkillArchive(pkg.Archive, pkg.Name); err != nil {
-			return nil, fmt.Errorf("resolved project skill %s has an invalid archive: %w", pkg.ID, err)
+			return nil, fmt.Errorf("le skill de projet résolu %s a une archive invalide : %w", pkg.ID, err)
 		}
 		byID[pkg.ID] = pkg
 		names[pkg.Name] = pkg.ID
 	}
 	for _, id := range ids {
 		if _, ok := byID[id]; !ok {
-			return nil, fmt.Errorf("project skill %s has no resolved archive", id)
+			return nil, fmt.Errorf("le skill de projet %s n'a aucune archive résolue", id)
 		}
 	}
 	return byID, nil
@@ -203,29 +203,29 @@ func skillPackagesBySelection(ids []string, packages []SkillPackage) (map[string
 func (m *MicrosandboxRuntime) readGuestSkillInventory(ctx context.Context) (guestSkillInventory, error) {
 	stdout, stderr, code, err := m.execCaptureWithGuestAgentRetry(ctx, readGuestSkillInventoryScript(m.cfg.EffectiveHarness()))
 	if err != nil {
-		return guestSkillInventory{}, fmt.Errorf("read guest skill inventory: %w", err)
+		return guestSkillInventory{}, fmt.Errorf("lecture de l'inventaire des skills de la machine isolée : %w", err)
 	}
 	if code != 0 {
-		return guestSkillInventory{}, fmt.Errorf("read guest skill inventory exited %d: %s", code, strings.TrimSpace(stderr))
+		return guestSkillInventory{}, fmt.Errorf("la lecture de l'inventaire des skills de la machine isolée s'est terminée avec le code %d : %s", code, strings.TrimSpace(stderr))
 	}
 	if len(stdout) > 64<<10 {
-		return guestSkillInventory{}, fmt.Errorf("guest skill inventory exceeds 64 KiB")
+		return guestSkillInventory{}, fmt.Errorf("l'inventaire des skills de la machine isolée dépasse 64 Kio")
 	}
 	var inventory guestSkillInventory
 	if err := json.Unmarshal([]byte(stdout), &inventory); err != nil {
-		return inventory, fmt.Errorf("invalid guest skill inventory: %w", err)
+		return inventory, fmt.Errorf("inventaire des skills de la machine isolée invalide : %w", err)
 	}
 	if inventory.SchemaVersion != guestSkillInventorySchema || len(inventory.Skills) > 64 {
-		return inventory, fmt.Errorf("unsupported or oversized guest skill inventory")
+		return inventory, fmt.Errorf("inventaire des skills de la machine isolée non pris en charge ou trop volumineux")
 	}
 	seenIDs, seenNames := map[string]bool{}, map[string]bool{}
 	for _, item := range inventory.Skills {
 		if err := validateSkillIDs([]string{item.ID}, nil); err != nil {
-			return inventory, fmt.Errorf("invalid guest skill inventory: %w", err)
+			return inventory, fmt.Errorf("inventaire des skills de la machine isolée invalide : %w", err)
 		}
 		name := skillNameFromID(item.ID)
 		if item.Name != name || !isGitRevision(item.Revision) || !isSHA256(item.SHA256) || seenIDs[item.ID] || seenNames[item.Name] {
-			return inventory, fmt.Errorf("invalid or duplicate guest skill inventory entry %q", item.ID)
+			return inventory, fmt.Errorf("entrée d'inventaire des skills de la machine isolée invalide ou en double %q", item.ID)
 		}
 		seenIDs[item.ID], seenNames[item.Name] = true, true
 	}
@@ -261,16 +261,16 @@ func readGuestSkillInventoryScript(harness Harness) string {
 	}
 	return "set -eu\n" +
 		"config_home=${XDG_CONFIG_HOME:-\"$HOME/.config\"}\n" +
-		"case \"$config_home\" in /*) ;; *) echo 'XDG_CONFIG_HOME must be absolute' >&2; exit 1 ;; esac\n" +
+		"case \"$config_home\" in /*) ;; *) echo 'XDG_CONFIG_HOME doit être un chemin absolu' >&2; exit 1 ;; esac\n" +
 		"state=\"$config_home/codebox\"\n" +
 		"index=\"$state/project-skills.json\"\n" +
 		"skills=" + skills + "\n" +
-		"if [ -L \"$config_home\" ] || [ -L \"$state\" ] || [ -L \"$index\" ]; then echo 'refusing a symlink in the managed skill state path' >&2; exit 1; fi\n" +
-		"if [ -e \"$state\" ] && [ ! -d \"$state\" ]; then echo 'managed skill state path is not a directory' >&2; exit 1; fi\n" +
-		"if [ -e \"$index\" ] && [ ! -f \"$index\" ]; then echo 'managed skill inventory is not a regular file' >&2; exit 1; fi\n" +
+		"if [ -L \"$config_home\" ] || [ -L \"$state\" ] || [ -L \"$index\" ]; then echo 'lien symbolique refusé dans le chemin d’état des skills gérés' >&2; exit 1; fi\n" +
+		"if [ -e \"$state\" ] && [ ! -d \"$state\" ]; then echo 'le chemin d’état des skills gérés n’est pas un répertoire' >&2; exit 1; fi\n" +
+		"if [ -e \"$index\" ] && [ ! -f \"$index\" ]; then echo 'l’inventaire des skills gérés n’est pas un fichier ordinaire' >&2; exit 1; fi\n" +
 		"if [ -f \"$index\" ]; then cat -- \"$index\"; else\n" +
 		"  for marker in \"$skills\"/*/.codebox-source; do\n" +
-		"    if [ -e \"$marker\" ] || [ -L \"$marker\" ]; then echo 'managed skill directory exists without its project-skill inventory' >&2; exit 1; fi\n" +
+		"    if [ -e \"$marker\" ] || [ -L \"$marker\" ]; then echo 'un répertoire de skills gérés existe sans son inventaire de skills du projet' >&2; exit 1; fi\n" +
 		"  done\n" +
 		"  printf '%s\\n' '{\"schemaVersion\":1,\"skills\":[]}'\n" +
 		"fi\n"
@@ -306,9 +306,9 @@ func (m *MicrosandboxRuntime) preflightGuestSkills(ctx context.Context, old gues
 	for _, name := range names {
 		markers := allowed[name]
 		fmt.Fprintf(&b, "dest=\"$parent/%s\"\n", name)
-		b.WriteString("if [ -L \"$dest\" ]; then echo 'refusing a symlink at a managed skill path' >&2; exit 1; fi\n")
+		b.WriteString("if [ -L \"$dest\" ]; then echo 'lien symbolique refusé à un chemin de skill géré' >&2; exit 1; fi\n")
 		b.WriteString("if [ -e \"$dest\" ]; then\n")
-		b.WriteString("  if [ ! -d \"$dest\" ] || [ ! -f \"$dest/.codebox-source\" ]; then echo 'managed skill path conflicts with user data' >&2; exit 1; fi\n")
+		b.WriteString("  if [ ! -d \"$dest\" ] || [ ! -f \"$dest/.codebox-source\" ]; then echo 'le chemin de skill géré entre en conflit avec des données utilisateur' >&2; exit 1; fi\n")
 		b.WriteString("  marker=$(cat -- \"$dest/.codebox-source\")\n  case \"$marker\" in ")
 		first := true
 		markerValues := make([]string, 0, len(markers))
@@ -323,12 +323,12 @@ func (m *MicrosandboxRuntime) preflightGuestSkills(ctx context.Context, old gues
 			first = false
 			b.WriteString(shellQuote(marker))
 		}
-		b.WriteString(") ;; *) echo 'managed skill pin differs from the approved selection' >&2; exit 1 ;; esac\n")
+		b.WriteString(") ;; *) echo 'l’épinglage du skill géré diffère de la sélection approuvée' >&2; exit 1 ;; esac\n")
 		b.WriteString(guestSkillDirectoryIntegrityScript("$dest"))
 		b.WriteString("fi\n")
 	}
 	if err := m.guestShell(ctx, b.String()); err != nil {
-		return fmt.Errorf("preflight guest skill changes; no managed skill was removed: %w", err)
+		return fmt.Errorf("pré-vérification des changements de skills de la machine isolée ; aucun skill géré n'a été supprimé : %w", err)
 	}
 	return nil
 }
@@ -341,7 +341,7 @@ func guestSkillInventoryOrphanCheckScript(allowedNames []string) string {
 	b.WriteString("  if [ -e \"$marker\" ] || [ -L \"$marker\" ]; then\n")
 	b.WriteString("    name=${dest##*/}\n")
 	if len(allowedNames) == 0 {
-		b.WriteString("    echo 'managed skill directory is missing from the project-skill inventory' >&2; exit 1\n")
+		b.WriteString("    echo 'un répertoire de skills gérés est absent de l’inventaire de skills du projet' >&2; exit 1\n")
 	} else {
 		b.WriteString("    case \"$name\" in ")
 		for i, name := range allowedNames {
@@ -350,7 +350,7 @@ func guestSkillInventoryOrphanCheckScript(allowedNames []string) string {
 			}
 			b.WriteString(name)
 		}
-		b.WriteString(") ;; *) echo 'managed skill directory is missing from the project-skill inventory' >&2; exit 1 ;; esac\n")
+		b.WriteString(") ;; *) echo 'un répertoire de skills gérés est absent de l’inventaire de skills du projet' >&2; exit 1 ;; esac\n")
 	}
 	b.WriteString("  fi\ndone\n")
 	return b.String()
@@ -370,24 +370,24 @@ func guestSkillInventoryOrphanCheckScript(allowedNames []string) string {
 func guestSkillPathsPrelude(harness Harness) string {
 	common := "set -eu\n" +
 		"config_home=${XDG_CONFIG_HOME:-\"$HOME/.config\"}\n" +
-		"case \"$config_home\" in /*) ;; *) echo 'XDG_CONFIG_HOME must be absolute' >&2; exit 1 ;; esac\n"
+		"case \"$config_home\" in /*) ;; *) echo 'XDG_CONFIG_HOME doit être un chemin absolu' >&2; exit 1 ;; esac\n"
 	if harness == HarnessPi {
 		return common +
-			"if [ -z \"${HOME:-}\" ]; then echo 'HOME is not set in the guest' >&2; exit 1; fi\n" +
-			"if [ -L \"$HOME/.pi\" ] || [ -L \"$HOME/.pi/agent\" ] || [ -L \"$HOME/.pi/agent/skills\" ]; then echo 'refusing a symlink in the guest skill path' >&2; exit 1; fi\n" +
+			"if [ -z \"${HOME:-}\" ]; then echo 'HOME n’est pas défini dans la machine isolée' >&2; exit 1; fi\n" +
+			"if [ -L \"$HOME/.pi\" ] || [ -L \"$HOME/.pi/agent\" ] || [ -L \"$HOME/.pi/agent/skills\" ]; then echo 'lien symbolique refusé dans le chemin des skills de la machine isolée' >&2; exit 1; fi\n" +
 			"parent=\"$HOME/.pi/agent/skills\"\n"
 	}
 	return common +
-		"if [ -L \"$config_home/opencode\" ] || [ -L \"$config_home/opencode/skills\" ]; then echo 'refusing a symlink in the guest skill path' >&2; exit 1; fi\n" +
+		"if [ -L \"$config_home/opencode\" ] || [ -L \"$config_home/opencode/skills\" ]; then echo 'lien symbolique refusé dans le chemin des skills de la machine isolée' >&2; exit 1; fi\n" +
 		"parent=\"$config_home/opencode/skills\"\n"
 }
 
 func guestSkillDirectoryIntegrityScript(dest string) string {
-	return "  if [ -L \"" + dest + "/.codebox-checksums\" ] || [ ! -f \"" + dest + "/.codebox-checksums\" ]; then echo 'managed skill integrity file is missing or a symlink' >&2; exit 1; fi\n" +
-		"  if find \"" + dest + "\" ! -type f ! -type d | grep -q .; then echo 'managed skill contains unsupported filesystem entries' >&2; exit 1; fi\n" +
+	return "  if [ -L \"" + dest + "/.codebox-checksums\" ] || [ ! -f \"" + dest + "/.codebox-checksums\" ]; then echo 'le fichier d’intégrité des skills gérés est absent ou est un lien symbolique' >&2; exit 1; fi\n" +
+		"  if find \"" + dest + "\" ! -type f ! -type d | grep -q .; then echo 'un skill géré contient des entrées de système de fichiers non prises en charge' >&2; exit 1; fi\n" +
 		"  expected=$(($(wc -l < \"" + dest + "/.codebox-checksums\") + 2))\n" +
 		"  actual=$(find \"" + dest + "\" ! -type d | wc -l | tr -d '[:space:]')\n" +
-		"  if [ \"$actual\" != \"$expected\" ] || ! (cd \"" + dest + "\" && sha256sum -c .codebox-checksums >/dev/null 2>&1); then echo 'managed skill content was modified; preserving it and refusing reconciliation' >&2; exit 1; fi\n"
+		"  if [ \"$actual\" != \"$expected\" ] || ! (cd \"" + dest + "\" && sha256sum -c .codebox-checksums >/dev/null 2>&1); then echo 'le contenu d’un skill géré a été modifié ; il est préservé et la réconciliation est refusée' >&2; exit 1; fi\n"
 }
 
 func (m *MicrosandboxRuntime) installOneProjectSkill(ctx context.Context, skill SkillPackage, archivePath string) error {
@@ -397,14 +397,14 @@ func (m *MicrosandboxRuntime) installOneProjectSkill(ctx context.Context, skill 
 	fmt.Fprintf(&b, "archive=%s\n", shellQuote(archivePath))
 	fmt.Fprintf(&b, "dest=\"$parent/%s\"\n", skill.Name)
 	fmt.Fprintf(&b, "marker=%s\n", shellQuote(marker))
-	b.WriteString("if [ -L \"$dest\" ]; then echo 'refusing a symlink at the managed skill path' >&2; exit 1; fi\n")
+	b.WriteString("if [ -L \"$dest\" ]; then echo 'lien symbolique refusé au chemin de skill géré' >&2; exit 1; fi\n")
 	b.WriteString("if [ -e \"$dest\" ]; then\n")
-	b.WriteString("  if [ ! -d \"$dest\" ] || [ ! -f \"$dest/.codebox-source\" ]; then echo 'managed skill path conflicts with user data; refusing to overwrite it' >&2; exit 1; fi\n")
-	b.WriteString("  if [ \"$(cat -- \"$dest/.codebox-source\")\" != \"$marker\" ]; then echo 'managed skill pin changed; recreate the guest after exporting guest changes' >&2; exit 1; fi\n")
+	b.WriteString("  if [ ! -d \"$dest\" ] || [ ! -f \"$dest/.codebox-source\" ]; then echo 'le chemin de skill géré entre en conflit avec des données utilisateur ; refus de l’écraser' >&2; exit 1; fi\n")
+	b.WriteString("  if [ \"$(cat -- \"$dest/.codebox-source\")\" != \"$marker\" ]; then echo 'l’épinglage du skill géré a changé ; recréez la machine isolée après avoir exporté les modifications de la machine isolée' >&2; exit 1; fi\n")
 	b.WriteString(guestSkillDirectoryIntegrityScript("$dest"))
 	b.WriteString("  rm -f -- \"$archive\"; exit 0\nfi\n")
 	b.WriteString("if ! (cd \"$(dirname \"$archive\")\" && printf '%s  %s\\n' ")
-	fmt.Fprintf(&b, "%s %s | sha256sum -c - >/dev/null); then echo 'skill archive changed during transfer' >&2; exit 1; fi\n", shellQuote(skill.Lock.SHA256), shellQuote(archivePath))
+	fmt.Fprintf(&b, "%s %s | sha256sum -c - >/dev/null); then echo 'l’archive du skill a changé pendant le transfert' >&2; exit 1; fi\n", shellQuote(skill.Lock.SHA256), shellQuote(archivePath))
 	b.WriteString("mkdir -p -- \"$parent\" \"$config_home/codebox/skill-staging\"\n")
 	fmt.Fprintf(&b, "stage=$(mktemp -d \"$config_home/codebox/skill-staging/%s.XXXXXX\")\n", skill.Name)
 	b.WriteString("mkdir -- \"$stage/new\"\n")
@@ -413,7 +413,7 @@ func (m *MicrosandboxRuntime) installOneProjectSkill(ctx context.Context, skill 
 	b.WriteString("tar -xzf \"$archive\" -C \"$stage/new\"\n")
 	b.WriteString("printf '%s\\n' \"$marker\" > \"$stage/new/.codebox-source\"\n")
 	b.WriteString(guestSkillDirectoryIntegrityScript("$stage/new"))
-	b.WriteString("if [ -e \"$dest\" ]; then echo 'managed skill path appeared during installation; refusing to overwrite it' >&2; exit 1; fi\n")
+	b.WriteString("if [ -e \"$dest\" ]; then echo 'un chemin de skill géré est apparu pendant l’installation ; refus de l’écraser' >&2; exit 1; fi\n")
 	b.WriteString("mv -- \"$stage/new\" \"$dest\"\n")
 	b.WriteString("rm -f -- \"$archive\"\ntrap - EXIT HUP INT TERM\nrmdir -- \"$stage\"\n")
 	return m.guestShell(ctx, b.String())
@@ -424,10 +424,10 @@ func (m *MicrosandboxRuntime) commitGuestSkillInventory(ctx context.Context, des
 	b.WriteString(guestSkillPathsPrelude(m.cfg.EffectiveHarness()))
 	b.WriteString("index=\"$config_home/codebox/project-skills.json\"\n")
 	b.WriteString("mkdir -p -- \"$config_home/codebox\"\n")
-	b.WriteString("if [ -L \"$index\" ]; then echo 'refusing a symlink at the guest skill inventory' >&2; exit 1; fi\n")
+	b.WriteString("if [ -L \"$index\" ]; then echo 'lien symbolique refusé à l’inventaire des skills de la machine isolée' >&2; exit 1; fi\n")
 	fmt.Fprintf(&b, "mv -- %s \"$index\"\nchmod 600 \"$index\"\n", shellQuote(indexArchive))
 	if err := m.guestShell(ctx, b.String()); err != nil {
-		return fmt.Errorf("update guest skill inventory: %w", err)
+		return fmt.Errorf("mise à jour de l'inventaire des skills de la machine isolée : %w", err)
 	}
 	return nil
 }
@@ -483,12 +483,12 @@ func (m *MicrosandboxRuntime) verifyProjectSkills(ctx context.Context) (err erro
 		// A skill reported more than once is a real response anomaly, not a
 		// cold-start race; surface it immediately rather than retrying.
 		if dup := firstDuplicate(expected, returned); dup != "" {
-			return fmt.Errorf("verify guest skill discovery: OpenCode reports the pinned skill %q more than once", dup)
+			return fmt.Errorf("vérification de la découverte des skills dans la machine isolée : OpenCode signale le skill épinglé %q plus d'une fois", dup)
 		}
 		if len(missing) == 0 {
 			return nil
 		}
-		problem = fmt.Errorf("verify guest skill discovery: OpenCode did not discover the pinned skill %q", missing[0])
+		problem = fmt.Errorf("vérification de la découverte des skills dans la machine isolée : OpenCode n'a pas découvert le skill épinglé %q", missing[0])
 		if attempt == msbLaunchAttempts {
 			break
 		}
@@ -504,10 +504,10 @@ func (m *MicrosandboxRuntime) verifyProjectSkills(ctx context.Context) (err erro
 func (m *MicrosandboxRuntime) openCodeServiceStoppedForVerification(ctx context.Context) (bool, error) {
 	stdout, stderr, code, err := m.Client.ExecCapture(ctx, m.InstanceName(), "opencode service status")
 	if err != nil {
-		return false, fmt.Errorf("verify guest skill discovery: inspect OpenCode service status: %w", err)
+		return false, fmt.Errorf("vérification de la découverte des skills : inspection de l'état du service OpenCode : %w", err)
 	}
 	if code != 0 {
-		return false, fmt.Errorf("verify guest skill discovery: opencode service status exited %d: %s", code, strings.TrimSpace(stderr))
+		return false, fmt.Errorf("vérification de la découverte des skills : 'opencode service status' s'est terminé avec le code %d : %s", code, strings.TrimSpace(stderr))
 	}
 	status := strings.TrimSpace(stdout)
 	if status == "stopped" {
@@ -516,16 +516,16 @@ func (m *MicrosandboxRuntime) openCodeServiceStoppedForVerification(ctx context.
 	if strings.HasPrefix(status, "http://127.0.0.1:") {
 		return false, nil
 	}
-	return false, fmt.Errorf("verify guest skill discovery: unrecognized OpenCode service status %q", status)
+	return false, fmt.Errorf("vérification de la découverte des skills : état du service OpenCode non reconnu %q", status)
 }
 
 func (m *MicrosandboxRuntime) stopOpenCodeServiceForVerification(ctx context.Context) error {
 	_, stderr, code, err := m.Client.ExecCapture(ctx, m.InstanceName(), "opencode service stop")
 	if err != nil {
-		return fmt.Errorf("verify guest skill discovery: stop verification-owned OpenCode service: %w", err)
+		return fmt.Errorf("vérification de la découverte des skills : arrêt du service OpenCode utilisé pour la vérification : %w", err)
 	}
 	if code != 0 {
-		return fmt.Errorf("verify guest skill discovery: opencode service stop exited %d: %s", code, strings.TrimSpace(stderr))
+		return fmt.Errorf("vérification de la découverte des skills : 'opencode service stop' s'est terminé avec le code %d : %s", code, strings.TrimSpace(stderr))
 	}
 	return nil
 }
@@ -537,10 +537,10 @@ func (m *MicrosandboxRuntime) stopOpenCodeServiceForVerification(ctx context.Con
 func (m *MicrosandboxRuntime) queryOpenCodeSkillDiscovery(ctx context.Context, expected map[string]bool) (missing, returned []string, err error) {
 	stdout, stderr, code, err := m.Client.ExecCapture(ctx, m.InstanceName(), "opencode api GET /api/skill")
 	if err != nil {
-		return nil, nil, fmt.Errorf("verify guest skill discovery: %w", err)
+		return nil, nil, fmt.Errorf("vérification de la découverte des skills dans la machine isolée : %w", err)
 	}
 	if code != 0 {
-		return nil, nil, fmt.Errorf("verify guest skill discovery: opencode api GET /api/skill exited %d: %s", code, strings.TrimSpace(stderr))
+		return nil, nil, fmt.Errorf("vérification de la découverte des skills : 'opencode api GET /api/skill' s'est terminé avec le code %d : %s", code, strings.TrimSpace(stderr))
 	}
 	var response struct {
 		Data []struct {
@@ -548,7 +548,7 @@ func (m *MicrosandboxRuntime) queryOpenCodeSkillDiscovery(ctx context.Context, e
 		} `json:"data"`
 	}
 	if err := json.Unmarshal([]byte(stdout), &response); err != nil {
-		return nil, nil, fmt.Errorf("verify guest skill discovery: invalid OpenCode response: %w", err)
+		return nil, nil, fmt.Errorf("vérification de la découverte des skills : réponse OpenCode invalide : %w", err)
 	}
 	seen := make(map[string]int, len(expected))
 	for _, item := range response.Data {
@@ -588,12 +588,12 @@ func (m *MicrosandboxRuntime) verifyPiProjectSkills(ctx context.Context) error {
 	b.WriteString(guestSkillPathsPrelude(HarnessPi))
 	for _, skill := range m.cfg.ProjectSkills {
 		fmt.Fprintf(&b, "dest=\"$parent/%s\"\n", skill.Name)
-		b.WriteString("if [ ! -d \"$dest\" ]; then echo \"managed skill directory is missing\" >&2; exit 1; fi\n")
-		b.WriteString("if [ ! -f \"$dest/.codebox-source\" ]; then echo \"managed skill marker is missing\" >&2; exit 1; fi\n")
+		b.WriteString("if [ ! -d \"$dest\" ]; then echo \"le répertoire de skill géré est absent\" >&2; exit 1; fi\n")
+		b.WriteString("if [ ! -f \"$dest/.codebox-source\" ]; then echo \"le marqueur de skill géré est absent\" >&2; exit 1; fi\n")
 		b.WriteString(guestSkillDirectoryIntegrityScript("$dest"))
 	}
 	if err := m.guestShell(ctx, b.String()); err != nil {
-		return fmt.Errorf("verify the pinned skills in the guest: %w", err)
+		return fmt.Errorf("vérification des skills épinglés dans la machine isolée : %w", err)
 	}
 	return nil
 }

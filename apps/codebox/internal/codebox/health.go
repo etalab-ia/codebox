@@ -61,7 +61,7 @@ func readBodyCapped(r io.Reader) ([]byte, error) {
 		return nil, err
 	}
 	if len(b) > maxHTTPBody {
-		return nil, fmt.Errorf("response exceeds %d MiB limit", maxHTTPBody>>20)
+		return nil, fmt.Errorf("la réponse dépasse la limite de %d Mio", maxHTTPBody>>20)
 	}
 	return b, nil
 }
@@ -99,7 +99,7 @@ func FetchJSON(ctx context.Context, client *http.Client, endpoint, username, pas
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("%s%s returned %s", endpoint, path, resp.Status)
+		return fmt.Errorf("%s%s a renvoyé %s", endpoint, path, resp.Status)
 	}
 	b, err := readBodyCapped(resp.Body)
 	if err != nil {
@@ -186,11 +186,11 @@ func WaitHealthy(ctx context.Context, endpoint, username, password string, cfg H
 			if cfg.Quiet {
 				return fmt.Errorf("l'agent n'est pas prêt après %s ; détail : codebox doctor", cfg.Deadline)
 			}
-			return fmt.Errorf("backend at %s did not become healthy within %s (last probe: %s)",
+			return fmt.Errorf("le backend à %s n'est pas devenu sain dans %s (dernière sonde : %s)",
 				endpoint, cfg.Deadline, last.Summary())
 		}
 		if !cfg.Quiet && cfg.Progress != nil && time.Now().After(nextProgress) {
-			fmt.Fprintf(cfg.Progress, "still waiting for the backend at %s (%s elapsed; last probe: %s)\n",
+			fmt.Fprintf(cfg.Progress, "en attente du backend à %s (%s écoulées ; dernière sonde : %s)\n",
 				endpoint, time.Since(start).Round(time.Second), last.Summary())
 			nextProgress = time.Now().Add(cfg.ProgressInterval)
 		}
@@ -215,11 +215,11 @@ type providerList struct {
 func ReportRunningHealth(ctx context.Context, rt Runtime, endpoint, username, password string) {
 	probe := ProbeHealth(ctx, nil, endpoint, username, password)
 	if probe.Healthy {
-		fmt.Printf("%s is running with a healthy OpenCode backend.\n", rt)
+		fmt.Printf("%s est en cours d'exécution avec un backend OpenCode sain.\n", rt)
 		return
 	}
-	fmt.Printf("%s is running but the OpenCode backend is not healthy (%s).\n", rt, probe.Summary())
-	fmt.Printf("  Run 'codebox logs --%s' to see why, or 'codebox restart --%s' to recreate it.\n", rt, rt)
+	fmt.Printf("%s est en cours d'exécution mais le backend OpenCode n'est pas sain (%s).\n", rt, probe.Summary())
+	fmt.Printf("  Lancez 'codebox logs --%s' pour en voir la cause, ou 'codebox restart --%s' pour la recréer.\n", rt, rt)
 }
 
 // CheckBackend reports the health response and Albert provider status of a
@@ -246,9 +246,9 @@ func CheckBackend(ctx context.Context, client *http.Client, endpoint, username, 
 		}
 	}
 	if registered {
-		fmt.Println("albert provider: registered")
+		fmt.Println("fournisseur albert : enregistré")
 	} else {
-		fmt.Println("albert provider: MISSING")
+		fmt.Println("fournisseur albert : ABSENT")
 	}
 	return nil
 }

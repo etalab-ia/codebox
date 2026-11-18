@@ -32,11 +32,11 @@ type Client struct {
 // not be empty; those are caller errors, not network errors.
 func New(baseURL, token string, httpClient *http.Client) (*Client, error) {
 	if strings.TrimSpace(token) == "" {
-		return nil, errors.New("no gateway session token; run codebox secrets login")
+		return nil, errors.New("aucune session de passerelle ; lancez codebox secrets login")
 	}
 	u, err := url.Parse(strings.TrimSpace(baseURL))
 	if err != nil || u.Scheme != "https" || u.Host == "" {
-		return nil, errors.New("gateway URL must be an absolute https URL")
+		return nil, errors.New("l'URL de la passerelle doit être une URL https absolue")
 	}
 	if httpClient == nil {
 		httpClient = &http.Client{Timeout: 30 * time.Second}
@@ -55,10 +55,10 @@ func trustedOriginHTTPClient(trusted *url.URL, client *http.Client) *http.Client
 	previous := cloned.CheckRedirect
 	cloned.CheckRedirect = func(req *http.Request, via []*http.Request) error {
 		if len(via) >= 10 {
-			return errors.New("stopped after 10 gateway redirects")
+			return errors.New("arrêt après 10 redirections de la passerelle")
 		}
 		if !sameOrigin(trusted, req.URL) {
-			return errors.New("refusing redirect outside the trusted gateway origin")
+			return errors.New("redirection refusée hors de l'origine de confiance de la passerelle")
 		}
 		if previous != nil {
 			return previous(req, via)
@@ -172,7 +172,7 @@ func ExchangeTicket(ctx context.Context, baseURL, code string, httpClient *http.
 	}
 	trusted, err := url.Parse(strings.TrimSuffix(baseURL, "/"))
 	if err != nil {
-		return out, fmt.Errorf("gateway login URL: %w", err)
+		return out, fmt.Errorf("URL de connexion à la passerelle : %w", err)
 	}
 	httpClient = trustedOriginHTTPClient(trusted, httpClient)
 	// The gateway treats the ticket itself as the bearer; no PKCE verifier is
@@ -189,18 +189,18 @@ func ExchangeTicket(ctx context.Context, baseURL, code string, httpClient *http.
 	req.Header.Set("Content-Type", "application/json")
 	resp, err := httpClient.Do(req)
 	if err != nil {
-		return out, fmt.Errorf("gateway login: %w", err)
+		return out, fmt.Errorf("connexion à la passerelle : %w", err)
 	}
 	defer func() { _ = resp.Body.Close() }()
 	body, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 	if err != nil {
-		return out, fmt.Errorf("gateway login response unreadable: %w", err)
+		return out, fmt.Errorf("réponse de connexion à la passerelle illisible : %w", err)
 	}
 	if resp.StatusCode != http.StatusOK {
 		return out, decodeAPIError(resp.StatusCode, body)
 	}
 	if err := json.Unmarshal(body, &out); err != nil {
-		return out, fmt.Errorf("gateway login response is not valid JSON: %w", err)
+		return out, fmt.Errorf("la réponse de connexion à la passerelle n'est pas du JSON valide : %w", err)
 	}
 	return out, nil
 }
@@ -210,7 +210,7 @@ func (c *Client) do(ctx context.Context, method, path string, payload any, out a
 	if payload != nil {
 		raw, err := json.Marshal(payload)
 		if err != nil {
-			return fmt.Errorf("gateway request could not be encoded: %w", err)
+			return fmt.Errorf("échec de l'encodage de la requête vers la passerelle : %w", err)
 		}
 		body = bytes.NewReader(raw)
 	}
@@ -225,12 +225,12 @@ func (c *Client) do(ctx context.Context, method, path string, payload any, out a
 	req.Header.Set("Accept", "application/json")
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
-		return fmt.Errorf("gateway is unreachable: %w", err)
+		return fmt.Errorf("passerelle injoignable : %w", err)
 	}
 	defer func() { _ = resp.Body.Close() }()
 	raw, err := io.ReadAll(io.LimitReader(resp.Body, 4<<20))
 	if err != nil {
-		return fmt.Errorf("gateway response unreadable: %w", err)
+		return fmt.Errorf("réponse de la passerelle illisible : %w", err)
 	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		return decodeAPIError(resp.StatusCode, raw)
@@ -239,7 +239,7 @@ func (c *Client) do(ctx context.Context, method, path string, payload any, out a
 		return nil
 	}
 	if err := json.Unmarshal(raw, out); err != nil {
-		return fmt.Errorf("gateway response is not valid JSON: %w", err)
+		return fmt.Errorf("la réponse de la passerelle n'est pas du JSON valide : %w", err)
 	}
 	return nil
 }
@@ -247,9 +247,9 @@ func (c *Client) do(ctx context.Context, method, path string, payload any, out a
 func decodeAPIError(status int, raw []byte) error {
 	var apiErr secrets.APIError
 	if err := json.Unmarshal(raw, &apiErr); err == nil && apiErr.Code != "" {
-		return fmt.Errorf("gateway %d: %w", status, apiErr)
+		return fmt.Errorf("passerelle %d : %w", status, apiErr)
 	}
-	return fmt.Errorf("gateway returned HTTP %d", status)
+	return fmt.Errorf("la passerelle a renvoyé HTTP %d", status)
 }
 
 // NewInsecureForTest builds a client against a plaintext httptest URL. It is

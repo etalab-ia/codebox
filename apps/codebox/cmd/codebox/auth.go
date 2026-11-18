@@ -24,7 +24,7 @@ import (
 //	auth use-fallback [albert]
 func authCmd(args []string) (int, error) {
 	if len(args) == 0 {
-		fmt.Fprintln(os.Stderr, "Usage: codebox auth add|status|remove [kind] [--stdin] [--fallback] | auth use-fallback [kind]")
+		fmt.Fprintln(os.Stderr, "Usage : codebox auth add|status|remove [kind] [--stdin] [--fallback] | auth use-fallback [kind]")
 		return 2, nil
 	}
 	switch args[0] {
@@ -37,7 +37,7 @@ func authCmd(args []string) (int, error) {
 	case "use-fallback":
 		return authUseFallbackCmd(args[1:])
 	default:
-		return 2, fmt.Errorf("Unknown auth command: %s (expected add, status, remove or use-fallback)", args[0])
+		return 2, fmt.Errorf("commande auth inconnue : %s (attendu : add, status, remove ou use-fallback)", args[0])
 	}
 }
 
@@ -57,10 +57,10 @@ func parseAuthArgs(args []string) (codebox.CredentialKind, bool, bool, error) {
 			fallback = true
 		default:
 			if strings.HasPrefix(a, "-") {
-				return kind, stdin, fallback, fmt.Errorf("Unknown credential kind or flag: %s (expected albert, mistral, openai-compatible, github, context7, --stdin or --fallback)", a)
+				return kind, stdin, fallback, fmt.Errorf("type d'identifiant ou option inconnu : %s (attendu : albert, mistral, openai-compatible, github, context7, --stdin ou --fallback)", a)
 			}
 			if !codebox.IsKnownCredentialKind(a) {
-				return kind, stdin, fallback, fmt.Errorf("Unknown credential kind: %s (expected albert, mistral, openai-compatible, github or context7)", a)
+				return kind, stdin, fallback, fmt.Errorf("type d'identifiant inconnu : %s (attendu : albert, mistral, openai-compatible, github ou context7)", a)
 			}
 			kind = codebox.CredentialKind(a)
 		}
@@ -78,7 +78,7 @@ func authStore(fallback bool) (codebox.CredentialStore, error) {
 	}
 	s := codebox.DefaultCredentialStore()
 	if s == nil {
-		return nil, fmt.Errorf("no native credential store on this platform; pass --fallback to use the owner-only file store after consenting")
+		return nil, fmt.Errorf("aucun trousseau natif sur cette plateforme ; indiquez --fallback pour utiliser le magasin de fichiers réservé au propriétaire après consentement")
 	}
 	return s, nil
 }
@@ -91,7 +91,7 @@ func readSecret(stdin bool) (string, error) {
 	if stdin || !isTTY() {
 		line, err := bufio.NewReader(os.Stdin).ReadString('\n')
 		if err != nil && err != io.EOF {
-			return "", fmt.Errorf("read secret from stdin: %w", err)
+			return "", fmt.Errorf("lire le secret depuis l'entrée standard : %w", err)
 		}
 		return strings.TrimSpace(line), nil
 	}
@@ -99,13 +99,13 @@ func readSecret(stdin bool) (string, error) {
 	// helper is best-effort; a terminal that cannot be configured still
 	// reads a line, and the user is warned on the line above.
 	if wizardHuhFn() {
-		value, err := huhSecret("Secret", "Input hidden. The secret is stored in the OS-native credential store.")
+		value, err := huhSecret("Secret", "Saisie masquée. Le secret est enregistré dans le trousseau natif du système.")
 		if err != nil {
 			return "", err
 		}
 		return strings.TrimSpace(value), nil
 	}
-	fmt.Print("Enter the secret (input hidden where the terminal supports it): ")
+	fmt.Print("Saisissez le secret (saisie masquée lorsque le terminal le permet) : ")
 	value, err := readPassword()
 	fmt.Println()
 	if err != nil {
@@ -120,7 +120,7 @@ func authAddCmd(args []string) (int, error) {
 		return 2, err
 	}
 	if !useStdin && isTTY() && !stdoutIsTTY() {
-		return 1, fmt.Errorf("interactive auth add requires stdout to be a terminal; stdout is redirected or points at %s", os.DevNull)
+		return 1, fmt.Errorf("auth add interactif exige que la sortie standard soit un terminal ; elle est redirigée ou pointe vers %s", os.DevNull)
 	}
 	store, err := authStore(fallback)
 	if err != nil {
@@ -139,7 +139,7 @@ func authAddCmd(args []string) (int, error) {
 		return 1, err
 	}
 	if value == "" {
-		return 1, fmt.Errorf("empty secret; nothing was stored")
+		return 1, fmt.Errorf("secret vide ; rien n'a été enregistré")
 	}
 	if err := store.Put(context.Background(), kind, value); err != nil {
 		return 1, err
@@ -158,9 +158,9 @@ func authAddCmd(args []string) (int, error) {
 		// fall back to the native-first chain and — on a host without a D-Bus
 		// session — fail to reach the credential just written. Reporting
 		// success here would be exactly the false reassurance #201 is about.
-		return 1, fmt.Errorf("stored the %q credential in the %s store, but could not record that choice (%w); the next start may look in the native store instead", kind, store.Kind(), err)
+		return 1, fmt.Errorf("identifiant %q enregistré dans le magasin %s, mais ce choix n'a pas pu être consigné (%w) ; le prochain démarrage pourrait chercher dans le magasin natif à la place", kind, store.Kind(), err)
 	}
-	fmt.Printf("Stored credential %q in the %s store. It is referenced by name (credentialRef), never written to a project file.\n", kind, store.Kind())
+	fmt.Printf("Identifiant %q enregistré dans le magasin %s. Il est référencé par son nom (credentialRef), jamais écrit dans un fichier de projet.\n", kind, store.Kind())
 	return 0, nil
 }
 
@@ -182,12 +182,12 @@ func authUseFallbackCmd(args []string) (int, error) {
 		return 1, err
 	}
 	if !store.HasCredential(kind) {
-		return 1, fmt.Errorf("no %q credential in the file store: store one first with 'codebox auth add %s --fallback'", kind, kind)
+		return 1, fmt.Errorf("aucun identifiant %q dans le magasin de fichiers : enregistrez-en un d'abord avec 'codebox auth add %s --fallback'", kind, kind)
 	}
 	if err := codebox.RecordCredentialStore(codebox.DefaultStateDir(), kind, store.Kind()); err != nil {
 		return 1, err
 	}
-	fmt.Printf("Recorded that %q is stored in the %s store. Future starts read it from there; the value is not read or changed by this command.\n", kind, store.Kind())
+	fmt.Printf("Enregistré que %q se trouve dans le magasin %s. Les prochains démarrages le liront là ; la valeur n'est ni lue ni modifiée par cette commande.\n", kind, store.Kind())
 	return 0, nil
 }
 
@@ -204,39 +204,39 @@ func authStatusCmd() (int, error) {
 				continue
 			}
 			if store, definite := codebox.CredentialStoreForRead(codebox.DefaultStateDir(), kind); definite {
-				fmt.Printf("%s: read from the %s store\n", kind, store)
+				fmt.Printf("%s : lu depuis le magasin %s\n", kind, store)
 				continue
 			}
 			// A native record is where the value was last written, not a pin:
 			// resolution still falls through to the file when the native entry
 			// is gone, so promising the native store would contradict `start`.
-			fmt.Printf("%s: last written to the %s store (a start falls through to the file store if it is missing there)\n", kind, recorded)
+			fmt.Printf("%s : dernière écriture dans le magasin %s (un démarrage se rabat sur le magasin de fichiers s'il y est absent)\n", kind, recorded)
 		}
 	}()
 	native := codebox.DefaultCredentialStore()
-	fmt.Printf("Native store: %s\n", codebox.StoreAvailability())
+	fmt.Printf("Trousseau natif : %s\n", codebox.StoreAvailability())
 	if native != nil {
 		if err := native.Verify(ctx); err != nil {
 			var se *codebox.StoreError
 			if errors.As(err, &se) {
-				fmt.Printf("  state: %s (%s)\n", se.State, se.Err)
+				fmt.Printf("  état : %s (%s)\n", se.State, se.Err)
 			} else {
-				fmt.Printf("  state: error (%v)\n", err)
+				fmt.Printf("  état : erreur (%v)\n", err)
 			}
 		} else {
 			// The probe is read-only by contract, so it cannot prove a write
 			// will succeed: a keyring whose collection is locked answers a
 			// lookup and then refuses to store. Saying so here is the
 			// difference between "reachable" and "usable".
-			fmt.Println("  state: reachable (read-only probe; a locked collection can still refuse writes)")
+			fmt.Println("  état : joignable (sonde en lecture seule ; une collection verrouillée peut encore refuser les écritures)")
 		}
 		for _, kind := range codebox.KnownCredentialKinds() {
 			if _, err := native.Get(ctx, kind); err == nil {
-				fmt.Printf("  %s: stored\n", kind)
+				fmt.Printf("  %s : enregistré\n", kind)
 			} else if codebox.IsCredentialNotFound(err) {
-				fmt.Printf("  %s: not stored\n", kind)
+				fmt.Printf("  %s : non enregistré\n", kind)
 			} else {
-				fmt.Printf("  %s: unreadable (%v)\n", kind, err)
+				fmt.Printf("  %s : illisible (%v)\n", kind, err)
 			}
 		}
 	}
@@ -245,14 +245,14 @@ func authStatusCmd() (int, error) {
 	if err == nil {
 		if err := fileStore.Verify(ctx); err != nil {
 			if errors.Is(err, codebox.ErrFileStoreAbsent) {
-				fmt.Println("File fallback: absent (never created; 'auth add --fallback' consents to it)")
+				fmt.Println("Magasin de fichiers de secours : absent (jamais créé ; 'auth add --fallback' y consent)")
 				return 0, nil
 			}
 			var se *codebox.StoreError
 			if errors.As(err, &se) {
-				fmt.Printf("File fallback: %s (%s)\n", se.State, se.Err)
+				fmt.Printf("Magasin de fichiers de secours : %s (%s)\n", se.State, se.Err)
 			} else {
-				fmt.Printf("File fallback: error (%v)\n", err)
+				fmt.Printf("Magasin de fichiers de secours : erreur (%v)\n", err)
 			}
 			return 0, nil
 		}
@@ -263,9 +263,9 @@ func authStatusCmd() (int, error) {
 			}
 		}
 		if len(stored) > 0 {
-			fmt.Printf("File fallback: present, stored: %s\n", strings.Join(stored, ", "))
+			fmt.Printf("Magasin de fichiers de secours : présent, contient : %s\n", strings.Join(stored, ", "))
 		} else {
-			fmt.Println("File fallback: present, nothing stored")
+			fmt.Println("Magasin de fichiers de secours : présent, rien d'enregistré")
 		}
 	}
 	return 0, nil
@@ -323,23 +323,23 @@ func authRemoveCmd(args []string) (int, error) {
 		return 1, err
 	}
 	for _, name := range report.LiveRevoked {
-		fmt.Printf("Revoked %q from the running sandbox %s.\n", kind, name)
+		fmt.Printf("Identifiant %q révoqué sur la machine isolée en cours d'exécution %s.\n", kind, name)
 	}
 	for _, name := range report.StoppedCleared {
-		fmt.Printf("Cleared the persisted %q reference from %s (effective at its next start).\n", kind, name)
+		fmt.Printf("Référence persistante de %q effacée de %s (effective à son prochain démarrage).\n", kind, name)
 	}
 	if len(report.Revolved) > 0 {
-		fmt.Printf("Guest bindings revoked: %s.\n", strings.Join(report.Revolved, ", "))
+		fmt.Printf("Liaisons de la machine isolée révoquées : %s.\n", strings.Join(report.Revolved, ", "))
 	}
 	if report.PlaceholderDangles {
-		fmt.Fprintf(os.Stderr, "Warning: a running guest keeps the now-inert %s placeholder in its environment until it restarts; requests to the formerly allowed host will fail, but the placeholder string itself is disclosed. Restart the instance to clear it.\n", kind)
+		fmt.Fprintf(os.Stderr, "Attention : une machine isolée en cours d'exécution conserve dans son environnement le marqueur %s désormais inerte jusqu'à son redémarrage ; les requêtes vers l'hôte auparavant autorisé échoueront, mais la chaîne du marqueur elle-même est divulguée. Redémarrez l'instance pour l'effacer.\n", kind)
 	}
 	if len(report.Pending) > 0 {
-		fmt.Fprintf(os.Stderr, "Note: the source of %q could not be confirmed for %v; their bindings were revoked rather than left in place. Restart or recreate them to drop any dangling reference.\n", kind, report.Pending)
+		fmt.Fprintf(os.Stderr, "Remarque : la source de %q n'a pas pu être confirmée pour %v ; leurs liaisons ont été révoquées plutôt que laissées en place. Redémarrez-les ou recréez-les pour supprimer toute référence orpheline.\n", kind, report.Pending)
 	}
 	if err := store.Remove(context.Background(), kind); err != nil {
 		if codebox.IsCredentialNotFound(err) {
-			fmt.Printf("No %q credential stored in the %s store.\n", kind, store.Kind())
+			fmt.Printf("Aucun identifiant %q enregistré dans le magasin %s.\n", kind, store.Kind())
 			return 0, nil
 		}
 		return 1, err
@@ -348,6 +348,6 @@ func authRemoveCmd(args []string) (int, error) {
 	// store: the other store may still hold the kind, and its own record must
 	// keep pointing at it.
 	_ = codebox.ForgetCredentialStore(codebox.DefaultStateDir(), kind, store.Kind())
-	fmt.Printf("Removed credential %q from the %s store.\n", kind, store.Kind())
+	fmt.Printf("Identifiant %q supprimé du magasin %s.\n", kind, store.Kind())
 	return 0, nil
 }

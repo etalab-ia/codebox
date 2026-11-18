@@ -101,7 +101,7 @@ func TestDotenvLiteralRefusesACarriageReturn(t *testing.T) {
 		if err == nil {
 			t.Fatalf("%s must be refused: a quoted value is normalised and a raw one ends at the CR", name)
 		}
-		if !strings.Contains(err.Error(), "carriage return") {
+		if !strings.Contains(err.Error(), "retour chariot") {
 			t.Fatalf("%s: the refusal must name the carriage return: %v", name, err)
 		}
 	}
@@ -264,7 +264,7 @@ func TestDotenvLiteralRefusesOnlyWhenBothFormsFail(t *testing.T) {
 		if err == nil {
 			t.Fatalf("%s (%q) must be refused: neither form can carry it", name, value)
 		}
-		if !strings.Contains(err.Error(), "quoted:") || !strings.Contains(err.Error(), "unquoted:") {
+		if !strings.Contains(err.Error(), "entre guillemets") || !strings.Contains(err.Error(), "sans guillemets") {
 			t.Fatalf("%s: the refusal must name both forms: %v", name, err)
 		}
 	}
@@ -332,7 +332,7 @@ func TestDotenvLiteralRefusalNamesBothForms(t *testing.T) {
 		if err == nil {
 			t.Fatalf("%s must be refused: neither form can carry it", name)
 		}
-		for _, want := range []string{"quoted:", "unquoted:"} {
+		for _, want := range []string{"entre guillemets", "sans guillemets"} {
 			if !strings.Contains(err.Error(), want) {
 				t.Fatalf("the refusal must explain both attempts (%q missing): %v", want, err)
 			}

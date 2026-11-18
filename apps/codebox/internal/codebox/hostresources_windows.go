@@ -25,7 +25,7 @@ func hostMemoryBytes() (uint64, error) {
 	proc := syscall.NewLazyDLL("kernel32.dll").NewProc("GlobalMemoryStatusEx")
 	result, _, callErr := proc.Call(uintptr(unsafe.Pointer(&status)))
 	if result == 0 {
-		return 0, fmt.Errorf("query Windows host memory: %w", callErr)
+		return 0, fmt.Errorf("interrogation de la mémoire du poste Windows : %w", callErr)
 	}
 	return status.totalPhys, nil
 }

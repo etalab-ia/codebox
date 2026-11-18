@@ -1,4 +1,4 @@
-#Requires -Version 5.1
+﻿#Requires -Version 5.1
 [CmdletBinding()]
 param()
 
@@ -18,11 +18,11 @@ function Get-CodeboxReleaseMetadataFromUri {
 
 	$tagPrefix = "/$script:CodeboxRepository/releases/tag/"
 	if ($Uri.Scheme -ne 'https' -or $Uri.Host -ine 'github.com' -or -not $Uri.AbsolutePath.StartsWith($tagPrefix, [System.StringComparison]::Ordinal)) {
-		throw "Unexpected GitHub release URL '$Uri'."
+		throw "URL de release GitHub inattendue : '$Uri'."
 	}
 	$tag = $Uri.AbsolutePath.Substring($tagPrefix.Length)
 	if (-not $tag -or $tag.Contains('/')) {
-		throw "Unexpected GitHub release URL '$Uri'."
+		throw "URL de release GitHub inattendue : '$Uri'."
 	}
 	[pscustomobject]@{ tag_name = $tag }
 }
@@ -37,7 +37,7 @@ function Get-CodeboxLatestRelease {
 		$resolvedUri = $baseResponse.RequestMessage.RequestUri
 	}
 	if (-not $resolvedUri) {
-		throw 'GitHub did not return a resolved release URL.'
+		throw "GitHub n'a pas renvoyé d'URL de release résolue."
 	}
 	Get-CodeboxReleaseMetadataFromUri -Uri $resolvedUri
 }
@@ -48,7 +48,7 @@ function Get-CodeboxAssetName {
 	switch ($Architecture.ToUpperInvariant()) {
 		{ $_ -in @('AMD64', 'X64') } { return 'codebox-windows-x64.exe' }
 		'ARM64' { return 'codebox-windows-arm64.exe' }
-		default { throw "Unsupported Windows architecture '$Architecture'; supported targets are x64 and arm64." }
+		default { throw "architecture Windows non prise en charge : '$Architecture' ; architectures prises en charge : x64 et arm64." }
 	}
 }
 
@@ -64,7 +64,7 @@ function Save-CodeboxReleaseAsset {
 
 	Invoke-WebRequest -Uri $Uri -OutFile $Path -UserAgent 'codebox-installer' -MaximumRedirection 10 -TimeoutSec 300 -UseBasicParsing -ErrorAction Stop
 	if (-not (Test-Path -LiteralPath $Path -PathType Leaf) -or (Get-Item -LiteralPath $Path).Length -eq 0) {
-		throw "Download was empty: $Uri"
+		throw "Téléchargement vide : $Uri"
 	}
 }
 
@@ -89,7 +89,7 @@ function Replace-CodeboxBinary {
 		try {
 			[System.IO.File]::Replace($StagedPath, $TargetPath, $BackupPath)
 		} catch {
-			throw "Could not atomically replace $TargetPath. Close any running codebox processes, check write access, and retry. The current executable was not replaced. Details: $($_.Exception.Message)"
+			throw "remplacement atomique de $TargetPath impossible. Fermez les processus codebox en cours, vérifiez les droits d'écriture, puis réessayez. L'exécutable actuel n'a pas été remplacé. Détails : $($_.Exception.Message)"
 		}
 	} else {
 		[System.IO.File]::Move($StagedPath, $TargetPath)
@@ -104,7 +104,7 @@ function Install-Codebox {
 	)
 
 	if (-not (Test-CodeboxWindows)) {
-		throw 'This installer supports Windows only; use install.sh on macOS or Linux.'
+		throw "Cet installateur ne prend en charge que Windows ; utilisez install.sh sur macOS ou Linux."
 	}
 
 	if (-not $Architecture) {
@@ -115,7 +115,7 @@ function Install-Codebox {
 
 	if (-not $InstallDirectory) {
 		if (-not $env:LOCALAPPDATA) {
-			throw 'LOCALAPPDATA is not set; cannot choose a user-owned installation directory.'
+			throw "LOCALAPPDATA n'est pas définie ; impossible de choisir un répertoire d'installation propre à l'utilisateur."
 		}
 		$InstallDirectory = Join-Path $env:LOCALAPPDATA 'Programs/codebox'
 	}
@@ -124,7 +124,7 @@ function Install-Codebox {
 	if (Test-Path -LiteralPath $InstallDirectory) {
 		$installItem = Get-Item -LiteralPath $InstallDirectory -Force
 		if (-not $installItem.PSIsContainer) {
-			throw "$InstallDirectory is not a directory."
+			throw "$InstallDirectory n'est pas un répertoire."
 		}
 	} else {
 		$null = New-Item -ItemType Directory -Path $InstallDirectory -Force
@@ -134,7 +134,7 @@ function Install-Codebox {
 	if (Test-Path -LiteralPath $target) {
 		$current = Get-Item -LiteralPath $target -Force
 		if ($current.PSIsContainer -or ($current.Attributes -band [System.IO.FileAttributes]::ReparsePoint)) {
-			throw "$target is not a regular file; refusing to replace it."
+			throw "$target n'est pas un fichier ordinaire ; remplacement refusé."
 		}
 	}
 
@@ -144,7 +144,7 @@ function Install-Codebox {
 		$release = Get-CodeboxLatestRelease
 		$tag = [string]$release.tag_name
 		if ($tag -notmatch '^codebox-v?\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$') {
-			throw "Unexpected GitHub release tag '$tag'."
+			throw "Étiquette de release GitHub inattendue : '$tag'."
 		}
 
 		$binaryPath = Join-Path $tempDirectory $asset
@@ -158,7 +158,7 @@ function Install-Codebox {
 			Save-CodeboxReleaseAsset -Uri $binaryUri -Path $binaryPath
 			Save-CodeboxReleaseAsset -Uri $checksumUri -Path $checksumPath
 		} catch {
-			throw "Download from release $tag failed: $($_.Exception.Message). If the release was just announced, its binaries may still be publishing: retry in a few minutes. Release files: https://github.com/$script:CodeboxRepository/releases/tag/$tag"
+			throw "Téléchargement depuis la release $tag impossible : $($_.Exception.Message). Si la release vient d'être annoncée, ses binaires sont peut-être en cours de publication : réessayez dans quelques minutes. Fichiers de la release : https://github.com/$script:CodeboxRepository/releases/tag/$tag"
 		}
 
 		$checksumText = [System.IO.File]::ReadAllText($checksumPath, [System.Text.Encoding]::ASCII)
@@ -166,12 +166,12 @@ function Install-Codebox {
 			$_.Groups['name'].Value -ceq $asset
 		})
 		if ($rows.Count -ne 1) {
-			throw "SHA256SUMS from release $tag does not contain exactly one entry for $asset."
+			throw "SHA256SUMS de la release $tag ne contient pas exactement une entrée pour $asset."
 		}
 		$expected = $rows[0].Groups['hash'].Value.ToLowerInvariant()
 		$actual = (Get-FileHash -LiteralPath $binaryPath -Algorithm SHA256).Hash.ToLowerInvariant()
 		if ($actual -cne $expected) {
-			throw "Checksum mismatch for $asset; the existing installation was not changed."
+			throw "somme de contrôle non concordante pour $asset ; l'installation existante est inchangée."
 		}
 
 		Replace-CodeboxBinary -StagedPath $binaryPath -TargetPath $target -BackupPath $backup
@@ -179,20 +179,20 @@ function Install-Codebox {
 		$setupExitCode = Invoke-CodeboxSetup -Path $target
 		if ($setupExitCode -ne 0) {
 			$recovery = if (Test-Path -LiteralPath $backup) {
-				' Previous binary retained at codebox.previous.exe for rollback.'
+				' Le binaire précédent est conservé dans codebox.previous.exe pour le retour arrière.'
 			} else {
 				''
 			}
-			throw "codebox was installed, but setup exited with status $setupExitCode.$recovery"
+			throw "codebox est installé, mais la configuration s'est arrêtée avec le code de sortie $setupExitCode.$recovery"
 		}
 
-		Write-Host "Installed $asset from release $tag at $target"
+		Write-Host "Installé $asset depuis la release $tag dans $target"
 		$pathEntries = @($env:Path -split ';' | ForEach-Object { $_.TrimEnd('\') })
 		if (-not ($pathEntries | Where-Object { $_ -ieq $InstallDirectory.TrimEnd('\') })) {
-			Write-Host 'Add the installation directory to PATH for future shells. For this PowerShell session run:'
+			Write-Host "Ajoutez le répertoire d'installation à PATH pour les prochains shells. Pour cette session PowerShell, lancez :"
 			$pathLiteral = $InstallDirectory.Replace("'", "''")
 			Write-Host "  `$env:Path = '$pathLiteral;' + `$env:Path"
-			Write-Host 'The installer does not edit user profiles or environment settings.'
+			Write-Host "L'installateur ne modifie ni les profils utilisateur ni les paramètres d'environnement."
 		}
 	} finally {
 		if (Test-Path -LiteralPath $tempDirectory) {
@@ -205,7 +205,7 @@ if ($MyInvocation.InvocationName -ne '.') {
 	try {
 		Install-Codebox
 	} catch {
-		[Console]::Error.WriteLine("codebox installer: {0}", $_.Exception.Message)
+		[Console]::Error.WriteLine("installateur codebox : {0}", $_.Exception.Message)
 		exit 1
 	}
 }

@@ -88,7 +88,7 @@ func (d *Dispatcher) WaitLaunchReady(ctx context.Context, b Backend) error {
 		health.Progress = os.Stderr
 	}
 	if err := WaitHealthy(ctx, endpoint, d.cfg.Username, d.cfg.Password, health, nil); err != nil {
-		return fmt.Errorf("%w\n  Run 'codebox logs' to inspect the backend", err)
+		return fmt.Errorf("%w\n  Lancez 'codebox logs' pour inspecter le backend", err)
 	}
 	return nil
 }
@@ -140,7 +140,7 @@ func (d *Dispatcher) SetOpenCodeOverlay(o ManagedOverlay) {
 func (d *Dispatcher) Backend(rt Runtime) (Backend, error) {
 	b, ok := d.backends[rt]
 	if !ok {
-		return nil, fmt.Errorf("unknown runtime %q", rt)
+		return nil, fmt.Errorf("runtime inconnu %q", rt)
 	}
 	return b, nil
 }
@@ -174,7 +174,7 @@ func (d *Dispatcher) SingleRunning(ctx context.Context) (Runtime, error) {
 	case 1:
 		return running[0], nil
 	default:
-		return "", fmt.Errorf("multiple codebox runtimes are running; run `codebox stop` first")
+		return "", fmt.Errorf("plusieurs runtimes codebox sont en cours d'exécution ; lancez d'abord `codebox stop`")
 	}
 }
 
@@ -415,7 +415,7 @@ func (d *Dispatcher) Check(ctx context.Context, client *http.Client) error {
 			return err
 		}
 		fmt.Println(state)
-		fmt.Printf("isolation full: the %s session runs interactively inside the guest (no health endpoint).\n", d.cfg.EffectiveHarness().DisplayName())
+		fmt.Printf("isolation complète : la session %s s'exécute de façon interactive dans la machine isolée (aucun point de terminaison de santé).\n", d.cfg.EffectiveHarness().DisplayName())
 		if rt == RuntimeMicrosandbox {
 			d.probePublishedPorts(ctx)
 		}
@@ -464,7 +464,7 @@ func (d *Dispatcher) probePublishedPorts(ctx context.Context) {
 	}
 	applied, err := ab.AppliedPortMappings(ctx)
 	if err != nil {
-		fmt.Printf("port reachability: could not read the running sandbox's applied mappings (%v); not probing configured ports.\n", err)
+		fmt.Printf("accessibilité des ports : impossible de lire les mappages appliqués de la machine isolée en cours d'exécution (%v) ; les ports configurés ne sont pas testés.\n", err)
 		return
 	}
 	appliedSet := make(map[PortMapping]bool, len(applied))
@@ -481,7 +481,7 @@ func (d *Dispatcher) probePublishedPorts(ctx context.Context) {
 			live = append(live, pm)
 			continue
 		}
-		fmt.Printf("port %d (guest %d): configured but not forwarded by the running sandbox; run 'codebox recreate --microsandbox' to apply.\n", pm.Host, pm.Guest)
+		fmt.Printf("port %d (machine isolée %d) : configuré mais non transmis par la machine isolée en cours d'exécution ; lancez 'codebox recreate --microsandbox' pour l'appliquer.\n", pm.Host, pm.Guest)
 	}
 	for _, pm := range applied {
 		// The OpenCode backend's own server forward is not a user
@@ -491,7 +491,7 @@ func (d *Dispatcher) probePublishedPorts(ctx context.Context) {
 			continue
 		}
 		if !desiredSet[pm] {
-			fmt.Printf("port %d (guest %d): still forwarded until the sandbox is recreated (removed from the project's port mappings).\n", pm.Host, pm.Guest)
+			fmt.Printf("port %d (machine isolée %d) : encore transmis jusqu'à la recréation de la machine isolée (retiré des mappages de ports du projet).\n", pm.Host, pm.Guest)
 		}
 	}
 	d.probePortMappings(ctx, live)
@@ -521,7 +521,7 @@ func (d *Dispatcher) probePortMappings(ctx context.Context, mappings []PortMappi
 	for _, pm := range mappings {
 		remaining := time.Until(deadline)
 		if remaining <= 0 {
-			fmt.Printf("port %d (guest %d): not probed; the port-probe budget (%s) was spent on earlier mappings.\n", pm.Host, pm.Guest, portProbeBudget)
+			fmt.Printf("port %d (machine isolée %d) : non testé ; le budget de test des ports (%s) a été consommé par les mappages précédents.\n", pm.Host, pm.Guest, portProbeBudget)
 			continue
 		}
 		timeout := 2 * time.Second
@@ -532,17 +532,17 @@ func (d *Dispatcher) probePortMappings(ctx context.Context, mappings []PortMappi
 		req, err := http.NewRequestWithContext(pctx, http.MethodGet, fmt.Sprintf("http://127.0.0.1:%d/", pm.Host), nil)
 		if err != nil {
 			cancel()
-			fmt.Printf("port %d (guest %d): could not build the probe: %v\n", pm.Host, pm.Guest, err)
+			fmt.Printf("port %d (machine isolée %d) : impossible de construire la sonde : %v\n", pm.Host, pm.Guest, err)
 			continue
 		}
 		resp, err := client.Do(req)
 		cancel()
 		if err != nil {
-			fmt.Printf("port %d (guest %d): no answer from the host forward. If a dev server should be listening, it must bind 0.0.0.0 inside the guest; a 127.0.0.1 bind there is unreachable through the forward.\n", pm.Host, pm.Guest)
+			fmt.Printf("port %d (machine isolée %d) : aucune réponse de la redirection du poste. Si un serveur de développement devrait écouter, il doit se lier à 0.0.0.0 dans la machine isolée ; une liaison à 127.0.0.1 y est injoignable via la redirection.\n", pm.Host, pm.Guest)
 			continue
 		}
 		resp.Body.Close()
-		fmt.Printf("port %d (guest %d): reachable (%s)\n", pm.Host, pm.Guest, resp.Status)
+		fmt.Printf("port %d (machine isolée %d) : joignable (%s)\n", pm.Host, pm.Guest, resp.Status)
 	}
 }
 

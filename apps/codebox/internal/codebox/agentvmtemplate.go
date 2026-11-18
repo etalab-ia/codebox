@@ -58,7 +58,7 @@ func DeleteBaseTemplate(ctx context.Context, r Runner, name string) error {
 		return err
 	}
 	if res.ExitCode != 0 {
-		return fmt.Errorf("limactl delete %s failed (exit %d): %s", name, res.ExitCode, res.Stderr)
+		return fmt.Errorf("échec de limactl delete %s (code de sortie %d) : %s", name, res.ExitCode, res.Stderr)
 	}
 	return nil
 }
@@ -75,7 +75,7 @@ func createBaseTemplate(ctx context.Context, r Runner, spec BaseTemplateSpec) er
 		return err
 	}
 	if res.ExitCode != 0 {
-		return fmt.Errorf("limactl create failed for %s (exit %d): %s", spec.Name, res.ExitCode, commandDiagnostic(res))
+		return fmt.Errorf("échec de limactl create pour %s (code de sortie %d) : %s", spec.Name, res.ExitCode, commandDiagnostic(res))
 	}
 	return nil
 }
@@ -90,7 +90,7 @@ func createBaseTemplate(ctx context.Context, r Runner, spec BaseTemplateSpec) er
 // usable. An interrupted build cannot run its own rollback, so the next start
 // needs a way to tell a finished template from an abandoned one.
 func BuildBaseTemplate(ctx context.Context, r Runner, spec BaseTemplateSpec, markerPath, script string, out io.Writer) error {
-	fmt.Fprintf(out, "Building the %s base template (this takes several minutes)...\n", spec.Name)
+	fmt.Fprintf(out, "Construction du template de base %s (plusieurs minutes)...\n", spec.Name)
 
 	// Clear partial state: an interrupted earlier build leaves an instance
 	// Lima knows about but that was never provisioned, and the marker from a
@@ -104,30 +104,30 @@ func BuildBaseTemplate(ctx context.Context, r Runner, spec BaseTemplateSpec, mar
 		return err
 	}
 
-	fmt.Fprintf(out, "Starting %s...\n", spec.Name)
+	fmt.Fprintf(out, "Démarrage de %s...\n", spec.Name)
 	if err := runOK(r, ctx, "limactl", "start", spec.Name); err != nil {
 		// Roll back so a retry starts from a clean slate rather than an
 		// instance that exists in a broken half-created state.
 		_ = DeleteBaseTemplate(ctx, r, spec.Name)
-		return fmt.Errorf("limactl start failed for %s: %w", spec.Name, err)
+		return fmt.Errorf("échec de limactl start pour %s : %w", spec.Name, err)
 	}
 
-	fmt.Fprintf(out, "Provisioning %s...\n", spec.Name)
+	fmt.Fprintf(out, "Provisionnement de %s...\n", spec.Name)
 	// The script is piped on stdin and runs as the guest user, using sudo
 	// internally. A regular user matters: OpenCode installs under $HOME, which
 	// would be root's home if the script ran as root.
 	if err := runStdinOK(r, ctx, strings.NewReader(script), "limactl", "shell", spec.Name, "sh", "-s"); err != nil {
 		_ = DeleteBaseTemplate(ctx, r, spec.Name)
-		return fmt.Errorf("provisioning %s failed: %w", spec.Name, err)
+		return fmt.Errorf("échec du provisionnement de %s : %w", spec.Name, err)
 	}
 
-	fmt.Fprintf(out, "Stopping %s...\n", spec.Name)
+	fmt.Fprintf(out, "Arrêt de %s...\n", spec.Name)
 	if err := runOK(r, ctx, "limactl", "stop", spec.Name); err != nil {
 		// The template is provisioned but has not been stopped cleanly, so it
 		// stays unmarked and the next start rebuilds it rather than cloning a
 		// running instance.
 		_ = DeleteBaseTemplate(ctx, r, spec.Name)
-		return fmt.Errorf("limactl stop failed for %s: %w", spec.Name, err)
+		return fmt.Errorf("échec de limactl stop pour %s : %w", spec.Name, err)
 	}
 
 	// Written last, and only after every step succeeded.
@@ -135,9 +135,9 @@ func BuildBaseTemplate(ctx context.Context, r Runner, spec BaseTemplateSpec, mar
 		return err
 	}
 	if err := os.WriteFile(markerPath, []byte(spec.Name+"\n"), 0o644); err != nil {
-		return fmt.Errorf("template %s was built but its completion marker could not be written: %w", spec.Name, err)
+		return fmt.Errorf("le template %s a été construit mais son marqueur de fin n'a pas pu être écrit : %w", spec.Name, err)
 	}
 
-	fmt.Fprintf(out, "Base template %s is ready.\n", spec.Name)
+	fmt.Fprintf(out, "Template de base %s prêt.\n", spec.Name)
 	return nil
 }

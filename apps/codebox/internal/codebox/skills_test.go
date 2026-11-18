@@ -38,7 +38,7 @@ func TestProjectSkillsRequireMicrosandboxRegardlessOfHostSupport(t *testing.T) {
 		t.Fatalf("Microsandbox skill selection: %v", err)
 	}
 	for _, runtime := range []Runtime{RuntimeTart, RuntimeAgentVM} {
-		if err := validateProjectSkillRuntime(runtime, []string{"official/rgaa"}); err == nil || !strings.Contains(err.Error(), "sealed microsandbox") {
+		if err := validateProjectSkillRuntime(runtime, []string{"official/rgaa"}); err == nil || !strings.Contains(err.Error(), "microsandbox scellé") {
 			t.Errorf("runtime %q validation error = %v", runtime, err)
 		}
 	}
@@ -57,7 +57,7 @@ func TestParseProjectSkillCatalogueRejectsDuplicateNames(t *testing.T) {
 		"two": []byte("---\nname: rgaa\ndescription: experimental\n---\n"),
 	}
 	_, err := parseProjectSkillCatalogue(entries, func(oid string) ([]byte, error) { return blobs[oid], nil })
-	if err == nil || !strings.Contains(err.Error(), "duplicate skill name") {
+	if err == nil || !strings.Contains(err.Error(), "en double") {
 		t.Fatalf("duplicate name error = %v", err)
 	}
 }
@@ -65,7 +65,7 @@ func TestParseProjectSkillCatalogueRejectsDuplicateNames(t *testing.T) {
 func TestParseProjectSkillCatalogueRejectsSymlinkSkill(t *testing.T) {
 	entries := []skillTreeEntry{{Mode: "120000", Path: "skills/rgaa/SKILL.md", OID: "one"}}
 	_, err := parseProjectSkillCatalogue(entries, func(string) ([]byte, error) { return nil, nil })
-	if err == nil || !strings.Contains(err.Error(), "not a regular file") {
+	if err == nil || !strings.Contains(err.Error(), "n'est pas un fichier régulier") {
 		t.Fatalf("symlink error = %v", err)
 	}
 }
@@ -100,10 +100,10 @@ func TestNormalizeSkillArchiveRejectsUnsafeEntries(t *testing.T) {
 		entries []skillTarEntry
 		want    string
 	}{
-		{"parent traversal", []skillTarEntry{valid, {name: "skills/rgaa/../outside.md", body: []byte("x")}}, "unsafe archive entry"},
-		{"symlink", []skillTarEntry{valid, {name: "skills/rgaa/ref", kind: tar.TypeSymlink, link: "../../secret"}}, "not a regular file"},
-		{"duplicate", []skillTarEntry{valid, valid}, "duplicate path"},
-		{"unexpected directory", []skillTarEntry{{name: "skills/other/SKILL.md", body: []byte("---\nname: rgaa\ndescription: skill\n---\n")}}, "outside selected skill"},
+		{"parent traversal", []skillTarEntry{valid, {name: "skills/rgaa/../outside.md", body: []byte("x")}}, "non sûre"},
+		{"symlink", []skillTarEntry{valid, {name: "skills/rgaa/ref", kind: tar.TypeSymlink, link: "../../secret"}}, "n'est pas un fichier régulier"},
+		{"duplicate", []skillTarEntry{valid, valid}, "en double"},
+		{"unexpected directory", []skillTarEntry{{name: "skills/other/SKILL.md", body: []byte("---\nname: rgaa\ndescription: skill\n---\n")}}, "hors du skill sélectionné"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -267,7 +267,7 @@ func TestLoadLockedSkillPackagesUsesOnlyVerifiedCache(t *testing.T) {
 		t.Fatalf("packages = %d, err = %v", len(packages), err)
 	}
 	malformedID := "official/experimental/rgaa"
-	if _, err := LoadLockedSkillPackages([]string{malformedID}, map[string]SkillLock{malformedID: lock}); err == nil || !strings.Contains(err.Error(), "invalid skill id") {
+	if _, err := LoadLockedSkillPackages([]string{malformedID}, map[string]SkillLock{malformedID: lock}); err == nil || !strings.Contains(err.Error(), "identifiant de skill invalide") {
 		t.Fatalf("nested category prefix was not rejected before cache access: %v", err)
 	}
 	cachePath, err := skillArchiveCachePath(skill.Name, lock)
@@ -277,7 +277,7 @@ func TestLoadLockedSkillPackagesUsesOnlyVerifiedCache(t *testing.T) {
 	if err := os.Remove(cachePath); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := LoadLockedSkillPackages([]string{skill.ID}, map[string]SkillLock{skill.ID: lock}); err == nil || !strings.Contains(err.Error(), "offline cache") {
+	if _, err := LoadLockedSkillPackages([]string{skill.ID}, map[string]SkillLock{skill.ID: lock}); err == nil || !strings.Contains(err.Error(), "cache hors ligne") {
 		t.Fatalf("missing offline archive error = %v", err)
 	}
 	if err := os.WriteFile(cachePath, archive, 0o600); err != nil {
