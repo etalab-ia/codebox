@@ -30,7 +30,11 @@ for _ in $(seq 1 50); do
   fi
   sleep 0.1
 done
-curl -fsS http://127.0.0.1:18080/healthz | grep -q '"status":"ok"'
+if ! curl -fsS http://127.0.0.1:18080/healthz | grep -q '"status":"ok"'; then
+  echo "gateway did not become ready" >&2
+  cat "$tmp/gateway.log" >&2
+  exit 1
+fi
 
 # Build the CLI with the same public gateway URL. `secrets login` is never
 # called, so `secrets check` must report the missing session rather than
@@ -48,6 +52,6 @@ if [ "$code" -eq 0 ]; then
   cat "$tmp/codebox.out" >&2
   exit 1
 fi
-grep -q "no gateway session" "$tmp/codebox.out"
+grep -q "aucune session de passerelle" "$tmp/codebox.out"
 
 echo "codebox-server e2e smoke: health OK, CLI failed closed without a session"
