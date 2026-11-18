@@ -310,7 +310,7 @@ func TestResolveMCPSelection(t *testing.T) {
 	if err := codebox.WriteProjectManifest(codebox.DefaultFS, path, codebox.ProjectManifest{MCPConnectors: []string{"browser"}}); err != nil {
 		t.Fatal(err)
 	}
-	if ids, err := resolveMCPSelection(root); err == nil || len(ids) != 0 || !strings.Contains(err.Error(), "unknown managed MCP") {
+	if ids, err := resolveMCPSelection(root); err == nil || len(ids) != 0 || !strings.Contains(err.Error(), "MCP géré inconnu") {
 		t.Fatalf("invalid manifest selection = %v, %v; want a hard validation error", ids, err)
 	}
 }
@@ -358,10 +358,10 @@ func TestParseArgsRejectsCode(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected an error for the removed `code` command")
 	}
-	if !strings.Contains(err.Error(), "'code' command was removed") {
+	if !strings.Contains(err.Error(), "'code' a été supprimée") {
 		t.Fatalf("error = %q, want the migration message", err)
 	}
-	if !strings.Contains(err.Error(), "Microsandbox/full by default") {
+	if !strings.Contains(err.Error(), "Microsandbox/full par défaut") {
 		t.Fatalf("error = %q, want the default guest TUI behavior", err)
 	}
 }
@@ -378,7 +378,7 @@ func TestParseArgsRejectsUnknown(t *testing.T) {
 // is no longer a known flag and must be reported as such.
 func TestParseArgsRejectsDocker(t *testing.T) {
 	_, err := parseArgs([]string{"--docker"})
-	if err == nil || !strings.Contains(err.Error(), "Unknown argument: --docker") {
+	if err == nil || !strings.Contains(err.Error(), "Argument inconnu : --docker") {
 		t.Fatalf("error = %v, want an unknown-argument error for --docker", err)
 	}
 }
@@ -386,7 +386,7 @@ func TestParseArgsRejectsDocker(t *testing.T) {
 func TestParseArgsConflictingRuntimes(t *testing.T) {
 	for _, args := range [][]string{{"--microsandbox", "--tart"}, {"--tart", "--agent-vm"}} {
 		_, err := parseArgs(args)
-		if err == nil || !strings.Contains(err.Error(), "Select exactly one runtime") {
+		if err == nil || !strings.Contains(err.Error(), "Sélectionnez exactement un runtime") {
 			t.Fatalf("parseArgs(%v) = %v, want the runtime conflict message", args, err)
 		}
 	}
@@ -610,18 +610,18 @@ func TestEnforceHostResourceLimits(t *testing.T) {
 	if err := codebox.WriteProjectManifest(codebox.DefaultFS, codebox.ProjectManifestPath(root), manifest); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := enforceHostResourceLimits(defaults, root); err == nil || !strings.Contains(err.Error(), "exceeds detected host capacity") {
+	if _, err := enforceHostResourceLimits(defaults, root); err == nil || !strings.Contains(err.Error(), "dépasse la capacité détectée du poste") {
 		t.Fatalf("over-cap manifest should be rejected, got %v", err)
 	}
 	t.Run("over-cap CPU environment value", func(t *testing.T) {
 		t.Setenv("CODEBOX_CPUS", "5")
-		if _, err := enforceHostResourceLimits(codebox.Config{CPUs: 5, MemoryMB: 4096}, t.TempDir()); err == nil || !strings.Contains(err.Error(), "exceeds detected host capacity") {
+		if _, err := enforceHostResourceLimits(codebox.Config{CPUs: 5, MemoryMB: 4096}, t.TempDir()); err == nil || !strings.Contains(err.Error(), "dépasse la capacité détectée du poste") {
 			t.Fatalf("over-cap CPU environment value should be rejected, got %v", err)
 		}
 	})
 	t.Run("over-cap memory environment value", func(t *testing.T) {
 		t.Setenv("CODEBOX_MEMORY_MB", "10G")
-		if _, err := enforceHostResourceLimits(codebox.Config{CPUs: 1, MemoryMB: 10240}, t.TempDir()); err == nil || !strings.Contains(err.Error(), "exceeds detected host capacity") {
+		if _, err := enforceHostResourceLimits(codebox.Config{CPUs: 1, MemoryMB: 10240}, t.TempDir()); err == nil || !strings.Contains(err.Error(), "dépasse la capacité détectée du poste") {
 			t.Fatalf("over-cap memory environment value should be rejected, got %v", err)
 		}
 	})

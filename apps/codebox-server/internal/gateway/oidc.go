@@ -118,11 +118,11 @@ type oidcDiscovery struct {
 // runs on first use so the process can start without ProConnect reachable.
 func NewOIDCClient(cfg OIDCConfig, httpClient *http.Client, now func() time.Time) (*OIDCClient, error) {
 	if strings.TrimSpace(cfg.Issuer) == "" || strings.TrimSpace(cfg.ClientID) == "" || strings.TrimSpace(cfg.ClientSecret) == "" {
-		return nil, errors.New("ProConnect issuer, client ID and client secret are required")
+		return nil, errors.New("l'émetteur, l'identifiant client et le secret client ProConnect sont requis")
 	}
 	redirect, err := url.Parse(cfg.RedirectURL)
 	if err != nil || redirect.Scheme != "https" || redirect.Host == "" {
-		return nil, errors.New("ProConnect redirect URL must be an absolute https URL")
+		return nil, errors.New("l'URL de redirection ProConnect doit être une URL https absolue")
 	}
 	if httpClient == nil {
 		httpClient = &http.Client{Timeout: 15 * time.Second}
@@ -188,24 +188,24 @@ func (c *OIDCClient) Exchange(ctx context.Context, code, codeVerifier, expectedN
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
-		return Identity{}, fmt.Errorf("%w: token endpoint: %w", ErrUpstream, err)
+		return Identity{}, fmt.Errorf("%w : point de terminaison de jeton : %w", ErrUpstream, err)
 	}
 	defer func() { _ = resp.Body.Close() }()
 	body, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 	if err != nil {
-		return Identity{}, fmt.Errorf("%w: token response unreadable", ErrUpstream)
+		return Identity{}, fmt.Errorf("%w : réponse du point de terminaison de jeton illisible", ErrUpstream)
 	}
 	if resp.StatusCode != http.StatusOK {
 		// Never echo the response body: it can contain an error description
 		// carrying request fragments.
-		return Identity{}, fmt.Errorf("%w: token endpoint returned HTTP %d", ErrUpstream, resp.StatusCode)
+		return Identity{}, fmt.Errorf("%w : le point de terminaison de jeton a renvoyé HTTP %d", ErrUpstream, resp.StatusCode)
 	}
 	var token struct {
 		IDToken     string `json:"id_token"`
 		AccessToken string `json:"access_token"`
 	}
 	if err := json.Unmarshal(body, &token); err != nil || token.IDToken == "" {
-		return Identity{}, fmt.Errorf("%w: token response is not a valid OIDC payload", ErrUpstream)
+		return Identity{}, fmt.Errorf("%w : la réponse du point de terminaison de jeton n'est pas une charge OIDC valide", ErrUpstream)
 	}
 
 	claims, err := c.verifyIDToken(ctx, disc, token.IDToken, expectedNonce)
@@ -225,10 +225,10 @@ func (c *OIDCClient) Exchange(ctx context.Context, code, codeVerifier, expectedN
 			return Identity{}, profileErr
 		}
 		if profile.Subject == "" {
-			return Identity{}, fmt.Errorf("%w: UserInfo response carries no subject to bind against the ID token", ErrUpstream)
+			return Identity{}, fmt.Errorf("%w : la réponse UserInfo ne porte aucun sujet à lier au jeton d'identité", ErrUpstream)
 		}
 		if profile.Subject != claims.Subject {
-			return Identity{}, fmt.Errorf("%w: UserInfo subject does not match the ID token subject", ErrUpstream)
+			return Identity{}, fmt.Errorf("%w : le sujet UserInfo ne correspond pas au sujet du jeton d'identité", ErrUpstream)
 		}
 		if claims.Email == "" {
 			claims.Email = profile.Email
@@ -241,7 +241,7 @@ func (c *OIDCClient) Exchange(ctx context.Context, code, codeVerifier, expectedN
 		}
 	}
 	if claims.Email == "" {
-		return Identity{}, fmt.Errorf("%w: ProConnect identity carries no email claim", ErrUpstream)
+		return Identity{}, fmt.Errorf("%w : l'identité ProConnect ne porte aucune adresse e-mail", ErrUpstream)
 	}
 	if !ACRSatisfiesMFA(claims.ACR) {
 		return Identity{}, ErrMFARequired
@@ -250,11 +250,11 @@ func (c *OIDCClient) Exchange(ctx context.Context, code, codeVerifier, expectedN
 }
 
 // ErrUpstream marks failures of the ProConnect side, mapped to 503.
-var ErrUpstream = errors.New("identity provider unavailable")
+var ErrUpstream = errors.New("fournisseur d'identité indisponible")
 
 // ErrMFARequired is returned when the identity provider returned a
 // single-factor assertion.
-var ErrMFARequired = errors.New("two-factor authentication is required to use the codebox server")
+var ErrMFARequired = errors.New("l'authentification à deux facteurs est requise pour utiliser le serveur codebox")
 
 func (c *OIDCClient) discover(ctx context.Context) (*oidcDiscovery, error) {
 	c.mu.Lock()
@@ -271,22 +271,22 @@ func (c *OIDCClient) discover(ctx context.Context) (*oidcDiscovery, error) {
 	req.Header.Set("Accept", "application/json")
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("%w: discovery: %w", ErrUpstream, err)
+		return nil, fmt.Errorf("%w : discovery : %w", ErrUpstream, err)
 	}
 	defer func() { _ = resp.Body.Close() }()
 	body, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 	if err != nil || resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("%w: discovery returned HTTP %d", ErrUpstream, resp.StatusCode)
+		return nil, fmt.Errorf("%w : discovery a renvoyé HTTP %d", ErrUpstream, resp.StatusCode)
 	}
 	var disc oidcDiscovery
 	if err := json.Unmarshal(body, &disc); err != nil {
-		return nil, fmt.Errorf("%w: discovery payload is not valid JSON", ErrUpstream)
+		return nil, fmt.Errorf("%w : la charge discovery n'est pas du JSON valide", ErrUpstream)
 	}
 	if disc.AuthorizationURL == "" || disc.TokenURL == "" || disc.JWKSURL == "" {
-		return nil, fmt.Errorf("%w: discovery payload is missing required endpoints", ErrUpstream)
+		return nil, fmt.Errorf("%w : la charge discovery omet des points de terminaison requis", ErrUpstream)
 	}
 	if disc.Issuer != "" && disc.Issuer != c.cfg.Issuer {
-		return nil, fmt.Errorf("%w: discovery issuer %q does not match the configured issuer", ErrUpstream, disc.Issuer)
+		return nil, fmt.Errorf("%w : l'émetteur discovery %q ne correspond pas à l'émetteur configuré", ErrUpstream, disc.Issuer)
 	}
 	c.mu.Lock()
 	c.discovery = &disc
@@ -304,7 +304,7 @@ func (c *OIDCClient) verifyIDToken(ctx context.Context, disc *oidcDiscovery, idT
 		return Identity{}, err
 	}
 	if expectedNonce != "" && verified.Nonce != expectedNonce {
-		return Identity{}, fmt.Errorf("%w: id token nonce mismatch", ErrUpstream)
+		return Identity{}, fmt.Errorf("%w : le nonce du jeton d'identité est incohérent", ErrUpstream)
 	}
 	return Identity{
 		Subject:   verified.Subject,
@@ -332,12 +332,12 @@ func (c *OIDCClient) userInfo(ctx context.Context, disc *oidcDiscovery, accessTo
 	req.Header.Set("Accept", "application/json, application/jwt")
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
-		return Identity{}, fmt.Errorf("%w: userinfo: %w", ErrUpstream, err)
+		return Identity{}, fmt.Errorf("%w : UserInfo : %w", ErrUpstream, err)
 	}
 	defer func() { _ = resp.Body.Close() }()
 	body, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 	if err != nil || resp.StatusCode != http.StatusOK {
-		return Identity{}, fmt.Errorf("%w: userinfo returned HTTP %d", ErrUpstream, resp.StatusCode)
+		return Identity{}, fmt.Errorf("%w : UserInfo a renvoyé HTTP %d", ErrUpstream, resp.StatusCode)
 	}
 
 	contentType := resp.Header.Get("Content-Type")
@@ -363,7 +363,7 @@ func (c *OIDCClient) userInfo(ctx context.Context, disc *oidcDiscovery, accessTo
 		}
 	} else {
 		if err := json.Unmarshal(body, &profile); err != nil {
-			return Identity{}, fmt.Errorf("%w: userinfo payload is neither JSON nor a signed JWT", ErrUpstream)
+			return Identity{}, fmt.Errorf("%w : la charge UserInfo n'est ni du JSON ni un JWT signé", ErrUpstream)
 		}
 	}
 	return Identity{
@@ -421,7 +421,7 @@ func (c *OIDCClient) ValidateProjectCreation(id Identity) error {
 				}
 			}
 		}
-		return errors.New("project creation is restricted to allowlisted organisations; ask an existing owner to add you to the project ACL instead")
+		return errors.New("la création de projet est réservée aux organisations présentes dans la liste d'autorisation ; demandez à un propriétaire existant de vous ajouter à l'ACL du projet")
 	}
 
 	domain := ""
@@ -437,5 +437,5 @@ func (c *OIDCClient) ValidateProjectCreation(id Identity) error {
 	if err := secrets.ValidateSIRET(id.SIRET); err == nil {
 		return nil
 	}
-	return errors.New("project creation is restricted to recognised public-sector organisations; ask an existing owner to add you to the project ACL instead")
+	return errors.New("la création de projet est réservée aux organisations du secteur public reconnues ; demandez à un propriétaire existant de vous ajouter à l'ACL du projet")
 }

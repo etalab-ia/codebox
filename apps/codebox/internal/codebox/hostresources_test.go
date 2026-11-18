@@ -86,7 +86,7 @@ func TestValidateGuestResources(t *testing.T) {
 		name         string
 		cpus, memory int
 		want         string
-	}{{"cpu over cap", 9, 4096, "exceeds detected host capacity"}, {"memory over cap", 4, 16385, "exceeds detected host capacity"}} {
+	}{{"cpu over cap", 9, 4096, "dépasse la capacité détectée du poste"}, {"memory over cap", 4, 16385, "dépasse la capacité détectée du poste"}} {
 		t.Run(tc.name, func(t *testing.T) {
 			if err := ValidateGuestResources(host, tc.cpus, tc.memory); err == nil || !strings.Contains(err.Error(), tc.want) {
 				t.Fatalf("ValidateGuestResources() error = %v, want substring %q", err, tc.want)
@@ -96,7 +96,7 @@ func TestValidateGuestResources(t *testing.T) {
 	if err := ValidateGuestResources(HostResources{CPUs: 1, MemoryMB: 4096}, 1, 2048); err != nil {
 		t.Fatalf("single logical CPU should be allowed: %v", err)
 	}
-	if err := ValidateGuestResources(HostResources{CPUs: 8}, 2, 4096); err == nil || !strings.Contains(err.Error(), "could not be detected") {
+	if err := ValidateGuestResources(HostResources{CPUs: 8}, 2, 4096); err == nil || !strings.Contains(err.Error(), "n'a pas pu être détectée") {
 		t.Fatalf("unknown host capacity error = %v, want detection error", err)
 	}
 }

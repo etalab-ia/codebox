@@ -36,11 +36,11 @@ func GitHubOriginForProject(ctx context.Context, root string) (GitHubRemote, err
 	cmd.Env = append(os.Environ(), "GIT_OPTIONAL_LOCKS=0")
 	out, err := cmd.Output()
 	if err != nil {
-		return GitHubRemote{}, fmt.Errorf("the project has no readable origin remote; configure a GitHub.com origin to enable the guest GitHub workflow")
+		return GitHubRemote{}, fmt.Errorf("le projet n'a pas de dépôt distant d'origine lisible ; configurez une origine GitHub.com pour activer le flux de travail GitHub de la machine isolée")
 	}
 	lines := strings.Split(strings.TrimSpace(string(out)), "\n")
 	if len(lines) != 1 || strings.TrimSpace(lines[0]) == "" {
-		return GitHubRemote{}, fmt.Errorf("the project must have exactly one origin URL to enable the guest GitHub workflow")
+		return GitHubRemote{}, fmt.Errorf("le projet doit avoir exactement une URL d'origine pour activer le flux de travail GitHub de la machine isolée")
 	}
 	return ParseGitHubRemote(strings.TrimSpace(lines[0]))
 }
@@ -55,32 +55,32 @@ func ParseGitHubRemote(raw string) (GitHubRemote, error) {
 	case strings.HasPrefix(raw, "ssh://"):
 		u, err := url.Parse(raw)
 		if err != nil || !strings.EqualFold(u.Hostname(), "github.com") || (u.Port() != "" && u.Port() != "22") || u.RawQuery != "" || u.Fragment != "" {
-			return GitHubRemote{}, fmt.Errorf("the origin is not a supported GitHub.com remote")
+			return GitHubRemote{}, fmt.Errorf("l'origine n'est pas un dépôt distant GitHub.com pris en charge")
 		}
 		path = u.EscapedPath()
 	case strings.HasPrefix(raw, "https://"):
 		u, err := url.Parse(raw)
 		if err != nil || !strings.EqualFold(u.Hostname(), "github.com") || (u.Port() != "" && u.Port() != "443") || u.RawQuery != "" || u.Fragment != "" {
-			return GitHubRemote{}, fmt.Errorf("the origin is not a supported GitHub.com remote")
+			return GitHubRemote{}, fmt.Errorf("l'origine n'est pas un dépôt distant GitHub.com pris en charge")
 		}
 		path = u.EscapedPath()
 	default:
-		return GitHubRemote{}, fmt.Errorf("the origin must use HTTPS or SSH on github.com")
+		return GitHubRemote{}, fmt.Errorf("l'origine doit utiliser HTTPS ou SSH sur github.com")
 	}
 	path = strings.Trim(path, "/")
 	path = strings.TrimSuffix(path, ".git")
 	path = strings.Trim(path, "/")
 	parts := strings.Split(path, "/")
 	if len(parts) != 2 {
-		return GitHubRemote{}, fmt.Errorf("the GitHub origin must identify exactly one owner and repository")
+		return GitHubRemote{}, fmt.Errorf("l'origine GitHub doit désigner exactement un propriétaire et un dépôt")
 	}
 	owner, err := url.PathUnescape(parts[0])
 	if err != nil || !validGitHubOwner(owner) {
-		return GitHubRemote{}, fmt.Errorf("the GitHub origin contains an invalid owner")
+		return GitHubRemote{}, fmt.Errorf("l'origine GitHub contient un propriétaire invalide")
 	}
 	repo, err := url.PathUnescape(parts[1])
 	if err != nil || !validGitHubRepo(repo) {
-		return GitHubRemote{}, fmt.Errorf("the GitHub origin contains an invalid repository name")
+		return GitHubRemote{}, fmt.Errorf("l'origine GitHub contient un nom de dépôt invalide")
 	}
 	slug := owner + "/" + repo
 	return GitHubRemote{URL: "https://github.com/" + slug + ".git", Repo: slug}, nil
@@ -359,7 +359,7 @@ version=%s
 case "$(uname -m)" in
   x86_64|amd64) arch=amd64; digest=%s ;;
   aarch64|arm64) arch=arm64; digest=%s ;;
-  *) echo "GitHub CLI %s is unavailable for guest architecture $(uname -m)" >&2; exit 1 ;;
+  *) echo "GitHub CLI %s indisponible pour l'architecture de la machine isolée $(uname -m)" >&2; exit 1 ;;
 esac
 binary=/usr/local/bin/gh
 if [ -x "$binary" ] && "$binary" --version 2>/dev/null | grep -q "^gh version $version"; then
@@ -387,7 +387,7 @@ codebox_install_gh
 func GitHubBranchName(instance string) (string, error) {
 	var nonce [4]byte
 	if _, err := rand.Read(nonce[:]); err != nil {
-		return "", fmt.Errorf("create a unique guest branch name: %w", err)
+		return "", fmt.Errorf("création d'un nom de branche unique dans la machine isolée : %w", err)
 	}
 	name := safeFileName(instance)
 	if len(name) > 60 {
@@ -402,8 +402,8 @@ func GitHubBranchName(instance string) (string, error) {
 func githubSnapshotBranchScript(workspace string, remote GitHubRemote, baseBranch, branch string) string {
 	baseRef := "refs/heads/" + baseBranch
 	return "set -eu; cd " + shellQuote(workspace) +
-		"; if [ -n \"$(git status --porcelain --untracked-files=all)\" ]; then echo 'guest worktree is dirty; export or review its changes before enabling the GitHub workflow' >&2; exit 1; fi" +
-		"; if [ -n \"$(git ls-files --others --ignored --exclude-standard)\" ]; then echo 'guest workspace contains ignored files; review them before enabling the GitHub workflow' >&2; exit 1; fi" +
+		"; if [ -n \"$(git status --porcelain --untracked-files=all)\" ]; then echo 'la copie de travail de la machine isolée contient des modifications ; exportez-les ou relisez-les avant toute activation du flux de travail GitHub' >&2; exit 1; fi" +
+		"; if [ -n \"$(git ls-files --others --ignored --exclude-standard)\" ]; then echo 'la copie de travail de la machine isolée contient des fichiers ignorés ; relisez-les avant toute activation du flux de travail GitHub' >&2; exit 1; fi" +
 		"; tmp=$(mktemp -d /tmp/codebox-github-index.XXXXXX)" +
 		"; temp_config=''; trap 'rm -rf \"$tmp\"; if [ -n \"$temp_config\" ]; then rm -f \"$temp_config\"; fi' EXIT HUP INT TERM" +
 		"; git ls-files --stage -z > \"$tmp/snapshot\"" +

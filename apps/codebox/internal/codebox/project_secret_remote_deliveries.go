@@ -30,13 +30,13 @@ func (m *MicrosandboxRuntime) resolveRemoteProjectSecretDeliveries(ctx context.C
 		return projectSecretResolution{}, nil
 	}
 	if set.Profile == "" {
-		return projectSecretResolution{}, errors.New("project secret bindings exist but no active profile is selected")
+		return projectSecretResolution{}, errors.New("des liaisons de secrets de projet existent mais aucun profil actif n'est sélectionné")
 	}
 
 	byIdentity := map[string]ProjectSecretBinding{}
 	for _, b := range set.Bindings {
 		if b.Profile != set.Profile {
-			return projectSecretResolution{}, fmt.Errorf("project secret binding %s belongs to profile %q while the active profile is %q", b.Name, b.Profile, set.Profile)
+			return projectSecretResolution{}, fmt.Errorf("la liaison de secret de projet %s appartient au profil %q alors que le profil actif est %q", b.Name, b.Profile, set.Profile)
 		}
 		byIdentity[b.identity()] = b
 	}
@@ -47,7 +47,7 @@ func (m *MicrosandboxRuntime) resolveRemoteProjectSecretDeliveries(ctx context.C
 		identity := ProjectSecretIdentity{Profile: set.Profile, Component: hint.Component, Name: hint.Name}
 		id := identity.Profile + "\x00" + identity.Component + "\x00" + identity.Name
 		if seen[id] {
-			return projectSecretResolution{}, fmt.Errorf("project secrets manifest declares %s in %s twice", hint.Name, hint.Component)
+			return projectSecretResolution{}, fmt.Errorf("le manifeste de secrets de projet déclare %s dans %s deux fois", hint.Name, hint.Component)
 		}
 		seen[id] = true
 		binding, approved := byIdentity[id]
@@ -56,14 +56,14 @@ func (m *MicrosandboxRuntime) resolveRemoteProjectSecretDeliveries(ctx context.C
 		}
 		wantGuest := hint.Delivery == ProjectSecretDeliveryGuest
 		if binding.GuestReadable() != wantGuest {
-			return projectSecretResolution{}, fmt.Errorf("host approval for %s in %s does not match the declared delivery mode", hint.Name, hint.Component)
+			return projectSecretResolution{}, fmt.Errorf("l'approbation du poste pour %s dans %s ne correspond pas au mode de livraison déclaré", hint.Name, hint.Component)
 		}
 		if !wantGuest && !EqualStringSets(binding.Destinations, hint.Destinations) {
 			// Hint destinations are optional: an empty list means the host must
 			// choose and approve at least one destination. A non-empty list is
 			// a versioned policy and must match the host approval exactly.
 			if len(hint.Destinations) > 0 {
-				return projectSecretResolution{}, fmt.Errorf("host approval for %s in %s does not match the declared destinations", hint.Name, hint.Component)
+				return projectSecretResolution{}, fmt.Errorf("l'approbation du poste pour %s dans %s ne correspond pas aux destinations déclarées", hint.Name, hint.Component)
 			}
 		}
 		if binding.GuestEnv == "" && !binding.GuestReadable() {

@@ -82,7 +82,7 @@ func (s *SecretServiceStore) Get(ctx context.Context, kind CredentialKind) (stri
 	}
 	value := strings.TrimSuffix(res.Stdout, "\n")
 	if value == "" {
-		return "", storeErrorf("get", s.Kind(), "corrupt", "empty value stored for %s", kind)
+		return "", storeErrorf("get", s.Kind(), "corrupt", "valeur vide enregistrée pour %s", kind)
 	}
 	return value, nil
 }

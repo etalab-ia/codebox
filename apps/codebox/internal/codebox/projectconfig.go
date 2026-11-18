@@ -40,7 +40,7 @@ func confinedProjectPath(root, rel string) (string, error) {
 		return root, nil
 	}
 	if filepath.IsAbs(rel) {
-		return "", fmt.Errorf("project path %s must be relative to the project root", rel)
+		return "", fmt.Errorf("le chemin de projet %s doit être relatif à la racine du projet", rel)
 	}
 	cur := root
 	for _, part := range strings.Split(rel, string(filepath.Separator)) {
@@ -48,7 +48,7 @@ func confinedProjectPath(root, rel string) (string, error) {
 			continue
 		}
 		if part == ".." {
-			return "", fmt.Errorf("project path %s escapes the project root", rel)
+			return "", fmt.Errorf("le chemin de projet %s sort de la racine du projet", rel)
 		}
 		cur = filepath.Join(cur, part)
 		fi, err := os.Lstat(cur)
@@ -56,7 +56,7 @@ func confinedProjectPath(root, rel string) (string, error) {
 			return "", err
 		}
 		if fi.Mode()&os.ModeSymlink != 0 {
-			return "", fmt.Errorf("%s is a symlink; refusing to follow project paths outside the checkout", cur)
+			return "", fmt.Errorf("%s est un lien symbolique ; refus de suivre des chemins de projet hors de la copie de travail", cur)
 		}
 	}
 	return cur, nil
@@ -191,19 +191,19 @@ func ParseProjectOpenCodeConfig(root, path string) (map[string]any, error) {
 	}
 	rel, err := filepath.Rel(root, path)
 	if err != nil {
-		return nil, fmt.Errorf("read project OpenCode config %s: %w", path, err)
+		return nil, fmt.Errorf("lecture de la configuration OpenCode du projet %s : %w", path, err)
 	}
 	abs, err := confinedProjectPath(root, rel)
 	if err != nil {
-		return nil, fmt.Errorf("read project OpenCode config %s: %w", path, err)
+		return nil, fmt.Errorf("lecture de la configuration OpenCode du projet %s : %w", path, err)
 	}
 	raw, err := readProjectConfigFile(abs)
 	if err != nil {
-		return nil, fmt.Errorf("read project OpenCode config %s: %w", path, err)
+		return nil, fmt.Errorf("lecture de la configuration OpenCode du projet %s : %w", path, err)
 	}
 	parsed, err := parseProjectOpenCodeConfig(raw)
 	if err != nil {
-		return nil, fmt.Errorf("parse project OpenCode config %s: %w", path, err)
+		return nil, fmt.Errorf("analyse de la configuration OpenCode du projet %s : %w", path, err)
 	}
 	return parsed, nil
 }
@@ -219,7 +219,7 @@ func readProjectConfigFile(path string) ([]byte, error) {
 		return nil, err
 	}
 	if info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() {
-		return nil, fmt.Errorf("not a regular file; refusing to read")
+		return nil, fmt.Errorf("fichier non régulier ; refus de lecture")
 	}
 	file, err := os.Open(path)
 	if err != nil {
@@ -231,17 +231,17 @@ func readProjectConfigFile(path string) ([]byte, error) {
 		return nil, err
 	}
 	if !openedInfo.Mode().IsRegular() || !os.SameFile(info, openedInfo) {
-		return nil, fmt.Errorf("file changed while opening; refusing to read")
+		return nil, fmt.Errorf("le fichier a changé pendant son ouverture ; refus de lecture")
 	}
 	if openedInfo.Size() > maxOpenCodeConfigSize {
-		return nil, fmt.Errorf("exceeds the OpenCode config size limit (%d bytes)", maxOpenCodeConfigSize)
+		return nil, fmt.Errorf("dépasse la limite de taille de la configuration OpenCode (%d octets)", maxOpenCodeConfigSize)
 	}
 	data, err := io.ReadAll(io.LimitReader(file, maxOpenCodeConfigSize+1))
 	if err != nil {
 		return nil, err
 	}
 	if len(data) > maxOpenCodeConfigSize {
-		return nil, fmt.Errorf("exceeds the OpenCode config size limit (%d bytes)", maxOpenCodeConfigSize)
+		return nil, fmt.Errorf("dépasse la limite de taille de la configuration OpenCode (%d octets)", maxOpenCodeConfigSize)
 	}
 	return data, nil
 }
@@ -253,7 +253,7 @@ func parseProjectOpenCodeConfig(raw []byte) (map[string]any, error) {
 		return nil, fmt.Errorf("decode JSONC: %w", err)
 	}
 	if parsed == nil {
-		return nil, fmt.Errorf("decode JSONC: expected a JSON object")
+		return nil, fmt.Errorf("décodage JSONC : objet JSON attendu")
 	}
 	return parsed, nil
 }
@@ -329,7 +329,7 @@ func DiscoverProjectExecutionInputs(root string) (ProjectExecutionInputs, error)
 						out.Plugins = append(out.Plugins, s)
 						files, err := declaredPluginFiles(root, cfgPath, s)
 						if err != nil {
-							return out, fmt.Errorf("inspect declared plugin %q: %w", s, err)
+							return out, fmt.Errorf("inspection du plugin déclaré %q : %w", s, err)
 						}
 						out.DeclaredPluginFiles = append(out.DeclaredPluginFiles, files...)
 					}
@@ -368,14 +368,14 @@ func DiscoverProjectExecutionInputs(root string) (ProjectExecutionInputs, error)
 			if os.IsNotExist(err) {
 				continue
 			}
-			return out, fmt.Errorf("read %s: %w", dir, err)
+			return out, fmt.Errorf("lecture de %s : %w", dir, err)
 		}
 		entries, err := os.ReadDir(abs)
 		if err != nil {
 			if os.IsNotExist(err) {
 				continue
 			}
-			return out, fmt.Errorf("read %s: %w", dir, err)
+			return out, fmt.Errorf("lecture de %s : %w", dir, err)
 		}
 		for _, e := range entries {
 			if e.IsDir() {
@@ -395,20 +395,20 @@ func DiscoverProjectExecutionInputs(root string) (ProjectExecutionInputs, error)
 	if abs, err := confinedProjectPath(root, piSettings); err == nil {
 		info, err := os.Lstat(abs)
 		if err != nil {
-			return out, fmt.Errorf("inspect %s: %w", piSettings, err)
+			return out, fmt.Errorf("inspection de %s : %w", piSettings, err)
 		}
 		if info.Mode().IsRegular() {
 			out.PiProjectConfig = abs
 		} else {
-			return out, fmt.Errorf("%s is not a regular file", abs)
+			return out, fmt.Errorf("%s n'est pas un fichier régulier", abs)
 		}
 	} else if !os.IsNotExist(err) {
-		return out, fmt.Errorf("inspect %s: %w", piSettings, err)
+		return out, fmt.Errorf("inspection de %s : %w", piSettings, err)
 	}
 	if out.PiProjectConfig != "" {
 		files, err := declaredPiCodeFiles(root, out.PiProjectConfig)
 		if err != nil {
-			return out, fmt.Errorf("inspect %s: %w", piSettings, err)
+			return out, fmt.Errorf("inspection de %s : %w", piSettings, err)
 		}
 		out.PiDeclaredCodeFiles = append(out.PiDeclaredCodeFiles, files...)
 	}
@@ -416,11 +416,11 @@ func DiscoverProjectExecutionInputs(root string) (ProjectExecutionInputs, error)
 	if abs, err := confinedProjectPath(root, piExtensions); err == nil {
 		files, err := projectRegularFiles(root, abs)
 		if err != nil {
-			return out, fmt.Errorf("read %s: %w", piExtensions, err)
+			return out, fmt.Errorf("lecture de %s : %w", piExtensions, err)
 		}
 		out.PiAutoDiscoveredExtensions = append(out.PiAutoDiscoveredExtensions, files...)
 	} else if !os.IsNotExist(err) {
-		return out, fmt.Errorf("read %s: %w", piExtensions, err)
+		return out, fmt.Errorf("lecture de %s : %w", piExtensions, err)
 	}
 	sort.Strings(out.Plugins)
 	sort.Strings(out.DeclaredPluginFiles)
@@ -458,7 +458,7 @@ func projectRegularFiles(root, dir string) ([]string, error) {
 			return err
 		}
 		if !info.Mode().IsRegular() {
-			return fmt.Errorf("%s is not a regular file", path)
+			return fmt.Errorf("%s n'est pas un fichier régulier", path)
 		}
 		files = append(files, rel)
 		return nil
@@ -502,7 +502,7 @@ func declaredPluginFiles(root, configPath, ref string) ([]string, error) {
 		return []string{rel}, nil
 	}
 	if !info.IsDir() {
-		return nil, fmt.Errorf("%s is not a regular file or directory", abs)
+		return nil, fmt.Errorf("%s n'est ni un fichier ni un dossier régulier", abs)
 	}
 	return projectRegularFiles(root, abs)
 }
@@ -511,13 +511,13 @@ func declaredPluginTarget(configPath, ref string) (target string, local bool, er
 	if strings.HasPrefix(ref, "file://") {
 		parsed, err := url.Parse(ref)
 		if err != nil {
-			return "", true, fmt.Errorf("parse file URL: %w", err)
+			return "", true, fmt.Errorf("analyse de l'URL de fichier : %w", err)
 		}
 		if parsed.Host != "" && parsed.Host != "localhost" {
-			return "", true, fmt.Errorf("file URL host %q is outside the local project", parsed.Host)
+			return "", true, fmt.Errorf("l'hôte %q de l'URL de fichier est hors du projet local", parsed.Host)
 		}
 		if parsed.RawQuery != "" || parsed.Fragment != "" {
-			return "", true, fmt.Errorf("file URL must not contain a query or fragment")
+			return "", true, fmt.Errorf("l'URL de fichier ne doit pas contenir de requête ni de fragment")
 		}
 		path := parsed.Path
 		if runtime.GOOS == "windows" && len(path) >= 3 && path[0] == '/' && path[2] == ':' {
@@ -525,7 +525,7 @@ func declaredPluginTarget(configPath, ref string) (target string, local bool, er
 		}
 		target = filepath.FromSlash(path)
 		if !filepath.IsAbs(target) {
-			return "", true, fmt.Errorf("file URL %q does not resolve to an absolute path", ref)
+			return "", true, fmt.Errorf("l'URL de fichier %q ne résout pas vers un chemin absolu", ref)
 		}
 		return target, true, nil
 	}
@@ -567,22 +567,22 @@ const piExtensionMetacharacters = "*?[]{}"
 func declaredPiCodeFiles(root, settingsPath string) ([]string, error) {
 	rel, err := filepath.Rel(root, settingsPath)
 	if err != nil {
-		return nil, fmt.Errorf("read project Pi settings %s: %w", settingsPath, err)
+		return nil, fmt.Errorf("lecture des paramètres Pi du projet %s : %w", settingsPath, err)
 	}
 	abs, err := confinedProjectPath(root, rel)
 	if err != nil {
-		return nil, fmt.Errorf("read project Pi settings %s: %w", settingsPath, err)
+		return nil, fmt.Errorf("lecture des paramètres Pi du projet %s : %w", settingsPath, err)
 	}
 	raw, err := readProjectConfigFile(abs)
 	if err != nil {
-		return nil, fmt.Errorf("read project Pi settings %s: %w", settingsPath, err)
+		return nil, fmt.Errorf("lecture des paramètres Pi du projet %s : %w", settingsPath, err)
 	}
 	// Pi's settings are plain JSON; the tolerant project-config decoder is
 	// reused for them. Accepting more than Pi does can only add files to the
 	// approval set, never drop one.
 	parsed, err := parseProjectOpenCodeConfig(raw)
 	if err != nil {
-		return nil, fmt.Errorf("parse project Pi settings %s: %w", settingsPath, err)
+		return nil, fmt.Errorf("analyse des paramètres Pi du projet %s : %w", settingsPath, err)
 	}
 	// The declared kind only shapes the wording of an error, but it has to be
 	// the kind the user wrote: "declared Pi extension" sent a user looking at
@@ -695,9 +695,9 @@ func piPackageSourceIsRemote(source string) bool {
 // list files the pattern itself does not match. kind names the array the path
 // came from and appears in the refusals, so they point at what the user wrote.
 func piDeclaredPathTargetFiles(root, settingsPath, kind, entry string) ([]string, error) {
-	declared := fmt.Sprintf("declared Pi %s %q", kind, entry)
+	declared := fmt.Sprintf("Pi %s %q déclaré", kind, entry)
 	if entry == "~" || strings.HasPrefix(entry, "~/") || strings.HasPrefix(entry, `~\`) {
-		return nil, fmt.Errorf("%s: a home-relative path cannot be pinned by content; move the file into the project", declared)
+		return nil, fmt.Errorf("%s : un chemin relatif au dossier personnel ne peut pas être épinglé par contenu ; déplacez le fichier dans le projet", declared)
 	}
 	parent, isPattern := piExtensionPatternParent(entry)
 	target := parent
@@ -709,10 +709,10 @@ func piDeclaredPathTargetFiles(root, settingsPath, kind, entry string) ([]string
 		return nil, fmt.Errorf("%s: %w", declared, err)
 	}
 	if rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
-		return nil, fmt.Errorf("%s: resolves outside the project; only paths inside the project can be pinned by content", declared)
+		return nil, fmt.Errorf("%s : résout hors du projet ; seuls les chemins à l'intérieur du projet peuvent être épinglés par contenu", declared)
 	}
 	if isPattern && rel == "." {
-		return nil, fmt.Errorf("%s: a pattern rooted at the project root matches too much to pin by content; list the files explicitly", declared)
+		return nil, fmt.Errorf("%s : un motif ancré à la racine du projet correspond à trop de fichiers pour être épinglé par contenu ; listez les fichiers explicitement", declared)
 	}
 	abs, err := confinedProjectPath(root, rel)
 	if os.IsNotExist(err) {
@@ -733,7 +733,7 @@ func piDeclaredPathTargetFiles(root, settingsPath, kind, entry string) ([]string
 		return []string{rel}, nil
 	}
 	if !info.IsDir() {
-		return nil, fmt.Errorf("%s: %s is not a regular file or directory", declared, abs)
+		return nil, fmt.Errorf("%s: %s n'est ni un fichier ni un dossier régulier", declared, abs)
 	}
 	files, err := projectRegularFiles(root, abs)
 	if err != nil {

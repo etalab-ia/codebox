@@ -160,7 +160,7 @@ func TestGuestMTUInvalidFailsBeforeExec(t *testing.T) {
 			cfg, execer := guestTest(t, r, "pw\nkey\n", "opencode")
 			cfg.MTU = value
 			err := RunGuestBootstrap(context.Background(), cfg)
-			if err == nil || !strings.Contains(err.Error(), "TART_MTU must be") {
+			if err == nil || !strings.Contains(err.Error(), "TART_MTU doit valoir") {
 				t.Fatalf("expected MTU validation error, got %v", err)
 			}
 			if execer.called {
@@ -181,7 +181,7 @@ func TestGuestMissingInterface(t *testing.T) {
 	cfg.MTU = "1280"
 
 	err := RunGuestBootstrap(context.Background(), cfg)
-	if err == nil || !strings.Contains(err.Error(), "cannot determine") {
+	if err == nil || !strings.Contains(err.Error(), "impossible de déterminer") {
 		t.Fatalf("expected interface error, got %v", err)
 	}
 	if execer.called {
@@ -203,7 +203,7 @@ func TestGuestSudoFailure(t *testing.T) {
 	cfg.MTU = "1280"
 
 	err := RunGuestBootstrap(context.Background(), cfg)
-	if err == nil || !strings.Contains(err.Error(), "cannot apply TART_MTU") {
+	if err == nil || !strings.Contains(err.Error(), "impossible d'appliquer TART_MTU") {
 		t.Fatalf("expected sudo error, got %v", err)
 	}
 	if execer.called {
@@ -400,7 +400,7 @@ func TestGuestFailsWhenOpencodeUnavailable(t *testing.T) {
 	}}
 	cfg, execer := guestTest(t, r, "pw\nkey\n", "brew", "npm")
 	err := RunGuestBootstrap(context.Background(), cfg)
-	if err == nil || !strings.Contains(err.Error(), "installer failed") {
+	if err == nil || !strings.Contains(err.Error(), "l'installateur OpenCode a échoué") {
 		t.Fatalf("expected installer failure, got %v", err)
 	}
 	if execer.called {

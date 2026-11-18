@@ -70,21 +70,21 @@ func (c *OIDCClient) fetchJWKS(ctx context.Context, jwksURL string) (map[string]
 	req.Header.Set("Accept", "application/json")
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("%w: jwks: %w", ErrUpstream, err)
+		return nil, fmt.Errorf("%w : jwks : %w", ErrUpstream, err)
 	}
 	defer func() { _ = resp.Body.Close() }()
 	body, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 	if err != nil || resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("%w: jwks returned HTTP %d", ErrUpstream, resp.StatusCode)
+		return nil, fmt.Errorf("%w : jwks a renvoyé HTTP %d", ErrUpstream, resp.StatusCode)
 	}
 	var doc struct {
 		Keys []jwk `json:"keys"`
 	}
 	if err := json.Unmarshal(body, &doc); err != nil {
-		return nil, fmt.Errorf("%w: jwks payload is not valid JSON", ErrUpstream)
+		return nil, fmt.Errorf("%w : la charge jwks n'est pas du JSON valide", ErrUpstream)
 	}
 	if len(doc.Keys) == 0 {
-		return nil, fmt.Errorf("%w: jwks contains no keys", ErrUpstream)
+		return nil, fmt.Errorf("%w : la charge jwks ne contient aucune clé", ErrUpstream)
 	}
 	keys := make(map[string]*rsa.PublicKey, len(doc.Keys))
 	for _, k := range doc.Keys {
@@ -104,7 +104,7 @@ func (c *OIDCClient) fetchJWKS(ctx context.Context, jwksURL string) (map[string]
 		keys[k.Kid] = pub
 	}
 	if len(keys) == 0 {
-		return nil, fmt.Errorf("%w: jwks contains no usable RS256 signing key", ErrUpstream)
+		return nil, fmt.Errorf("%w : la charge jwks ne contient aucune clé de signature RS256 utilisable", ErrUpstream)
 	}
 	return keys, nil
 }
@@ -112,16 +112,16 @@ func (c *OIDCClient) fetchJWKS(ctx context.Context, jwksURL string) (map[string]
 func rsaPublicKeyFromJWK(k jwk) (*rsa.PublicKey, error) {
 	nBytes, err := base64.RawURLEncoding.DecodeString(k.N)
 	if err != nil || len(nBytes) == 0 {
-		return nil, errors.New("invalid modulus")
+		return nil, errors.New("module invalide")
 	}
 	eBytes, err := base64.RawURLEncoding.DecodeString(k.E)
 	if err != nil || len(eBytes) == 0 {
-		return nil, errors.New("invalid exponent")
+		return nil, errors.New("exposant invalide")
 	}
 	n := new(big.Int).SetBytes(nBytes)
 	e := new(big.Int).SetBytes(eBytes)
 	if !e.IsInt64() || e.Int64() < 3 || e.Int64() > 1<<31-1 {
-		return nil, errors.New("unreasonable exponent")
+		return nil, errors.New("exposant hors limites")
 	}
 	return &rsa.PublicKey{N: n, E: int(e.Int64())}, nil
 }
@@ -150,11 +150,11 @@ func verifyRS256JWTClaims(token string, keys map[string]*rsa.PublicKey, issuer, 
 func verifyRS256JWTChecked(token string, keys map[string]*rsa.PublicKey, issuer, expectedAudience string, now time.Time, expiryRequired bool) (verifiedToken, error) {
 	parts := strings.Split(token, ".")
 	if len(parts) != 3 {
-		return verifiedToken{}, fmt.Errorf("%w: id token is not a compact JWS", ErrUpstream)
+		return verifiedToken{}, fmt.Errorf("%w : le jeton d'identité n'est pas un JWS compact", ErrUpstream)
 	}
 	rawHeader, err := base64.RawURLEncoding.DecodeString(parts[0])
 	if err != nil {
-		return verifiedToken{}, fmt.Errorf("%w: id token header is not base64url", ErrUpstream)
+		return verifiedToken{}, fmt.Errorf("%w : l'en-tête du jeton d'identité n'est pas du base64url", ErrUpstream)
 	}
 	var header struct {
 		Alg string `json:"alg"`
@@ -162,53 +162,53 @@ func verifyRS256JWTChecked(token string, keys map[string]*rsa.PublicKey, issuer,
 		Typ string `json:"typ"`
 	}
 	if err := json.Unmarshal(rawHeader, &header); err != nil {
-		return verifiedToken{}, fmt.Errorf("%w: id token header is not JSON", ErrUpstream)
+		return verifiedToken{}, fmt.Errorf("%w : l'en-tête du jeton d'identité n'est pas du JSON", ErrUpstream)
 	}
 	if header.Alg != "RS256" {
-		return verifiedToken{}, fmt.Errorf("%w: unsupported id token algorithm %q", ErrUpstream, header.Alg)
+		return verifiedToken{}, fmt.Errorf("%w : algorithme de jeton d'identité non pris en charge %q", ErrUpstream, header.Alg)
 	}
 	key, ok := keys[header.Kid]
 	if !ok {
-		return verifiedToken{}, fmt.Errorf("%w: id token key %q is not in the provider key set", ErrUpstream, header.Kid)
+		return verifiedToken{}, fmt.Errorf("%w : la clé %q du jeton d'identité est absente du jeu de clés du fournisseur", ErrUpstream, header.Kid)
 	}
 	signature, err := base64.RawURLEncoding.DecodeString(parts[2])
 	if err != nil {
-		return verifiedToken{}, fmt.Errorf("%w: id token signature is not base64url", ErrUpstream)
+		return verifiedToken{}, fmt.Errorf("%w : la signature du jeton d'identité n'est pas du base64url", ErrUpstream)
 	}
 	signingInput := []byte(parts[0] + "." + parts[1])
 	hash := sha256.Sum256(signingInput)
 	if err := rsa.VerifyPKCS1v15(key, crypto.SHA256, hash[:], signature); err != nil {
-		return verifiedToken{}, fmt.Errorf("%w: id token signature is invalid", ErrUpstream)
+		return verifiedToken{}, fmt.Errorf("%w : la signature du jeton d'identité est invalide", ErrUpstream)
 	}
 
 	rawPayload, err := base64.RawURLEncoding.DecodeString(parts[1])
 	if err != nil {
-		return verifiedToken{}, fmt.Errorf("%w: id token payload is not base64url", ErrUpstream)
+		return verifiedToken{}, fmt.Errorf("%w : la charge du jeton d'identité n'est pas du base64url", ErrUpstream)
 	}
 	var payload jwtPayload
 	if err := json.Unmarshal(rawPayload, &payload); err != nil {
-		return verifiedToken{}, fmt.Errorf("%w: id token payload is not JSON", ErrUpstream)
+		return verifiedToken{}, fmt.Errorf("%w : la charge du jeton d'identité n'est pas du JSON", ErrUpstream)
 	}
 	if issuer != "" && payload.Issuer != issuer {
-		return verifiedToken{}, fmt.Errorf("%w: id token issuer %q does not match %q", ErrUpstream, payload.Issuer, issuer)
+		return verifiedToken{}, fmt.Errorf("%w : l'émetteur du jeton d'identité %q ne correspond pas à %q", ErrUpstream, payload.Issuer, issuer)
 	}
 	if payload.Subject == "" {
-		return verifiedToken{}, fmt.Errorf("%w: id token has no subject", ErrUpstream)
+		return verifiedToken{}, fmt.Errorf("%w : le jeton d'identité n'a pas de sujet", ErrUpstream)
 	}
 	if expectedAudience != "" && !audienceMatches(payload.Audience, expectedAudience) {
-		return verifiedToken{}, fmt.Errorf("%w: id token audience does not name this client", ErrUpstream)
+		return verifiedToken{}, fmt.Errorf("%w : l'audience du jeton d'identité ne désigne pas ce client", ErrUpstream)
 	}
 	issued := time.Unix(payload.IssuedAt, 0).UTC()
 	expires := time.Unix(payload.ExpiresAt, 0).UTC()
 	if payload.ExpiresAt == 0 {
 		if expiryRequired {
-			return verifiedToken{}, fmt.Errorf("%w: id token has no expiry", ErrUpstream)
+			return verifiedToken{}, fmt.Errorf("%w : le jeton d'identité n'a pas d'expiration", ErrUpstream)
 		}
 	} else if !expires.After(now) {
-		return verifiedToken{}, fmt.Errorf("%w: token is expired", ErrUpstream)
+		return verifiedToken{}, fmt.Errorf("%w : le jeton a expiré", ErrUpstream)
 	}
 	if issued.After(now.Add(5 * time.Minute)) {
-		return verifiedToken{}, fmt.Errorf("%w: id token is not yet valid", ErrUpstream)
+		return verifiedToken{}, fmt.Errorf("%w : le jeton d'identité n'est pas encore valide", ErrUpstream)
 	}
 	return verifiedToken{
 		Subject:   payload.Subject,

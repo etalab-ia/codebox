@@ -11,16 +11,16 @@ func ValidatePortMappings(ports []PortMapping) error {
 	seen := make(map[uint16]bool, len(ports))
 	for _, p := range ports {
 		if p.Host == 0 || p.Guest == 0 {
-			return fmt.Errorf("host and guest ports must be between 1 and 65535")
+			return fmt.Errorf("les ports hôte et invité doivent être compris entre 1 et 65535")
 		}
 		if p.Host == DefaultPort {
-			return fmt.Errorf("host port %d is reserved for the OpenCode backend", DefaultPort)
+			return fmt.Errorf("le port hôte %d est réservé au backend OpenCode", DefaultPort)
 		}
 		if p.Guest == DefaultPort {
-			return fmt.Errorf("guest port %d is reserved for the OpenCode backend", DefaultPort)
+			return fmt.Errorf("le port invité %d est réservé au backend OpenCode", DefaultPort)
 		}
 		if seen[p.Host] {
-			return fmt.Errorf("host port %d is mapped more than once", p.Host)
+			return fmt.Errorf("le port hôte %d est mappé plusieurs fois", p.Host)
 		}
 		seen[p.Host] = true
 	}

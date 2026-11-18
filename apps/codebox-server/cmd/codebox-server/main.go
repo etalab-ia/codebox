@@ -33,7 +33,7 @@ func main() {
 
 func run(args []string) error {
 	fs := flag.NewFlagSet("codebox-server", flag.ContinueOnError)
-	printSeed := fs.Bool("print-token-seed", false, "print a fresh token signing seed and exit")
+	printSeed := fs.Bool("print-token-seed", false, "affiche une nouvelle graine de signature de jetons puis quitte")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -97,7 +97,7 @@ func run(args []string) error {
 
 	errCh := make(chan error, 1)
 	go func() {
-		logger.Info("codebox-server listening", slog.String("addr", cfg.ListenAddr), slog.String("store", store.Kind()))
+		logger.Info("codebox-server à l'écoute", slog.String("addr", cfg.ListenAddr), slog.String("store", store.Kind()))
 		if err := httpServer.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			errCh <- err
 		}
@@ -117,7 +117,7 @@ func run(args []string) error {
 func configFromEnv(logger *slog.Logger) (gateway.Config, error) {
 	publicURL := os.Getenv("GATEWAY_PUBLIC_URL")
 	if publicURL == "" {
-		return gateway.Config{}, errors.New("GATEWAY_PUBLIC_URL is required")
+		return gateway.Config{}, errors.New("GATEWAY_PUBLIC_URL est requis")
 	}
 	oidcCfg := gateway.OIDCConfig{
 		Issuer:        envOr("PROCONNECT_ISSUER", gateway.ProConnectSandboxIssuer),
@@ -128,7 +128,7 @@ func configFromEnv(logger *slog.Logger) (gateway.Config, error) {
 		AllowedSIRETs: splitNonEmpty(os.Getenv("GATEWAY_ALLOWED_SIRETS")),
 	}
 	if oidcCfg.Issuer == gateway.ProConnectSandboxIssuer {
-		logger.Warn("using the ProConnect sandbox issuer; set PROCONNECT_ISSUER to the production issuer once the DataPass authorisation is granted")
+		logger.Warn("utilisation de l'émetteur bac à sable ProConnect ; définissez PROCONNECT_ISSUER sur l'émetteur de production une fois l'autorisation DataPass accordée")
 	}
 	return gateway.Config{
 		ListenAddr:     envOr("PORT_LISTEN", ":"+envOr("PORT", "8080")),

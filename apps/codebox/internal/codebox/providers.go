@@ -106,7 +106,7 @@ func ResolveProviders(settings []ProviderSettings) ([]InferenceProvider, error) 
 	out := make([]InferenceProvider, 0, len(settings))
 	for _, s := range settings {
 		if seen[s.Kind] {
-			return nil, fmt.Errorf("the platform %s is configured more than once", s.Kind)
+			return nil, fmt.Errorf("la plateforme %s est configurée plusieurs fois", s.Kind)
 		}
 		seen[s.Kind] = true
 		p, err := ResolveProvider(s)
@@ -114,13 +114,13 @@ func ResolveProviders(settings []ProviderSettings) ([]InferenceProvider, error) 
 			return nil, err
 		}
 		if prev, dup := hosts[p.Host]; dup {
-			return nil, fmt.Errorf("platforms %s and %s share the host %s: a credential must have exactly one destination set", prev, p.Kind, p.Host)
+			return nil, fmt.Errorf("les plateformes %s et %s partagent l'hôte %s : un identifiant ne doit avoir qu'une seule destination", prev, p.Kind, p.Host)
 		}
 		hosts[p.Host] = p.Kind
 		out = append(out, p)
 	}
 	if len(out) == 0 {
-		return nil, fmt.Errorf("at least one inference platform is required")
+		return nil, fmt.Errorf("au moins une plateforme d'inférence est requise")
 	}
 	return out, nil
 }
@@ -130,7 +130,7 @@ func ResolveProvider(s ProviderSettings) (InferenceProvider, error) {
 	switch s.Kind {
 	case ProviderAlbert:
 		if strings.TrimSpace(s.BaseURL) != "" && normalizeBaseURL(s.BaseURL) != albertBaseURL {
-			return InferenceProvider{}, fmt.Errorf("Albert API uses a fixed endpoint; remove the custom base URL")
+			return InferenceProvider{}, fmt.Errorf("Albert API utilise un point de terminaison fixe ; supprimez l'URL de base personnalisée")
 		}
 		return InferenceProvider{
 			Kind: ProviderAlbert, Name: "Albert API (État)", BaseURL: albertBaseURL,
@@ -139,7 +139,7 @@ func ResolveProvider(s ProviderSettings) (InferenceProvider, error) {
 		}, nil
 	case ProviderMistral:
 		if strings.TrimSpace(s.BaseURL) != "" && normalizeBaseURL(s.BaseURL) != mistralBaseURL {
-			return InferenceProvider{}, fmt.Errorf("Mistral AI uses a fixed endpoint; remove the custom base URL")
+			return InferenceProvider{}, fmt.Errorf("Mistral AI utilise un point de terminaison fixe ; supprimez l'URL de base personnalisée")
 		}
 		host, err := providerHost(mistralBaseURL)
 		if err != nil {
@@ -153,7 +153,7 @@ func ResolveProvider(s ProviderSettings) (InferenceProvider, error) {
 	case ProviderOpenAICompatible:
 		name := strings.TrimSpace(s.Name)
 		if name == "" {
-			return InferenceProvider{}, fmt.Errorf("an OpenAI-compatible platform needs a name")
+			return InferenceProvider{}, fmt.Errorf("une plateforme compatible OpenAI a besoin d'un nom")
 		}
 		base, err := normalizeProviderBaseURL(s.BaseURL)
 		if err != nil {
@@ -169,7 +169,7 @@ func ResolveProvider(s ProviderSettings) (InferenceProvider, error) {
 			APIKeyEnv: OpenAICompatibleAPIKeyEnv, Host: host,
 		}, nil
 	default:
-		return InferenceProvider{}, fmt.Errorf("unknown inference platform kind %q", s.Kind)
+		return InferenceProvider{}, fmt.Errorf("type de plateforme d'inférence inconnu %q", s.Kind)
 	}
 }
 
@@ -187,23 +187,23 @@ func normalizeBaseURL(raw string) string {
 func normalizeProviderBaseURL(raw string) (string, error) {
 	base := normalizeBaseURL(raw)
 	if base == "" {
-		return "", fmt.Errorf("a base URL is required for an OpenAI-compatible platform")
+		return "", fmt.Errorf("une URL de base est requise pour une plateforme compatible OpenAI")
 	}
 	u, err := url.Parse(base)
 	if err != nil {
-		return "", fmt.Errorf("invalid base URL: %w", err)
+		return "", fmt.Errorf("URL de base invalide : %w", err)
 	}
 	if u.Scheme != "https" {
-		return "", fmt.Errorf("the base URL must use https")
+		return "", fmt.Errorf("l'URL de base doit utiliser https")
 	}
 	if u.User != nil {
-		return "", fmt.Errorf("the base URL must not contain credentials")
+		return "", fmt.Errorf("l'URL de base ne doit pas contenir d'identifiants")
 	}
 	if u.RawQuery != "" || u.Fragment != "" {
-		return "", fmt.Errorf("the base URL must not contain a query string or fragment")
+		return "", fmt.Errorf("l'URL de base ne doit pas contenir de chaîne de requête ni de fragment")
 	}
 	if port := u.Port(); port != "" && port != "443" {
-		return "", fmt.Errorf("the base URL must use the default https port")
+		return "", fmt.Errorf("l'URL de base doit utiliser le port https par défaut")
 	}
 	base = strings.TrimRight(u.Scheme+"://"+u.Host+u.Path, "/")
 	if _, err := providerHost(base); err != nil {
@@ -219,20 +219,20 @@ func normalizeProviderBaseURL(raw string) (string, error) {
 func providerHost(base string) (string, error) {
 	u, err := url.Parse(base)
 	if err != nil {
-		return "", fmt.Errorf("invalid base URL: %w", err)
+		return "", fmt.Errorf("URL de base invalide : %w", err)
 	}
 	if u.Scheme != "https" {
-		return "", fmt.Errorf("the base URL must use https")
+		return "", fmt.Errorf("l'URL de base doit utiliser https")
 	}
 	host := strings.ToLower(u.Hostname())
 	if host == "" {
-		return "", fmt.Errorf("the base URL has no host")
+		return "", fmt.Errorf("l'URL de base n'a pas d'hôte")
 	}
 	if net.ParseIP(host) != nil {
-		return "", fmt.Errorf("the base URL must name a DNS host, not an IP address")
+		return "", fmt.Errorf("l'URL de base doit nommer un hôte DNS, pas une adresse IP")
 	}
 	if !isDNSName(host) {
-		return "", fmt.Errorf("%q is not a DNS name the secret proxy can allow", host)
+		return "", fmt.Errorf("%q n'est pas un nom DNS que le proxy de secrets peut autoriser", host)
 	}
 	return host, nil
 }
@@ -348,7 +348,7 @@ func validateModelsEndpointKey(ctx context.Context, client *http.Client, key, en
 	resp, err := client.Do(req)
 	if err != nil {
 		if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, os.ErrDeadlineExceeded) {
-			return CredentialProbe{Unreachable: true, Detail: "timeout: the endpoint did not answer in time"}
+			return CredentialProbe{Unreachable: true, Detail: "délai dépassé : le point de terminaison n'a pas répondu à temps"}
 		}
 		return CredentialProbe{Unreachable: true, Detail: err.Error()}
 	}
@@ -359,25 +359,25 @@ func validateModelsEndpointKey(ctx context.Context, client *http.Client, key, en
 			Data []json.RawMessage `json:"data"`
 		}
 		if err := json.NewDecoder(io.LimitReader(resp.Body, 4<<20)).Decode(&raw); err != nil {
-			return CredentialProbe{Incompatible: true, Detail: "HTTP 200 with a body that is not a models listing"}
+			return CredentialProbe{Incompatible: true, Detail: "HTTP 200 avec un corps qui n'est pas une liste de modèles"}
 		}
 		if raw.Data == nil {
-			return CredentialProbe{Incompatible: true, Detail: "HTTP 200 without a models data array"}
+			return CredentialProbe{Incompatible: true, Detail: "HTTP 200 sans tableau de données de modèles"}
 		}
 		return CredentialProbe{}
 	case resp.StatusCode >= 300 && resp.StatusCode < 400:
 		// A redirect almost always means a wrong base URL (moved API root,
 		// missing path segment). It is never followed, so the Authorization
 		// header cannot be replayed to another host.
-		return CredentialProbe{Incompatible: true, Detail: fmt.Sprintf("HTTP %d (redirect not followed; the Authorization header is never replayed to another host)", resp.StatusCode)}
+		return CredentialProbe{Incompatible: true, Detail: fmt.Sprintf("HTTP %d (redirection non suivie : l'en-tête Authorization n'est jamais renvoyé vers un autre hôte)", resp.StatusCode)}
 	case resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden:
-		return CredentialProbe{Rejected: true, Detail: fmt.Sprintf("HTTP %d: the key was not accepted", resp.StatusCode)}
+		return CredentialProbe{Rejected: true, Detail: fmt.Sprintf("HTTP %d : la clé n'a pas été acceptée", resp.StatusCode)}
 	case resp.StatusCode == http.StatusNotFound:
-		return CredentialProbe{Incompatible: true, Detail: "HTTP 404: no models route at this base URL (check the API root, for example https://host/v1)"}
+		return CredentialProbe{Incompatible: true, Detail: "HTTP 404 : aucune route de modèles à cette URL de base (vérifiez la racine de l'API, par exemple https://host/v1)"}
 	case resp.StatusCode == http.StatusTooManyRequests:
-		return CredentialProbe{Unreachable: true, Detail: "HTTP 429: rate limited (temporary; retry later)"}
+		return CredentialProbe{Unreachable: true, Detail: "HTTP 429 : débit limité (temporaire ; réessayez plus tard)"}
 	case resp.StatusCode >= 500:
-		return CredentialProbe{Unreachable: true, Detail: fmt.Sprintf("HTTP %d: server error (temporary; retry later)", resp.StatusCode)}
+		return CredentialProbe{Unreachable: true, Detail: fmt.Sprintf("HTTP %d : erreur serveur (temporaire ; réessayez plus tard)", resp.StatusCode)}
 	default:
 		return CredentialProbe{Unreachable: true, Detail: fmt.Sprintf("HTTP %d", resp.StatusCode)}
 	}

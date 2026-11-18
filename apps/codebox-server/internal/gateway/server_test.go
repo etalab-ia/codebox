@@ -221,7 +221,7 @@ func TestMemberUpdateCannotRemoveTheLastOwner(t *testing.T) {
 
 func TestCreateProjectRequiresEligibility(t *testing.T) {
 	ts := newTestServer(t, Identity{})
-	ts.provider.createErr = errors.New("project creation is restricted to recognised public-sector organisations")
+	ts.provider.createErr = errors.New("la création de projet est réservée aux organisations du secteur public reconnues")
 	claims := TokenClaims{Subject: "s1", Email: "outsider@example.com", ACR: "eidas2"}
 	rec := httptest.NewRecorder()
 	req := newJSONRequest(http.MethodPost, "/v1/projects", secrets.CreateProjectRequest{})
@@ -285,17 +285,17 @@ func TestLoginStartFailureAuditsErrorClass(t *testing.T) {
 	}{
 		{
 			name:  "discovery connect timeout",
-			err:   fmt.Errorf("%w: discovery: %w", ErrUpstream, &url.Error{Op: "Get", URL: "https://issuer.example/.well-known/openid-configuration", Err: timeoutErr}),
+			err:   fmt.Errorf("%w : discovery : %w", ErrUpstream, &url.Error{Op: "Get", URL: "https://issuer.example/.well-known/openid-configuration", Err: timeoutErr}),
 			class: "discovery_timeout",
 		},
 		{
 			name:  "discovery dns failure",
-			err:   fmt.Errorf("%w: discovery: %w", ErrUpstream, &net.DNSError{Err: "no such host", Name: "issuer.example"}),
+			err:   fmt.Errorf("%w : discovery : %w", ErrUpstream, &net.DNSError{Err: "no such host", Name: "issuer.example"}),
 			class: "discovery_dns",
 		},
 		{
 			name:  "discovery http status",
-			err:   fmt.Errorf("%w: discovery returned HTTP 502", ErrUpstream),
+			err:   fmt.Errorf("%w : discovery a renvoyé HTTP 502", ErrUpstream),
 			class: "discovery_http_status",
 		},
 		{
@@ -353,32 +353,153 @@ func TestUpstreamErrorClassNamesEveryLeg(t *testing.T) {
 		err   error
 		class string
 	}{
-		{fmt.Errorf("%w: discovery: %w", ErrUpstream, dialTimeout), "discovery_timeout"},
-		{fmt.Errorf("%w: discovery: %w", ErrUpstream, dnsFailure), "discovery_dns"},
-		{fmt.Errorf("%w: discovery returned HTTP 404", ErrUpstream), "discovery_http_status"},
-		{fmt.Errorf("%w: discovery payload is not valid JSON", ErrUpstream), "discovery_bad_payload"},
-		{fmt.Errorf("%w: discovery payload is missing required endpoints", ErrUpstream), "discovery_invalid_discovery"},
-		{fmt.Errorf("%w: discovery issuer %q does not match the configured issuer", ErrUpstream, "https://other"), "discovery_invalid_discovery"},
-		{fmt.Errorf("%w: token endpoint: %w", ErrUpstream, dialTimeout), "token_timeout"},
-		{fmt.Errorf("%w: token response unreadable", ErrUpstream), "token_bad_payload"},
-		{fmt.Errorf("%w: token endpoint returned HTTP 500", ErrUpstream), "token_http_status"},
-		{fmt.Errorf("%w: token response is not a valid OIDC payload", ErrUpstream), "token_bad_payload"},
-		{fmt.Errorf("%w: jwks: %w", ErrUpstream, dialTimeout), "jwks_timeout"},
-		{fmt.Errorf("%w: jwks returned HTTP 503", ErrUpstream), "jwks_http_status"},
-		{fmt.Errorf("%w: jwks payload is not valid JSON", ErrUpstream), "jwks_bad_payload"},
-		{fmt.Errorf("%w: jwks contains no keys", ErrUpstream), "jwks_other"},
-		{fmt.Errorf("%w: id token nonce mismatch", ErrUpstream), "id_token_other"},
-		{fmt.Errorf("%w: userinfo: %w", ErrUpstream, dialTimeout), "userinfo_timeout"},
-		{fmt.Errorf("%w: userinfo returned HTTP 401", ErrUpstream), "userinfo_http_status"},
-		{fmt.Errorf("%w: userinfo payload is neither JSON nor a signed JWT", ErrUpstream), "userinfo_bad_payload"},
-		{fmt.Errorf("%w: UserInfo subject does not match the ID token subject", ErrUpstream), "userinfo_invalid_discovery"},
-		{fmt.Errorf("%w: ProConnect identity carries no email claim", ErrUpstream), "provider_other"},
+		{fmt.Errorf("%w : discovery : %w", ErrUpstream, dialTimeout), "discovery_timeout"},
+		{fmt.Errorf("%w : discovery : %w", ErrUpstream, dnsFailure), "discovery_dns"},
+		{fmt.Errorf("%w : discovery a renvoyé HTTP 404", ErrUpstream), "discovery_http_status"},
+		{fmt.Errorf("%w : la charge discovery n'est pas du JSON valide", ErrUpstream), "discovery_bad_payload"},
+		{fmt.Errorf("%w : la charge discovery omet des points de terminaison requis", ErrUpstream), "discovery_invalid_discovery"},
+		{fmt.Errorf("%w : l'émetteur discovery %q ne correspond pas à l'émetteur configuré", ErrUpstream, "https://other"), "discovery_invalid_discovery"},
+		{fmt.Errorf("%w : point de terminaison de jeton : %w", ErrUpstream, dialTimeout), "token_timeout"},
+		{fmt.Errorf("%w : réponse du point de terminaison de jeton illisible", ErrUpstream), "token_bad_payload"},
+		{fmt.Errorf("%w : le point de terminaison de jeton a renvoyé HTTP 500", ErrUpstream), "token_http_status"},
+		{fmt.Errorf("%w : la réponse du point de terminaison de jeton n'est pas une charge OIDC valide", ErrUpstream), "token_bad_payload"},
+		{fmt.Errorf("%w : jwks : %w", ErrUpstream, dialTimeout), "jwks_timeout"},
+		{fmt.Errorf("%w : jwks a renvoyé HTTP 503", ErrUpstream), "jwks_http_status"},
+		{fmt.Errorf("%w : la charge jwks n'est pas du JSON valide", ErrUpstream), "jwks_bad_payload"},
+		{fmt.Errorf("%w : la charge jwks ne contient aucune clé", ErrUpstream), "jwks_other"},
+		{fmt.Errorf("%w : le nonce du jeton d'identité est incohérent", ErrUpstream), "id_token_other"},
+		{fmt.Errorf("%w : UserInfo : %w", ErrUpstream, dialTimeout), "userinfo_timeout"},
+		{fmt.Errorf("%w : UserInfo a renvoyé HTTP 401", ErrUpstream), "userinfo_http_status"},
+		{fmt.Errorf("%w : la charge UserInfo n'est ni du JSON ni un JWT signé", ErrUpstream), "userinfo_bad_payload"},
+		{fmt.Errorf("%w : le sujet UserInfo ne correspond pas au sujet du jeton d'identité", ErrUpstream), "userinfo_invalid_discovery"},
+		{fmt.Errorf("%w : l'identité ProConnect ne porte aucune adresse e-mail", ErrUpstream), "provider_other"},
 		{errors.New("not an upstream failure"), "internal"},
 	}
 	for _, tc := range cases {
 		if got := upstreamErrorClass(tc.err); got != tc.class {
 			t.Errorf("upstreamErrorClass(%v) = %s, want %s", tc.err, got, tc.class)
 		}
+	}
+}
+
+// TestAPIMessagesAreFrench pins the prose the CLI surfaces verbatim: every
+// codebox-owned API message must be French, while error codes, JSON fields and
+// protocol values stay unchanged. Text appended by the standard library (a
+// JSON decoding detail, for example) is not codebox-owned and is left as is.
+func TestAPIMessagesAreFrench(t *testing.T) {
+	ts := newTestServer(t, Identity{})
+	owner := TokenClaims{Subject: "s1", Email: "owner@beta.gouv.fr", ACR: "eidas2"}
+	projectID := createProjectFor(t, ts, owner)
+	const unknownProject = "33333333-3333-4333-8333-333333333333"
+
+	rawBody := func(target, body string) *http.Request {
+		req := httptest.NewRequest(http.MethodPut, target, strings.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		return req
+	}
+
+	cases := []struct {
+		name   string
+		req    *http.Request
+		token  string
+		status int
+		code   string
+		want   string
+	}{
+		{
+			name:   "session token required",
+			req:    httptest.NewRequest(http.MethodGet, "/v1/whoami", nil),
+			status: http.StatusUnauthorized,
+			code:   secrets.ErrCodeUnauthorized,
+			want:   "un jeton de session Bearer est requis",
+		},
+		{
+			name:   "unknown project",
+			req:    httptest.NewRequest(http.MethodGet, "/v1/projects/"+unknownProject+"/members", nil),
+			token:  ts.sessionToken(t, owner),
+			status: http.StatusNotFound,
+			code:   secrets.ErrCodeNotFound,
+			want:   "projet introuvable",
+		},
+		{
+			name:   "identity outside the project",
+			req:    newJSONRequest(http.MethodPost, "/v1/projects/"+projectID+"/resolve", secrets.ResolveRequest{}),
+			token:  ts.sessionToken(t, TokenClaims{Subject: "s2", Email: "stranger@example.com", ACR: "eidas2"}),
+			status: http.StatusForbidden,
+			code:   secrets.ErrCodeForbidden,
+			want:   "cette identité n'est pas autorisée sur le projet",
+		},
+		{
+			name:   "malformed request body",
+			req:    rawBody("/v1/projects/"+projectID+"/secrets", `{"baseRevision":"not-an-integer"}`),
+			token:  ts.sessionToken(t, owner),
+			status: http.StatusBadRequest,
+			code:   secrets.ErrCodeInvalidRequest,
+			want:   "le corps de la requête ne correspond pas à la forme attendue",
+		},
+		{
+			name: "production scope refused",
+			req: newJSONRequest(http.MethodPut, "/v1/projects/"+projectID+"/secrets", secrets.PushSecretsRequest{
+				Scope:        "production",
+				BaseRevision: 1,
+				Components:   map[string]map[string]string{".env": {"A": "1"}},
+			}),
+			token:  ts.sessionToken(t, owner),
+			status: http.StatusBadRequest,
+			code:   secrets.ErrCodeProductionForbidden,
+			want:   "les secrets de production sont hors périmètre",
+		},
+		{
+			name: "stale member revision",
+			req: newJSONRequest(http.MethodPut, "/v1/projects/"+projectID+"/members", secrets.UpdateMembersRequest{
+				BaseRevision: 99,
+				Entries:      []secrets.ACLEntry{{Kind: secrets.EntryOwner, Value: owner.Email}},
+			}),
+			token:  ts.sessionToken(t, owner),
+			status: http.StatusConflict,
+			code:   secrets.ErrCodeConflict,
+			want:   "l'ACL du projet a changé",
+		},
+	}
+
+	// The English wording these messages replaced must not come back.
+	english := []string{
+		"is required",
+		"is not allowed",
+		"no such project",
+		"too many",
+		"could not",
+		"only a project owner",
+		"is unavailable",
+		"is unreadable",
+		"does not match the expected shape",
+		"missing authorization code",
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if tc.token != "" {
+				tc.req.Header.Set("Authorization", "Bearer "+tc.token)
+			}
+			rec := httptest.NewRecorder()
+			ts.server.Handler().ServeHTTP(rec, tc.req)
+			if rec.Code != tc.status {
+				t.Fatalf("status = %d, want %d (body %s)", rec.Code, tc.status, rec.Body.String())
+			}
+			var apiErr secrets.APIError
+			decodeJSON(t, rec, &apiErr)
+			if apiErr.Code != tc.code {
+				t.Fatalf("error code = %q, want %q", apiErr.Code, tc.code)
+			}
+			if !strings.Contains(apiErr.Message, tc.want) {
+				t.Fatalf("message = %q, want it to contain %q", apiErr.Message, tc.want)
+			}
+			for _, forbidden := range english {
+				if strings.Contains(apiErr.Message, forbidden) {
+					t.Fatalf("message %q still contains the English wording %q", apiErr.Message, forbidden)
+				}
+			}
+		})
 	}
 }
 

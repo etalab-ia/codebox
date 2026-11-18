@@ -198,7 +198,7 @@ func ValidateMCPConnectorIDs(ids []string) ([]string, error) {
 		if _, remote := mcpCatalogue[id]; !remote {
 			if _, local := browserMPCCatalogue[id]; !local {
 				if _, removed := RemovedMCPIDs[id]; !removed {
-					return nil, fmt.Errorf("unknown managed MCP %q (managed catalogue: data-gouv, chrome-devtools)", id)
+					return nil, fmt.Errorf("MCP géré inconnu %q (catalogue géré : data-gouv, chrome-devtools)", id)
 				}
 			}
 		}

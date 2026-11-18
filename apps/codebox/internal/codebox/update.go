@@ -69,11 +69,11 @@ func LatestProjectSkillsRevision(ctx context.Context) (string, error) {
 	defer os.RemoveAll(tmp)
 	out, err := runGit(ctx, tmp, "ls-remote", projectSkillsRepository, "HEAD")
 	if err != nil {
-		return "", fmt.Errorf("refresh the project skills catalogue: %w", err)
+		return "", fmt.Errorf("actualisation du catalogue de skills de projet : %w", err)
 	}
 	fields := strings.Fields(string(out))
 	if len(fields) < 2 || fields[1] != "HEAD" || !isGitRevision(fields[0]) {
-		return "", errors.New("the project skills catalogue returned an invalid HEAD revision")
+		return "", errors.New("le catalogue de skills de projet a renvoyé une révision HEAD invalide")
 	}
 	return fields[0], nil
 }
@@ -94,18 +94,18 @@ func PlanProjectUpdate(ctx context.Context, fs FS, root string, selected []strin
 	}
 	manifestBytes, err := fs.ReadFile(manifestPath)
 	if err != nil {
-		return ProjectUpdatePlan{}, fmt.Errorf("read project manifest: %w", err)
+		return ProjectUpdatePlan{}, fmt.Errorf("lecture du manifeste de projet : %w", err)
 	}
 	manifest, err := ReadProjectManifest(fs, manifestPath)
 	if err != nil {
 		return ProjectUpdatePlan{}, err
 	}
 	if manifest.SkillsLocalOnly {
-		return ProjectUpdatePlan{}, errors.New("project skill updates currently require versioned skills; local-only selections were not changed")
+		return ProjectUpdatePlan{}, errors.New("les mises à jour de skills de projet exigent actuellement des skills versionnés ; les sélections locales n'ont pas été modifiées")
 	}
 	lockBytes, err := fs.ReadFile(lockPath)
 	if err != nil {
-		return ProjectUpdatePlan{}, fmt.Errorf("read project lockfile: %w", err)
+		return ProjectUpdatePlan{}, fmt.Errorf("lecture du fichier de verrouillage du projet : %w", err)
 	}
 	lock, err := ReadLockfile(fs, lockPath)
 	if err != nil {
@@ -125,11 +125,11 @@ func PlanProjectUpdate(ctx context.Context, fs FS, root string, selected []strin
 		return ProjectUpdatePlan{}, err
 	}
 	if !isGitRevision(revision) {
-		return ProjectUpdatePlan{}, fmt.Errorf("invalid target skill revision %q", revision)
+		return ProjectUpdatePlan{}, fmt.Errorf("révision de skill cible invalide %q", revision)
 	}
 	_, proposedSkills, err := resolve(ctx, ids, revision)
 	if err != nil {
-		return ProjectUpdatePlan{}, fmt.Errorf("resolve selected skills at %s: %w", revision, err)
+		return ProjectUpdatePlan{}, fmt.Errorf("résolution des skills sélectionnés sur %s : %w", revision, err)
 	}
 	if err := validateResolvedSkillLocks(ids, proposedSkills, revision); err != nil {
 		return ProjectUpdatePlan{}, err
@@ -153,7 +153,7 @@ func PlanProjectUpdate(ctx context.Context, fs FS, root string, selected []strin
 	sort.Slice(changes, func(i, j int) bool { return changes[i].ID < changes[j].ID })
 	setID, err := newDependencySetID()
 	if err != nil {
-		return ProjectUpdatePlan{}, fmt.Errorf("create dependency-set identity: %w", err)
+		return ProjectUpdatePlan{}, fmt.Errorf("création de l'identité de l'ensemble de dépendances : %w", err)
 	}
 	manifest.DependencySetID = setID
 	manifest.SchemaVersion = projectManifestSchemaVersion
@@ -176,7 +176,7 @@ func PlanProjectUpdate(ctx context.Context, fs FS, root string, selected []strin
 		plan.instructionsPath = filepath.Join(root, "AGENTS.md")
 		if info, statErr := os.Lstat(plan.instructionsPath); statErr == nil {
 			if info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() {
-				return ProjectUpdatePlan{}, fmt.Errorf("%s is not a regular file; refusing to update managed instructions", plan.instructionsPath)
+				return ProjectUpdatePlan{}, fmt.Errorf("%s n'est pas un fichier régulier ; refus de mettre à jour les instructions gérées", plan.instructionsPath)
 			}
 		} else if !os.IsNotExist(statErr) {
 			return ProjectUpdatePlan{}, statErr
@@ -185,7 +185,7 @@ func PlanProjectUpdate(ctx context.Context, fs FS, root string, selected []strin
 		if err == nil {
 			plan.instructionsExisted = true
 		} else if !os.IsNotExist(err) {
-			return ProjectUpdatePlan{}, fmt.Errorf("read managed instructions: %w", err)
+			return ProjectUpdatePlan{}, fmt.Errorf("lecture des instructions gérées : %w", err)
 		}
 		updated, mergeErr := MergeManagedInstructions(string(plan.oldInstructions), manifest.Skills, lock.Skills, managedInstructionRuntime(manifest.Runtime))
 		if mergeErr != nil {
@@ -204,10 +204,10 @@ func validateUpdateSelection(available, selected []string) error {
 	seen := map[string]bool{}
 	for _, id := range selected {
 		if !allowed[id] {
-			return fmt.Errorf("skill %q is not selected in this project", id)
+			return fmt.Errorf("le skill %q n'est pas sélectionné dans ce projet", id)
 		}
 		if seen[id] {
-			return fmt.Errorf("skill %q was selected for update more than once", id)
+			return fmt.Errorf("le skill %q a été sélectionné plusieurs fois pour la mise à jour", id)
 		}
 		seen[id] = true
 	}
@@ -218,7 +218,7 @@ func validateResolvedSkillLocks(ids []string, locks map[string]SkillLock, revisi
 	for _, id := range ids {
 		pin, ok := locks[id]
 		if !ok || pin.Repository != projectSkillsRepository || pin.Revision != revision || !isSHA256(pin.SHA256) {
-			return fmt.Errorf("resolved skill %s failed source or SHA-256 validation", id)
+			return fmt.Errorf("le skill résolu %s a échoué à la validation de source ou SHA-256", id)
 		}
 	}
 	return nil
@@ -239,7 +239,7 @@ func (p ProjectUpdatePlan) ManagedInstructionsDiff() (string, error) {
 		return "", nil
 	}
 	var b strings.Builder
-	b.WriteString("--- AGENTS.md (managed skills)\n")
+	b.WriteString("--- AGENTS.md (skills gérés)\n")
 	for _, line := range strings.Split(strings.TrimSuffix(before, "\n"), "\n") {
 		if line != "" {
 			b.WriteString("- " + line + "\n")
@@ -260,17 +260,17 @@ func (p ProjectUpdatePlan) Apply(fs FS) error {
 		return nil
 	}
 	if len(p.Changes) == 0 || p.root == "" {
-		return errors.New("invalid empty project update plan")
+		return errors.New("plan de mise à jour de projet vide invalide")
 	}
 	return withProjectUpdateLock(fs, p.root, func() error { return p.applyLocked(fs) })
 }
 
 func (p ProjectUpdatePlan) applyLocked(fs FS) error {
 	if err := ensureProjectStateDirectory(p.root); err != nil {
-		return fmt.Errorf("validate project state directory: %w", err)
+		return fmt.Errorf("validation du dossier d'état du projet : %w", err)
 	}
 	if err := recoverProjectUpdateLocked(fs, p.root); err != nil {
-		return fmt.Errorf("recover prior project update: %w", err)
+		return fmt.Errorf("récupération de la mise à jour de projet précédente : %w", err)
 	}
 	manifestPath, lockPath := ProjectManifestPath(p.root), ProjectLockPath(p.root)
 	if err := ensureRegularManagedFile(manifestPath); err != nil {
@@ -281,11 +281,11 @@ func (p ProjectUpdatePlan) applyLocked(fs FS) error {
 	}
 	currentManifest, err := fs.ReadFile(manifestPath)
 	if err != nil || !equalBytes(currentManifest, p.oldManifest) {
-		return errors.New("project manifest changed after the update plan was created; review a fresh plan")
+		return errors.New("le manifeste de projet a changé après la création du plan de mise à jour ; revoyez un plan à jour")
 	}
 	currentLock, err := fs.ReadFile(lockPath)
 	if err != nil || !equalBytes(currentLock, p.oldLock) {
-		return errors.New("project lockfile changed after the update plan was created; review a fresh plan")
+		return errors.New("le fichier de verrouillage du projet a changé après la création du plan de mise à jour ; revoyez un plan à jour")
 	}
 	if p.instructionsPath != "" {
 		if err := ensureRegularManagedFile(p.instructionsPath); err != nil {
@@ -293,10 +293,10 @@ func (p ProjectUpdatePlan) applyLocked(fs FS) error {
 		}
 		current, readErr := fs.ReadFile(p.instructionsPath)
 		if p.instructionsExisted && (readErr != nil || !equalBytes(current, p.oldInstructions)) {
-			return errors.New("AGENTS.md changed after the update plan was created; review a fresh plan")
+			return errors.New("AGENTS.md a changé après la création du plan de mise à jour ; revoyez un plan à jour")
 		}
 		if !p.instructionsExisted && !os.IsNotExist(readErr) {
-			return errors.New("AGENTS.md appeared after the update plan was created; review a fresh plan")
+			return errors.New("AGENTS.md est apparu après la création du plan de mise à jour ; revoyez un plan à jour")
 		}
 	}
 	journal := projectUpdateJournal{
@@ -313,7 +313,7 @@ func (p ProjectUpdatePlan) applyLocked(fs FS) error {
 	}
 	journalPath := ProjectUpdateJournalPath(p.root)
 	if err := atomicWrite(fs, journalPath, append(data, '\n'), 0o600); err != nil {
-		return fmt.Errorf("stage project update journal: %w", err)
+		return fmt.Errorf("préparation du journal de mise à jour du projet : %w", err)
 	}
 	if err := atomicWrite(fs, manifestPath, p.newManifest, 0o644); err != nil {
 		return recoverAfterUpdateFailure(fs, p.root, err)
@@ -327,7 +327,7 @@ func (p ProjectUpdatePlan) applyLocked(fs FS) error {
 		}
 	}
 	if err := fs.Remove(journalPath); err != nil && !os.IsNotExist(err) {
-		return recoverAfterUpdateFailure(fs, p.root, fmt.Errorf("remove project update journal %s: %w", journalPath, err))
+		return recoverAfterUpdateFailure(fs, p.root, fmt.Errorf("suppression du journal de mise à jour du projet %s : %w", journalPath, err))
 	}
 	return nil
 }
@@ -335,7 +335,7 @@ func (p ProjectUpdatePlan) applyLocked(fs FS) error {
 func recoverAfterUpdateFailure(fs FS, root string, cause error) error {
 	rolledForward, err := recoverProjectUpdateLockedResult(fs, root)
 	if err != nil {
-		return fmt.Errorf("project update failed (%v) and recovery is pending: %w", cause, err)
+		return fmt.Errorf("échec de la mise à jour du projet (%v) et récupération en attente : %w", cause, err)
 	}
 	if rolledForward {
 		return nil
@@ -379,18 +379,18 @@ func rollbackProjectUpdateLocked(fs FS, root string) (string, error) {
 	}
 	data, err := fs.ReadFile(journalPath)
 	if err != nil {
-		return "", fmt.Errorf("read project update journal %s: %w", journalPath, err)
+		return "", fmt.Errorf("lecture du journal de mise à jour du projet %s : %w", journalPath, err)
 	}
 	var journal projectUpdateJournal
 	if err := json.Unmarshal(data, &journal); err != nil || journal.SchemaVersion != 1 || len(journal.OldManifest) == 0 || len(journal.OldLock) == 0 || len(journal.NewManifest) == 0 || len(journal.NewLock) == 0 {
-		return "", fmt.Errorf("project update journal %s is invalid; refusing rollback", journalPath)
+		return "", fmt.Errorf("le journal de mise à jour du projet %s est invalide ; refus du retour arrière", journalPath)
 	}
 	oldManifest, oldLock, err := validateUpdateJournalPair(journal.OldManifest, journal.OldLock)
 	if err != nil {
-		return "", fmt.Errorf("project update journal %s has an invalid previous pair: %w", journalPath, err)
+		return "", fmt.Errorf("le journal de mise à jour du projet %s a une paire précédente invalide : %w", journalPath, err)
 	}
 	if _, _, err := validateUpdateJournalPair(journal.NewManifest, journal.NewLock); err != nil {
-		return "", fmt.Errorf("project update journal %s has an invalid proposed pair: %w", journalPath, err)
+		return "", fmt.Errorf("le journal de mise à jour du projet %s a une paire proposée invalide : %w", journalPath, err)
 	}
 	paths := map[string]string{
 		"project.json": ProjectManifestPath(root),
@@ -407,7 +407,7 @@ func rollbackProjectUpdateLocked(fs FS, root string) (string, error) {
 			continue
 		}
 		if err != nil {
-			return "", fmt.Errorf("read current %s before rollback: %w", path, err)
+			return "", fmt.Errorf("lecture de %s actuel avant le retour arrière : %w", path, err)
 		}
 		current[name] = contents
 	}
@@ -416,7 +416,7 @@ func rollbackProjectUpdateLocked(fs FS, root string) (string, error) {
 		var mergeErr error
 		mergedInstructions, mergeErr = MergeManagedInstructions(string(current["AGENTS.md"]), oldManifest.Skills, oldLock.Skills, managedInstructionRuntime(oldManifest.Runtime))
 		if mergeErr != nil {
-			return "", fmt.Errorf("prepare previous managed instructions: %w", mergeErr)
+			return "", fmt.Errorf("préparation des instructions gérées précédentes : %w", mergeErr)
 		}
 	} else {
 		// The update had not created AGENTS.md, so the previous state has no
@@ -424,47 +424,47 @@ func rollbackProjectUpdateLocked(fs FS, root string) (string, error) {
 		var removeErr error
 		mergedInstructions, removeErr = RemoveManagedInstructions(string(current["AGENTS.md"]))
 		if removeErr != nil {
-			return "", fmt.Errorf("prepare previous managed instructions: %w", removeErr)
+			return "", fmt.Errorf("préparation des instructions gérées précédentes : %w", removeErr)
 		}
 	}
 	var suffix [8]byte
 	if _, err := rand.Read(suffix[:]); err != nil {
-		return "", fmt.Errorf("generate recovery backup name: %w", err)
+		return "", fmt.Errorf("génération du nom de sauvegarde de récupération : %w", err)
 	}
 	backupRoot := filepath.Join(ProjectStateDir(root), "recovery-backups")
 	if info, err := os.Lstat(backupRoot); err == nil {
 		if info.Mode()&os.ModeSymlink != 0 || !info.IsDir() {
-			return "", fmt.Errorf("%s is not a regular recovery backup directory", backupRoot)
+			return "", fmt.Errorf("%s n'est pas un dossier de sauvegarde de récupération régulier", backupRoot)
 		}
 	} else if !os.IsNotExist(err) {
 		return "", err
 	}
 	backupDir = filepath.Join(backupRoot, hex.EncodeToString(suffix[:]))
 	if err := fs.MkdirAll(backupDir, 0o700); err != nil {
-		return "", fmt.Errorf("create recovery backup directory: %w", err)
+		return "", fmt.Errorf("création du dossier de sauvegarde de récupération : %w", err)
 	}
 	for name, contents := range current {
 		if err := atomicWrite(fs, filepath.Join(backupDir, name), contents, 0o600); err != nil {
-			return backupDir, fmt.Errorf("back up current %s before rollback: %w", name, err)
+			return backupDir, fmt.Errorf("sauvegarde de %s actuel avant le retour arrière : %w", name, err)
 		}
 	}
 	if err := atomicWrite(fs, paths["project.json"], journal.OldManifest, 0o644); err != nil {
-		return backupDir, fmt.Errorf("restore previous project manifest: %w", err)
+		return backupDir, fmt.Errorf("restauration du manifeste de projet précédent : %w", err)
 	}
 	if err := atomicWrite(fs, paths["lock.json"], journal.OldLock, 0o644); err != nil {
-		return backupDir, fmt.Errorf("restore previous project lockfile: %w", err)
+		return backupDir, fmt.Errorf("restauration du fichier de verrouillage du projet précédent : %w", err)
 	}
 	if mergedInstructions == "" && !journal.InstructionsExisted {
 		if err := fs.Remove(paths["AGENTS.md"]); err != nil && !os.IsNotExist(err) {
-			return backupDir, fmt.Errorf("remove update-created AGENTS.md during rollback: %w", err)
+			return backupDir, fmt.Errorf("suppression de l'AGENTS.md créé par la mise à jour pendant le retour arrière : %w", err)
 		}
 	} else if _, existed := current["AGENTS.md"]; existed || (journal.InstructionsExisted && len(oldManifest.Skills) > 0) {
 		if err := atomicWrite(fs, paths["AGENTS.md"], []byte(mergedInstructions), 0o644); err != nil {
-			return backupDir, fmt.Errorf("restore previous managed instructions: %w", err)
+			return backupDir, fmt.Errorf("restauration des instructions gérées précédentes : %w", err)
 		}
 	}
 	if err := fs.Remove(journalPath); err != nil && !os.IsNotExist(err) {
-		return backupDir, fmt.Errorf("remove rolled-back project update journal: %w", err)
+		return backupDir, fmt.Errorf("suppression du journal de mise à jour du projet annulé : %w", err)
 	}
 	return backupDir, nil
 }
@@ -491,13 +491,13 @@ func recoverProjectUpdateLockedResult(fs FS, root string) (bool, error) {
 	}
 	var journal projectUpdateJournal
 	if err := json.Unmarshal(data, &journal); err != nil || journal.SchemaVersion != 1 || len(journal.OldManifest) == 0 || len(journal.OldLock) == 0 || len(journal.NewManifest) == 0 || len(journal.NewLock) == 0 {
-		return false, fmt.Errorf("project update journal %s is invalid; refusing to launch", journalPath)
+		return false, fmt.Errorf("le journal de mise à jour du projet %s est invalide ; refus de lancer", journalPath)
 	}
 	if _, _, err := validateUpdateJournalPair(journal.OldManifest, journal.OldLock); err != nil {
-		return false, fmt.Errorf("project update journal %s has an invalid previous pair: %w", journalPath, err)
+		return false, fmt.Errorf("le journal de mise à jour du projet %s a une paire précédente invalide : %w", journalPath, err)
 	}
 	if _, _, err := validateUpdateJournalPair(journal.NewManifest, journal.NewLock); err != nil {
-		return false, fmt.Errorf("project update journal %s has an invalid proposed pair: %w", journalPath, err)
+		return false, fmt.Errorf("le journal de mise à jour du projet %s a une paire proposée invalide : %w", journalPath, err)
 	}
 	manifestPath, lockPath := ProjectManifestPath(root), ProjectLockPath(root)
 	if err := ensureRegularManagedFile(manifestPath); err != nil {
@@ -509,16 +509,16 @@ func recoverProjectUpdateLockedResult(fs FS, root string) (bool, error) {
 	currentManifest, mErr := fs.ReadFile(manifestPath)
 	currentLock, lErr := fs.ReadFile(lockPath)
 	if mErr != nil {
-		return false, fmt.Errorf("read current project manifest while recovering journal %s: %w", journalPath, mErr)
+		return false, fmt.Errorf("lecture du manifeste de projet actuel pendant la récupération du journal %s : %w", journalPath, mErr)
 	}
 	if !equalBytes(currentManifest, journal.OldManifest) && !equalBytes(currentManifest, journal.NewManifest) {
-		return false, fmt.Errorf("project manifest %s contains bytes not recorded in pending journal %s; refusing recovery", manifestPath, journalPath)
+		return false, fmt.Errorf("le manifeste de projet %s contient des octets non enregistrés dans le journal en attente %s ; refus de la récupération", manifestPath, journalPath)
 	}
 	if lErr != nil {
-		return false, fmt.Errorf("read current project lockfile while recovering journal %s: %w", journalPath, lErr)
+		return false, fmt.Errorf("lecture du fichier de verrouillage du projet actuel pendant la récupération du journal %s : %w", journalPath, lErr)
 	}
 	if !equalBytes(currentLock, journal.OldLock) && !equalBytes(currentLock, journal.NewLock) {
-		return false, fmt.Errorf("project lockfile %s contains bytes not recorded in pending journal %s; refusing recovery", lockPath, journalPath)
+		return false, fmt.Errorf("le fichier de verrouillage du projet %s contient des octets non enregistrés dans le journal en attente %s ; refus de la récupération", lockPath, journalPath)
 	}
 	rollForward := mErr == nil && lErr == nil && equalBytes(currentManifest, journal.NewManifest) && equalBytes(currentLock, journal.NewLock)
 	chosenManifest, chosenLock := journal.OldManifest, journal.OldLock
@@ -526,14 +526,14 @@ func recoverProjectUpdateLockedResult(fs FS, root string) (bool, error) {
 		chosenManifest, chosenLock = journal.NewManifest, journal.NewLock
 	}
 	if err := atomicWrite(fs, manifestPath, chosenManifest, 0o644); err != nil {
-		return false, fmt.Errorf("recover project manifest: %w", err)
+		return false, fmt.Errorf("récupération du manifeste de projet : %w", err)
 	}
 	if err := atomicWrite(fs, lockPath, chosenLock, 0o644); err != nil {
-		return false, fmt.Errorf("recover project lockfile: %w", err)
+		return false, fmt.Errorf("récupération du fichier de verrouillage du projet : %w", err)
 	}
 	manifest, lock, err := validateUpdateJournalPair(chosenManifest, chosenLock)
 	if err != nil {
-		return false, fmt.Errorf("recover project dependency pair: %w", err)
+		return false, fmt.Errorf("récupération de la paire de dépendances du projet : %w", err)
 	}
 	if len(manifest.Skills) > 0 || journal.InstructionsExisted {
 		instructionsPath := filepath.Join(root, "AGENTS.md")
@@ -542,39 +542,39 @@ func recoverProjectUpdateLockedResult(fs FS, root string) (bool, error) {
 			if os.IsNotExist(readErr) {
 				// The update had not created the file.
 			} else if readErr != nil {
-				return false, fmt.Errorf("read managed instructions during recovery: %w", readErr)
+				return false, fmt.Errorf("lecture des instructions gérées pendant la récupération : %w", readErr)
 			} else if fmt.Sprintf("%x", sha256.Sum256(current)) == journal.NewInstructionsHash {
 				if err := fs.Remove(instructionsPath); err != nil && !os.IsNotExist(err) {
-					return false, fmt.Errorf("restore managed instructions: %w", err)
+					return false, fmt.Errorf("restauration des instructions gérées : %w", err)
 				}
 			} else if len(manifest.Skills) > 0 {
 				updated, mergeErr := MergeManagedInstructions(string(current), manifest.Skills, lock.Skills, managedInstructionRuntime(manifest.Runtime))
 				if mergeErr != nil {
-					return false, fmt.Errorf("recover managed instructions: %w", mergeErr)
+					return false, fmt.Errorf("récupération des instructions gérées : %w", mergeErr)
 				}
 				if err := atomicWrite(fs, instructionsPath, []byte(updated), 0o644); err != nil {
-					return false, fmt.Errorf("recover managed instructions: %w", err)
+					return false, fmt.Errorf("récupération des instructions gérées : %w", err)
 				}
 			}
 		} else if len(manifest.Skills) > 0 {
 			current, readErr := fs.ReadFile(instructionsPath)
 			if readErr != nil && !os.IsNotExist(readErr) {
-				return false, fmt.Errorf("read managed instructions during recovery: %w", readErr)
+				return false, fmt.Errorf("lecture des instructions gérées pendant la récupération : %w", readErr)
 			}
 			if os.IsNotExist(readErr) && journal.InstructionsExisted {
-				return false, errors.New("AGENTS.md disappeared during project update recovery; refusing to replace it")
+				return false, errors.New("AGENTS.md a disparu pendant la récupération de la mise à jour du projet ; refus de le remplacer")
 			}
 			updated, mergeErr := MergeManagedInstructions(string(current), manifest.Skills, lock.Skills, managedInstructionRuntime(manifest.Runtime))
 			if mergeErr != nil {
-				return false, fmt.Errorf("recover managed instructions: %w", mergeErr)
+				return false, fmt.Errorf("récupération des instructions gérées : %w", mergeErr)
 			}
 			if err := atomicWrite(fs, instructionsPath, []byte(updated), 0o644); err != nil {
-				return false, fmt.Errorf("recover managed instructions: %w", err)
+				return false, fmt.Errorf("récupération des instructions gérées : %w", err)
 			}
 		}
 	}
 	if err := fs.Remove(journalPath); err != nil && !os.IsNotExist(err) {
-		return false, fmt.Errorf("remove recovered project update journal: %w", err)
+		return false, fmt.Errorf("suppression du journal de mise à jour du projet récupéré : %w", err)
 	}
 	return rollForward, nil
 }
@@ -582,30 +582,30 @@ func recoverProjectUpdateLockedResult(fs FS, root string) (bool, error) {
 func validateUpdateJournalPair(manifestData, lockData []byte) (ProjectManifest, Lockfile, error) {
 	var manifestRaw map[string]any
 	if err := json.Unmarshal(manifestData, &manifestRaw); err != nil {
-		return ProjectManifest{}, Lockfile{}, fmt.Errorf("invalid project manifest JSON: %w", err)
+		return ProjectManifest{}, Lockfile{}, fmt.Errorf("JSON du manifeste de projet invalide : %w", err)
 	}
-	if err := checkNoSecretFields("project manifest", manifestRaw); err != nil {
+	if err := checkNoSecretFields("manifeste de projet", manifestRaw); err != nil {
 		return ProjectManifest{}, Lockfile{}, err
 	}
 	var lockRaw map[string]any
 	if err := json.Unmarshal(lockData, &lockRaw); err != nil {
-		return ProjectManifest{}, Lockfile{}, fmt.Errorf("invalid project lockfile JSON: %w", err)
+		return ProjectManifest{}, Lockfile{}, fmt.Errorf("JSON du fichier de verrouillage du projet invalide : %w", err)
 	}
-	if err := checkNoSecretFields("project lockfile", lockRaw); err != nil {
+	if err := checkNoSecretFields("fichier de verrouillage du projet", lockRaw); err != nil {
 		return ProjectManifest{}, Lockfile{}, err
 	}
 	var manifest ProjectManifest
 	if err := json.Unmarshal(manifestData, &manifest); err != nil {
 		return ProjectManifest{}, Lockfile{}, err
 	}
-	if err := checkSchemaVersion("project manifest", manifest.SchemaVersion, maxSupportedManifestSchema); err != nil {
+	if err := checkSchemaVersion("manifeste de projet", manifest.SchemaVersion, maxSupportedManifestSchema); err != nil {
 		return ProjectManifest{}, Lockfile{}, err
 	}
 	var lock Lockfile
 	if err := json.Unmarshal(lockData, &lock); err != nil {
 		return ProjectManifest{}, Lockfile{}, err
 	}
-	if err := checkSchemaVersion("project lockfile", lock.SchemaVersion, maxSupportedLockfileSchema); err != nil {
+	if err := checkSchemaVersion("fichier de verrouillage du projet", lock.SchemaVersion, maxSupportedLockfileSchema); err != nil {
 		return ProjectManifest{}, Lockfile{}, err
 	}
 	if err := ValidateDependencySet(manifest, lock); err != nil {
@@ -618,7 +618,7 @@ func withProjectUpdateLock(fs FS, root string, action func() error) error {
 	lock := &ProjectLock{Path: projectUpdateLockPath(root), FS: fs}
 	release, err := lock.Acquire()
 	if err != nil {
-		return fmt.Errorf("acquire project update lock: %w", err)
+		return fmt.Errorf("acquisition du verrou de mise à jour du projet : %w", err)
 	}
 	defer release()
 	return action()
@@ -638,7 +638,7 @@ func ensureRegularManagedFile(path string) error {
 		return err
 	}
 	if info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() {
-		return fmt.Errorf("%s is not a regular file; refusing project update", path)
+		return fmt.Errorf("%s n'est pas un fichier régulier ; refus de la mise à jour du projet", path)
 	}
 	return nil
 }
@@ -653,7 +653,7 @@ func ensureProjectStateDirectory(root string) error {
 		return err
 	}
 	if info.Mode()&os.ModeSymlink != 0 || !info.IsDir() {
-		return fmt.Errorf("%s is not a regular project state directory", dir)
+		return fmt.Errorf("%s n'est pas un dossier d'état de projet régulier", dir)
 	}
 	return nil
 }
@@ -669,7 +669,7 @@ func marshalLockfileUpdate(original []byte, lock Lockfile) ([]byte, error) {
 func marshalUpdatedJSON(original []byte, value any) ([]byte, error) {
 	var fields map[string]json.RawMessage
 	if err := json.Unmarshal(original, &fields); err != nil {
-		return nil, fmt.Errorf("decode project file for update: %w", err)
+		return nil, fmt.Errorf("décodage du fichier de projet pour la mise à jour : %w", err)
 	}
 	encoded, err := json.Marshal(value)
 	if err != nil {

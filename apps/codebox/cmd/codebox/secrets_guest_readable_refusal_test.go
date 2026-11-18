@@ -23,7 +23,7 @@ func TestGuestReadableApprovalRefusesAnUndeliverableValue(t *testing.T) {
 	if code != 1 || err == nil {
 		t.Fatalf("an undeliverable value must be refused at approval: code=%d err=%v", code, err)
 	}
-	if !strings.Contains(err.Error(), "DB_PASSWORD") || !strings.Contains(err.Error(), "proxy delivery") {
+	if !strings.Contains(err.Error(), "DB_PASSWORD") || !strings.Contains(err.Error(), "livraison proxy") {
 		t.Fatalf("the refusal must name the variable and the alternative: %v", err)
 	}
 }

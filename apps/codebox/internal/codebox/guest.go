@@ -147,7 +147,7 @@ func RunGuestBootstrap(ctx context.Context, cfg GuestConfig) error {
 	// The curl installer drops the binary in ~/.opencode/bin; guestPath already
 	// includes it, so a fresh resolve picks it up.
 	if _, err := g.resolve("opencode"); err != nil {
-		return fmt.Errorf("opencode is not available on PATH inside the VM")
+		return fmt.Errorf("opencode n'est pas disponible dans le PATH à l'intérieur de la machine isolée")
 	}
 
 	// Best-effort git identity and safe.directory, matching the shell behavior.
@@ -266,16 +266,16 @@ func applyMTU(ctx context.Context, cfg GuestConfig, env []string, mtu string) er
 	}
 	iface := parseDefaultInterface(res.Stdout)
 	if iface == "" {
-		return fmt.Errorf("cannot determine the guest default network interface for TART_MTU")
+		return fmt.Errorf("impossible de déterminer l'interface réseau par défaut de la machine isolée pour TART_MTU")
 	}
 	res, err = cfg.Runner.RunEnv(ctx, env, "sudo", "-n", "ifconfig", iface, "mtu", mtu)
 	if err != nil {
 		return err
 	}
 	if res.ExitCode != 0 {
-		return fmt.Errorf("cannot apply TART_MTU=%s to %s (passwordless sudo required)", mtu, iface)
+		return fmt.Errorf("impossible d'appliquer TART_MTU=%s à %s (sudo sans mot de passe requis)", mtu, iface)
 	}
-	fmt.Fprintf(cfg.Stdout, "Guest network: %s MTU=%s\n", iface, mtu)
+	fmt.Fprintf(cfg.Stdout, "Réseau de la machine isolée : %s MTU=%s\n", iface, mtu)
 	return nil
 }
 
@@ -309,7 +309,7 @@ func readSecrets(stdin io.Reader) (string, map[string]string, error) {
 		raw := trimLine(line)
 		if strings.HasPrefix(strings.TrimSpace(raw), "{") {
 			if err := json.Unmarshal([]byte(raw), &keys); err != nil {
-				return "", nil, fmt.Errorf("parse guest provider keys: %w", err)
+				return "", nil, fmt.Errorf("analyse des clés de fournisseur de la machine isolée : %w", err)
 			}
 		} else if raw != "" {
 			keys[msbAPISecretEnv] = raw
@@ -354,7 +354,7 @@ func (g *guest) resolve(name string) (string, error) {
 			return candidate, nil
 		}
 	}
-	return "", fmt.Errorf("%s not found on PATH", name)
+	return "", fmt.Errorf("%s introuvable dans le PATH", name)
 }
 
 func (g *guest) run(ctx context.Context, name string, args ...string) (int, error) {
@@ -383,18 +383,18 @@ func (g *guest) ensureOpencode(ctx context.Context) error {
 		return nil
 	}
 	if _, err := g.resolve("opencode"); err == nil {
-		fmt.Fprintln(g.cfg.Stdout, "Updating managed OpenCode inside macOS VM...")
+		fmt.Fprintln(g.cfg.Stdout, "Mise à jour de l'OpenCode géré dans la VM macOS...")
 		if err := g.runInstallerScript(ctx); err != nil {
 			return err
 		}
 	} else {
-		fmt.Fprintln(g.cfg.Stdout, "Installing OpenCode inside macOS VM...")
+		fmt.Fprintln(g.cfg.Stdout, "Installation d'OpenCode dans la VM macOS...")
 		if err := g.installOpencode(ctx); err != nil {
 			return err
 		}
 	}
 	if !probe() {
-		return fmt.Errorf("guest must provide OpenCode v%s after installation; check the guest PATH", OpenCodeVersion)
+		return fmt.Errorf("la machine isolée doit fournir OpenCode v%s après l'installation ; vérifiez le PATH de la machine isolée", OpenCodeVersion)
 	}
 	return nil
 }
@@ -414,7 +414,7 @@ func (g *guest) installOpencode(ctx context.Context) error {
 func (g *guest) runInstallerScript(ctx context.Context) error {
 	script, err := g.cfg.HTTPGet(opencodeInstallURL)
 	if err != nil {
-		return fmt.Errorf("cannot download the OpenCode installer: %w", err)
+		return fmt.Errorf("impossible de télécharger l'installateur OpenCode : %w", err)
 	}
 	tmp, err := os.CreateTemp("", "codebox-opencode-install-*.sh")
 	if err != nil {
@@ -431,7 +431,7 @@ func (g *guest) runInstallerScript(ctx context.Context) error {
 	if code, err := g.run(ctx, "bash", tmp.Name(), "--version", OpenCodeVersion, "--no-modify-path"); err != nil {
 		return err
 	} else if code != 0 {
-		return fmt.Errorf("the OpenCode installer failed (exit %d)", code)
+		return fmt.Errorf("l'installateur OpenCode a échoué (code %d)", code)
 	}
 	return nil
 }
@@ -445,7 +445,7 @@ func httpGet(url string) ([]byte, error) {
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("GET %s returned %s", url, resp.Status)
+		return nil, fmt.Errorf("GET %s a renvoyé %s", url, resp.Status)
 	}
 	return io.ReadAll(io.LimitReader(resp.Body, 4<<20))
 }
@@ -465,7 +465,7 @@ func RunGuestPrepare(ctx context.Context, cfg GuestConfig) error {
 		return err
 	}
 	if _, err := g.resolve("opencode"); err != nil {
-		return fmt.Errorf("opencode is not available on PATH inside the VM")
+		return fmt.Errorf("opencode n'est pas disponible dans le PATH à l'intérieur de la machine isolée")
 	}
 
 	// Best-effort git identity and safe.directory, matching the bootstrap.

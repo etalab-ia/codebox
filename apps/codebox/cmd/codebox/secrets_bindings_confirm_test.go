@@ -67,7 +67,7 @@ func TestBindingsApprovePromptsOnTTY(t *testing.T) {
 	if *calls != 1 {
 		t.Fatalf("a TTY approval must ask exactly once, got %d", *calls)
 	}
-	if !strings.Contains(out, "Cancelled") {
+	if !strings.Contains(out, "Annulé") {
 		t.Fatalf("a declined approval must say so: %q", out)
 	}
 	// Nothing may be recorded when the prompt is declined.
@@ -119,7 +119,7 @@ func TestBindingsApproveRejectsBeforeTouchingTheStore(t *testing.T) {
 	if code != 2 || err == nil {
 		t.Fatalf("a non-interactive approval without --yes must be refused: code=%d err=%v", code, err)
 	}
-	if strings.Contains(err.Error(), "cannot read") {
+	if strings.Contains(err.Error(), "impossible de lire") {
 		t.Fatalf("the refusal must be the --yes requirement, not a lookup error: %v", err)
 	}
 	if counting.gets != 0 {
@@ -153,10 +153,10 @@ func TestBindingsApproveCancellationReportsAnExistingApproval(t *testing.T) {
 			t.Fatalf("declined re-run: code=%d err=%v", code, err)
 		}
 	})
-	if !strings.Contains(out, "Cancelled") {
+	if !strings.Contains(out, "Annulé") {
 		t.Fatalf("the cancellation must be reported: %q", out)
 	}
-	if !strings.Contains(out, "remains in effect") {
+	if !strings.Contains(out, "reste en vigueur") {
 		t.Fatalf("a declined re-run must say the previous approval still applies: %q", out)
 	}
 	// And the old destination must be the one still recorded.

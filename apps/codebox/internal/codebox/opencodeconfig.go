@@ -137,7 +137,7 @@ const defaultOpencodeModel = "albert/deepseek-v4-flash"
 func ComposeConfigContent(o ManagedOverlay) (string, error) {
 	var base map[string]any
 	if err := json.Unmarshal([]byte(opencodeConfigContent), &base); err != nil {
-		return "", fmt.Errorf("parse embedded OpenCode config: %w", err)
+		return "", fmt.Errorf("analyse de la configuration OpenCode embarquée : %w", err)
 	}
 	overlayJSON, err := renderOverlayJSON(o.EffectiveOverlay())
 	if err != nil {
@@ -145,7 +145,7 @@ func ComposeConfigContent(o ManagedOverlay) (string, error) {
 	}
 	var overlay map[string]any
 	if err := json.Unmarshal([]byte(overlayJSON), &overlay); err != nil {
-		return "", fmt.Errorf("parse rendered overlay: %w", err)
+		return "", fmt.Errorf("analyse de la surcouche générée : %w", err)
 	}
 	// The embedded base always carries an Albert provider. When this run has
 	// no Albert models, the platform is not connected: leaving the base entry
@@ -392,7 +392,7 @@ func FormatConflicts(conflicts []ConfigConflict) string {
 	sort.Slice(sorted, func(i, j int) bool { return sorted[i].Field < sorted[j].Field })
 	var lines []string
 	for _, c := range sorted {
-		lines = append(lines, fmt.Sprintf("  %s: project=%s, codebox=%s (the codebox value wins; set the project field to match or change the managed selection)", c.Field, c.ProjectValue, c.ManagedValue))
+		lines = append(lines, fmt.Sprintf("  %s : project=%s, codebox=%s (la valeur codebox l'emporte ; alignez le champ du projet ou modifiez la sélection gérée)", c.Field, c.ProjectValue, c.ManagedValue))
 	}
 	return strings.Join(lines, "\n")
 }

@@ -193,16 +193,16 @@ func (t *Tart) StopInstance(ctx context.Context, vm string) error {
 		return err
 	}
 	if !running {
-		fmt.Printf("%s is not running.\n", vm)
+		fmt.Printf("%s n'est pas en cours d'exécution.\n", vm)
 		return nil
 	}
-	fmt.Printf("Stopping %s...\n", vm)
+	fmt.Printf("Arrêt de %s...\n", vm)
 	res, err := t.Runner.Run(ctx, "tart", "stop", vm, "--timeout", "5")
 	if err != nil {
 		return err
 	}
 	if res.ExitCode != 0 {
-		return fmt.Errorf("tart stop failed (exit %d)", res.ExitCode)
+		return fmt.Errorf("échec de tart stop (code de sortie %d)", res.ExitCode)
 	}
 	return nil
 }
@@ -216,7 +216,7 @@ func (t *Tart) StopAll(ctx context.Context) error {
 		return err
 	}
 	if len(vms) == 0 {
-		fmt.Println("No codebox Tart VM is running.")
+		fmt.Println("Aucune machine isolée Tart codebox n'est en cours d'exécution.")
 		return nil
 	}
 	var firstErr error
@@ -245,7 +245,7 @@ func (t *Tart) StopBackend(ctx context.Context) error {
 			break // process exited
 		}
 		if i+1 >= t.KillMaxPolls {
-			fmt.Fprintln(os.Stderr, "opencode ignored SIGTERM; force-killing...")
+			fmt.Fprintln(os.Stderr, "opencode a ignoré SIGTERM ; arrêt forcé...")
 			_, _ = t.Runner.Run(ctx, "tart", "exec", vm, "pkill", "-9", "-x", "opencode")
 			break
 		}
@@ -257,7 +257,7 @@ func (t *Tart) StopBackend(ctx context.Context) error {
 		return err
 	}
 	if res.ExitCode == 0 {
-		return fmt.Errorf("failed to stop the previous opencode process; refusing to relaunch")
+		return fmt.Errorf("impossible d'arrêter le processus opencode précédent ; relance refusée")
 	}
 	return nil
 }
@@ -339,7 +339,7 @@ type guestOverlayWire struct {
 func encodeGuestOverlay(overlay ManagedOverlay) (string, error) {
 	data, err := json.Marshal(guestOverlayWire{Models: overlay.Models, Providers: overlay.Providers, AlbertEnabled: overlay.AlbertEnabled, SmallModel: overlay.SmallModel})
 	if err != nil {
-		return "", fmt.Errorf("encode guest model configuration: %w", err)
+		return "", fmt.Errorf("encodage de la configuration des modèles de la machine isolée : %w", err)
 	}
 	return string(data), nil
 }
@@ -371,7 +371,7 @@ func DecodeGuestOverlay(raw string) (ManagedOverlay, error) {
 	}
 	for _, p := range wire.Providers {
 		if strings.TrimSpace(p.Kind) == "" || strings.TrimSpace(p.APIKeyEnv) == "" || strings.TrimSpace(p.BaseURL) == "" {
-			return ManagedOverlay{}, fmt.Errorf("provider kind, base URL and API key variable must be non-empty")
+			return ManagedOverlay{}, fmt.Errorf("le type de fournisseur, l'URL de base et la variable de clé d'API doivent être non vides")
 		}
 	}
 	return ManagedOverlay{Models: wire.Models, Providers: wire.Providers, AlbertEnabled: wire.AlbertEnabled, SmallModel: wire.SmallModel}, nil
@@ -380,7 +380,7 @@ func DecodeGuestOverlay(raw string) (ManagedOverlay, error) {
 func validateGuestModels(models []AlbertModelConfig) error {
 	for _, model := range models {
 		if strings.TrimSpace(model.ID) == "" || strings.TrimSpace(model.Name) == "" {
-			return fmt.Errorf("model IDs and names must be non-empty")
+			return fmt.Errorf("les identifiants et noms de modèles doivent être non vides")
 		}
 	}
 	return nil
@@ -415,7 +415,7 @@ func SecretsReader(password, apiKey string) io.Reader {
 func SecretsReaderWithKeys(password string, keys map[string]string) (io.Reader, error) {
 	data, err := json.Marshal(keys)
 	if err != nil {
-		return nil, fmt.Errorf("encode guest provider keys: %w", err)
+		return nil, fmt.Errorf("encodage des clés de fournisseur de la machine isolée : %w", err)
 	}
 	return strings.NewReader(password + "\n" + string(data) + "\n"), nil
 }
@@ -425,7 +425,7 @@ func SecretsReaderWithKeys(password string, keys map[string]string) (io.Reader, 
 func (t *Tart) launchBackend(ctx context.Context) error {
 	cfg := t.Config
 	vm := t.VMName()
-	fmt.Printf("Launching OpenCode server inside %s...\n", vm)
+	fmt.Printf("Lancement du serveur OpenCode dans %s...\n", vm)
 	if err := os.MkdirAll(t.StateDir, 0o755); err != nil {
 		return err
 	}
@@ -555,10 +555,11 @@ func (t *Tart) waitForAgent(ctx context.Context, fromOffset int64) error {
 		// the VM log. Stop as soon as the log names a startup failure.
 		if diagnoseStartup {
 			if reason := tartStartupFailure(t.LogPath(), logOffset); reason != "" {
-				return fmt.Errorf("tart could not start %s: %s\n"+
-					"The VM never booted, so no guest agent could answer. On a machine with no GUI session "+
-					"(SSH, a rented Mac), Virtualization.framework cannot create the VM host key when the login "+
-					"keychain is locked. Unlock that keychain or open a GUI session, then retry. Full log: %s",
+				return fmt.Errorf("tart n'a pas pu démarrer %s : %s\n"+
+					"La VM n'a jamais démarré, donc aucun agent invité n'a pu répondre. Sur un poste sans session "+
+					"graphique (SSH, Mac loué), Virtualization.framework ne peut pas créer la clé d'hôte de la VM "+
+					"quand le trousseau de connexion est verrouillé. Déverrouillez ce trousseau ou ouvrez une session "+
+					"graphique, puis réessayez. Journal complet : %s",
 					t.VMName(), reason, t.LogPath())
 			}
 		}
@@ -566,11 +567,11 @@ func (t *Tart) waitForAgent(ctx context.Context, fromOffset int64) error {
 	}
 	if diagnoseStartup {
 		if reason := tartStartupFailure(t.LogPath(), logOffset); reason != "" {
-			return fmt.Errorf("timed out waiting for %s guest agent; the VM log reports a startup failure: %s (full log: %s)",
+			return fmt.Errorf("délai dépassé en attendant l'agent invité de %s ; le journal de la VM signale un échec de démarrage : %s (journal complet : %s)",
 				t.VMName(), reason, t.LogPath())
 		}
 	}
-	return fmt.Errorf("timed out waiting for %s guest agent", t.VMName())
+	return fmt.Errorf("délai dépassé en attendant l'agent invité de %s", t.VMName())
 }
 
 // noLaunch marks a waitForAgent call that attached to an already-running VM
@@ -651,7 +652,7 @@ func (t *Tart) clone(ctx context.Context) error {
 		return err
 	}
 	if res.ExitCode != 0 {
-		return fmt.Errorf("tart clone failed (exit %d)", res.ExitCode)
+		return fmt.Errorf("échec de tart clone (code de sortie %d)", res.ExitCode)
 	}
 	return nil
 }
@@ -681,8 +682,8 @@ func (t *Tart) startVM(ctx context.Context) error {
 // #74); the warning stays so the choice is visible on every start.
 func (t *Tart) validateConfig(ctx context.Context) error {
 	if !t.Config.GuestCredentialsAcknowledged {
-		return fmt.Errorf("tart hands the inference credentials to the guest in plaintext, where any process (the agent included) can read them; " +
-			"pass --acknowledge-guest-credentials to accept this, or use --microsandbox, which keeps the credential behind the secret proxy")
+		return fmt.Errorf("tart transmet les identifiants d'inférence à la machine isolée en clair, où n'importe quel processus (l'agent compris) peut les lire ; " +
+			"passez --acknowledge-guest-credentials pour l'accepter, ou utilisez --microsandbox, qui garde l'identifiant derrière le proxy de secrets")
 	}
 	if _, err := t.resolveProviderKeysFor(ctx); err != nil {
 		return err
@@ -730,7 +731,7 @@ func (t *Tart) Start(ctx context.Context) error {
 			return err
 		}
 		if cfg.Isolation == IsolationFull {
-			fmt.Printf("%s is running (isolation full; the TUI runs inside the VM).\n", vm)
+			fmt.Printf("%s est en cours d'exécution (isolation full ; le TUI tourne dans la VM).\n", vm)
 			return nil
 		}
 		ip, err := t.IP(ctx, vm)
@@ -743,17 +744,17 @@ func (t *Tart) Start(ctx context.Context) error {
 					return err
 				}
 				if changed {
-					fmt.Printf("%s has changed OpenCode configuration; restarting backend...\n", vm)
+					fmt.Printf("la configuration OpenCode de %s a changé ; redémarrage du backend...\n", vm)
 					if err := t.StopBackend(ctx); err != nil {
 						return err
 					}
 					return t.launchBackend(ctx)
 				}
-				fmt.Printf("%s is running with a healthy OpenCode backend.\n", vm)
+				fmt.Printf("%s est en cours d'exécution avec un backend OpenCode sain.\n", vm)
 				return nil
 			}
 		}
-		fmt.Printf("%s is running but OpenCode is not healthy; restarting backend...\n", vm)
+		fmt.Printf("%s est en cours d'exécution mais OpenCode n'est pas sain ; redémarrage du backend...\n", vm)
 		if err := t.StopBackend(ctx); err != nil {
 			return err
 		}
@@ -765,7 +766,7 @@ func (t *Tart) Start(ctx context.Context) error {
 		return err
 	}
 	if !exists {
-		fmt.Printf("Cloning %s to %s...\n", cfg.TartImage, vm)
+		fmt.Printf("Clonage de %s vers %s...\n", cfg.TartImage, vm)
 		if err := t.clone(ctx); err != nil {
 			return err
 		}
@@ -775,7 +776,7 @@ func (t *Tart) Start(ctx context.Context) error {
 	if err := t.stageGuestBinary(); err != nil {
 		return err
 	}
-	fmt.Printf("Starting %s with Tart...\n", vm)
+	fmt.Printf("Démarrage de %s avec Tart...\n", vm)
 	// Mark the log before launching: the detached process starts writing
 	// immediately, and the failure this diagnoses can be on disk by the time
 	// startVM returns. Taking the mark after the launch would skip it.
@@ -787,7 +788,7 @@ func (t *Tart) Start(ctx context.Context) error {
 		return err
 	}
 	if cfg.Isolation == IsolationFull {
-		fmt.Printf("%s is running (isolation full; the TUI runs inside the VM).\n", vm)
+		fmt.Printf("%s est en cours d'exécution (isolation full ; le TUI tourne dans la VM).\n", vm)
 		return nil
 	}
 	return t.launchBackend(ctx)
@@ -811,20 +812,20 @@ func (t *Tart) Clean(ctx context.Context) error {
 		return err
 	}
 	if !exists {
-		fmt.Printf("%s does not exist.\n", vm)
+		fmt.Printf("%s n'existe pas.\n", vm)
 		return nil
 	}
 	// Disposing is destructive: say so before and after, so a silent success
 	// can never be mistaken for "nothing happened".
-	fmt.Printf("Deleting %s (VM and local state)...\n", vm)
+	fmt.Printf("Suppression de %s (VM et état local)...\n", vm)
 	res, err := t.Runner.Run(ctx, "tart", "delete", vm)
 	if err != nil {
 		return err
 	}
 	if res.ExitCode != 0 {
-		return fmt.Errorf("tart delete failed (exit %d)", res.ExitCode)
+		return fmt.Errorf("échec de tart delete (code de sortie %d)", res.ExitCode)
 	}
-	fmt.Printf("%s deleted.\n", vm)
+	fmt.Printf("%s supprimé.\n", vm)
 	return nil
 }
 
@@ -835,7 +836,7 @@ func (t *Tart) Doctor(ctx context.Context) error {
 		return err
 	}
 	if res.ExitCode != 0 {
-		return fmt.Errorf("tart is not installed")
+		return fmt.Errorf("tart n'est pas installé")
 	}
 	fmt.Print(res.Stdout)
 	// A locked login keychain is not fatal to `tart` itself but makes every VM
@@ -844,9 +845,9 @@ func (t *Tart) Doctor(ctx context.Context) error {
 	// letting it be discovered after a five-minute wait. This is advisory: a
 	// keychain can be unlocked, and doctor stays read-only.
 	if locked, detail := loginKeychainLocked(ctx, t.Runner); locked {
-		fmt.Printf("Warning: the login keychain appears locked (%s). Virtualization.framework stores each VM's host key there, so a Tart VM cannot boot until it is unlocked — `start --tart` would fail with a guest agent timeout. Unlock it (or open a GUI session) before starting.\n", detail)
+		fmt.Printf("Avertissement : le trousseau de connexion semble verrouillé (%s). Virtualization.framework y stocke la clé d'hôte de chaque VM, donc une VM Tart ne peut pas démarrer tant qu'il n'est pas déverrouillé — `start --tart` échouerait sur un délai d'attente de l'agent invité. Déverrouillez-le (ou ouvrez une session graphique) avant de démarrer.\n", detail)
 	}
-	fmt.Println("Tart runtime is ready.")
+	fmt.Println("Runtime Tart prêt.")
 	return nil
 }
 
@@ -902,7 +903,7 @@ func (t *Tart) Restart(ctx context.Context) error {
 // Recreate is the explicit destructive rebuild of the VM (P07). It names the
 // loss before and after. No lifecycle path reaches it implicitly.
 func (t *Tart) Recreate(ctx context.Context) error {
-	fmt.Printf("Recreating %s. This DESTROYS: guest sessions, tools installed in the guest, and guest-only files.\n", t.VMName())
+	fmt.Printf("Recréation de %s. Cela DÉTRUIT : les sessions de la machine isolée, les outils installés dans l'invité et les fichiers propres à l'invité.\n", t.VMName())
 	if err := t.RestartPreflights(ctx); err != nil {
 		return err
 	}
@@ -912,7 +913,7 @@ func (t *Tart) Recreate(ctx context.Context) error {
 	if err := t.Start(ctx); err != nil {
 		return err
 	}
-	fmt.Printf("%s recreated.\n", t.VMName())
+	fmt.Printf("%s recréé.\n", t.VMName())
 	return nil
 }
 
@@ -994,7 +995,7 @@ func (t *Tart) RunAgent(ctx context.Context) error {
 	if err != nil {
 		listErr = err
 	} else if sessions.ExitCode != 0 {
-		listErr = fmt.Errorf("OpenCode session list exited with code %d", sessions.ExitCode)
+		listErr = fmt.Errorf("la liste des sessions OpenCode s'est terminée avec le code %d", sessions.ExitCode)
 	}
 	hasSessions := false
 	if listErr == nil {
@@ -1007,14 +1008,14 @@ func (t *Tart) RunAgent(ctx context.Context) error {
 		if err != nil {
 			helpErr = err
 		} else if help.ExitCode != 0 {
-			helpErr = fmt.Errorf("OpenCode help exited with code %d", help.ExitCode)
+			helpErr = fmt.Errorf("l'aide OpenCode s'est terminée avec le code %d", help.ExitCode)
 		} else {
 			helpOutput = help.Stdout + "\n" + help.Stderr
 		}
 	}
 	resumeArgs, warn := OpenCodeResumeArgs(hasSessions, listErr, helpOutput, helpErr)
 	if warn {
-		WarnOpenCodeResumeUnavailable("dans le guest Tart")
+		WarnOpenCodeResumeUnavailable("dans la machine isolée Tart")
 	}
 	interactive := t.Interactive
 	if interactive == nil {
@@ -1122,16 +1123,16 @@ func (t *Tart) Status(ctx context.Context) (string, error) {
 		return "", err
 	}
 	if running {
-		return fmt.Sprintf("%s is running", t.VMName()), nil
+		return fmt.Sprintf("%s est en cours d'exécution", t.VMName()), nil
 	}
 	exists, err := t.vmExists(ctx)
 	if err != nil {
 		return "", err
 	}
 	if exists {
-		return fmt.Sprintf("%s is stopped", t.VMName()), nil
+		return fmt.Sprintf("%s est arrêté", t.VMName()), nil
 	}
-	return fmt.Sprintf("%s does not exist", t.VMName()), nil
+	return fmt.Sprintf("%s n'existe pas", t.VMName()), nil
 }
 
 // IsRunning reports whether the VM bound to this project is running.

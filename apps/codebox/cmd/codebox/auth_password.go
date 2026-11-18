@@ -18,7 +18,7 @@ func readPassword() (string, error) {
 	if term.IsTerminal(fd) {
 		value, err := term.ReadPassword(fd)
 		if err != nil {
-			return "", fmt.Errorf("read secret: %w", err)
+			return "", fmt.Errorf("lire le secret : %w", err)
 		}
 		return string(value), nil
 	}
@@ -27,7 +27,7 @@ func readPassword() (string, error) {
 	// stdin was redirected; treat it the same way.
 	line, err := bufio.NewReader(os.Stdin).ReadString('\n')
 	if err != nil && line == "" {
-		return "", fmt.Errorf("read secret from stdin: %w", err)
+		return "", fmt.Errorf("lire le secret depuis l'entrée standard : %w", err)
 	}
 	return strings.TrimSpace(line), nil
 }

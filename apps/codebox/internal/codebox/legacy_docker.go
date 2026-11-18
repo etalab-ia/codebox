@@ -33,9 +33,9 @@ func removeLegacyDockerContainer(ctx context.Context, r Runner) error {
 		return nil
 	}
 	if res.ExitCode != 0 {
-		return fmt.Errorf("docker rm --force %s failed (exit %d)", legacyDockerContainer, res.ExitCode)
+		return fmt.Errorf("docker rm --force %s a échoué (code %d)", legacyDockerContainer, res.ExitCode)
 	}
-	fmt.Printf("Removed the legacy Docker container %q left by an earlier codebox version.\n", legacyDockerContainer)
+	fmt.Printf("Conteneur Docker historique %q laissé par une version antérieure de codebox supprimé.\n", legacyDockerContainer)
 	return nil
 }
 

@@ -37,15 +37,15 @@ type SecretStore interface {
 // Storage error classes the HTTP layer maps to status codes.
 var (
 	// ErrStoreNotFound means the requested secret does not exist.
-	ErrStoreNotFound = errors.New("secret not found")
+	ErrStoreNotFound = errors.New("secret introuvable")
 
 	// ErrStoreConflict means the caller's base revision is stale.
-	ErrStoreConflict = errors.New("secret was modified since the supplied base revision")
+	ErrStoreConflict = errors.New("le secret a été modifié depuis la révision de base fournie")
 
 	// ErrStoreUnavailable means the backing service could not be reached or
 	// rejected the gateway's own credential; it is never the caller's fault.
-	ErrStoreUnavailable = errors.New("secret store unavailable")
+	ErrStoreUnavailable = errors.New("magasin de secrets indisponible")
 
 	// ErrStoreInvalid means the stored payload could not be interpreted.
-	ErrStoreInvalid = errors.New("secret store returned an unusable payload")
+	ErrStoreInvalid = errors.New("le magasin de secrets a renvoyé une charge inutilisable")
 )

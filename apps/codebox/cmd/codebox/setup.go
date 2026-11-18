@@ -50,11 +50,11 @@ func setupCmd(args []string) (int, error) {
 		case "--json":
 			jsonOutput = true
 		default:
-			return 2, fmt.Errorf("Unknown setup argument: %s (expected doctor, --fallback, --no-color or --json)", a)
+			return 2, fmt.Errorf("argument inconnu pour setup : %s (attendu : doctor, --fallback, --no-color ou --json)", a)
 		}
 	}
 	if jsonOutput && sub != "doctor" {
-		return 2, fmt.Errorf("--json is only valid with 'codebox setup doctor'")
+		return 2, fmt.Errorf("--json n'est valable qu'avec 'codebox setup doctor'")
 	}
 	if noColor {
 		// --no-color promises plain terminal output; the line renderer
@@ -140,7 +140,7 @@ func yn(b bool) string {
 	if b {
 		return "ok"
 	}
-	return "FAILED"
+	return "ÉCHEC"
 }
 
 func humanBytes(n int64) string {
@@ -370,7 +370,7 @@ func setupWizardRun(fallback bool, in *bufio.Reader, validate func(context.Conte
 	if wizardHuhFn() {
 		selected, defaultModel, ok, err := promptSetupModels(providers, models, model)
 		if errors.Is(err, huh.ErrUserAborted) {
-			fmt.Println("Setup annulé.")
+			fmt.Println("Configuration annulée.")
 			recordSetupAbandon(stateDir, "models")
 			return 1, nil
 		}
@@ -381,9 +381,9 @@ func setupWizardRun(fallback bool, in *bufio.Reader, validate func(context.Conte
 			models, model, modelAnswered = selected, defaultModel, true
 		}
 	} else {
-		fmt.Println("Models (comma-separated references such as albert/Qwen3-Coder-30B-A3B-Instruct or mistral/mistral-large-latest; Enter keeps the current selection):")
+		fmt.Println("Modèles (références séparées par des virgules, par exemple albert/Qwen3-Coder-30B-A3B-Instruct ou mistral/mistral-large-latest ; Entrée conserve la sélection actuelle) :")
 		for {
-			chosen, answered := promptLine(in, "Models: ")
+			chosen, answered := promptLine(in, "Modèles : ")
 			if !answered {
 				if len(models) == 0 {
 					return 1, fmt.Errorf("aucun modèle valide pour les plateformes configurées ; relancez 'codebox setup' pour en choisir un")
@@ -543,7 +543,7 @@ func setupWizardRun(fallback bool, in *bufio.Reader, validate func(context.Conte
 			if errors.Is(err, huh.ErrUserAborted) {
 				// Identity is persisted here, not at final apply: an
 				// abort must cancel setup, not save partial values.
-				fmt.Println("\nSetup annulé.")
+				fmt.Println("\nConfiguration annulée.")
 				recordSetupAbandon(stateDir, "identity")
 				return 1, nil
 			}
@@ -706,7 +706,7 @@ func setupWizardRun(fallback bool, in *bufio.Reader, validate func(context.Conte
 	fmt.Println("Installation de la machine isolée…")
 	if err := w.InstallRuntime(ctx); err != nil {
 		// Journal preserved: the retry skips the credential prompts.
-		return 1, fmt.Errorf("runtime installation failed: %v (re-run 'codebox setup' to resume; the credential prompts will be skipped)", err)
+		return 1, fmt.Errorf("l'installation du runtime a échoué : %v (relancez 'codebox setup' pour reprendre ; les questions d'identifiants seront ignorées)", err)
 	}
 	codebox.RecordStatsEvent(fs, stateDir, codebox.StatsEventInput{
 		Kind:    "setup",
@@ -1899,7 +1899,7 @@ var setupModelPickerRun = func(initial setupModelPicker) (setupModelPicker, erro
 	}
 	final, ok := result.(setupModelPicker)
 	if !ok {
-		return initial, fmt.Errorf("model picker returned an unexpected state")
+		return initial, fmt.Errorf("le sélecteur de modèles a renvoyé un état inattendu")
 	}
 	if final.cancelled {
 		return final, huh.ErrUserAborted
@@ -2113,7 +2113,7 @@ func validateModelAgainstCatalogue(model string) string {
 		return "" // catalogue unreachable and no cache: not a validation failure
 	}
 	if _, ok := catalogue.Find(model); !ok {
-		return fmt.Sprintf("the model %q is not in the catalogue; it may have been removed. 'codebox models' lists the valid ids.", model)
+		return fmt.Sprintf("le modèle %q n'est pas dans le catalogue ; il a peut-être été retiré. 'codebox models' liste les identifiants valides.", model)
 	}
 	return ""
 }

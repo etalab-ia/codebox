@@ -76,7 +76,7 @@ func TestVerifySHA256(t *testing.T) {
 	if err := verifySHA256(bytes.NewReader(data), digest); err != nil {
 		t.Fatalf("verifySHA256(valid): %v", err)
 	}
-	if err := verifySHA256(strings.NewReader("corrupted runtime"), digest); err == nil || !strings.Contains(err.Error(), "SHA-256 mismatch") {
+	if err := verifySHA256(strings.NewReader("corrupted runtime"), digest); err == nil || !strings.Contains(err.Error(), "SHA-256 non concordante") {
 		t.Fatalf("verifySHA256(corrupt) = %v, want mismatch", err)
 	}
 }
@@ -107,7 +107,7 @@ func TestCorruptedMSBRuntimeIsRejectedBeforeExtraction(t *testing.T) {
 	})}
 
 	err := downloadAndInstallMSBRuntime(context.Background(), client, home, artifact)
-	if err == nil || !strings.Contains(err.Error(), "SHA-256 mismatch") {
+	if err == nil || !strings.Contains(err.Error(), "SHA-256 non concordante") {
 		t.Fatalf("downloadAndInstallMSBRuntime = %v, want checksum mismatch", err)
 	}
 	if _, err := os.Stat(filepath.Join(home, "bin", artifact.msbName)); !os.IsNotExist(err) {
@@ -247,7 +247,7 @@ func TestExternalMSBRuntimeRequiresBothPaths(t *testing.T) {
 	t.Setenv("MSB_PATH", filepath.Join(t.TempDir(), "msb"))
 	t.Setenv("MSB_LIBKRUNFW_PATH", "")
 	external, err := validateExternalMSBRuntime(context.Background())
-	if !external || err == nil || !strings.Contains(err.Error(), "set both") {
+	if !external || err == nil || !strings.Contains(err.Error(), "définissez à la fois") {
 		t.Fatalf("validateExternalMSBRuntime = %v, %v; want configured error", external, err)
 	}
 }
@@ -277,7 +277,7 @@ func TestSDKDoctorRejectsIncompleteExternalRuntime(t *testing.T) {
 	t.Setenv("MSB_PATH", filepath.Join(t.TempDir(), "msb"))
 	t.Setenv("MSB_LIBKRUNFW_PATH", "")
 	_, err := (sdkMSBClient{}).Doctor(context.Background())
-	if err == nil || !strings.Contains(err.Error(), "set both MSB_PATH and MSB_LIBKRUNFW_PATH") {
+	if err == nil || !strings.Contains(err.Error(), "définissez à la fois MSB_PATH et MSB_LIBKRUNFW_PATH") {
 		t.Fatalf("Doctor error = %v, want external runtime pair diagnostic", err)
 	}
 }
@@ -309,7 +309,7 @@ func TestSDKDoctorRejectsUntrustedManagedRuntime(t *testing.T) {
 	t.Setenv("MSB_LIBKRUNFW_PATH", "")
 
 	_, err = (sdkMSBClient{}).Doctor(context.Background())
-	if err == nil || !strings.Contains(err.Error(), "failed integrity checks") {
+	if err == nil || !strings.Contains(err.Error(), "contrôles d'intégrité") {
 		t.Fatalf("Doctor error = %v, want untrusted managed runtime diagnostic", err)
 	}
 	if _, err := os.Stat(msbRuntimeMarker(home)); !os.IsNotExist(err) {
@@ -334,7 +334,7 @@ func TestSDKDoctorRejectsExternalRuntimeVersionMismatch(t *testing.T) {
 	t.Setenv("MSB_LIBKRUNFW_PATH", libPath)
 
 	_, err := (sdkMSBClient{}).Doctor(context.Background())
-	if err == nil || !strings.Contains(err.Error(), "requires msb "+msbRuntimeVersion) {
+	if err == nil || !strings.Contains(err.Error(), "requiert msb "+msbRuntimeVersion) {
 		t.Fatalf("Doctor error = %v, want external runtime version diagnostic", err)
 	}
 }

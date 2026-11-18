@@ -20,20 +20,20 @@ import (
 // which guards the stored payload the same way.
 func readStrictJSON(r *http.Request, limit int64) ([]byte, error) {
 	if ct := r.Header.Get("Content-Type"); ct != "" && !strings.HasPrefix(ct, "application/json") {
-		return nil, errors.New("request body must be JSON")
+		return nil, errors.New("le corps de la requête doit être du JSON")
 	}
 	data, err := io.ReadAll(io.LimitReader(r.Body, limit+1))
 	if err != nil {
-		return nil, errors.New("request body could not be read")
+		return nil, errors.New("le corps de la requête n'a pas pu être lu")
 	}
 	if int64(len(data)) > limit {
-		return nil, errors.New("request body is too large")
+		return nil, errors.New("le corps de la requête est trop volumineux")
 	}
 	if !utf8.Valid(data) {
-		return nil, errors.New("request body is not valid UTF-8")
+		return nil, errors.New("le corps de la requête n'est pas de l'UTF-8 valide")
 	}
 	if hasUnpairedSurrogate(data) {
-		return nil, errors.New("request body contains an unpaired UTF-16 surrogate escape")
+		return nil, errors.New("le corps de la requête contient une séquence surrogate UTF-16 non appairée")
 	}
 	if err := rejectJSONNulls(data); err != nil {
 		return nil, err
@@ -102,14 +102,14 @@ func rejectJSONNulls(data []byte) error {
 
 func walkJSON(dec *json.Decoder, depth int) error {
 	if depth > 64 {
-		return errors.New("request body is nested too deeply")
+		return errors.New("le corps de la requête est imbriqué trop profondément")
 	}
 	tok, err := dec.Token()
 	if err != nil {
-		return errors.New("request body is not a valid JSON payload")
+		return errors.New("le corps de la requête n'est pas une charge JSON valide")
 	}
 	if tok == nil {
-		return errors.New("request body must not contain null values")
+		return errors.New("le corps de la requête ne doit pas contenir de valeur nulle")
 	}
 	delim, ok := tok.(json.Delim)
 	if !ok {
@@ -120,10 +120,10 @@ func walkJSON(dec *json.Decoder, depth int) error {
 		for dec.More() {
 			key, err := dec.Token()
 			if err != nil {
-				return errors.New("request body is not a valid JSON payload")
+				return errors.New("le corps de la requête n'est pas une charge JSON valide")
 			}
 			if _, isString := key.(string); !isString {
-				return errors.New("request body has a non-string object key")
+				return errors.New("le corps de la requête contient une clé d'objet non textuelle")
 			}
 			if err := walkJSON(dec, depth+1); err != nil {
 				return err
@@ -138,7 +138,7 @@ func walkJSON(dec *json.Decoder, depth int) error {
 	}
 	// Consume the closing delimiter.
 	if _, err := dec.Token(); err != nil {
-		return errors.New("request body is not a valid JSON payload")
+		return errors.New("le corps de la requête n'est pas une charge JSON valide")
 	}
 	return nil
 }
@@ -154,11 +154,11 @@ func decodeStrictJSON(r *http.Request, dst any, limit int64) error {
 	dec := json.NewDecoder(bytes.NewReader(data))
 	dec.DisallowUnknownFields()
 	if err := dec.Decode(dst); err != nil {
-		return fmt.Errorf("request body does not match the expected shape: %w", err)
+		return fmt.Errorf("le corps de la requête ne correspond pas à la forme attendue : %w", err)
 	}
 	var trailing any
 	if err := dec.Decode(&trailing); !errors.Is(err, io.EOF) {
-		return errors.New("request body contains trailing data")
+		return errors.New("le corps de la requête contient des données en trop")
 	}
 	return nil
 }

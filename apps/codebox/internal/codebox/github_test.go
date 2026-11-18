@@ -362,7 +362,7 @@ func TestGitHubSnapshotBranchScriptRefusesChangesAndKeepsRemoteBase(t *testing.T
 	if err := os.WriteFile(ignored, []byte("ignored guest work\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if out, err := runShellTest(script, snapshot); err == nil || !strings.Contains(string(out), "ignored files") {
+	if out, err := runShellTest(script, snapshot); err == nil || !strings.Contains(string(out), "fichiers ignorés") {
 		t.Fatalf("ignored guest files must block setup: err=%v out=%s", err, out)
 	}
 	if got, err := os.ReadFile(ignored); err != nil || string(got) != "ignored guest work\n" {
@@ -375,7 +375,7 @@ func TestGitHubSnapshotBranchScriptRefusesChangesAndKeepsRemoteBase(t *testing.T
 	if err := os.WriteFile(dirty, []byte("uncommitted guest work\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if out, err := runShellTest(script, snapshot); err == nil || !strings.Contains(string(out), "worktree is dirty") {
+	if out, err := runShellTest(script, snapshot); err == nil || !strings.Contains(string(out), "contient des modifications") {
 		t.Fatalf("dirty guest worktree must block setup: err=%v out=%s", err, out)
 	}
 	if got, err := os.ReadFile(dirty); err != nil || string(got) != "uncommitted guest work\n" {
@@ -593,7 +593,7 @@ func TestGitHubSnapshotPublicationGateAfterFilteredTransfer(t *testing.T) {
 				if tc.name == "ignored file explicitly included" {
 					// The repository bootstrap deliberately does not force-add
 					// ignored files; its existing ignored-work guard runs first.
-					want = "ignored files"
+					want = "fichiers ignorés"
 				}
 				if err == nil || !strings.Contains(string(out), want) {
 					t.Fatalf("want publication refusal: err=%v out=%s", err, out)
@@ -799,7 +799,7 @@ func TestGitHubOriginMismatchRefusesBeforeRuntimeChanges(t *testing.T) {
 			case "reconcile":
 				err = m.Reconcile(context.Background())
 			}
-			if err == nil || !strings.Contains(err.Error(), "origin differs") {
+			if err == nil || !strings.Contains(err.Error(), "diffère de l'origine GitHub") {
 				t.Fatalf("%s origin mismatch = %v", action, err)
 			}
 			if len(client.calls) != 0 {
@@ -870,7 +870,7 @@ func TestConfigureGitHubWorkspaceRejectsMissingWritePermission(t *testing.T) {
 	m.Client = client
 	bindings := []resolvedBinding{{msbSecretBinding: msbSecretBinding{Kind: CredentialGithub, GuestEnv: "GITHUB_TOKEN"}}}
 	err := m.configureGitHubWorkspace(context.Background(), bindings)
-	if err == nil || !strings.Contains(err.Error(), "has no push role") {
+	if err == nil || !strings.Contains(err.Error(), "rôle de poussée") {
 		t.Fatalf("missing write permission: %v", err)
 	}
 	for _, call := range client.calls {
@@ -889,7 +889,7 @@ func TestConfigureGitHubWorkspaceRejectsAuthenticationBeforeSeeding(t *testing.T
 	}, "opencode-cb-test-12345")
 	m.Client = client
 	err := m.configureGitHubWorkspace(context.Background(), []resolvedBinding{{msbSecretBinding: msbSecretBinding{Kind: CredentialGithub}}})
-	if err == nil || !strings.Contains(err.Error(), "credential was not accepted") {
+	if err == nil || !strings.Contains(err.Error(), "n'a pas été accepté") {
 		t.Fatalf("authentication failure = %v", err)
 	}
 	if strings.Contains(err.Error(), "synthetic-sensitive-cli-diagnostic") {

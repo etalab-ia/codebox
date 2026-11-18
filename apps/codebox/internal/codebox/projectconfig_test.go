@@ -176,7 +176,7 @@ func TestParseProjectOpenCodeConfigSizeLimit(t *testing.T) {
 	if err := os.WriteFile(path, []byte(oversized), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := ParseProjectOpenCodeConfig(dir, path); err == nil || !strings.Contains(err.Error(), "size limit") {
+	if _, err := ParseProjectOpenCodeConfig(dir, path); err == nil || !strings.Contains(err.Error(), "limite de taille") {
 		t.Fatalf("expected size-limit refusal, got %v", err)
 	}
 	atLimit := `{"x": "` + strings.Repeat("a", maxOpenCodeConfigSize-len(`{"x": ""}`)) + `"}`

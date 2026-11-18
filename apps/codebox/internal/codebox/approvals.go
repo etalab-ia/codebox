@@ -42,10 +42,10 @@ func ReadBindingApprovals(fs FS, path string) (BindingApprovals, error) {
 	}
 	var a BindingApprovals
 	if err := json.Unmarshal(data, &a); err != nil {
-		return BindingApprovals{}, fmt.Errorf("binding approvals %s: %w", path, err)
+		return BindingApprovals{}, fmt.Errorf("autorisations de liaison %s : %w", path, err)
 	}
 	if a.SchemaVersion > bindingApprovalsSchemaVersion {
-		return BindingApprovals{}, fmt.Errorf("binding approvals %s: schemaVersion %d is newer than this build supports (%d)",
+		return BindingApprovals{}, fmt.Errorf("autorisations de liaison %s : schemaVersion %d est plus récent que ce que cette version prend en charge (%d)",
 			path, a.SchemaVersion, bindingApprovalsSchemaVersion)
 	}
 	return a, nil
@@ -86,10 +86,10 @@ func ParseOptionalBindingKind(name string) (CredentialKind, error) {
 	kind := CredentialKind(name)
 	b, ok := bindingForKind(kind)
 	if !ok {
-		return "", fmt.Errorf("unknown credential kind %q (expected github or context7)", name)
+		return "", fmt.Errorf("type d'identifiant inconnu %q (attendu : github ou context7)", name)
 	}
 	if !b.Optional {
-		return "", fmt.Errorf("the %s binding is always active and cannot be approved or revoked", name)
+		return "", fmt.Errorf("la liaison %s est toujours active et ne peut être ni approuvée ni révoquée", name)
 	}
 	return kind, nil
 }
@@ -101,10 +101,10 @@ func ParseOptionalBindingKind(name string) (CredentialKind, error) {
 func ApproveBinding(fs FS, path string, kind CredentialKind) error {
 	b, ok := bindingForKind(kind)
 	if !ok {
-		return fmt.Errorf("unknown credential kind %q (expected github or context7)", kind)
+		return fmt.Errorf("type d'identifiant inconnu %q (attendu : github ou context7)", kind)
 	}
 	if !b.Optional {
-		return fmt.Errorf("the %s binding is always active and needs no approval", kind)
+		return fmt.Errorf("la liaison %s est toujours active et n'a pas besoin d'approbation", kind)
 	}
 	a, err := ReadBindingApprovals(fs, path)
 	if err != nil {

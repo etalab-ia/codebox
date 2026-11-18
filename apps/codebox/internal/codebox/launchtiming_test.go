@@ -166,7 +166,7 @@ func TestLaunchHygieneDetailStaysInNonInteractiveLogs(t *testing.T) {
 						t.Fatal(err)
 					}
 				})
-				if strings.Contains(output, "dotenv file (excluded from transfer)") == terminal {
+				if strings.Contains(output, "fichier .env (exclu du transfert)") == terminal {
 					t.Fatalf("incorrect launch hygiene output: %q", output)
 				}
 			})

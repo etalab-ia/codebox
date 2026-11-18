@@ -65,7 +65,7 @@ func TestInitMultiSelectsAnnounceSelectionKeys(t *testing.T) {
 	assertHint("MCPs", newProjectMCPsMultiSelect(
 		[]huh.Option[string]{huh.NewOption("data-gouv", "data-gouv")}, &mcpValue, codebox.MCPStepTitle))
 	dotenvValue := []string{}
-	assertHint("Dotenv files", newDotenvFilesMultiSelect(
+	assertHint("Fichiers dotenv", newDotenvFilesMultiSelect(
 		[]huh.Option[string]{huh.NewOption(".env", ".env")}, &dotenvValue))
 }
 

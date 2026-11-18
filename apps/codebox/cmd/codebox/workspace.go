@@ -26,7 +26,7 @@ import (
 // provisioning copies from, so the two sides of the boundary agree.
 func workspaceCmd(args []string, cfg codebox.Config, instance string) (int, error) {
 	if len(args) == 0 {
-		fmt.Fprintln(os.Stderr, "Usage: codebox workspace status | sync [--force] | allow <path> | deny <path> | export [--out <file>] | apply [--all] | recover")
+		fmt.Fprintln(os.Stderr, "Usage : codebox workspace status | sync [--force] | allow <path> | deny <path> | export [--out <file>] | apply [--all] | recover")
 		return 2, nil
 	}
 	stateDir := codebox.DefaultStateDir()
@@ -52,7 +52,7 @@ func workspaceCmd(args []string, cfg codebox.Config, instance string) (int, erro
 			}
 			// An unrecognized flag must not be ignored: `sync --forc` running
 			// an unforced sync is the confusing half of a typo.
-			return 2, fmt.Errorf("Unknown workspace sync option: %s (expected --force)", a)
+			return 2, fmt.Errorf("option workspace sync inconnue : %s (attendu : --force)", a)
 		}
 		rt := codebox.NewMicrosandboxRuntimeForInstance(cfg, instance)
 		if err := rt.SyncGuestWorkspace(context.Background(), codebox.SyncOptions{Force: force, OptIn: optIn}); err != nil {
@@ -61,30 +61,30 @@ func workspaceCmd(args []string, cfg codebox.Config, instance string) (int, erro
 		return 0, nil
 	case "allow":
 		if len(args) != 2 {
-			return 2, fmt.Errorf("workspace allow takes exactly one path relative to the project root")
+			return 2, fmt.Errorf("workspace allow exige exactement un chemin relatif à la racine du projet")
 		}
 		return workspaceAllowCmd(store, cfg.WorkspaceDir, args[1])
 	case "deny":
 		if len(args) != 2 {
-			return 2, fmt.Errorf("workspace deny takes exactly one path relative to the project root")
+			return 2, fmt.Errorf("workspace deny exige exactement un chemin relatif à la racine du projet")
 		}
 		if err := store.Revoke(codebox.NormalizeTransferPath(args[1])); err != nil {
 			return 1, err
 		}
-		fmt.Printf("%s is back under the default-deny filter.\n", codebox.NormalizeTransferPath(args[1]))
+		fmt.Printf("%s repasse sous le filtre de refus par défaut.\n", codebox.NormalizeTransferPath(args[1]))
 		return 0, nil
 	case "export":
 		out := ""
 		if len(args) > 1 {
 			if args[1] != "--out" {
-				return 2, fmt.Errorf("Unknown workspace export option: %s (expected --out <file>)", args[1])
+				return 2, fmt.Errorf("option workspace export inconnue : %s (attendu : --out <file>)", args[1])
 			}
 			if len(args) < 3 {
-				return 2, fmt.Errorf("workspace export --out needs a file path")
+				return 2, fmt.Errorf("workspace export --out exige un chemin de fichier")
 			}
 			out = args[2]
 			if len(args) > 3 {
-				return 2, fmt.Errorf("workspace export takes a single --out <file>")
+				return 2, fmt.Errorf("workspace export accepte un seul --out <file>")
 			}
 		}
 		rt := codebox.NewMicrosandboxRuntimeForInstance(cfg, instance)
@@ -98,10 +98,10 @@ func workspaceCmd(args []string, cfg codebox.Config, instance string) (int, erro
 			return 1, err
 		}
 		if path == "" {
-			fmt.Println("The guest workspace has no changes to deliver.")
+			fmt.Println("L'espace de travail de la machine isolée n'a aucune modification à livrer.")
 			return 0, nil
 		}
-		fmt.Printf("Guest changes written for review: %s\nApply with 'git apply' after reviewing, or push them through the GitHub workflow (P13).\n", path)
+		fmt.Printf("Modifications de la machine isolée écrites pour relecture : %s\nAppliquez-les avec 'git apply' après relecture, ou poussez-les via le workflow GitHub (P13).\n", path)
 		return 0, nil
 	case "apply":
 		applyAll := false
@@ -112,13 +112,13 @@ func workspaceCmd(args []string, cfg codebox.Config, instance string) (int, erro
 			}
 			// An unrecognized flag must not be ignored: `apply --al`
 			// skipping the review screen is the confusing half of a typo.
-			return 2, fmt.Errorf("Unknown workspace apply option: %s (expected --all)", a)
+			return 2, fmt.Errorf("option workspace apply inconnue : %s (attendu : --all)", a)
 		}
 		rt := codebox.NewMicrosandboxRuntimeForInstance(cfg, instance)
 		return runWorkspaceApply(rt, cfg.WorkspaceDir, instance, applyAll)
 	case "recover":
 		if len(args) != 1 {
-			return 2, fmt.Errorf("workspace recover takes no options")
+			return 2, fmt.Errorf("workspace recover n'accepte aucune option")
 		}
 		rt := codebox.NewMicrosandboxRuntimeForInstance(cfg, instance)
 		if err := rt.Recover(context.Background()); err != nil {
@@ -126,7 +126,7 @@ func workspaceCmd(args []string, cfg codebox.Config, instance string) (int, erro
 		}
 		return 0, nil
 	default:
-		return 2, fmt.Errorf("Unknown workspace command: %s (expected status, sync, allow, deny, export, apply or recover)", args[0])
+		return 2, fmt.Errorf("commande workspace inconnue : %s (attendu : status, sync, allow, deny, export, apply ou recover)", args[0])
 	}
 }
 
@@ -141,24 +141,24 @@ func workspaceStatusCmd(sourceDir, instance string, records map[string]codebox.T
 	if err != nil {
 		return 1, err
 	}
-	fmt.Printf("Sealed guest workspace for %s\n\n", instance)
+	fmt.Printf("Espace de travail scellé de la machine isolée pour %s\n\n", instance)
 	fmt.Print(man.Summary())
 	// The plan requires the user to SEE the filtered set, not just its size:
 	// a review screen that only counts files cannot be reviewed.
 	included := man.Included()
 	if len(included) > 0 {
-		fmt.Println("\nWill cross into the guest:")
+		fmt.Println("\nFranchiront la frontière vers la machine isolée :")
 		const maxListed = 200
 		for i, e := range included {
 			if i == maxListed {
-				fmt.Printf("  ... and %d more\n", len(included)-maxListed)
+				fmt.Printf("  ... et %d de plus\n", len(included)-maxListed)
 				break
 			}
 			fmt.Printf("  %s (%s)\n", e.Rel, codebox.FormatByteSize(e.Size))
 		}
 	}
 	if len(records) > 0 {
-		fmt.Println("\nRecorded per-file re-inclusions:")
+		fmt.Println("\nRé-inclusions par fichier consignées :")
 		rels := make([]string, 0, len(records))
 		for rel := range records {
 			rels = append(rels, rel)
@@ -168,7 +168,7 @@ func workspaceStatusCmd(sourceDir, instance string, records map[string]codebox.T
 			fmt.Printf("  %s (recorded %s)\n", rel, records[rel].RecordedAt)
 		}
 	}
-	fmt.Println("\nThe host checkout is not mounted into the guest; files cross only through this filtered transfer.")
+	fmt.Println("\nLe dossier du projet sur le poste n'est pas monté dans la machine isolée ; les fichiers ne franchissent la frontière que par ce transfert filtré.")
 	return 0, nil
 }
 
@@ -178,7 +178,7 @@ func workspaceStatusCmd(sourceDir, instance string, records map[string]codebox.T
 func workspaceAllowCmd(store codebox.TransferOptInStore, sourceDir, rawPath string) (int, error) {
 	rel := codebox.NormalizeTransferPath(rawPath)
 	if rel == "" {
-		return 2, fmt.Errorf("workspace allow needs a path relative to the project root")
+		return 2, fmt.Errorf("workspace allow exige un chemin relatif à la racine du projet")
 	}
 	// Resolve first so the decision is recorded against a path the filter
 	// actually evaluated; an unknown path would create a rule that never
@@ -196,18 +196,18 @@ func workspaceAllowCmd(store codebox.TransferOptInStore, sourceDir, rawPath stri
 		}
 	}
 	if found == nil {
-		return 1, fmt.Errorf("%s is not in the transfer set for this project (paths are relative to the project root, slash-separated)", rel)
+		return 1, fmt.Errorf("%s ne fait pas partie de l'ensemble de transfert de ce projet (les chemins sont relatifs à la racine du projet, séparés par des barres obliques)", rel)
 	}
 	if found.Included {
-		fmt.Printf("%s already crosses into the guest; no decision needed.\n", rel)
+		fmt.Printf("%s franchit déjà la frontière vers la machine isolée ; aucune décision nécessaire.\n", rel)
 		return 0, nil
 	}
 	if !found.Overridable {
-		return 1, fmt.Errorf("%s is excluded for a structural reason that a per-file decision cannot override: %s", rel, found.Reason)
+		return 1, fmt.Errorf("%s est exclu pour une raison structurelle qu'une décision fichier par fichier ne peut pas contourner : %s", rel, found.Reason)
 	}
 	if err := store.Allow(rel, found.Reason); err != nil {
 		return 1, err
 	}
-	fmt.Printf("%s is now re-included (overridden rule: %s).\nIt crosses on the next 'codebox workspace sync'.\n", rel, found.Reason)
+	fmt.Printf("%s est désormais ré-inclus (règle contournée : %s).\nIl franchira la frontière au prochain 'codebox workspace sync'.\n", rel, found.Reason)
 	return 0, nil
 }

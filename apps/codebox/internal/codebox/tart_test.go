@@ -209,7 +209,7 @@ func TestStopBackendRefusesWhenStillRunning(t *testing.T) {
 	tt := newTestTart(t, r)
 	tt.KillMaxPolls = 2
 	err := tt.StopBackend(context.Background())
-	if err == nil || !strings.Contains(err.Error(), "refusing to relaunch") {
+	if err == nil || !strings.Contains(err.Error(), "relance refusée") {
 		t.Fatalf("expected refuse error, got %v", err)
 	}
 }
@@ -368,7 +368,7 @@ func TestTartRestartPreflightsWorkspace(t *testing.T) {
 	if err == nil {
 		t.Fatal("Restart must refuse a workspace containing .env")
 	}
-	if !strings.Contains(err.Error(), "refusing to start") {
+	if !strings.Contains(err.Error(), "démarrage refusé") {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if runner.hasCall("tart delete") || runner.hasCall("tart stop") {

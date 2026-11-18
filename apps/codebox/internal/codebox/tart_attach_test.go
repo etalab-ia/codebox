@@ -33,7 +33,7 @@ func TestWaitForAgentOnAttachIgnoresAnEarlierRunsFailure(t *testing.T) {
 	if err == nil {
 		t.Fatal("a guest that never answers must still time out")
 	}
-	if !strings.Contains(err.Error(), "timed out waiting for") {
+	if !strings.Contains(err.Error(), "délai dépassé") {
 		t.Fatalf("attaching must not report a boot failure from the log: %v", err)
 	}
 	if strings.Contains(err.Error(), "security error") || strings.Contains(err.Error(), "keychain") {

@@ -143,7 +143,7 @@ func browserDevToolsStartScript() string {
 		"    attempt=0\n" +
 		"    until curl -fsS http://127.0.0.1:9222/json/version >/dev/null 2>&1; do\n" +
 		"      attempt=$((attempt + 1))\n" +
-		"      if [ \"$attempt\" -ge 30 ]; then echo 'guest Chromium DevTools endpoint did not become ready' >&2; exit 1; fi\n" +
+		"      if [ \"$attempt\" -ge 30 ]; then echo \"le point de terminaison DevTools de Chromium dans la machine isolée n'est pas devenu disponible\" >&2; exit 1; fi\n" +
 		"      sleep 1\n" +
 		"    done\n" +
 		"    ;;\n" +
@@ -153,7 +153,7 @@ func browserDevToolsStartScript() string {
 func mustAsset(name string) string {
 	data, err := assets.Read(name)
 	if err != nil {
-		panic(fmt.Sprintf("codebox: embedded asset %s missing: %v", name, err))
+		panic(fmt.Sprintf("codebox : ressource embarquée %s manquante : %v", name, err))
 	}
 	return string(data)
 }
@@ -211,9 +211,9 @@ func (sdkMSBClient) Doctor(ctx context.Context) (string, error) {
 	}
 	if _, err := os.Stat(path); err != nil {
 		if os.IsNotExist(err) {
-			return "", fmt.Errorf("Microsandbox runtime is not installed; run 'codebox start --microsandbox' to install it")
+			return "", fmt.Errorf("le runtime Microsandbox n'est pas installé ; lancez 'codebox start --microsandbox' pour l'installer")
 		}
-		return "", fmt.Errorf("inspect Microsandbox runtime: %w", err)
+		return "", fmt.Errorf("inspection du runtime Microsandbox : %w", err)
 	}
 	output, err := exec.CommandContext(ctx, path, "doctor").CombinedOutput()
 	if err == nil {
@@ -224,9 +224,9 @@ func (sdkMSBClient) Doctor(ctx context.Context) (string, error) {
 	}
 	detail := strings.TrimSpace(string(output))
 	if detail == "" {
-		return "", fmt.Errorf("microsandbox doctor: %w", err)
+		return "", fmt.Errorf("microsandbox doctor : %w", err)
 	}
-	return string(output), fmt.Errorf("microsandbox doctor: %w: %s", err, detail)
+	return string(output), fmt.Errorf("microsandbox doctor : %w : %s", err, detail)
 }
 
 // Managed installs use the SDK's documented MSB_HOME layout; manual installs
@@ -598,14 +598,14 @@ func (sdkMSBClient) ExecCaptureStdin(ctx context.Context, name, command string, 
 	defer func() { err = errors.Join(err, h.Close()) }()
 	sink := h.TakeStdin()
 	if sink == nil {
-		return "", "", 0, errors.New("the exec session did not provide a stdin pipe")
+		return "", "", 0, errors.New("la session d'exécution n'a pas fourni de tube stdin")
 	}
 	if _, err := sink.Write(stdin); err != nil {
 		_ = sink.Close()
-		return "", "", 0, fmt.Errorf("writing to the guest command's stdin: %w", err)
+		return "", "", 0, fmt.Errorf("écriture sur l'entrée standard de la commande invitée : %w", err)
 	}
 	if err := sink.Close(); err != nil {
-		return "", "", 0, fmt.Errorf("closing the guest command's stdin: %w", err)
+		return "", "", 0, fmt.Errorf("fermeture de l'entrée standard de la commande invitée : %w", err)
 	}
 	out, err := h.Collect(ctx)
 	if err != nil {
@@ -698,7 +698,7 @@ func (m persistedMount) bindSource() string {
 func parseWorkspaceMount(configJSON, guestPath string) (string, error) {
 	var raw persistedMounts
 	if err := json.Unmarshal([]byte(configJSON), &raw); err != nil {
-		return "", fmt.Errorf("decode persisted sandbox config: %w", err)
+		return "", fmt.Errorf("décodage de la configuration persistée de la machine isolée : %w", err)
 	}
 	for _, m := range raw.Mounts {
 		if m.Guest == guestPath && (m.Type == "" || strings.EqualFold(m.Type, "Bind")) {
@@ -734,7 +734,7 @@ func parseWorkspaceMount(configJSON, guestPath string) (string, error) {
 func parseOwnedWorkspace(configJSON, guestPath string) (bool, error) {
 	var raw persistedMounts
 	if err := json.Unmarshal([]byte(configJSON), &raw); err != nil {
-		return false, fmt.Errorf("decode persisted sandbox config: %w", err)
+		return false, fmt.Errorf("décodage de la configuration persistée de la machine isolée : %w", err)
 	}
 	for _, m := range raw.Mounts {
 		if m.Guest != guestPath {
@@ -779,10 +779,10 @@ func parseServerPortForwarded(configJSON string) (bool, error) {
 		} `json:"network"`
 	}
 	if err := json.Unmarshal([]byte(configJSON), &raw); err != nil {
-		return false, fmt.Errorf("decode persisted sandbox config: %w", err)
+		return false, fmt.Errorf("décodage de la configuration persistée de la machine isolée : %w", err)
 	}
 	if raw.Network == nil || raw.Network.Ports == nil {
-		return false, fmt.Errorf("persisted sandbox config has no readable network port list")
+		return false, fmt.Errorf("la configuration persistée de la machine isolée n'a pas de liste de ports réseau lisible")
 	}
 	for _, port := range *raw.Network.Ports {
 		if port.HostPort == DefaultPort || port.GuestPort == DefaultPort {
@@ -806,10 +806,10 @@ func parseAppliedPortMappings(configJSON string) ([]PortMapping, error) {
 		} `json:"network"`
 	}
 	if err := json.Unmarshal([]byte(configJSON), &raw); err != nil {
-		return nil, fmt.Errorf("decode persisted sandbox config: %w", err)
+		return nil, fmt.Errorf("décodage de la configuration persistée de la machine isolée : %w", err)
 	}
 	if raw.Network == nil || raw.Network.Ports == nil {
-		return nil, fmt.Errorf("persisted sandbox config has no readable network port list")
+		return nil, fmt.Errorf("la configuration persistée de la machine isolée n'a pas de liste de ports réseau lisible")
 	}
 	mappings := make([]PortMapping, 0, len(*raw.Network.Ports))
 	for _, port := range *raw.Network.Ports {
@@ -913,7 +913,7 @@ type persistedGuestEnv struct {
 func parseGuestEnv(configJSON string) (map[string]string, error) {
 	var raw persistedGuestEnv
 	if err := json.Unmarshal([]byte(configJSON), &raw); err != nil {
-		return nil, fmt.Errorf("decode persisted sandbox config: %w", err)
+		return nil, fmt.Errorf("décodage de la configuration persistée de la machine isolée : %w", err)
 	}
 	env := make(map[string]string, len(raw.Env))
 	for _, entry := range raw.Env {
@@ -987,7 +987,7 @@ func parsePersistedEnvRefSecrets(configJSON string) ([]persistedSecretRef, error
 		} `json:"network"`
 	}
 	if err := json.Unmarshal([]byte(configJSON), &raw); err != nil {
-		return nil, fmt.Errorf("decode persisted sandbox secrets: %w", err)
+		return nil, fmt.Errorf("décodage des secrets persistés de la machine isolée : %w", err)
 	}
 	seen := make(map[string]struct{}, len(raw.Network.Secrets.Secrets))
 	var out []persistedSecretRef
@@ -1045,13 +1045,13 @@ func (p *persistedHostPattern) UnmarshalJSON(data []byte) error {
 	}
 	var unit string
 	if err := json.Unmarshal(data, &unit); err != nil {
-		return fmt.Errorf("decode persisted host pattern: %w", err)
+		return fmt.Errorf("décodage du motif d'hôte persisté : %w", err)
 	}
 	if unit == "any" {
 		p.Exact = hostAny
 		return nil
 	}
-	return fmt.Errorf("decode persisted host pattern: unrecognized variant %q", unit)
+	return fmt.Errorf("décodage du motif d'hôte persisté : variante non reconnue %q", unit)
 }
 
 func (p persistedHostPattern) host() string {
@@ -1144,7 +1144,7 @@ func (sdkMSBClient) Shell(name string) (err error) {
 		return err
 	}
 	if code != 0 {
-		return fmt.Errorf("sandbox shell exited %d", code)
+		return fmt.Errorf("le shell de la machine isolée s'est terminé avec le code %d", code)
 	}
 	return nil
 }

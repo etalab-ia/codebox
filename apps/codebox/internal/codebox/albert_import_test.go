@@ -59,10 +59,10 @@ func TestDiscoverAlbertCodeImportRecognizesSafeLegacyIntent(t *testing.T) {
 			t.Fatalf("preview leaked %q: %s", secret, preview)
 		}
 	}
-	if !strings.Contains(preview, "--import-albert-key") || !strings.Contains(preview, "do not transfer") || !strings.Contains(preview, "Host hygiene: .env") {
+	if !strings.Contains(preview, "--import-albert-key") || !strings.Contains(preview, "ne sont pas transférés") || !strings.Contains(preview, "Hygiène du poste : .env") {
 		t.Fatalf("preview does not explain credential and workspace boundaries: %s", preview)
 	}
-	for _, name := range []string{"ALBERT_API_KEY", "OTHER_TOKEN", "CONTEXT7_API_KEY", "RUNTIME", "no longer offered"} {
+	for _, name := range []string{"ALBERT_API_KEY", "OTHER_TOKEN", "CONTEXT7_API_KEY", "RUNTIME", "n'est plus proposé"} {
 		if !strings.Contains(preview, name) {
 			t.Fatalf("preview omitted safe legacy environment review item %q: %s", name, preview)
 		}
@@ -127,7 +127,7 @@ func TestDiscoverAlbertCodeImportRejectsAnEndpointTheResolverRefuses(t *testing.
 	if len(plan.Platforms) != 0 {
 		t.Fatalf("an endpoint the resolver rejects must not be imported: %+v", plan.Platforms)
 	}
-	if !strings.Contains(strings.Join(plan.ReviewItems, "\n"), "cannot be imported") {
+	if !strings.Contains(strings.Join(plan.ReviewItems, "\n"), "impossible d'importer") {
 		t.Fatalf("the refusal must be explained: %v", plan.ReviewItems)
 	}
 }
@@ -141,7 +141,7 @@ func TestDiscoverAlbertCodeImportReportsMultipleOpenCodeConfigs(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(strings.Join(plan.ReviewItems, "\n"), "multiple OpenCode config files") {
+	if !strings.Contains(strings.Join(plan.ReviewItems, "\n"), "plusieurs fichiers de configuration OpenCode") {
 		t.Fatalf("multiple config files were not surfaced: %+v", plan)
 	}
 	if !equalImportStrings(plan.SourceFiles, []string{"opencode.json"}) {
@@ -158,7 +158,7 @@ func TestDiscoverAlbertCodeImportRejectsSymlinkedLegacyDirectories(t *testing.T)
 			if err := os.Symlink(outside, filepath.Join(root, name)); err != nil {
 				t.Skipf("symlink creation unavailable: %v", err)
 			}
-			if _, err := DiscoverAlbertCodeImport(root); err == nil || !strings.Contains(err.Error(), "regular directory") {
+			if _, err := DiscoverAlbertCodeImport(root); err == nil || !strings.Contains(err.Error(), "dossier régulier") {
 				t.Fatalf("symlinked %s directory was accepted: %v", name, err)
 			}
 		})
@@ -167,7 +167,7 @@ func TestDiscoverAlbertCodeImportRejectsSymlinkedLegacyDirectories(t *testing.T)
 
 func TestDiscoverAlbertCodeImportRequiresGitWorktree(t *testing.T) {
 	_, err := DiscoverAlbertCodeImport(t.TempDir())
-	if err == nil || !strings.Contains(err.Error(), "Git worktree") {
+	if err == nil || !strings.Contains(err.Error(), "worktree Git") {
 		t.Fatalf("non-Git project root was accepted: %v", err)
 	}
 }
@@ -197,7 +197,7 @@ func TestDiscoverAlbertCodeImportReportsMalformedMarkersAndPartialSetup(t *testi
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(plan.Warnings) != 1 || !strings.Contains(plan.Warnings[0], "partial setup") {
+	if len(plan.Warnings) != 1 || !strings.Contains(plan.Warnings[0], "configuration partielle") {
 		t.Fatalf("partial setup warning = %v", plan.Warnings)
 	}
 }
@@ -206,7 +206,7 @@ func TestDiscoverAlbertCodeImportSkipsSymlinkedOptionalFiles(t *testing.T) {
 	root := t.TempDir()
 	gitInit(t, root)
 	writeImportFixtureFile(t, root, "opencode.json", `{"model": broken}`)
-	if _, err := DiscoverAlbertCodeImport(root); err == nil || !strings.Contains(err.Error(), "parse opencode.json") {
+	if _, err := DiscoverAlbertCodeImport(root); err == nil || !strings.Contains(err.Error(), "analyse de opencode.json") {
 		t.Fatalf("malformed OpenCode config error = %v", err)
 	}
 
@@ -237,7 +237,7 @@ func TestDiscoverAlbertCodeImportSkipsSymlinkedOptionalFiles(t *testing.T) {
 	if err != nil {
 		t.Fatalf("preview must warn and skip optional symlinks: %v", err)
 	}
-	if plan.HasOpenCodeConfig || plan.CredentialAvailable || !strings.Contains(plan.Format(), "AGENTS.md is not a regular file; it was not read") {
+	if plan.HasOpenCodeConfig || plan.CredentialAvailable || !strings.Contains(plan.Format(), "AGENTS.md n'est pas un fichier régulier ; il n'a pas été lu") {
 		t.Fatalf("symlinked files were followed or not reported: %+v\n%s", plan, plan.Format())
 	}
 	if strings.Contains(plan.Format(), "must-not-read") || strings.Contains(plan.Format(), "external instructions") {
@@ -297,7 +297,7 @@ func TestAlbertCodeImportFormatShowsUnresolvedSkillsWhenCatalogueIsUnavailable(t
 		SourceFiles:               []string{".albert-code/skills.txt"},
 	}
 	preview := plan.Format()
-	if !strings.Contains(preview, "Legacy skills not resolved (catalogue unavailable): rgaa") {
+	if !strings.Contains(preview, "Skills hérités non résolus (catalogue indisponible) : rgaa") {
 		t.Fatalf("offline preview omitted unresolved skill names: %s", preview)
 	}
 }

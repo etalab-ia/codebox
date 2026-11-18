@@ -22,7 +22,7 @@ func writeJSON(w http.ResponseWriter, status int, v any) {
 	if err != nil {
 		w.Header().Set("Content-Type", "application/json; charset=utf-8")
 		w.WriteHeader(http.StatusInternalServerError)
-		_, _ = w.Write([]byte(`{"code":"internal_error","message":"response encoding failed"}`))
+		_, _ = w.Write([]byte(`{"code":"internal_error","message":"échec de l'encodage de la réponse"}`))
 		return
 	}
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")

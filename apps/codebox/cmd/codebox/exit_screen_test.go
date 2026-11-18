@@ -415,7 +415,7 @@ func TestWorkspaceApplyRejectsUnknownOption(t *testing.T) {
 	if code != 2 {
 		t.Fatalf("code = %d, want 2", code)
 	}
-	if err == nil || err.Error() != "Unknown workspace apply option: --al (expected --all)" {
+	if err == nil || err.Error() != "option workspace apply inconnue : --al (attendu : --all)" {
 		t.Fatalf("err = %v, want the unknown-option rejection", err)
 	}
 }

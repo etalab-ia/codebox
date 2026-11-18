@@ -28,13 +28,13 @@ import (
 // ErrFileStoreNotConsented is returned when the file fallback is
 // requested but no store file exists and no explicit consent was given.
 // It is the guard against silent plaintext creation.
-var ErrFileStoreNotConsented = fmt.Errorf("file credential store not created: run 'codebox auth add --fallback' once to consent to an owner-only plaintext store")
+var ErrFileStoreNotConsented = fmt.Errorf("magasin d'identifiants fichier non créé : lancez une fois 'codebox auth add --fallback' pour accepter un stockage en clair réservé à votre utilisateur")
 
 // ErrFileStoreAbsent is the read-side twin of ErrFileStoreNotConsented:
 // the fallback file does not exist, so there is nothing to report or
 // remove. Callers use it to distinguish "never consented, absent" from
 // an existing (possibly empty) store.
-var ErrFileStoreAbsent = fmt.Errorf("file credential store absent: no fallback file was ever created")
+var ErrFileStoreAbsent = fmt.Errorf("magasin d'identifiants fichier absent : aucun fichier de secours n'a jamais été créé")
 
 // fileStoreSchemaVersion is the store file format version.
 const fileStoreSchemaVersion = 1
@@ -107,11 +107,11 @@ func (f *FileCredentialStore) readOnce() (fileStoreData, error) {
 		if os.IsNotExist(err) {
 			return data, ErrFileStoreNotConsented
 		}
-		return data, fmt.Errorf("credential store %s: %w", f.Path, err)
+		return data, fmt.Errorf("magasin d'identifiants %s : %w", f.Path, err)
 	}
 	if fi.Mode()&os.ModeSymlink != 0 {
 		return data, &StoreError{Op: "get", Kind: "file", State: "corrupt",
-			Err: fmt.Errorf("%s is a symlink; refusing to use it", f.Path)}
+			Err: fmt.Errorf("%s est un lien symbolique ; refus de l'utiliser", f.Path)}
 	}
 	raw, err := os.ReadFile(f.Path)
 	if err != nil {
@@ -119,11 +119,11 @@ func (f *FileCredentialStore) readOnce() (fileStoreData, error) {
 	}
 	if err := json.Unmarshal(raw, &data); err != nil {
 		return data, &StoreError{Op: "get", Kind: "file", State: "corrupt",
-			Err: fmt.Errorf("invalid JSON in %s: %w", f.Path, err)}
+			Err: fmt.Errorf("JSON invalide dans %s : %w", f.Path, err)}
 	}
 	if data.SchemaVersion > fileStoreSchemaVersion {
 		return data, &StoreError{Op: "get", Kind: "file", State: "corrupt",
-			Err: fmt.Errorf("store schema version %d is newer than supported %d; update codebox", data.SchemaVersion, fileStoreSchemaVersion)}
+			Err: fmt.Errorf("version de schéma du magasin %d plus récente que la version prise en charge %d ; mettez codebox à jour", data.SchemaVersion, fileStoreSchemaVersion)}
 	}
 	if data.Credentials == nil {
 		data.Credentials = map[string]string{}
@@ -151,14 +151,14 @@ func (f *FileCredentialStore) write(data fileStoreData) error {
 		}
 	} else if dirFi.Mode()&os.ModeSymlink != 0 {
 		return &StoreError{Op: "add", Kind: "file", State: "corrupt",
-			Err: fmt.Errorf("%s is a symlink; refusing to write through it", dir)}
+			Err: fmt.Errorf("%s est un lien symbolique ; refus d'écrire à travers", dir)}
 	}
 	// An existing store file must be a regular file: refuse symlinks so
 	// the rename cannot replace a link target's neighbor instead.
 	if fi, err := os.Lstat(f.Path); err == nil {
 		if fi.Mode()&os.ModeSymlink != 0 {
 			return &StoreError{Op: "add", Kind: "file", State: "corrupt",
-				Err: fmt.Errorf("%s is a symlink; refusing to write through it", f.Path)}
+				Err: fmt.Errorf("%s est un lien symbolique ; refus d'écrire à travers", f.Path)}
 		}
 		// Tighten a pre-existing store that was created with looser
 		// permissions by an older tool: the write path enforces 0600.
@@ -291,7 +291,7 @@ func (f *FileCredentialStore) mutationLock(create bool) (func(), error) {
 	} else if err != nil {
 		return nil, err
 	} else if info.Mode()&os.ModeSymlink != 0 || !info.IsDir() {
-		return nil, fmt.Errorf("credential store directory must be a non-symlink directory")
+		return nil, fmt.Errorf("le dossier du magasin d'identifiants doit être un vrai dossier, sans lien symbolique")
 	}
 	canonical, err := filepath.EvalSymlinks(dir)
 	if err != nil {
@@ -305,7 +305,7 @@ func (f *FileCredentialStore) mutationLock(create bool) (func(), error) {
 		return err
 	}, isTransientFilesystemError)
 	if err == nil && lockInfo.Mode()&os.ModeSymlink != 0 {
-		return nil, fmt.Errorf("credential store lock must not be a symlink")
+		return nil, fmt.Errorf("le verrou du magasin d'identifiants ne doit pas être un lien symbolique")
 	} else if err != nil && !os.IsNotExist(err) {
 		return nil, err
 	}

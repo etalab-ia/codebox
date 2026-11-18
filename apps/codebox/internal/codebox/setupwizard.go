@@ -138,10 +138,10 @@ func validateAlbertKeyAt(ctx context.Context, client *http.Client, key, url stri
 			Data []json.RawMessage `json:"data"`
 		}
 		if err := json.NewDecoder(io.LimitReader(resp.Body, 1<<20)).Decode(&raw); err != nil {
-			return CredentialProbe{Unreachable: true, Detail: "HTTP 200 with a non-catalogue body (endpoint misconfigured?)"}
+			return CredentialProbe{Unreachable: true, Detail: "HTTP 200 avec un corps qui n'est pas un catalogue de modèles (point de terminaison mal configuré ?)"}
 		}
 		if raw.Data == nil {
-			return CredentialProbe{Unreachable: true, Detail: "HTTP 200 with a non-catalogue body (no models data)"}
+			return CredentialProbe{Unreachable: true, Detail: "HTTP 200 avec un corps qui n'est pas un catalogue de modèles (aucune donnée de modèles)"}
 		}
 		return CredentialProbe{}
 	case resp.StatusCode >= 300 && resp.StatusCode < 400:
@@ -196,10 +196,10 @@ func validateGitHubTokenAt(ctx context.Context, client *http.Client, token, url 
 			Login string `json:"login"`
 		}
 		if err := json.NewDecoder(io.LimitReader(resp.Body, 1<<20)).Decode(&raw); err != nil {
-			return CredentialProbe{Unreachable: true, Detail: "HTTP 200 with a non-user body (endpoint misconfigured?)"}
+			return CredentialProbe{Unreachable: true, Detail: "HTTP 200 avec un corps qui n'est pas un utilisateur (point de terminaison mal configuré ?)"}
 		}
 		if raw.Login == "" {
-			return CredentialProbe{Unreachable: true, Detail: "HTTP 200 with a non-user body (no login)"}
+			return CredentialProbe{Unreachable: true, Detail: "HTTP 200 avec un corps qui n'est pas un utilisateur (aucun identifiant de connexion)"}
 		}
 		probe := CredentialProbe{Login: raw.Login}
 		if !strings.HasPrefix(token, githubFineGrainedPrefix) {

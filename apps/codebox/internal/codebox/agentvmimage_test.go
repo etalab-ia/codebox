@@ -174,7 +174,7 @@ func TestValidateBaseTemplateImageDistinguishesLimaRefusal(t *testing.T) {
 	if err == nil {
 		t.Fatal("an unvalidatable image must not be silently accepted")
 	}
-	if strings.Contains(err.Error(), "is not a Lima image") {
+	if strings.Contains(err.Error(), "n'est pas une image Lima") {
 		t.Errorf("must not blame the configured image when limactl could not run: %v", err)
 	}
 	// Still actionable: the real reason travels with the message.
@@ -195,15 +195,15 @@ func TestValidateBaseTemplateImageDistinguishesLimaRefusal(t *testing.T) {
 func TestValidateBaseTemplateImageAttributesFailureOnDefaultImage(t *testing.T) {
 	runner := imageRunner(0, 1, `level=fatal msg="template \"debian-12.yaml\" not found"`)
 	err := ValidateBaseTemplateImage(context.Background(), runner, DefaultAgentVMImage)
-	if err == nil || !strings.Contains(err.Error(), "is not a Lima image") {
+	if err == nil || !strings.Contains(err.Error(), "n'est pas une image Lima") {
 		t.Fatalf("a missing default template must be attributed to the image: %v", err)
 	}
 	// Recommending the default to someone who already configured it is a
 	// circle. The message has to point at the template store instead.
-	if strings.Contains(err.Error(), "for example "+DefaultAgentVMImage) {
+	if strings.Contains(err.Error(), "par exemple "+DefaultAgentVMImage) {
 		t.Errorf("must not recommend the value that already failed: %v", err)
 	}
-	if !strings.Contains(err.Error(), "template store is incomplete") {
+	if !strings.Contains(err.Error(), "magasin de templates de ce limactl est incomplet") {
 		t.Errorf("the remedy must explain what is actually wrong: %v", err)
 	}
 }
@@ -225,12 +225,12 @@ func TestValidateBaseTemplateImageDistinguishesRefusalOnDefaultImage(t *testing.
 	if err == nil {
 		t.Fatal("an unvalidatable image must not be silently accepted")
 	}
-	if strings.Contains(err.Error(), "is not a Lima image") {
+	if strings.Contains(err.Error(), "n'est pas une image Lima") {
 		t.Errorf("must not blame AGENT_VM_IMAGE when limactl could not run: %v", err)
 	}
 	// The witness can fail for reasons unrelated to the image, so the message
 	// must not claim the image was fine — only that no verdict is available.
-	if !strings.Contains(err.Error(), "cannot validate AGENT_VM_IMAGE") {
+	if !strings.Contains(err.Error(), "impossible de valider AGENT_VM_IMAGE") {
 		t.Errorf("the message must say no verdict is available: %v", err)
 	}
 	if !strings.Contains(err.Error(), "must not run as the root user") {
@@ -239,7 +239,7 @@ func TestValidateBaseTemplateImageDistinguishesRefusalOnDefaultImage(t *testing.
 	// Both failures are reported: a non-zero witness is not proof that the
 	// image check failed for the same reason, so its own diagnostic must not
 	// be discarded.
-	if !strings.Contains(err.Error(), "the image check reported") {
+	if !strings.Contains(err.Error(), "le contrôle de l'image a signalé") {
 		t.Errorf("the image diagnostic must be preserved alongside the witness: %v", err)
 	}
 	// This fake refuses every command, so a witness built from an image would
@@ -268,7 +268,7 @@ func TestValidateBaseTemplateImageAttributesWhenWitnessSucceeds(t *testing.T) {
 		return ExecResult{ExitCode: 1, Stderr: `level=fatal msg="template \"debian-13.yaml\" not found"`}
 	}}
 	err := ValidateBaseTemplateImage(context.Background(), runner, "template://debian-13")
-	if err == nil || !strings.Contains(err.Error(), "is not a Lima image") {
+	if err == nil || !strings.Contains(err.Error(), "n'est pas une image Lima") {
 		t.Fatalf("a witness that runs proves the image itself is at fault: %v", err)
 	}
 }
@@ -289,7 +289,7 @@ func TestValidateBaseTemplateImageWitnessIgnoresInstanceState(t *testing.T) {
 		return ExecResult{ExitCode: 1, Stderr: `level=fatal msg="template \"nope.yaml\" not found"`}
 	}}
 	err := ValidateBaseTemplateImage(context.Background(), runner, "template://nope")
-	if err == nil || !strings.Contains(err.Error(), "is not a Lima image") {
+	if err == nil || !strings.Contains(err.Error(), "n'est pas une image Lima") {
 		t.Fatalf("an unhealthy instance must not stop the image from being blamed: %v", err)
 	}
 }
@@ -313,10 +313,10 @@ func TestValidateBaseTemplateImageAttributesMissingDefaultImage(t *testing.T) {
 	if err == nil {
 		t.Fatal("an unresolvable default image must be refused")
 	}
-	if strings.Contains(err.Error(), "cannot validate AGENT_VM_IMAGE") {
+	if strings.Contains(err.Error(), "impossible de valider AGENT_VM_IMAGE") {
 		t.Errorf("the check ran, so it must not be reported as not performed: %v", err)
 	}
-	if !strings.Contains(err.Error(), "is not a Lima image") {
+	if !strings.Contains(err.Error(), "n'est pas une image Lima") {
 		t.Errorf("the missing image must be blamed on AGENT_VM_IMAGE: %v", err)
 	}
 }
@@ -333,7 +333,7 @@ func TestCreateBaseTemplateKeepsLimaDiagnostic(t *testing.T) {
 	if err == nil {
 		t.Fatal("a failed create must be reported")
 	}
-	for _, want := range []string{"agent-vm-base", "exit 1", "debian-13.yaml"} {
+	for _, want := range []string{"agent-vm-base", "code de sortie 1", "debian-13.yaml"} {
 		if !strings.Contains(err.Error(), want) {
 			t.Errorf("create error must contain %q: %v", want, err)
 		}

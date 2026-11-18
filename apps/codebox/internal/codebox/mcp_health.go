@@ -50,46 +50,46 @@ func ProbeRemoteMCP(ctx context.Context, client *http.Client, connector MCPConne
 		},
 	})
 	if err != nil {
-		result.State, result.Detail = MCPDrift, "could not encode MCP initialize request"
+		result.State, result.Detail = MCPDrift, "impossible d'encoder la requête MCP initialize"
 		return result
 	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, connector.Endpoint, bytes.NewReader(body))
 	if err != nil {
-		result.State, result.Detail = MCPDrift, "invalid curated endpoint"
+		result.State, result.Detail = MCPDrift, "point de terminaison du catalogue invalide"
 		return result
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Accept", "application/json, text/event-stream")
 	resp, err := client.Do(req)
 	if err != nil {
-		result.State, result.Detail = MCPOffline, "remote endpoint could not be reached"
+		result.State, result.Detail = MCPOffline, "point de terminaison distant injoignable"
 		return result
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode == http.StatusUnauthorized {
-		result.State, result.Detail = MCPAuthNeeded, "the remote service requires authentication for this request"
+		result.State, result.Detail = MCPAuthNeeded, "le service distant exige une authentification pour cette requête"
 		return result
 	}
 	if resp.StatusCode == http.StatusForbidden {
-		result.State, result.Detail = MCPAccessDenied, "the remote service denied the anonymous request"
+		result.State, result.Detail = MCPAccessDenied, "le service distant a refusé la requête anonyme"
 		return result
 	}
 	if resp.StatusCode == http.StatusNotFound || resp.StatusCode == http.StatusMethodNotAllowed || resp.StatusCode == http.StatusUnsupportedMediaType {
-		result.State, result.Detail = MCPDrift, fmt.Sprintf("MCP endpoint contract returned HTTP %d", resp.StatusCode)
+		result.State, result.Detail = MCPDrift, fmt.Sprintf("le contrat du point de terminaison MCP a renvoyé HTTP %d", resp.StatusCode)
 		return result
 	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		result.State, result.Detail = MCPOffline, fmt.Sprintf("remote service returned HTTP %d", resp.StatusCode)
+		result.State, result.Detail = MCPOffline, fmt.Sprintf("le service distant a renvoyé HTTP %d", resp.StatusCode)
 		return result
 	}
 	data, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 	if err != nil {
-		result.State, result.Detail = MCPOffline, "could not read MCP response"
+		result.State, result.Detail = MCPOffline, "impossible de lire la réponse MCP"
 		return result
 	}
 	message, err := mcpResponseJSON(data)
 	if err != nil {
-		result.State, result.Detail = MCPDrift, "response was not a supported MCP initialize message"
+		result.State, result.Detail = MCPDrift, "la réponse n'est pas un message MCP initialize pris en charge"
 		return result
 	}
 	var envelope struct {
@@ -105,17 +105,17 @@ func ProbeRemoteMCP(ctx context.Context, client *http.Client, connector MCPConne
 	// The request ID is the JSON number 1, so JSON-RPC requires the response
 	// to echo that exact value and type.
 	if json.Unmarshal(message, &envelope) != nil || envelope.JSONRPC != "2.0" || string(bytes.TrimSpace(envelope.ID)) != "1" {
-		result.State, result.Detail = MCPDrift, "response did not match JSON-RPC MCP initialize"
+		result.State, result.Detail = MCPDrift, "la réponse ne correspond pas à un MCP initialize JSON-RPC"
 		return result
 	}
 	// Verify the version we explicitly requested; a different negotiated value
 	// is reported as drift until the new version is qualified end to end.
 	if envelope.Error != nil || envelope.Result.ProtocolVersion != mcpProtocolVersion {
-		result.State, result.Detail = MCPDrift, "server did not negotiate the supported MCP protocol version"
+		result.State, result.Detail = MCPDrift, "le serveur n'a pas négocié la version du protocole MCP prise en charge"
 		return result
 	}
 	result.State = MCPVerified
-	result.Detail = "MCP initialize handshake succeeded"
+	result.Detail = "poignée de main MCP initialize réussie"
 	return result
 }
 
@@ -150,10 +150,10 @@ func mcpResponseJSON(data []byte) ([]byte, error) {
 		}
 	}
 	if err := scanner.Err(); err != nil {
-		return nil, fmt.Errorf("read MCP event stream: %w", err)
+		return nil, fmt.Errorf("lecture du flux d'événements MCP : %w", err)
 	}
 	if candidate, ok := flush(); ok {
 		return candidate, nil
 	}
-	return nil, fmt.Errorf("no JSON-RPC data in stream")
+	return nil, fmt.Errorf("aucune donnée JSON-RPC dans le flux")
 }

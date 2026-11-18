@@ -204,25 +204,25 @@ func reservedGuestEnvs() map[string]bool {
 // Destinations may overlap between bindings; that is qualified behavior.
 func validateProjectSecretBindingSet(set projectSecretBindingSet, namespace string) error {
 	if set.SchemaVersion != projectSecretBindingSchemaVersion {
-		return fmt.Errorf("project secret bindings: unsupported schema version %d", set.SchemaVersion)
+		return fmt.Errorf("liaisons de secrets de projet : version de schéma %d non prise en charge", set.SchemaVersion)
 	}
 	if set.Namespace != namespace {
-		return fmt.Errorf("project secret bindings belong to a different project")
+		return fmt.Errorf("les liaisons de secrets de projet appartiennent à un autre projet")
 	}
 	if set.Profile != "" && !validSecretProfile(set.Profile) {
-		return fmt.Errorf("project secret bindings: invalid active profile")
+		return fmt.Errorf("liaisons de secrets de projet : profil actif invalide")
 	}
 	reserved := reservedGuestEnvs()
 	byGuestEnv := map[string]string{}
 	byIdentity := map[string]bool{}
 	for _, b := range set.Bindings {
 		if !validSecretProfile(b.Profile) || !validSecretComponent(b.Component) || !validSecretIdentifier(b.Name) {
-			return fmt.Errorf("project secret bindings contain an invalid identity")
+			return fmt.Errorf("les liaisons de secrets de projet contiennent une identité invalide")
 		}
 		switch b.DeliveryMode() {
 		case ProjectSecretDeliveryProxy, ProjectSecretDeliveryGuest:
 		default:
-			return fmt.Errorf("project secret binding %s has an unknown delivery mode %q", b.Name, b.Delivery)
+			return fmt.Errorf("la liaison de secret de projet %s a un mode de livraison inconnu %q", b.Name, b.Delivery)
 		}
 		if b.GuestReadable() {
 			// The value is a file, not a proxied placeholder: there is nothing
@@ -230,44 +230,44 @@ func validateProjectSecretBindingSet(set projectSecretBindingSet, namespace stri
 			// describe an authorization the binding does not use, and a guest
 			// variable would name a placeholder that is never exposed.
 			if len(b.Destinations) > 0 {
-				return fmt.Errorf("guest-readable binding %s must not declare destinations: the value is read locally, not substituted toward a host", b.Name)
+				return fmt.Errorf("la liaison %s lisible par la machine isolée ne doit pas déclarer de destinations : la valeur est lue localement, pas substituée vers un hôte", b.Name)
 			}
 			if b.GuestEnv != "" {
-				return fmt.Errorf("guest-readable binding %s must not declare a guest variable: the value is delivered as a file", b.Name)
+				return fmt.Errorf("la liaison %s lisible par la machine isolée ne doit pas déclarer de variable de machine isolée : la valeur est livrée sous forme de fichier", b.Name)
 			}
 			if byIdentity[b.identity()] {
-				return fmt.Errorf("project secret bindings contain a duplicate entry for %s", b.Name)
+				return fmt.Errorf("les liaisons de secrets de projet contiennent une entrée en double pour %s", b.Name)
 			}
 			byIdentity[b.identity()] = true
 			continue
 		}
 		if b.GuestEnv == "" || !isGuestEnvName(b.GuestEnv) {
-			return fmt.Errorf("project secret binding %s has an invalid guest variable name", b.Name)
+			return fmt.Errorf("la liaison de secret de projet %s a un nom de variable de machine isolée invalide", b.Name)
 		}
 		if reserved[b.GuestEnv] {
-			return fmt.Errorf("project secret binding %s would shadow the reserved guest variable %s", b.Name, b.GuestEnv)
+			return fmt.Errorf("la liaison de secret de projet %s masquerait la variable de machine isolée réservée %s", b.Name, b.GuestEnv)
 		}
 		if prev, dup := byGuestEnv[b.GuestEnv]; dup {
-			return fmt.Errorf("project secret bindings %s and %s share guest variable %s", prev, b.Name, b.GuestEnv)
+			return fmt.Errorf("les liaisons de secrets de projet %s et %s partagent la variable de machine isolée %s", prev, b.Name, b.GuestEnv)
 		}
 		byGuestEnv[b.GuestEnv] = b.Name
 		if byIdentity[b.identity()] {
-			return fmt.Errorf("project secret bindings contain a duplicate entry for %s", b.Name)
+			return fmt.Errorf("les liaisons de secrets de projet contiennent une entrée en double pour %s", b.Name)
 		}
 		byIdentity[b.identity()] = true
 		if len(b.Destinations) == 0 {
-			return fmt.Errorf("project secret binding %s needs at least one approved destination", b.Name)
+			return fmt.Errorf("la liaison de secret de projet %s a besoin d'au moins une destination approuvée", b.Name)
 		}
 		if len(b.Destinations) > maxProjectSecretDestinations {
-			return fmt.Errorf("project secret binding %s has too many destinations", b.Name)
+			return fmt.Errorf("la liaison de secret de projet %s a trop de destinations", b.Name)
 		}
 		seen := map[string]bool{}
 		for _, host := range b.Destinations {
 			if !isDNSName(host) {
-				return fmt.Errorf("project secret binding %s: %q is not a DNS name", b.Name, host)
+				return fmt.Errorf("liaison de secret de projet %s : %q n'est pas un nom DNS", b.Name, host)
 			}
 			if seen[host] {
-				return fmt.Errorf("project secret binding %s lists %s twice", b.Name, host)
+				return fmt.Errorf("la liaison de secret de projet %s liste %s deux fois", b.Name, host)
 			}
 			seen[host] = true
 		}
@@ -306,10 +306,10 @@ func ReadProjectSecretBindings(fs FS, path, namespace string) (projectSecretBind
 		if os.IsNotExist(err) {
 			return set, nil
 		}
-		return set, fmt.Errorf("read project secret bindings: %w", err)
+		return set, fmt.Errorf("lecture des liaisons de secrets de projet : %w", err)
 	}
 	if err := json.Unmarshal(data, &set); err != nil {
-		return set, fmt.Errorf("project secret bindings are not valid JSON: %w", err)
+		return set, fmt.Errorf("les liaisons de secrets de projet ne sont pas un JSON valide : %w", err)
 	}
 	if err := validateProjectSecretBindingSet(set, namespace); err != nil {
 		return set, err
@@ -475,7 +475,7 @@ func credentialStoreForKind(kind string) (CredentialStore, error) {
 		if kind == storeAvailability() {
 			return defaultCredentialStoreOrError()
 		}
-		return nil, fmt.Errorf("project secret index names credential store %q, which this host does not provide (it provides %q): re-import the component on this host, or move the state from the host that created it", kind, storeAvailability())
+		return nil, fmt.Errorf("l'index des secrets de projet nomme le magasin d'identifiants %q, que ce poste ne fournit pas (il fournit %q) : réimportez le composant sur ce poste, ou déplacez l'état depuis le poste qui l'a créé", kind, storeAvailability())
 	}
 }
 
@@ -485,7 +485,7 @@ func defaultCredentialStoreOrError() (CredentialStore, error) {
 	if store := DefaultCredentialStore(); store != nil {
 		return store, nil
 	}
-	return nil, fmt.Errorf("no native credential store is available on this platform; store and import with --fallback to use the owner-only file store after consenting")
+	return nil, fmt.Errorf("aucun magasin d'identifiants natif n'est disponible sur cette plateforme ; enregistrez et importez avec --fallback pour utiliser le magasin de fichiers réservé à votre utilisateur après consentement")
 }
 
 // PreferRecordedCredentialStore reconciles an already-resolved store with the
@@ -610,10 +610,10 @@ func SetProjectSecretActiveProfile(fs FS, stateDir, namespace, profile string) e
 		return err
 	}
 	if profile == "" && len(set.Bindings) > 0 {
-		return fmt.Errorf("remove the %d approved bindings before clearing the active profile", len(set.Bindings))
+		return fmt.Errorf("supprimez les %d liaisons approuvées avant d'effacer le profil actif", len(set.Bindings))
 	}
 	if profile != "" && !validSecretProfile(profile) {
-		return fmt.Errorf("profile must use 1–64 ASCII letters, digits, hyphens or underscores")
+		return fmt.Errorf("le profil doit utiliser 1 à 64 lettres ASCII, chiffres, tirets ou traits de soulignement")
 	}
 	set.Profile = profile
 	return WriteProjectSecretBindings(fs, path, namespace, set)
@@ -702,14 +702,14 @@ func resolveBindingDeliveries(set projectSecretBindingSet, index projectSecretIn
 	var deliveries []ProjectSecretDelivery
 	for _, b := range set.Bindings {
 		if set.Profile == "" {
-			return nil, fmt.Errorf("project secret bindings exist for %s but no active profile is selected", namespace)
+			return nil, fmt.Errorf("des liaisons de secrets de projet existent pour %s mais aucun profil actif n'est sélectionné", namespace)
 		}
 		if b.Profile != set.Profile {
-			return nil, fmt.Errorf("project secret binding %s belongs to profile %q while the active profile is %q", b.Name, b.Profile, set.Profile)
+			return nil, fmt.Errorf("la liaison de secret de projet %s appartient au profil %q alors que le profil actif est %q", b.Name, b.Profile, set.Profile)
 		}
 		entry, ok := byIdentity[b.identity()]
 		if !ok {
-			return nil, fmt.Errorf("project secret binding %s is approved but no imported value matches it; re-import the component or remove the approval", b.Name)
+			return nil, fmt.Errorf("la liaison de secret de projet %s est approuvée mais aucune valeur importée ne lui correspond ; réimportez le composant ou retirez l'approbation", b.Name)
 		}
 		deliveries = append(deliveries, ProjectSecretDelivery{
 			ProjectSecretBinding: b,

@@ -173,10 +173,10 @@ func ReadSetupJournal(fs FS, stateDir string) (SetupJournal, error) {
 	}
 	var j SetupJournal
 	if err := json.Unmarshal(data, &j); err != nil {
-		return SetupJournal{}, fmt.Errorf("setup journal %s is corrupt (%w): remove it and re-run 'codebox setup' to start over", setupJournalPath(stateDir), err)
+		return SetupJournal{}, fmt.Errorf("journal de configuration %s corrompu (%w) : supprimez-le et relancez 'codebox setup' pour repartir de zéro", setupJournalPath(stateDir), err)
 	}
 	if j.SchemaVersion > setupJournalSchemaVersion {
-		return SetupJournal{}, fmt.Errorf("setup journal: schemaVersion %d is newer than this build supports (%d)", j.SchemaVersion, setupJournalSchemaVersion)
+		return SetupJournal{}, fmt.Errorf("journal de configuration : schemaVersion %d est plus récent que ce que cette version prend en charge (%d)", j.SchemaVersion, setupJournalSchemaVersion)
 	}
 	return j, nil
 }

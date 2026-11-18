@@ -37,7 +37,7 @@ func templateValidateSupported(ctx context.Context, r Runner) (bool, error) {
 // that did not exist there.
 func ValidateBaseTemplateImage(ctx context.Context, r Runner, image string) error {
 	if strings.TrimSpace(image) == "" {
-		return fmt.Errorf("AGENT_VM_IMAGE is empty; set it to a Lima image (for example %s)", DefaultAgentVMImage)
+		return fmt.Errorf("AGENT_VM_IMAGE est vide ; indiquez une image Lima (par exemple %s)", DefaultAgentVMImage)
 	}
 	supported, err := templateValidateSupported(ctx, r)
 	if err != nil {
@@ -91,18 +91,18 @@ func ValidateBaseTemplateImage(ctx context.Context, r Runner, image string) erro
 		return witnessErr
 	}
 	if witness.ExitCode != 0 {
-		return fmt.Errorf("cannot validate AGENT_VM_IMAGE=%q: limactl failed its own diagnostic too (exit %d): %s; the image check reported: %s",
+		return fmt.Errorf("impossible de valider AGENT_VM_IMAGE=%q : limactl a échoué à son propre diagnostic (code de sortie %d) : %s ; le contrôle de l'image a signalé : %s",
 			image, witness.ExitCode, commandDiagnostic(witness), commandDiagnostic(res))
 	}
 	// The remedy has to make sense for the value that failed. Telling someone
 	// to set the variable to the built-in default when it is already the
 	// default sends them in a circle; the useful fact is that this limactl's
 	// own template store is incomplete.
-	remedy := fmt.Sprintf("set AGENT_VM_IMAGE to a resolvable image (for example %s)", DefaultAgentVMImage)
+	remedy := fmt.Sprintf("indiquez une image résolvable dans AGENT_VM_IMAGE (par exemple %s)", DefaultAgentVMImage)
 	if image == DefaultAgentVMImage {
-		remedy = "this is the built-in default, so this limactl's template store is incomplete; set AGENT_VM_IMAGE to another resolvable image, or repair the Lima template store"
+		remedy = "il s'agit de l'image par défaut intégrée, donc le magasin de templates de ce limactl est incomplet ; indiquez une autre image résolvable dans AGENT_VM_IMAGE, ou réparez le magasin de templates de Lima"
 	}
-	return fmt.Errorf("AGENT_VM_IMAGE=%q is not a Lima image this limactl can resolve: %s; %s",
+	return fmt.Errorf("AGENT_VM_IMAGE=%q n'est pas une image Lima que ce limactl peut résoudre : %s ; %s",
 		image, commandDiagnostic(res), remedy)
 }
 
@@ -114,5 +114,5 @@ func commandDiagnostic(res ExecResult) string {
 			return detail
 		}
 	}
-	return fmt.Sprintf("no diagnostic output (exit %d)", res.ExitCode)
+	return fmt.Sprintf("aucune sortie de diagnostic (code de sortie %d)", res.ExitCode)
 }

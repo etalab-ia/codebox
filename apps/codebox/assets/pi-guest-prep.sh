@@ -25,11 +25,11 @@ test "$(pi --version)" = "${CODEBOX_PI_VERSION}"
 # environment, which the runtime keeps separate from the provider key: the key
 # stays a network-proxy secret and only ever reaches the Albert host.
 if [ -z "${HOME:-}" ]; then
-  echo "pi-guest-prep: HOME is not set in the guest" >&2
+  echo "pi-guest-prep : la variable HOME n'est pas définie dans l'invité" >&2
   exit 1
 fi
 if [ -z "${CODEBOX_PI_MODELS_JSON:-}" ] || [ -z "${CODEBOX_PI_SETTINGS_JSON:-}" ]; then
-  echo "pi-guest-prep: the managed Pi configuration is missing from the guest environment" >&2
+  echo "pi-guest-prep : la configuration Pi gérée est absente de l'environnement de l'invité" >&2
   exit 1
 fi
 mkdir -p "$HOME/.pi/agent"
@@ -42,7 +42,7 @@ chmod 600 "$HOME/.pi/agent/models.json" "$HOME/.pi/agent/settings.json"
 # written is never reported ready. Its content is the fingerprint of what was
 # written, which is compared against the configuration the host is sending.
 if [ -z "${CODEBOX_PI_CONFIG_FINGERPRINT:-}" ]; then
-  echo "pi-guest-prep: the managed Pi configuration fingerprint is missing from the guest environment" >&2
+  echo "pi-guest-prep : l'empreinte de la configuration Pi gérée est absente de l'environnement de l'invité" >&2
   exit 1
 fi
 pi_config_marker=/var/lib/codebox/pi-config-ready

@@ -41,11 +41,11 @@ func run(args []string) (int, error) {
 	if len(args) > 0 && args[0] == codebox.GuestBootstrapCommand {
 		overlay, err := codebox.DecodeGuestOverlay(argOr(args, codebox.GuestBootstrapModelsArgIndex, ""))
 		if err != nil {
-			return 2, fmt.Errorf("invalid guest bootstrap model configuration: %w", err)
+			return 2, fmt.Errorf("configuration de modèle d'amorçage de la machine isolée invalide : %w", err)
 		}
 		mcps, err := parseGuestMCPIDs(argOr(args, codebox.GuestBootstrapMCPArgIndex, ""))
 		if err != nil {
-			return 2, fmt.Errorf("invalid guest bootstrap MCP selection: %w", err)
+			return 2, fmt.Errorf("sélection MCP d'amorçage de la machine isolée invalide : %w", err)
 		}
 		cfg := codebox.GuestConfig{
 			Port:     argOr(args, 1, ""),
@@ -72,11 +72,11 @@ func run(args []string) (int, error) {
 	if len(args) > 0 && args[0] == codebox.GuestSecretsCommand {
 		overlay, err := codebox.DecodeGuestOverlay(argOr(args, codebox.GuestSecretsModelsArgIndex, ""))
 		if err != nil {
-			return 2, fmt.Errorf("invalid guest model configuration: %w", err)
+			return 2, fmt.Errorf("configuration de modèle de la machine isolée invalide : %w", err)
 		}
 		mcps, err := parseGuestMCPIDs(argOr(args, codebox.GuestSecretsMCPArgIndex, ""))
 		if err != nil {
-			return 2, fmt.Errorf("invalid guest MCP selection: %w", err)
+			return 2, fmt.Errorf("sélection MCP de la machine isolée invalide : %w", err)
 		}
 		// The model selection (P10) is the one managed field the in-guest
 		// secrets file must reflect; argv carries no secrets, and the
@@ -160,12 +160,12 @@ func run(args []string) (int, error) {
 	manualRecovery := parsed.action == "update" && updateCommandSkipsStartupRecovery(parsed.updateArgs)
 	if projErr == nil && (parsed.action == "init" || parsed.action == "update" || isLaunchAction(parsed.action)) && !manualRecovery {
 		if err := codebox.RecoverProjectUpdate(codebox.DefaultFS, projectRoot); err != nil {
-			return 1, fmt.Errorf("cannot recover the project's dependency update: %w\nIf recovery refused edits to the managed files, inspect the journal and run 'codebox update --recover --rollback' to restore the previous pair with backups", err)
+			return 1, fmt.Errorf("impossible de récupérer la mise à jour des dépendances du projet : %w\nSi la récupération a refusé de modifier les fichiers gérés, inspectez le journal et lancez 'codebox update --recover --rollback' pour restaurer la paire précédente à partir des sauvegardes", err)
 		}
 	}
 	if parsed.action == "update" {
 		if projErr != nil {
-			return 2, fmt.Errorf("update requires a configured project directory: %w", projErr)
+			return 2, fmt.Errorf("update exige un dossier de projet configuré : %w", projErr)
 		}
 		return updateCmd(parsed.updateArgs, projectRoot)
 	}
@@ -186,7 +186,7 @@ func run(args []string) (int, error) {
 	if projErr == nil && isLaunchAction(parsed.action) {
 		packages, skillIDs, managed, localOnly, err := codebox.LoadProjectSkillState(codebox.DefaultFS, projectRoot, codebox.DefaultStateDir(), instance)
 		if err != nil {
-			return 1, fmt.Errorf("cannot resolve the project's pinned skills before runtime changes: %w", err)
+			return 1, fmt.Errorf("impossible de résoudre les skills épinglées du projet avant de modifier le runtime : %w", err)
 		}
 		cfg.ProjectSkills = packages
 		cfg.ProjectSkillIDs = skillIDs
@@ -199,7 +199,7 @@ func run(args []string) (int, error) {
 	if projErr == nil && isLaunchAction(parsed.action) {
 		remote, err := projectGitHubRemote(projectRoot, codebox.DefaultStateDir(), instance)
 		if err != nil {
-			return 1, fmt.Errorf("the approved GitHub workflow cannot use this project origin; no runtime changes were made: %w", err)
+			return 1, fmt.Errorf("le flux GitHub approuvé ne peut pas utiliser l'origine de ce projet ; aucune modification du runtime n'a été faite : %w", err)
 		} else {
 			cfg.GitHubRemote = remote
 		}
@@ -218,7 +218,7 @@ func run(args []string) (int, error) {
 		if isLaunchAction(parsed.action) {
 			return 2, harnessErr
 		}
-		fmt.Fprintf(os.Stderr, "Warning: %v; using the default agent harness\n", harnessErr)
+		fmt.Fprintf(os.Stderr, "Attention : %v ; utilisation de l'agent par défaut\n", harnessErr)
 	}
 	cfg.Harness = harness
 	var launch *codebox.LaunchUX
@@ -238,7 +238,7 @@ func run(args []string) (int, error) {
 			if isLaunchAction(parsed.action) {
 				return 2, err
 			}
-			fmt.Fprintf(os.Stderr, "Warning: %v\n", err)
+			fmt.Fprintf(os.Stderr, "Attention : %v\n", err)
 		}
 	}
 	// Guest sizing from the project manifest (P12b). A malformed value is
@@ -249,7 +249,7 @@ func run(args []string) (int, error) {
 		if isLaunchAction(parsed.action) {
 			return 1, resErr
 		}
-		fmt.Fprintf(os.Stderr, "Warning: %v; using the default guest sizing\n", resErr)
+		fmt.Fprintf(os.Stderr, "Attention : %v ; utilisation du dimensionnement de machine isolée par défaut\n", resErr)
 	}
 	if isLaunchAction(parsed.action) && runtimeUsesMicrosandbox(parsed.runtime, manifestRuntime) {
 		cfg, resErr = enforceHostResourceLimits(cfg, projectRoot, launch)
@@ -267,25 +267,25 @@ func run(args []string) (int, error) {
 	mcpSelection, mcpErr := resolveMCPSelection(projectRoot)
 	if mcpErr != nil {
 		if isLaunchAction(parsed.action) {
-			return 1, fmt.Errorf("cannot resolve the project's managed MCP selection: %w", mcpErr)
+			return 1, fmt.Errorf("impossible de résoudre la sélection MCP gérée du projet : %w", mcpErr)
 		}
-		fmt.Fprintf(os.Stderr, "Warning: the project's managed MCP selection cannot be read (%v); continuing without it\n", mcpErr)
+		fmt.Fprintf(os.Stderr, "Attention : la sélection MCP gérée du projet est illisible (%v) ; poursuite sans elle\n", mcpErr)
 	}
 	modelSelection := resolveModelSelection(projectRoot)
 	smallModelSelection := resolveSmallModelSelection(projectRoot)
 	providerSettings, providerErr := resolveProviderSettings()
 	if providerErr != nil {
 		if isLaunchAction(parsed.action) {
-			return 1, fmt.Errorf("cannot resolve the inference platforms: %w", providerErr)
+			return 1, fmt.Errorf("impossible de résoudre les plateformes d'inférence : %w", providerErr)
 		}
-		fmt.Fprintf(os.Stderr, "Warning: the inference platforms cannot be resolved (%v); continuing without them\n", providerErr)
+		fmt.Fprintf(os.Stderr, "Attention : les plateformes d'inférence ne peuvent pas être résolues (%v) ; poursuite sans elles\n", providerErr)
 	} else {
 		cfg.Providers, providerErr = codebox.ResolveProviders(providerSettings)
 		if providerErr != nil {
 			if isLaunchAction(parsed.action) {
-				return 1, fmt.Errorf("cannot resolve the inference platforms: %w", providerErr)
+				return 1, fmt.Errorf("impossible de résoudre les plateformes d'inférence : %w", providerErr)
 			}
-			fmt.Fprintf(os.Stderr, "Warning: the inference platforms cannot be resolved (%v); continuing without them\n", providerErr)
+			fmt.Fprintf(os.Stderr, "Attention : les plateformes d'inférence ne peuvent pas être résolues (%v) ; poursuite sans elles\n", providerErr)
 		}
 	}
 	if isLaunchAction(parsed.action) {
@@ -313,7 +313,7 @@ func run(args []string) (int, error) {
 		// working on a project whose config is broken — that is exactly when
 		// the user needs them.
 		if !startPath {
-			fmt.Fprintf(os.Stderr, "Warning: the project OpenCode configuration cannot be read (%v); continuing without the conflict review\n", err)
+			fmt.Fprintf(os.Stderr, "Attention : la configuration OpenCode du projet est illisible (%v) ; poursuite sans l'analyse des conflits\n", err)
 		} else {
 			return 1, err
 		}
@@ -322,7 +322,7 @@ func run(args []string) (int, error) {
 		if launch != nil && launch.Terminal {
 			launch.AddWarning("des réglages OpenCode du projet sont remplacés par les réglages gérés ; détail : codebox config explain")
 		} else {
-			fmt.Fprintf(os.Stderr, "Warning: managed OpenCode fields differ from the project configuration:\n%s\n", conflictMsg)
+			fmt.Fprintf(os.Stderr, "Attention : des champs OpenCode gérés diffèrent de la configuration du projet :\n%s\n", conflictMsg)
 		}
 	}
 	// Trust gate (P10): project plugins and MCP commands execute code at
@@ -345,7 +345,7 @@ func run(args []string) (int, error) {
 	// discovery and before any runtime is constructed.
 	if parsed.action == "bindings" {
 		if projErr != nil {
-			return 2, fmt.Errorf("bindings requires a project directory: %v", projErr)
+			return 2, fmt.Errorf("bindings exige un dossier de projet : %v", projErr)
 		}
 		return bindingsCmd(parsed.bindingsArgs, instance)
 	}
@@ -360,7 +360,7 @@ func run(args []string) (int, error) {
 	// inputs (P10). It runs before any runtime is constructed.
 	if parsed.action == "trust" {
 		if projErr != nil {
-			return 2, fmt.Errorf("trust requires a project directory: %v", projErr)
+			return 2, fmt.Errorf("trust exige un dossier de projet : %v", projErr)
 		}
 		return trustCmd(parsed.trustArgs, pc.Root)
 	}
@@ -379,7 +379,7 @@ func run(args []string) (int, error) {
 	// workspace dir, which discovery has already set.
 	if parsed.action == "workspace" {
 		if projErr != nil {
-			return 2, fmt.Errorf("workspace requires a project directory: %v", projErr)
+			return 2, fmt.Errorf("workspace exige un dossier de projet : %v", projErr)
 		}
 		return workspaceCmd(parsed.workspaceArgs, cfg, instance)
 	}
@@ -405,7 +405,7 @@ func run(args []string) (int, error) {
 			if isLaunchAction(parsed.action) {
 				return 1, err
 			}
-			fmt.Fprintf(os.Stderr, "Warning: shared development secrets are not configured (%v)\n", err)
+			fmt.Fprintf(os.Stderr, "Attention : les secrets de développement partagés ne sont pas configurés (%v)\n", err)
 		}
 	}
 	if launch != nil {
@@ -451,7 +451,7 @@ func run(args []string) (int, error) {
 		return 2, err
 	}
 	if len(cfg.ProjectSkills) > 0 && rt != codebox.RuntimeMicrosandbox {
-		return 2, fmt.Errorf("project skills currently require the sealed microsandbox runtime; no runtime changes were made")
+		return 2, fmt.Errorf("les skills du projet exigent actuellement le runtime microsandbox scellé ; aucune modification du runtime n'a été faite")
 	}
 	// A typo in ISOLATION must not block commands that never read it, so it is
 	// validated only here, where the level is actually consumed.
@@ -465,7 +465,7 @@ func run(args []string) (int, error) {
 	case "start", "logs", "shell", "restart", "recreate", "clean", "doctor":
 		return lifecycleCmd(d, rt, parsed.action)
 	default:
-		return 2, fmt.Errorf("Unknown argument: %s", parsed.action)
+		return 2, fmt.Errorf("Argument inconnu : %s", parsed.action)
 	}
 }
 
@@ -479,7 +479,7 @@ func parseGuestAlbertModels(raw string) ([]codebox.AlbertModelConfig, error) {
 	}
 	for _, model := range models {
 		if strings.TrimSpace(model.ID) == "" || strings.TrimSpace(model.Name) == "" {
-			return nil, fmt.Errorf("model IDs and names must be non-empty")
+			return nil, fmt.Errorf("les identifiants et noms de modèle doivent être non vides")
 		}
 	}
 	return models, nil
@@ -554,7 +554,7 @@ func configureGatewayProjectSecrets(d *codebox.Dispatcher, projectRoot string) e
 	}
 	store := codebox.DefaultCredentialStore()
 	if store == nil {
-		return fmt.Errorf("no native credential store is available for the gateway session; run codebox secrets login")
+		return fmt.Errorf("aucun trousseau natif n'est disponible pour la session de passerelle ; lancez codebox secrets login")
 	}
 	source, _, err := gatewayclient.BuildRuntimeValueSource(context.Background(), manifest.Secrets.ProjectID, store, nil)
 	if err != nil {
@@ -683,14 +683,14 @@ func parseArgs(args []string) (parsedArgs, error) {
 		switch {
 		case runtimeFlag(a):
 			if p.runtime != "" && p.runtime != a {
-				return p, fmt.Errorf("Select exactly one runtime.")
+				return p, fmt.Errorf("Sélectionnez exactement un runtime.")
 			}
 			p.runtime = a
 		case a == "--isolation" || strings.HasPrefix(a, "--isolation="):
 			value := ""
 			if a == "--isolation" {
 				if i+1 >= len(args) {
-					return p, fmt.Errorf("--isolation requires a value: backend or full")
+					return p, fmt.Errorf("--isolation exige une valeur : backend ou full")
 				}
 				i++
 				value = args[i]
@@ -698,10 +698,10 @@ func parseArgs(args []string) (parsedArgs, error) {
 				value = strings.TrimPrefix(a, "--isolation=")
 			}
 			if value == "" {
-				return p, fmt.Errorf("--isolation requires a value: backend or full")
+				return p, fmt.Errorf("--isolation exige une valeur : backend ou full")
 			}
 			if p.isolation != "" && p.isolation != value {
-				return p, fmt.Errorf("Select exactly one isolation level.")
+				return p, fmt.Errorf("Sélectionnez exactement un niveau d'isolation.")
 			}
 			p.isolation = value
 		case a == "-h" || a == "--help":
@@ -711,7 +711,7 @@ func parseArgs(args []string) (parsedArgs, error) {
 			p.version = true
 		case a == "--all":
 			if p.stopAll {
-				return p, fmt.Errorf("--all may be given only once")
+				return p, fmt.Errorf("--all ne peut être fourni qu'une fois")
 			}
 			p.stopAll = true
 		case a == "--acknowledge-guest-credentials":
@@ -799,9 +799,9 @@ func parseArgs(args []string) (parsedArgs, error) {
 			p.action = a
 			actionSet = true
 		case a == "code":
-			return p, fmt.Errorf("The 'code' command was removed: run 'codebox' with no command to launch the selected runtime (Microsandbox/full by default).")
+			return p, fmt.Errorf("La commande 'code' a été supprimée : lancez 'codebox' sans commande pour démarrer le runtime sélectionné (Microsandbox/full par défaut).")
 		default:
-			return p, fmt.Errorf("Unknown argument: %s", a)
+			return p, fmt.Errorf("Argument inconnu : %s", a)
 		}
 	}
 	if p.action == "" {
@@ -891,7 +891,7 @@ func resolveSmallModelSelection(projectRoot string) string {
 // from selecting the Albert-only model after Albert was disconnected.
 func validateSmallModelProviderConnection(providers []codebox.InferenceProvider, smallModel string) error {
 	if smallModel == codebox.MinistralSmallModelRef && !providersContain(providers, codebox.ProviderAlbert) {
-		return fmt.Errorf("small model %q requires Albert API to be connected; run 'codebox setup' to connect it, or clear smallModel in the project manifest", smallModel)
+		return fmt.Errorf("le petit modèle %q exige que l'API Albert soit connectée ; lancez 'codebox setup' pour la connecter, ou effacez smallModel dans le manifeste du projet", smallModel)
 	}
 	return nil
 }
@@ -1085,8 +1085,8 @@ func requireTrustedExecutionInputs(projectRoot string) error {
 	for _, u := range unapproved {
 		lines = append(lines, fmt.Sprintf("  %s (%s)", u.Path, u.Reason))
 	}
-	return fmt.Errorf("this project declares inputs that execute code or launch processes (OpenCode plugins and MCP commands, Pi extensions and settings), and they are not approved at their current content:\n%s\n"+
-		"Review them, then run 'codebox trust approve' to record approval for the current content",
+	return fmt.Errorf("ce projet déclare des entrées qui exécutent du code ou lancent des processus (greffons OpenCode et commandes MCP, extensions et réglages Pi), et elles ne sont pas approuvées pour leur contenu actuel :\n%s\n"+
+		"Relisez-les, puis lancez 'codebox trust approve' pour enregistrer l'approbation du contenu actuel",
 		strings.Join(lines, "\n"))
 }
 
@@ -1099,7 +1099,7 @@ func requireTrustedExecutionInputs(projectRoot string) error {
 func configCmd(parsed parsedArgs) (int, error) {
 	args := parsed.configArgs
 	if len(args) == 0 {
-		fmt.Fprintln(os.Stderr, "Usage: codebox config explain | import-env <path>")
+		fmt.Fprintln(os.Stderr, "Usage : codebox config explain | import-env <chemin>")
 		return 2, nil
 	}
 	switch args[0] {
@@ -1107,11 +1107,11 @@ func configCmd(parsed parsedArgs) (int, error) {
 		return configExplainCmd(parsed)
 	case "import-env":
 		if len(args) < 2 {
-			return 2, fmt.Errorf("Usage: codebox config import-env <path-to-.env>")
+			return 2, fmt.Errorf("Usage : codebox config import-env <chemin-vers-.env>")
 		}
 		return configImportEnvCmd(args[1])
 	default:
-		return 2, fmt.Errorf("Unknown config command: %s (expected explain or import-env)", args[0])
+		return 2, fmt.Errorf("Commande config inconnue : %s (attendu explain ou import-env)", args[0])
 	}
 }
 
@@ -1189,7 +1189,7 @@ func configExplainCmd(parsed parsedArgs) (int, error) {
 func configImportEnvCmd(path string) (int, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
-		return 0, fmt.Errorf("read %s: %w", path, err)
+		return 0, fmt.Errorf("lecture de %s : %w", path, err)
 	}
 	imp := codebox.ImportLegacyDotenv(string(data))
 	fmt.Print(imp.FormatLegacyImport())
@@ -1208,7 +1208,7 @@ func attachCmd(d *codebox.Dispatcher, cfg codebox.Config, rt codebox.Runtime, in
 		}
 		help, err := codebox.OpenCodeHelp(ctx, "--help")
 		if err != nil || !strings.Contains(help, "--server") {
-			return 0, fmt.Errorf("OpenCode v2 is required on the host; install it with 'npm install -g @opencode/cli@%s'", codebox.OpenCodeVersion)
+			return 0, fmt.Errorf("OpenCode v2 est requis sur le poste ; installez-le avec 'npm install -g @opencode/cli@%s'", codebox.OpenCodeVersion)
 		}
 	}
 	if err := d.Prepare(ctx, rt); err != nil {
@@ -1239,7 +1239,7 @@ func attachCmd(d *codebox.Dispatcher, cfg codebox.Config, rt codebox.Runtime, in
 	}
 	// Fail before starting a runtime rather than after, when the TUI cannot open.
 	if _, err := exec.LookPath("opencode"); err != nil {
-		return 0, fmt.Errorf("the 'opencode' CLI is required to attach the TUI but was not found on PATH; install it with 'npm install -g @opencode/cli@2.2.5'")
+		return 0, fmt.Errorf("la CLI 'opencode' est requise pour attacher l'interface mais est introuvable dans le PATH ; installez-la avec 'npm install -g @opencode/cli@2.2.5'")
 	}
 	// Microsandbox's launch report has already waited before saving its timing.
 	if d.Launch == nil {
@@ -1248,7 +1248,7 @@ func attachCmd(d *codebox.Dispatcher, cfg codebox.Config, rt codebox.Runtime, in
 		health.Deadline = cfg.StartTimeout
 		health.Progress = os.Stderr
 		if err := codebox.WaitHealthy(ctx, endpoint, cfg.Username, cfg.Password, health, nil); err != nil {
-			return 0, fmt.Errorf("%w\n  Run 'codebox logs --%s' to see why, or 'codebox restart --%s' to recreate it.", err, rt, rt)
+			return 0, fmt.Errorf("%w\n  Lancez 'codebox logs --%s' pour voir la cause, ou 'codebox restart --%s' pour la recréer.", err, rt, rt)
 		}
 	}
 
@@ -1323,7 +1323,7 @@ func lifecycleCmd(d *codebox.Dispatcher, rt codebox.Runtime, action string) (int
 	case "shell":
 		err = b.Shell()
 	default:
-		err = fmt.Errorf("unsupported action %q", action)
+		err = fmt.Errorf("action non prise en charge %q", action)
 	}
 	if err == nil && (action == "restart" || action == "recreate") {
 		err = d.WaitLaunchReady(ctx, b)
@@ -1371,14 +1371,14 @@ var confirmRecreateFn = confirmDestructiveRecreate
 // explicit replacement is `codebox clean --<runtime>` followed by start,
 // which names the instance and the loss in its own output.
 func confirmDestructiveRecreate(rt codebox.Runtime) (int, error) {
-	fmt.Fprintf(os.Stderr, "Warning: recreate --%s rebuilds the %s environment from scratch and DESTROYS: guest sessions, tools installed in the guest, and guest-only files.\n", rt, rt)
+	fmt.Fprintf(os.Stderr, "Attention : recreate --%s reconstruit de zéro l'environnement %s et DÉTRUIT : les sessions de la machine isolée, les outils installés dans la machine isolée et les fichiers propres à la machine isolée.\n", rt, rt)
 	if !isTTY() {
-		return 1, fmt.Errorf("recreate is destructive and requires an interactive confirmation; run 'codebox clean --%s' then 'codebox start --%s' if you really want to recreate", rt, rt)
+		return 1, fmt.Errorf("recreate est destructeur et exige une confirmation interactive ; lancez 'codebox clean --%s' puis 'codebox start --%s' si vous voulez vraiment recréer", rt, rt)
 	}
-	fmt.Print("Recreate and lose that state? Type the runtime name to confirm: ")
+	fmt.Print("Recréer et perdre cet état ? Saisissez le nom du runtime pour confirmer : ")
 	reply, _ := bufio.NewReader(os.Stdin).ReadString('\n')
 	if strings.TrimSpace(reply) != string(rt) {
-		return 1, fmt.Errorf("not confirmed; nothing was destroyed")
+		return 1, fmt.Errorf("non confirmé ; rien n'a été détruit")
 	}
 	return 0, nil
 }
@@ -1420,76 +1420,79 @@ func exitCodeOf(err error) int {
 }
 
 func usage() {
-	fmt.Println(`codebox - manage the OpenCode sandbox
+	fmt.Println(`codebox — gérer la machine isolée OpenCode
 
-Usage:
-  codebox [command] [--microsandbox | --tart | --agent-vm] [--isolation backend | full]
+Usage :
+  codebox [commande] [--microsandbox | --tart | --agent-vm] [--isolation backend | full]
 
-Run codebox with no command to launch the selected runtime. On an
-unconfigured host, the default is Microsandbox/full: the agent and native
-OpenCode TUI run inside the guest. Backend isolation is an explicit option
-that runs the guest backend and attaches the host TUI.
+Lancez codebox sans commande pour démarrer le runtime sélectionné. Sur un
+poste non configuré, la valeur par défaut est Microsandbox/full : l'agent et
+l'interface OpenCode native tournent dans la machine isolée. L'isolation
+backend est une option explicite qui exécute le backend dans la machine isolée
+et attache l'interface du poste.
 
-Commands:
-  start      Start a backend without attaching the TUI
-  stop       Stop the current project's instance (stop --all for every
-             codebox instance)
-  check      Check the active backend and Albert provider
-  restart    Stop and start the current project's instance (non-destructive)
-  recreate   Rebuild the selected sandbox from scratch (destructive; asks
-             to confirm)
-  logs       Follow logs for the selected runtime
-  shell      Open a shell inside the selected runtime
-  clean      Remove the selected sandbox and its local state
-  doctor     Check the selected runtime installation
-  config     Show or preview managed configuration (explain, import-env)
-  ports      Configure Microsandbox TCP preview ports (list, add, remove)
-  import     Preview or import an existing Albert Code project
-  auth       Manage global credentials (add, status, remove)
-  secrets    Import and manage project-scoped dotenv values (import)
-  bindings   Approve or revoke optional credential bindings for this
-             project (list, approve, revoke)
-  trust      Approve execution-relevant project inputs (status,
+Commandes :
+  start      Démarrer un backend sans attacher l'interface
+  stop       Arrêter l'instance du projet courant (stop --all pour toutes les
+             instances codebox)
+  check      Vérifier le backend actif et le fournisseur Albert
+  restart    Arrêter puis démarrer l'instance du projet courant (non destructif)
+  recreate   Reconstruire de zéro la machine isolée sélectionnée (destructif ;
+             demande confirmation)
+  logs       Suivre les journaux du runtime sélectionné
+  shell      Ouvrir un shell dans le runtime sélectionné
+  clean      Supprimer la machine isolée sélectionnée et son état local
+  doctor     Vérifier l'installation du runtime sélectionné
+  config     Afficher ou prévisualiser la configuration gérée (explain, import-env)
+  ports      Configurer les ports d'aperçu TCP de Microsandbox (list, add, remove)
+  import     Prévisualiser ou importer un projet Albert Code existant
+  auth       Gérer les identifiants globaux (add, status, remove)
+  secrets    Importer et gérer les valeurs dotenv propres au projet (import)
+  bindings   Approuver ou révoquer les liaisons d'identifiants optionnelles de
+             ce projet (list, approve, revoke)
+  trust      Approuver les entrées de projet liées à l'exécution (status,
              approve)
-  models     List the validated Albert models (live, or last-known-good)
-  mcp        Check configured remote MCP endpoints (status)
-  init       Configure this project: sharing mode, model, guest resources,
-             remote MCPs and credential reference. Interactive by default;
-             see 'codebox init --help' for the flag surface.
-  workspace  Manage the sealed guest workspace: what crosses into the guest,
-             per-file re-inclusions, refresh and reviewed export (status,
-             sync, allow, deny, export). The host checkout is never mounted.
-  setup      Configure the machine: preflight, credentials, identity, model,
-             then install the managed runtime (setup doctor for the
-             read-only diagnosis)
-  update     Review and apply pinned project skill updates
-  version    Print the build identity
-  help       Show this help
+  models     Lister les modèles Albert validés (live, ou dernier état connu)
+  mcp        Vérifier les points d'accès MCP distants configurés (status)
+  init       Configurer ce projet : mode de partage, modèle, ressources de la
+             machine isolée, MCP distants et référence d'identifiant.
+             Interactif par défaut ; voir 'codebox init --help' pour les options.
+  workspace  Gérer l'espace de travail scellé de la machine isolée : ce qui
+             franchit la frontière, les ré-inclusions par fichier, le
+             rafraîchissement et l'export relu (status, sync, allow, deny,
+             export). Le dossier du projet sur le poste n'est jamais monté.
+  setup      Configurer le poste : prérequis, identifiants, identité, modèle,
+             puis installer le runtime géré (setup doctor pour le diagnostic
+             en lecture seule)
+  update     Relire et appliquer les mises à jour de skills épinglées du projet
+  version    Afficher l'identité de compilation
+  help       Afficher cette aide
 
-Runtime selection:
-  Microsandbox in isolation full is the built-in default: the agent runs in the
-  microVM and its workspace is sealed (no host file is mounted). Pass
-  --microsandbox, --tart or --agent-vm, or set RUNTIME, to override it; an
-  explicit flag always takes precedence. --isolation backend selects the
-  historical mode where the TUI runs on the host. Tart and agent-vm mount the
-  checkout, hand the credential to the guest in plaintext, and require
-  --acknowledge-guest-credentials to start.
+Sélection du runtime :
+  Microsandbox en isolation full est la valeur par défaut : l'agent tourne dans
+  la microVM et son espace de travail est scellé (aucun fichier du poste n'est
+  monté). Passez --microsandbox, --tart ou --agent-vm, ou définissez RUNTIME,
+  pour la remplacer ; un flag explicite l'emporte toujours. --isolation backend
+  sélectionne le mode historique où l'interface tourne sur le poste. Tart et
+  agent-vm montent le dossier, transmettent l'identifiant à la machine isolée en
+  clair et exigent --acknowledge-guest-credentials pour démarrer.
 
-  A .env in the working directory is NOT loaded implicitly any more; exported
-  variables still are. To see what an existing .env holds and where each value
-  belongs, run 'codebox config import-env <path>' (preview only). To preview
-  project-scoped application secret import, run:
-  'codebox secrets import --profile development --file .env'. Import does not
-  enable guest delivery. The Albert
-  key belongs in the credential store: 'codebox auth add albert'.
+  Un .env du dossier de travail n'est PLUS chargé implicitement ; les variables
+  exportées le sont toujours. Pour voir ce que contient un .env existant et où
+  chaque valeur doit aller, lancez 'codebox config import-env <chemin>' (aperçu
+  seulement). Pour prévisualiser l'import de secrets applicatifs à l'échelle du
+  projet, lancez :
+  'codebox secrets import --profile development --file .env'. L'import n'active
+  pas la livraison à la machine isolée. La clé Albert
+  va dans le trousseau : 'codebox auth add albert'.
 
-Isolation:
-  --isolation full (default): the whole agent, TUI included, runs inside the
-  sandbox; the host is only a terminal passthrough.
-  --isolation backend: the agent runs as a server inside the sandbox and the
-  TUI attaches from the host. ISOLATION is used when no flag is provided; the
-  flag always takes precedence. How each runtime handles the credential in
-  either mode is stated above.`)
+Isolation :
+  --isolation full (défaut) : tout l'agent, interface comprise, tourne dans la
+  machine isolée ; le poste n'est qu'un terminal de passage.
+  --isolation backend : l'agent tourne comme serveur dans la machine isolée et
+  l'interface s'y attache depuis le poste. ISOLATION est utilisée quand aucun
+  flag n'est fourni ; le flag l'emporte toujours. La façon dont chaque runtime
+  gère l'identifiant dans chaque mode est décrite ci-dessus.`)
 }
 
 // applyProjectSandboxResources applies the project manifest's guest sizing.
@@ -1510,7 +1513,7 @@ func applyProjectSandboxResources(cfg codebox.Config, projectRoot string) (codeb
 	cfg.PortsConfigured = pm.PortsConfigured || pm.Ports != nil
 	if cfg.PortsConfigured {
 		if err := codebox.ValidatePortMappings(cfg.Ports); err != nil {
-			return cfg, fmt.Errorf("invalid project port mapping: %w", err)
+			return cfg, fmt.Errorf("correspondance de ports du projet invalide : %w", err)
 		}
 	}
 	// Zero means "not set in the manifest", which is the common case. Any
@@ -1521,7 +1524,7 @@ func applyProjectSandboxResources(cfg codebox.Config, projectRoot string) (codeb
 		switch {
 		case pm.CPUs == 0:
 		case pm.CPUs < 0 || pm.CPUs > codebox.MaxSandboxCPUs:
-			return cfg, fmt.Errorf("the project manifest asks for %d CPUs; the sandbox runtime accepts 1 to %d", pm.CPUs, codebox.MaxSandboxCPUs)
+			return cfg, fmt.Errorf("le manifeste du projet demande %d processeurs ; le runtime de la machine isolée accepte 1 à %d", pm.CPUs, codebox.MaxSandboxCPUs)
 		default:
 			cfg.CPUs = pm.CPUs
 		}
@@ -1530,7 +1533,7 @@ func applyProjectSandboxResources(cfg codebox.Config, projectRoot string) (codeb
 		switch {
 		case pm.MemoryMB == 0:
 		case pm.MemoryMB < 0 || pm.MemoryMB > codebox.MaxSandboxMemoryMB:
-			return cfg, fmt.Errorf("the project manifest asks for %d MiB; the sandbox runtime accepts 1 to %d", pm.MemoryMB, codebox.MaxSandboxMemoryMB)
+			return cfg, fmt.Errorf("le manifeste du projet demande %d MiB ; le runtime de la machine isolée accepte 1 à %d", pm.MemoryMB, codebox.MaxSandboxMemoryMB)
 		default:
 			cfg.MemoryMB = pm.MemoryMB
 		}
@@ -1545,15 +1548,15 @@ func applyProjectSandboxResources(cfg codebox.Config, projectRoot string) (codeb
 func enforceHostResourceLimits(cfg codebox.Config, projectRoot string, reports ...*codebox.LaunchUX) (codebox.Config, error) {
 	host, err := detectHostResourcesFn()
 	if err != nil {
-		return cfg, fmt.Errorf("cannot determine host CPU and memory capacity; cannot enforce the guest resource limit: %v", err)
+		return cfg, fmt.Errorf("impossible de déterminer la capacité CPU et mémoire du poste ; impossible d'appliquer la limite de ressources de la machine isolée : %v", err)
 	}
 	if host.CPUs <= 0 || host.MemoryMB <= 0 {
-		return cfg, fmt.Errorf("host resource detection returned incomplete CPU or memory capacity; cannot enforce the guest resource limit")
+		return cfg, fmt.Errorf("la détection des ressources du poste a renvoyé une capacité CPU ou mémoire incomplète ; impossible d'appliquer la limite de ressources de la machine isolée")
 	}
 	pm, manifestErr := codebox.ReadProjectManifest(codebox.DefaultFS, codebox.ProjectManifestPath(projectRoot))
 	manifestPresent := manifestErr == nil
 	if manifestErr != nil && !os.IsNotExist(manifestErr) {
-		return cfg, fmt.Errorf("cannot inspect project resource settings: %w", manifestErr)
+		return cfg, fmt.Errorf("impossible d'inspecter les réglages de ressources du projet : %w", manifestErr)
 	}
 	cpuExplicit := false
 	if value, ok := os.LookupEnv("CODEBOX_CPUS"); ok && value != "" {
@@ -1570,10 +1573,10 @@ func enforceHostResourceLimits(cfg codebox.Config, projectRoot string, reports .
 	maxCPUs := codebox.MaxGuestCPUs(host.CPUs)
 	maxMemoryMB := codebox.MaxGuestMemoryMB(host.MemoryMB)
 	if maxCPUs < 1 {
-		return cfg, fmt.Errorf("host resource detection reported no logical CPUs available for the guest")
+		return cfg, fmt.Errorf("la détection des ressources du poste ne signale aucun processeur logique disponible pour la machine isolée")
 	}
 	if maxMemoryMB < 1 {
-		return cfg, fmt.Errorf("host memory is too small to allocate guest memory")
+		return cfg, fmt.Errorf("la mémoire du poste est trop faible pour allouer la mémoire de la machine isolée")
 	}
 	if !cpuExplicit && cfg.CPUs > codebox.RecommendedDefaultGuestCPUs(host.CPUs) {
 		cfg.CPUs = codebox.RecommendedDefaultGuestCPUs(host.CPUs)
@@ -1588,7 +1591,7 @@ func enforceHostResourceLimits(cfg codebox.Config, projectRoot string, reports .
 		if len(reports) > 0 && reports[0] != nil && reports[0].Terminal {
 			reports[0].AddWarning("ressources de la machine hôte limitées ; détail : codebox doctor")
 		} else {
-			fmt.Fprintf(os.Stderr, "Warning: %s\n", warning)
+			fmt.Fprintf(os.Stderr, "Attention : %s\n", warning)
 		}
 	}
 	return cfg, nil

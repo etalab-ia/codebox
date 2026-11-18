@@ -234,7 +234,7 @@ func TestReadStoredCredentialRecordedFileStoreError(t *testing.T) {
 	if err := RecordCredentialStore(dir, CredentialAlbert, "file"); err != nil {
 		t.Fatal(err)
 	}
-	corrupt := &StoreError{Op: "get", Kind: "file", State: "corrupt", Err: errors.New("is a symlink; refusing to use it")}
+	corrupt := &StoreError{Op: "get", Kind: "file", State: "corrupt", Err: errors.New("est un lien symbolique ; refus de l'utiliser")}
 	readers := credentialStoreReaders{
 		native: func(context.Context, CredentialKind) (string, error) { return "", ErrCredentialNotFound },
 		file:   func(context.Context, CredentialKind) (string, error) { return "", corrupt },

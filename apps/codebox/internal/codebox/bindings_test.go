@@ -426,7 +426,7 @@ func TestStartCreateRotationFailureRemovesSandbox(t *testing.T) {
 	client := &fakeMSBClient{modifyErr: errTest}
 	m := newTestMicrosandbox(t, client)
 	err := m.Start(context.Background())
-	if err == nil || !strings.Contains(err.Error(), "removed") {
+	if err == nil || !strings.Contains(err.Error(), "a été supprimée") {
 		t.Fatalf("rotation failure must be reported with the rollback: %v", err)
 	}
 	if !hasCall(client, "remove "+msbSandbox) {

@@ -64,7 +64,7 @@ func TestSecretsBindingsApproveListRevoke(t *testing.T) {
 			t.Fatalf("list: code=%d err=%v", code, err)
 		}
 	})
-	if !strings.Contains(out, "(none selected)") || !strings.Contains(out, "Imported but not delivered: .env#API_KEY, .env#OTHER") {
+	if !strings.Contains(out, "(aucun sélectionné)") || !strings.Contains(out, "Importés mais non livrés : .env#API_KEY, .env#OTHER") {
 		t.Fatalf("unapproved state must be visible: %q", out)
 	}
 
@@ -91,7 +91,7 @@ func TestSecretsBindingsApproveListRevoke(t *testing.T) {
 			t.Fatalf("list after approve: code=%d err=%v", code, err)
 		}
 	})
-	if !strings.Contains(out, "API_KEY -> JC_API_KEY") || !strings.Contains(out, "profile: development") || !strings.Contains(out, ".env#OTHER") {
+	if !strings.Contains(out, "API_KEY -> JC_API_KEY") || !strings.Contains(out, "profil : development") || !strings.Contains(out, ".env#OTHER") {
 		t.Fatalf("approved state: %q", out)
 	}
 	if strings.Contains(out, "value-a") || strings.Contains(out, "value-b") {

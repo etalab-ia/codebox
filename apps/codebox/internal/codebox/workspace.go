@@ -89,7 +89,7 @@ func ScanWorkspace(ctx context.Context, dir string) (ScanResult, error) {
 				return nil
 			}
 			if isDotenvName(d.Name()) {
-				fmt.Fprintf(os.Stderr, "Warning: skipping dotenv-named directory %s\n", relTo(root, path))
+				fmt.Fprintf(os.Stderr, "Avertissement : dossier de type dotenv ignoré : %s\n", relTo(root, path))
 			}
 			return nil
 		}
@@ -99,7 +99,7 @@ func ScanWorkspace(ctx context.Context, dir string) (ScanResult, error) {
 		return nil
 	})
 	if err != nil {
-		return res, fmt.Errorf("scanning workspace %s: %w", root, err)
+		return res, fmt.Errorf("analyse de l'espace de travail %s : %w", root, err)
 	}
 	sort.Strings(res.DotenvFiles)
 
@@ -165,14 +165,14 @@ func runGitleaksFindings(ctx context.Context, binary, dir string) ([]gitleaksFin
 	)
 	out, err := cmd.Output()
 	if ee, ok := err.(*exec.ExitError); ok && ee.ExitCode() != 1 {
-		return nil, fmt.Errorf("secret scanner exited %d on %s: %s", ee.ExitCode(), dir, ee.Stderr)
+		return nil, fmt.Errorf("le scanner de secrets s'est terminé avec le code %d sur %s : %s", ee.ExitCode(), dir, ee.Stderr)
 	}
 	if err != nil && !isExitError(err) {
-		return nil, fmt.Errorf("running the secret scanner on %s: %w", dir, err)
+		return nil, fmt.Errorf("exécution du scanner de secrets sur %s : %w", dir, err)
 	}
 	var findings []gitleaksFinding
 	if err := json.Unmarshal(out, &findings); err != nil {
-		return nil, fmt.Errorf("parsing the secret scanner report for %s: %w", dir, err)
+		return nil, fmt.Errorf("analyse du rapport du scanner de secrets pour %s : %w", dir, err)
 	}
 	return findings, nil
 }
@@ -226,15 +226,15 @@ func CheckWorkspaceGate(ctx context.Context, dir string) error {
 		return nil
 	}
 	var b strings.Builder
-	b.WriteString("refusing to start: the workspace is mounted into the sandbox and contains secrets.\n")
+	b.WriteString("démarrage refusé : l'espace de travail est monté dans la machine isolée et contient des secrets.\n")
 	for _, f := range res.DotenvFiles {
-		fmt.Fprintf(&b, "  dotenv file: %s\n", f)
+		fmt.Fprintf(&b, "  fichier dotenv : %s\n", f)
 	}
 	for _, f := range res.GitleaksFindings {
-		fmt.Fprintf(&b, "  secret: %s\n", f)
+		fmt.Fprintf(&b, "  secret : %s\n", f)
 	}
-	b.WriteString("\nMove real secrets out of the workspace (the agent can read everything mounted there),\n" +
-		"or replace the files with non-secret .env.example templates, then run 'codebox start' again.")
+	b.WriteString("\nDéplacez les vrais secrets hors de l'espace de travail (l'agent peut lire tout ce qui y est monté),\n" +
+		"ou remplacez les fichiers par des modèles .env.example sans secret, puis relancez 'codebox start'.")
 	return fmt.Errorf("%s", b.String())
 }
 
@@ -246,5 +246,5 @@ func CheckWorkspaceGate(ctx context.Context, dir string) error {
 // says must stay tool-agnostic. The cause is kept on ScanResult for
 // diagnostics.
 func workspaceScanUnavailableWarning() string {
-	return "Warning: the workspace secret scan could not run."
+	return "Avertissement : l'analyse de secrets de l'espace de travail n'a pas pu s'exécuter."
 }

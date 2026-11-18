@@ -201,8 +201,8 @@ type MicrosandboxRuntime struct {
 	currentProjectSecretValues *resolvedSecretSet
 	// Launch is the first-launch report (issue #172). When set on a terminal,
 	// the runtime records what each phase did into it and stops printing its
-	// own verbose English lines, because the CLI renders one French checklist
-	// from that state. A nil Launch keeps the legacy verbose behaviour.
+	// own verbose lines, because the CLI renders one French checklist from
+	// that state. A nil Launch keeps the legacy verbose behaviour.
 	Launch *LaunchUX
 }
 
@@ -493,7 +493,7 @@ func (m *MicrosandboxRuntime) resolveBindings(ctx context.Context) ([]resolvedBi
 		}
 		approvals, err := ReadBindingApprovals(DefaultFS, bindingApprovalsPath(m.stateDirOrDefault(), m.InstanceName()))
 		if err != nil {
-			m.warn("approbations illisibles : accès facultatifs ignorés ; détail : codebox bindings list", "Warning: cannot read the binding approvals for %s (%v); optional bindings are skipped", m.InstanceName(), err)
+			m.warn("approbations illisibles : accès facultatifs ignorés ; détail : codebox bindings list", "Avertissement : impossible de lire les approbations d'association pour %s (%v) ; les associations facultatives sont ignorées", m.InstanceName(), err)
 			continue
 		}
 		if !approvals.Approves(b.Kind) {
@@ -502,7 +502,7 @@ func (m *MicrosandboxRuntime) resolveBindings(ctx context.Context) ([]resolvedBi
 		v, store, err := read(ctx, b.Kind, m.CredentialStore)
 		if err != nil {
 			if isNotFound(err) {
-				m.warn("identifiant facultatif absent ; détail : codebox bindings list", "Warning: the %s binding is approved for %s but no %q credential is stored; skipping it (codebox auth add %s)",
+				m.warn("identifiant facultatif absent ; détail : codebox bindings list", "Avertissement : l'association %s est approuvée pour %s mais aucun identifiant %q n'est enregistré ; elle est ignorée (codebox auth add %s)",
 					b.Kind, m.InstanceName(), b.Kind, b.Kind)
 				continue
 			}
@@ -517,7 +517,7 @@ func (m *MicrosandboxRuntime) resolveBindings(ctx context.Context) ([]resolvedBi
 			// unusable meanwhile (#204). Storage faults are recognised by
 			// their typed store error, not by an allow-list of the cases we
 			// happened to think of, so anything unrecognised fails closed.
-			return nil, fmt.Errorf("cannot read the approved %s credential for %s: %w", b.Kind, m.InstanceName(), err)
+			return nil, fmt.Errorf("impossible de lire l'identifiant %s approuvé pour %s : %w", b.Kind, m.InstanceName(), err)
 		}
 		out = append(out, resolvedBinding{msbSecretBinding: b, source: bindingSourceStore, value: v, store: store, entry: string(b.Kind)})
 	}
@@ -551,7 +551,7 @@ func (m *MicrosandboxRuntime) resolveProjectSecretBindings(ctx context.Context) 
 	}
 	if len(record.deliveries) == 0 {
 		for _, undelivered := range record.undelivered {
-			m.warn("secrets importés non transmis faute d'approbation ; détail : codebox secrets bindings list", "Note: the imported project secret %s is not approved for guest delivery; run 'codebox secrets bindings approve' to expose it.", undelivered)
+			m.warn("secrets importés non transmis faute d'approbation ; détail : codebox secrets bindings list", "Remarque : le secret de projet importé %s n'est pas approuvé pour la transmission à la machine isolée ; lancez 'codebox secrets bindings approve' pour l'exposer.", undelivered)
 		}
 		return nil, nil
 	}
@@ -577,12 +577,12 @@ func (m *MicrosandboxRuntime) resolveProjectSecretBindings(ctx context.Context) 
 			continue
 		}
 		if seen[d.GuestEnv] {
-			return nil, fmt.Errorf("two project secret bindings share the guest variable %s", d.GuestEnv)
+			return nil, fmt.Errorf("deux associations de secrets de projet partagent la variable de la machine isolée %s", d.GuestEnv)
 		}
 		seen[d.GuestEnv] = true
 		resolved, err := values.get(ProjectSecretIdentity{Profile: d.Profile, Component: d.Component, Name: d.Name})
 		if err != nil {
-			return nil, fmt.Errorf("cannot read the approved project secret %s (%s): %w", d.Name, d.Component, err)
+			return nil, fmt.Errorf("impossible de lire le secret de projet approuvé %s (%s) : %w", d.Name, d.Component, err)
 		}
 		ref := d.Reference
 		if resolved.Reference != "" {
@@ -740,10 +740,10 @@ func (m *MicrosandboxRuntime) syncProjectSecretDelivery(ctx context.Context, bin
 		// knows about, so remove what was just written and report: the next
 		// run re-delivers from the approvals, which are the durable record.
 		_, _ = m.syncGuestSecretFiles(ctx, nil, managed)
-		return fmt.Errorf("recording the applied project secret inventory: %w", err)
+		return fmt.Errorf("enregistrement de l'inventaire des secrets de projet appliqués : %w", err)
 	}
 	if len(managed) > 0 {
-		m.say("Published %d managed project secret file(s) into the guest workspace.", len(managed))
+		m.say("Publication de %d fichier(s) de secrets de projet gérés dans l'espace de travail de la machine isolée.", len(managed))
 	}
 	return nil
 }
@@ -785,7 +785,7 @@ func (m *MicrosandboxRuntime) projectSecretFileDeliveriesWithValues(ctx context.
 		if d.GuestReadable() {
 			resolved, err := values.get(ProjectSecretIdentity{Profile: d.Profile, Component: d.Component, Name: d.Name})
 			if err != nil {
-				return nil, fmt.Errorf("cannot read the guest-readable project secret %s (%s): %w", d.Name, d.Component, err)
+				return nil, fmt.Errorf("impossible de lire le secret de projet lisible par la machine isolée %s (%s) : %w", d.Name, d.Component, err)
 			}
 			value := resolved.Value
 			d.Value = &value
@@ -796,9 +796,9 @@ func (m *MicrosandboxRuntime) projectSecretFileDeliveriesWithValues(ctx context.
 	if guestReadable > 0 {
 		// The warning is the point of the separate approval: it is repeated at
 		// every start because the exposure lasts as long as the sandbox does.
-		m.warn(fmt.Sprintf("%d secret(s) lisible(s) par l'agent et conservé(s) dans les snapshots ; détail : codebox secrets bindings list", guestReadable), "Warning: %d project secret(s) are delivered readable inside %s. "+
-			"Everything running in that sandbox, including the agent, can read them; they are readable for as long as the sandbox holds them, "+
-			"and a snapshot taken now captures them. Run 'codebox secrets bindings list' to review.",
+		m.warn(fmt.Sprintf("%d secret(s) lisible(s) par l'agent et conservé(s) dans les snapshots ; détail : codebox secrets bindings list", guestReadable), "Avertissement : %d secret(s) de projet sont transmis en clair à l'intérieur de %s. "+
+			"Tout ce qui s'exécute dans cette machine isolée, y compris l'agent, peut les lire ; ils restent lisibles tant que la machine isolée les conserve, "+
+			"et un instantané pris maintenant les capture. Lancez 'codebox secrets bindings list' pour les examiner.",
 			guestReadable, m.InstanceName())
 	}
 	return out, nil
@@ -899,24 +899,24 @@ func (m *MicrosandboxRuntime) startInstanceWithBackendPreflight(ctx context.Cont
 			if !m.Launch.IsFirstStart() {
 				m.Launch.AnnounceWarmStart()
 			}
-			m.say("%s is running (isolation full; the TUI runs inside the microVM).", m.InstanceName())
+			m.say("%s est en cours d'exécution (isolation complète ; le TUI s'exécute dans la microVM).", m.InstanceName())
 			return nil
 		}
 		if m.backendHealthy(ctx) {
 			m.Launch.AnnounceWarmStart()
-			m.say("%s is running with a healthy OpenCode backend.", m.InstanceName())
+			m.say("%s est en cours d'exécution avec un backend OpenCode sain.", m.InstanceName())
 			return nil
 		}
 		m.announceExistingStart(ctx)
 		if err := beforeBackendLaunch(); err != nil {
 			return err
 		}
-		m.say("%s is running but the OpenCode backend is not responding; restarting it inside the microVM...", m.InstanceName())
+		m.say("%s est en cours d'exécution mais le backend OpenCode ne répond pas ; redémarrage dans la microVM...", m.InstanceName())
 		return m.launchBackend(ctx)
 	}
 
 	if exists {
-		m.say("Starting %s...", m.InstanceName())
+		m.say("Démarrage de %s...", m.InstanceName())
 		// Both isolation modes use the same secret-proxy configuration: the
 		// guest environment carries the placeholder, never the real key. The
 		// reference re-resolves from this process's environment at boot, so a
@@ -945,7 +945,7 @@ func (m *MicrosandboxRuntime) startInstanceWithBackendPreflight(ctx context.Cont
 			if !m.Launch.IsFirstStart() {
 				m.Launch.AnnounceWarmStart()
 			}
-			m.say("%s started (isolation full; the TUI runs inside the microVM).", m.InstanceName())
+			m.say("%s démarrée (isolation complète ; le TUI s'exécute dans la microVM).", m.InstanceName())
 			return nil
 		}
 		// Booting a stopped VM does not re-run the container entrypoint, so the
@@ -955,15 +955,15 @@ func (m *MicrosandboxRuntime) startInstanceWithBackendPreflight(ctx context.Cont
 		if err := beforeBackendLaunch(); err != nil {
 			return err
 		}
-		m.say("Launching %s inside %s...", m.cfg.EffectiveHarness().DisplayName(), m.InstanceName())
+		m.say("Lancement de %s dans %s...", m.cfg.EffectiveHarness().DisplayName(), m.InstanceName())
 		return m.launchBackend(ctx)
 	}
 
 	// Creating the sandbox is the first start: the guest has no toolchain yet
 	// and the installer has to run before anything can be said about readiness.
 	m.Launch.AnnounceFirstStart()
-	m.say("Creating %s microVM...", m.InstanceName())
-	m.say("First start installs the toolchain inside the microVM (build-base, node, python); this can take several minutes.")
+	m.say("Création de la microVM %s...", m.InstanceName())
+	m.say("Le premier démarrage installe la chaîne d'outils dans la microVM (build-base, node, python) ; cela peut prendre plusieurs minutes.")
 	if err := m.Client.Create(ctx, m.sandboxSpec(bindings)); err != nil {
 		return err
 	}
@@ -975,14 +975,14 @@ func (m *MicrosandboxRuntime) startInstanceWithBackendPreflight(ctx context.Cont
 	// sentinel-bound or value-bound instance behind.
 	if err := m.Client.RotateSecretsLive(ctx, m.InstanceName(), bindingsMetadata(bindings)); err != nil {
 		_ = m.Client.Remove(ctx, m.InstanceName())
-		return fmt.Errorf("rotating the credentials of %s onto the secret proxy failed (%w); the incomplete sandbox was removed, retry the start", m.InstanceName(), err)
+		return fmt.Errorf("la rotation des identifiants de %s vers le proxy de secrets a échoué (%w) ; la machine isolée incomplète a été supprimée, relancez le démarrage", m.InstanceName(), err)
 	}
 	// `msb create` boots an idle VM: the Go SDK has no equivalent of the Rust
 	// SDK's transient LaunchIntent::Background, so the persisted start script
 	// (which installs the toolchain and then execs `opencode serve`, or keeps
 	// the VM alive in full mode) is never run by creation itself. Launch it
 	// explicitly, the same way a restarted VM would.
-	m.say("Launching the start script inside %s...", m.InstanceName())
+	m.say("Lancement du script de démarrage dans %s...", m.InstanceName())
 	if err := m.launchBackend(ctx); err != nil {
 		return err
 	}
@@ -1030,7 +1030,7 @@ func (m *MicrosandboxRuntime) waitForToolchain(ctx context.Context) error {
 					m.Launch.AnnounceFirstStart()
 				}
 				relaunches++
-				m.say("Nothing is preparing the guest in %s; launching the start script...", m.InstanceName())
+				m.say("Rien ne prépare la machine isolée dans %s ; lancement du script de démarrage...", m.InstanceName())
 				if err := m.launchBackend(ctx); err != nil {
 					return err
 				}
@@ -1039,13 +1039,13 @@ func (m *MicrosandboxRuntime) waitForToolchain(ctx context.Context) error {
 		if first {
 			// Quiet in the common case (sandbox already prepared); the wait
 			// message only makes sense when there is something to wait for.
-			m.say("Waiting for the guest toolchain to finish installing...")
+			m.say("En attente de la fin de l'installation de la chaîne d'outils dans la machine isolée...")
 		}
 		select {
 		case <-time.After(delay):
 		case <-ctx.Done():
-			return fmt.Errorf("the guest toolchain was not ready within %s (the start script may have failed); "+
-				"run 'codebox logs --microsandbox' or check %s inside the guest: %w",
+			return fmt.Errorf("la chaîne d'outils de la machine isolée n'a pas été prête dans %s (le script de démarrage a peut-être échoué) ; "+
+				"lancez 'codebox logs --microsandbox' ou vérifiez %s dans la machine isolée : %w",
 				timeout, msbGuestLog, ctx.Err())
 		}
 	}
@@ -1210,10 +1210,10 @@ func (m *MicrosandboxRuntime) piManagedConfigError() error {
 		return nil
 	}
 	if _, err := ComposePiModelsConfig(m.OpenCodeOverlay); err != nil {
-		return fmt.Errorf("cannot compose the managed Pi provider configuration: %w", err)
+		return fmt.Errorf("impossible de composer la configuration de fournisseur Pi gérée : %w", err)
 	}
 	if _, err := ComposePiSettingsConfig(); err != nil {
-		return fmt.Errorf("cannot compose the managed Pi settings: %w", err)
+		return fmt.Errorf("impossible de composer les paramètres Pi gérés : %w", err)
 	}
 	return nil
 }
@@ -1240,12 +1240,12 @@ func piSandboxEnv(harness Harness, overlay ManagedOverlay) map[string]string {
 	}
 	models, err := ComposePiModelsConfig(overlay)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Warning: cannot compose the Pi provider configuration: %v\n", err)
+		fmt.Fprintf(os.Stderr, "Avertissement : impossible de composer la configuration de fournisseur Pi : %v\n", err)
 		return env
 	}
 	settings, err := ComposePiSettingsConfig()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Warning: cannot compose the Pi settings: %v\n", err)
+		fmt.Fprintf(os.Stderr, "Avertissement : impossible de composer les paramètres Pi : %v\n", err)
 		return env
 	}
 	env[PiModelsEnv] = models
@@ -1308,9 +1308,9 @@ const (
 func (m *MicrosandboxRuntime) rejectLegacyRawKey(ctx context.Context) error {
 	env, err := m.Client.Env(ctx, m.InstanceName())
 	if err != nil {
-		return fmt.Errorf("cannot read the guest environment of %s to check whether it stores a plaintext %s; "+
-			"refusing to boot a sandbox whose credentials cannot be verified. "+
-			"Run 'codebox restart --microsandbox' to recreate it with the key behind the secret proxy: %w",
+		return fmt.Errorf("impossible de lire l'environnement de la machine isolée %s pour vérifier s'il contient un %s en clair ; "+
+			"refus de démarrer une machine isolée dont les identifiants ne peuvent pas être vérifiés. "+
+			"Lancez 'codebox restart --microsandbox' pour la recréer avec la clé derrière le proxy de secrets : %w",
 			m.InstanceName(), msbAPISecretEnv, err)
 	}
 	value, ok := env[msbAPISecretEnv]
@@ -1323,9 +1323,9 @@ func (m *MicrosandboxRuntime) rejectLegacyRawKey(ctx context.Context) error {
 	if value == msbAPISecretPlaceholder {
 		return nil
 	}
-	return fmt.Errorf("%s was created before proxy secret injection and stores a plaintext %s in its guest environment; "+
-		"the value cannot be replaced in place. "+
-		"Run 'codebox restart --microsandbox' to recreate the sandbox with the key behind the secret proxy: %w",
+	return fmt.Errorf("%s a été créée avant l'injection des secrets par proxy et stocke un %s en clair dans l'environnement de la machine isolée ; "+
+		"la valeur ne peut pas être remplacée sur place. "+
+		"Lancez 'codebox restart --microsandbox' pour recréer la machine isolée avec la clé derrière le proxy de secrets : %w",
 		m.InstanceName(), msbAPISecretEnv, errLegacyRawKeySandbox)
 }
 
@@ -1334,9 +1334,9 @@ func (m *MicrosandboxRuntime) rejectLegacyRawKey(ctx context.Context) error {
 // not avoid this: Tart and agent-vm expose the key in backend mode too, so the
 // warning is about the runtime, not the isolation level.
 func warnUnprotectedRuntime(runtimeName string) {
-	fmt.Fprintf(os.Stderr, "Warning: %s has no secret injection, so the real inference credentials are readable inside the VM "+
-		"(isolation backend and full alike). Any process in the guest, including the agent itself, can read and exfiltrate them. "+
-		"Prefer --microsandbox for untrusted work, and treat the guest as holding a live credential.\n", runtimeName)
+	fmt.Fprintf(os.Stderr, "Avertissement : %s n'a pas d'injection de secrets ; les vrais identifiants d'inférence sont donc lisibles dans la machine isolée "+
+		"(isolation backend comme complète). Tout processus dans la machine isolée, y compris l'agent lui-même, peut les lire et les exfiltrer. "+
+		"Préférez --microsandbox pour du code non fiable et considérez la machine isolée comme détenant un identifiant actif.\n", runtimeName)
 }
 
 // errLegacyRawKeySandbox marks the refusal to boot a sandbox that stores a
@@ -1365,7 +1365,7 @@ func (m *MicrosandboxRuntime) launchBackend(ctx context.Context) error {
 		if err != nil {
 			last = err
 		} else {
-			last = fmt.Errorf("sandbox exec exited %d: %s", code, strings.TrimSpace(stderr))
+			last = fmt.Errorf("l'exécution dans la machine isolée s'est terminée avec le code %d : %s", code, strings.TrimSpace(stderr))
 		}
 		if attempt == msbLaunchAttempts {
 			break
@@ -1376,7 +1376,7 @@ func (m *MicrosandboxRuntime) launchBackend(ctx context.Context) error {
 			return ctx.Err()
 		}
 	}
-	return fmt.Errorf("failed to launch OpenCode inside %s: %w", m.InstanceName(), last)
+	return fmt.Errorf("échec du lancement d'OpenCode dans %s : %w", m.InstanceName(), last)
 }
 
 // backendHealthy probes the backend that should be listening in the VM.
@@ -1409,33 +1409,33 @@ func (m *MicrosandboxRuntime) backendHealthy(ctx context.Context) bool {
 // codebox's own spec, so a spec the runtime ignored cannot satisfy it.
 func (m *MicrosandboxRuntime) requireSealedWorkspace(ctx context.Context) error {
 	if _, exists, err := m.Client.Lookup(ctx, m.InstanceName()); err != nil {
-		return fmt.Errorf("cannot look up %s to verify its workspace isolation: %w", m.InstanceName(), err)
+		return fmt.Errorf("impossible de rechercher %s pour vérifier l'isolation de son espace de travail : %w", m.InstanceName(), err)
 	} else if !exists {
-		return fmt.Errorf("%s does not exist yet; run 'codebox start' first", m.InstanceName())
+		return fmt.Errorf("%s n'existe pas encore ; lancez d'abord 'codebox start'", m.InstanceName())
 	}
 	// A recognized bind source is reported by path: naming it is the clearest
 	// way to explain the refusal.
 	mounted, err := m.Client.WorkspaceMount(ctx, m.InstanceName())
 	if err != nil {
-		return fmt.Errorf("cannot read the /workspace provenance of %s; refusing to use an instance whose workspace isolation cannot be verified. "+
-			"Recreate it with 'codebox clean --microsandbox' then 'codebox start --microsandbox': %w", m.InstanceName(), err)
+		return fmt.Errorf("impossible de lire la provenance de /workspace de %s ; refus d'utiliser une instance dont l'isolation de l'espace de travail ne peut pas être vérifiée. "+
+			"Recréez-la avec 'codebox clean --microsandbox' puis 'codebox start --microsandbox' : %w", m.InstanceName(), err)
 	}
 	if mounted != "" {
-		return fmt.Errorf("%s was created with %s mounted from the host at /workspace, which exposes the host checkout to the guest. "+
-			"The sealed workspace model has no host mount, and an existing instance is never converted in place: "+
-			"run 'codebox clean --microsandbox' then 'codebox start --microsandbox' to recreate it, or use an explicit legacy runtime (--tart) for this project",
+		return fmt.Errorf("%s a été créée avec %s monté depuis le poste sur /workspace, ce qui expose la copie du poste à la machine isolée. "+
+			"Le modèle d'espace de travail scellé n'a pas de montage depuis le poste, et une instance existante n'est jamais convertie sur place : "+
+			"lancez 'codebox clean --microsandbox' puis 'codebox start --microsandbox' pour la recréer, ou utilisez un runtime historique explicite (--tart) pour ce projet",
 			m.InstanceName(), mounted)
 	}
 	// No recognized bind source is not proof either: confirm owned storage.
 	owned, err := m.Client.WorkspaceOwned(ctx, m.InstanceName())
 	if err != nil {
-		return fmt.Errorf("cannot confirm that /workspace of %s is guest-owned storage; refusing to use an instance whose workspace isolation cannot be verified. "+
-			"Recreate it with 'codebox clean --microsandbox' then 'codebox start --microsandbox': %w", m.InstanceName(), err)
+		return fmt.Errorf("impossible de confirmer que /workspace de %s est un stockage propre à la machine isolée ; refus d'utiliser une instance dont l'isolation de l'espace de travail ne peut pas être vérifiée. "+
+			"Recréez-la avec 'codebox clean --microsandbox' puis 'codebox start --microsandbox' : %w", m.InstanceName(), err)
 	}
 	if !owned {
-		return fmt.Errorf("/workspace of %s is not guest-owned storage: the persisted configuration shows a workspace this runtime does not recognize as sealed, "+
-			"so the host checkout may be mounted into the guest. The sealed model has no host mount, and an existing instance is never converted in place: "+
-			"run 'codebox clean --microsandbox' then 'codebox start --microsandbox' to recreate it", m.InstanceName())
+		return fmt.Errorf("/workspace de %s n'est pas un stockage propre à la machine isolée : la configuration enregistrée indique un espace de travail que ce runtime ne reconnaît pas comme scellé, "+
+			"la copie du poste peut donc être montée dans la machine isolée. Le modèle scellé n'a pas de montage depuis le poste, et une instance existante n'est jamais convertie sur place : "+
+			"lancez 'codebox clean --microsandbox' puis 'codebox start --microsandbox' pour la recréer", m.InstanceName())
 	}
 	return nil
 }
@@ -1452,13 +1452,13 @@ func (m *MicrosandboxRuntime) rejectFullServerPortForwarding(ctx context.Context
 	if err != nil {
 		return &ErrRecreateNeeded{
 			Instance: m.InstanceName(),
-			Reason:   fmt.Sprintf("cannot verify whether the persisted network configuration still forwards the OpenCode server port: %v", err),
+			Reason:   fmt.Sprintf("impossible de vérifier si la configuration réseau enregistrée transmet toujours le port du serveur OpenCode : %v", err),
 		}
 	}
 	if forwarded {
 		return &ErrRecreateNeeded{
 			Instance: m.InstanceName(),
-			Reason:   fmt.Sprintf("the full-mode sandbox still forwards the backend-only OpenCode server port %d; persisted port mappings cannot be changed in place", DefaultPort),
+			Reason:   fmt.Sprintf("la machine isolée en mode complet transmet encore le port %d du serveur OpenCode réservé au backend ; les mappages de ports enregistrés ne peuvent pas être modifiés sur place", DefaultPort),
 		}
 	}
 	return nil
@@ -1489,13 +1489,13 @@ func warnWorkspaceHygiene(ctx context.Context, dir string) {
 	if len(res.DotenvFiles) == 0 && len(res.GitleaksFindings) == 0 {
 		return
 	}
-	fmt.Fprintf(os.Stderr, "Note: %s carries files that look like secrets in the host checkout. They are NOT mounted into the guest and the transfer filter excludes them"+
-		" (re-include a specific file with 'codebox workspace allow <path>' if the guest genuinely needs it).\n", dir)
+	fmt.Fprintf(os.Stderr, "Remarque : %s contient des fichiers qui ressemblent à des secrets dans la copie du poste. Ils ne sont PAS montés dans la machine isolée et le filtre de transfert les exclut"+
+		" (réintégrez un fichier précis avec 'codebox workspace allow <path>' si la machine isolée en a réellement besoin).\n", dir)
 	for _, f := range res.DotenvFiles {
-		fmt.Fprintf(os.Stderr, "  dotenv file (excluded from transfer): %s\n", f)
+		fmt.Fprintf(os.Stderr, "  fichier .env (exclu du transfert) : %s\n", f)
 	}
 	for _, f := range res.GitleaksFindings {
-		fmt.Fprintf(os.Stderr, "  secret found in the checkout (excluded from transfer): %s\n", f)
+		fmt.Fprintf(os.Stderr, "  secret trouvé dans la copie (exclu du transfert) : %s\n", f)
 	}
 }
 
@@ -1525,7 +1525,7 @@ func (m *MicrosandboxRuntime) rejectIsolationMismatch(ctx context.Context, sandb
 	createdFull := strings.Contains(script, "sleep infinity")
 	if createdFull == (m.cfg.Isolation == IsolationFull) {
 		if !strings.Contains(script, "@opencode/cli@") {
-			return fmt.Errorf("%s has a legacy OpenCode start script fixed at creation; OpenCode v%s requires 'codebox recreate --microsandbox'. Export any guest sessions and changes first: recreation deletes guest-only state", sandbox.Name, OpenCodeVersion)
+			return fmt.Errorf("%s a un script de démarrage OpenCode historique fixé à la création ; OpenCode v%s nécessite 'codebox recreate --microsandbox'. Exportez d'abord les sessions et modifications de la machine isolée : la recréation supprime l'état propre à la machine isolée", sandbox.Name, OpenCodeVersion)
 		}
 		return nil
 	}
@@ -1537,9 +1537,9 @@ func (m *MicrosandboxRuntime) rejectIsolationMismatch(ctx context.Context, sandb
 	if requestedMode == "" {
 		requestedMode = IsolationBackend
 	}
-	return fmt.Errorf("%s was created in isolation %s mode and cannot be switched to %s mode in place: "+
-		"the start script is fixed when the sandbox is created. "+
-		"Run 'codebox recreate --microsandbox' to rebuild it in %s mode",
+	return fmt.Errorf("%s a été créée en mode d'isolation %s et ne peut pas être basculée sur le mode %s sur place : "+
+		"le script de démarrage est fixé à la création de la machine isolée. "+
+		"Lancez 'codebox recreate --microsandbox' pour la reconstruire en mode %s",
 		sandbox.Name, createdMode, requestedMode, requestedMode)
 }
 
@@ -1549,10 +1549,10 @@ func (m *MicrosandboxRuntime) Stop(ctx context.Context) error {
 		return err
 	}
 	if !running {
-		fmt.Printf("%s is not running.\n", m.InstanceName())
+		fmt.Printf("%s n'est pas en cours d'exécution.\n", m.InstanceName())
 		return nil
 	}
-	fmt.Printf("Stopping %s...\n", m.InstanceName())
+	fmt.Printf("Arrêt de %s...\n", m.InstanceName())
 	return m.Client.Stop(ctx, m.InstanceName())
 }
 
@@ -1658,10 +1658,10 @@ func (m *MicrosandboxRuntime) rejectRecreationOnlyStates(ctx context.Context) er
 func (m *MicrosandboxRuntime) Recover(ctx context.Context) error {
 	sandbox, exists, err := m.Client.Lookup(ctx, m.InstanceName())
 	if err != nil {
-		return fmt.Errorf("cannot look up %s to recover it: %w", m.InstanceName(), err)
+		return fmt.Errorf("impossible de rechercher %s pour la récupérer : %w", m.InstanceName(), err)
 	}
 	if !exists {
-		return fmt.Errorf("%s does not exist; there is nothing to recover. Run 'codebox start --microsandbox' to create it", m.InstanceName())
+		return fmt.Errorf("%s n'existe pas ; il n'y a rien à récupérer. Lancez 'codebox start --microsandbox' pour la créer", m.InstanceName())
 	}
 	// The sealed-workspace and legacy-plaintext-key guards stay fail-closed:
 	// recovery exists to reach guest changes, never to weaken the boundary
@@ -1673,7 +1673,7 @@ func (m *MicrosandboxRuntime) Recover(ctx context.Context) error {
 		return err
 	}
 	if sandbox.Status != "running" {
-		m.say("Starting %s with its persisted start script...", m.InstanceName())
+		m.say("Démarrage de %s avec son script de démarrage enregistré...", m.InstanceName())
 		// Booting a stopped sandbox re-runs its persisted start script, whose
 		// env-reference secret registrations resolve from this process's
 		// environment at boot. Publish the resolved transport variables for
@@ -1683,22 +1683,22 @@ func (m *MicrosandboxRuntime) Recover(ctx context.Context) error {
 		// to reach the guest's persisted state for workspace delivery.
 		bindings, err := m.resolveRecoveryBindings(ctx)
 		if err != nil {
-			return fmt.Errorf("cannot resolve credentials to boot %s for recovery: %w", m.InstanceName(), err)
+			return fmt.Errorf("impossible de résoudre les identifiants pour démarrer %s en récupération : %w", m.InstanceName(), err)
 		}
 		if err := withHostSecrets(bindings, func() error {
 			if err := m.Client.Start(ctx, m.InstanceName()); err != nil {
-				return fmt.Errorf("boot %s for recovery failed: %w", m.InstanceName(), err)
+				return fmt.Errorf("le démarrage de %s en récupération a échoué : %w", m.InstanceName(), err)
 			}
 			return nil
 		}); err != nil {
 			return err
 		}
 	}
-	m.say("Waiting for a usable guest shell in %s...", m.InstanceName())
+	m.say("En attente d'un shell utilisable dans la machine isolée %s...", m.InstanceName())
 	if err := m.waitForGuestShell(ctx); err != nil {
 		return err
 	}
-	fmt.Fprintln(os.Stderr, "Recovered the sandbox guest state. Run 'codebox workspace apply' or 'codebox workspace export' to deliver the guest's changes to the host checkout before 'codebox recreate --microsandbox' (which deletes guest-only state).")
+	fmt.Fprintln(os.Stderr, "État de la machine isolée récupéré. Lancez 'codebox workspace apply' ou 'codebox workspace export' pour transmettre les modifications de la machine isolée à la copie du poste avant 'codebox recreate --microsandbox' (qui supprime l'état propre à la machine isolée).")
 	return nil
 }
 
@@ -1712,7 +1712,7 @@ func (m *MicrosandboxRuntime) Recover(ctx context.Context) error {
 func (m *MicrosandboxRuntime) resolveRecoveryBindings(ctx context.Context) ([]resolvedBinding, error) {
 	refs, err := m.Client.PersistedSecretRefs(ctx, m.InstanceName())
 	if err != nil {
-		return nil, fmt.Errorf("cannot inspect the persisted credentials of %s to recover it: %w", m.InstanceName(), err)
+		return nil, fmt.Errorf("impossible d'inspecter les identifiants enregistrés de %s pour la récupérer : %w", m.InstanceName(), err)
 	}
 	if len(refs) == 0 {
 		return m.resolveBindings(ctx)
@@ -1833,7 +1833,7 @@ func (m *MicrosandboxRuntime) resolvePersistedBindings(ctx context.Context, refs
 			// sandbox and the runtime resolves it at boot, so an absent host
 			// variable refuses the start. Satisfy it with the inert sentinel:
 			// nothing is granted, and recovery can still reach the workspace.
-			m.warn("référence de secret persisté inconnue ; valeur inerte publiée pour le démarrage", "Warning: %s persisted an unrecognized host secret reference %q; booting it with an inert value so recovery can proceed", m.InstanceName(), hostEnv)
+			m.warn("référence de secret persisté inconnue ; valeur inerte publiée pour le démarrage", "Avertissement : %s a enregistré une référence de secret du poste non reconnue %q ; démarrage avec une valeur inerte pour permettre la récupération", m.InstanceName(), hostEnv)
 			out = append(out, resolvedBinding{
 				msbSecretBinding: msbSecretBinding{HostEnv: hostEnv, Optional: true},
 				source:           bindingSourceInert,
@@ -1854,11 +1854,11 @@ func (m *MicrosandboxRuntime) resolvePersistedBindings(ctx context.Context, refs
 			// to still be a destination of the currently configured platform
 			// before resolving its credential.
 			if err := validatePersistedProviderCompatibility(ref, b, m.cfg.Providers); err != nil {
-				return nil, fmt.Errorf("cannot recover %s: %w: the persisted %s registration %q no longer matches the configured platform; recreate the sandbox to apply the new platform's endpoint", m.InstanceName(), err, b.Kind, hostEnv)
+				return nil, fmt.Errorf("impossible de récupérer %s : %w : l'enregistrement %s persisté %q ne correspond plus à la plateforme configurée ; recréez la machine isolée pour appliquer le point de terminaison de la nouvelle plateforme", m.InstanceName(), err, b.Kind, hostEnv)
 			}
 			v, src, store, entry, err := resolveProviderWith(read, ctx, m.cfg, b.Kind, b.GuestEnv, m.CredentialStore)
 			if err != nil {
-				return nil, fmt.Errorf("cannot resolve the persisted %s credential of %s: %w (store one with 'codebox auth add %s', or recreate the sandbox)", b.Kind, m.InstanceName(), err, b.Kind)
+				return nil, fmt.Errorf("impossible de résoudre l'identifiant %s persisté de %s : %w (enregistrez-en un avec 'codebox auth add %s', ou recréez la machine isolée)", b.Kind, m.InstanceName(), err, b.Kind)
 			}
 			out = append(out, resolvedBinding{msbSecretBinding: b, source: src, value: v, store: store, entry: entry})
 			continue
@@ -1880,9 +1880,9 @@ func (m *MicrosandboxRuntime) resolvePersistedBindings(ctx context.Context, refs
 			// set. Recovery deliberately does not touch the guest's persisted
 			// state, so the registration survives and must be satisfied.
 			if isNotFound(err) {
-				m.warn("identifiant facultatif absent ; valeur inerte publiée pour le démarrage ; détail : codebox bindings list", "Warning: the persisted %s binding on %s has no %q credential stored; booting it with an inert value so recovery can proceed (codebox auth add %s to restore it)", b.Kind, m.InstanceName(), b.Kind, b.Kind)
+				m.warn("identifiant facultatif absent ; valeur inerte publiée pour le démarrage ; détail : codebox bindings list", "Avertissement : l'association %s persistée sur %s n'a aucun identifiant %q enregistré ; démarrage avec une valeur inerte pour permettre la récupération (codebox auth add %s pour la restaurer)", b.Kind, m.InstanceName(), b.Kind, b.Kind)
 			} else {
-				m.warn("identifiant facultatif illisible ; valeur inerte publiée pour le démarrage", "Warning: cannot read the persisted %s binding on %s (%v); booting it with an inert value so recovery can proceed", b.Kind, m.InstanceName(), err)
+				m.warn("identifiant facultatif illisible ; valeur inerte publiée pour le démarrage", "Avertissement : impossible de lire l'association %s persistée sur %s (%v) ; démarrage avec une valeur inerte pour permettre la récupération", b.Kind, m.InstanceName(), err)
 			}
 			out = append(out, resolvedBinding{
 				msbSecretBinding: b,
@@ -1938,7 +1938,7 @@ func (m *MicrosandboxRuntime) resolvePersistedProjectBinding(ctx context.Context
 		// start. Satisfy it with the inert sentinel instead: the guest keeps an
 		// unusable value, which is what "this approval is gone" means, and
 		// recovery can still reach the workspace.
-		m.warn("référence de secret de projet persisté sans approbation ; valeur inerte publiée pour le démarrage", "Warning: %s persisted a project-secret reference %q whose approval no longer exists; booting it with an inert value so recovery can proceed", m.InstanceName(), hostEnv)
+		m.warn("référence de secret de projet persisté sans approbation ; valeur inerte publiée pour le démarrage", "Avertissement : %s a enregistré une référence de secret de projet %q dont l'approbation n'existe plus ; démarrage avec une valeur inerte pour permettre la récupération", m.InstanceName(), hostEnv)
 		return resolvedBinding{
 			msbSecretBinding: msbSecretBinding{HostEnv: hostEnv, Optional: true},
 			source:           bindingSourceInert,
@@ -1956,7 +1956,7 @@ func (m *MicrosandboxRuntime) resolvePersistedProjectBinding(ctx context.Context
 	// placeholder) cannot prove compatibility, so recovery fails closed with
 	// guidance instead of guessing.
 	if err := validatePersistedProjectSecretCompatibility(ref, delivery); err != nil {
-		return resolvedBinding{}, false, fmt.Errorf("cannot recover %s: %w: the persisted project-secret registration %q is incompatible with the current approval for %s/%s/%s; recreate the sandbox to apply the changed secret metadata", m.InstanceName(), err, hostEnv, delivery.Profile, delivery.Component, delivery.Name)
+		return resolvedBinding{}, false, fmt.Errorf("impossible de récupérer %s : %w : l'enregistrement de secret de projet persisté %q est incompatible avec l'approbation actuelle pour %s/%s/%s ; recréez la machine isolée pour appliquer les métadonnées de secret modifiées", m.InstanceName(), err, hostEnv, delivery.Profile, delivery.Component, delivery.Name)
 	}
 	// Only now that the persisted registration is proven compatible with the
 	// current approval may the runtime read a value. The lazy resolver shares
@@ -1967,7 +1967,7 @@ func (m *MicrosandboxRuntime) resolvePersistedProjectBinding(ctx context.Context
 	}
 	resolved, err := values.get(ProjectSecretIdentity{Profile: delivery.Profile, Component: delivery.Component, Name: delivery.Name})
 	if err != nil {
-		return resolvedBinding{}, false, fmt.Errorf("cannot read the approved project secret %s (%s): %w", delivery.Name, delivery.Component, err)
+		return resolvedBinding{}, false, fmt.Errorf("impossible de lire le secret de projet approuvé %s (%s) : %w", delivery.Name, delivery.Component, err)
 	}
 	refValue := delivery.Reference
 	if resolved.Reference != "" {
@@ -2006,16 +2006,16 @@ func (m *MicrosandboxRuntime) resolvePersistedProjectBinding(ctx context.Context
 // is ambiguous metadata and cannot be proven compatible.
 func validatePersistedProjectSecretCompatibility(ref persistedSecretRef, delivery *ProjectSecretDelivery) error {
 	if len(ref.AllowedHosts) == 0 {
-		return errors.New("the persisted registration carries no destination allowlist, so compatibility cannot be proven")
+		return errors.New("l'enregistrement persisté ne porte aucune liste d'hôtes de destination autorisés ; la compatibilité ne peut donc pas être prouvée")
 	}
 	if ref.Placeholder == nil {
-		return errors.New("the persisted registration carries no placeholder, so compatibility cannot be proven")
+		return errors.New("l'enregistrement persisté ne porte aucun espace réservé ; la compatibilité ne peut donc pas être prouvée")
 	}
 	if !stringSetIsSubset(ref.AllowedHosts, delivery.Destinations) {
-		return errors.New("the persisted destinations are not all still approved: recovery does not re-authorize destinations removed from the approval")
+		return errors.New("les destinations persistées ne sont pas toutes encore approuvées : la récupération ne réautorise pas les destinations retirées de l'approbation")
 	}
 	if *ref.Placeholder != delivery.Marker {
-		return errors.New("the persisted placeholder no longer matches the current approval marker")
+		return errors.New("l'espace réservé persisté ne correspond plus au marqueur d'approbation actuel")
 	}
 	return nil
 }
@@ -2068,7 +2068,7 @@ func validatePersistedProviderCompatibility(ref persistedSecretRef, b msbSecretB
 		return nil
 	}
 	if !stringSetIsSubset([]string{provider.Host}, ref.AllowedHosts) {
-		return fmt.Errorf("the persisted destinations %v no longer include the configured platform's host %s", ref.AllowedHosts, provider.Host)
+		return fmt.Errorf("les destinations persistées %v n'incluent plus l'hôte %s de la plateforme configurée", ref.AllowedHosts, provider.Host)
 	}
 	return nil
 }
@@ -2117,12 +2117,12 @@ func (m *MicrosandboxRuntime) waitForGuestShell(ctx context.Context) error {
 			return nil
 		}
 		if err == nil {
-			err = fmt.Errorf("guest probe exited %d: %s", code, strings.TrimSpace(stderr))
+			err = fmt.Errorf("la sonde de la machine isolée s'est terminée avec le code %d : %s", code, strings.TrimSpace(stderr))
 		}
 		select {
 		case <-time.After(delay):
 		case <-ctx.Done():
-			return fmt.Errorf("a guest shell in %s was not reachable within %s (last probe: %v); the start script may have failed. Run 'codebox logs --microsandbox' or check %s inside the guest, then recreate it: %w",
+			return fmt.Errorf("un shell dans la machine isolée %s n'a pas été joignable dans %s (dernière sonde : %v) ; le script de démarrage a peut-être échoué. Lancez 'codebox logs --microsandbox' ou vérifiez %s dans la machine isolée, puis recréez-la : %w",
 				m.InstanceName(), timeout, err, msbGuestLog, ctx.Err())
 		}
 	}
@@ -2141,8 +2141,8 @@ func (m *MicrosandboxRuntime) rejectResourceSizingChange() error {
 		// An unreadable record cannot answer the question. Fail closed, as the
 		// reconcile path does with the same file: booting on a guess would be
 		// the silent case this guard exists to prevent.
-		return fmt.Errorf("cannot read the recorded state of %s to check its guest sizing; refusing to restart on an unverifiable record. "+
-			"Recreate it with 'codebox recreate --microsandbox' if the record cannot be recovered: %w", m.InstanceName(), err)
+		return fmt.Errorf("impossible de lire l'état enregistré de %s pour vérifier la taille de la machine isolée ; refus de redémarrer sur un enregistrement non vérifiable. "+
+			"Recréez-la avec 'codebox recreate --microsandbox' si l'enregistrement ne peut pas être récupéré : %w", m.InstanceName(), err)
 	}
 	if applied == nil {
 		return nil
@@ -2152,8 +2152,8 @@ func (m *MicrosandboxRuntime) rejectResourceSizingChange() error {
 	if !changed {
 		return nil
 	}
-	return fmt.Errorf("%s was created with %d CPUs and %d MiB, and a microVM cannot be resized after creation (now %d CPUs and %d MiB). "+
-		"Run 'codebox recreate --microsandbox' to apply the new sizing, or restore the previous value",
+	return fmt.Errorf("%s a été créée avec %d CPU et %d Mio, et une microVM ne peut pas être redimensionnée après création (actuellement %d CPU et %d Mio). "+
+		"Lancez 'codebox recreate --microsandbox' pour appliquer la nouvelle taille, ou rétablissez la valeur précédente",
 		m.InstanceName(), applied.CPUs, applied.MemoryMB, m.cfg.CPUs, m.cfg.MemoryMB)
 }
 
@@ -2163,16 +2163,16 @@ func (m *MicrosandboxRuntime) Clean(ctx context.Context) error {
 		return err
 	}
 	if !exists {
-		fmt.Printf("%s does not exist.\n", m.InstanceName())
+		fmt.Printf("%s n'existe pas.\n", m.InstanceName())
 		return nil
 	}
 	// Disposing is destructive: say so before and after, so a silent success
 	// can never be mistaken for "nothing happened".
-	fmt.Printf("Removing %s (sandbox and local state)...\n", m.InstanceName())
+	fmt.Printf("Suppression de %s (machine isolée et état local)...\n", m.InstanceName())
 	if err := m.Client.Remove(ctx, m.InstanceName()); err != nil {
 		return err
 	}
-	fmt.Printf("%s removed.\n", m.InstanceName())
+	fmt.Printf("%s supprimée.\n", m.InstanceName())
 	return nil
 }
 
@@ -2190,7 +2190,7 @@ func (m *MicrosandboxRuntime) Doctor(ctx context.Context) error {
 	if !strings.HasSuffix(output, "\n") {
 		fmt.Println()
 	}
-	fmt.Println("Microsandbox runtime is ready.")
+	fmt.Println("Le runtime Microsandbox est prêt.")
 	return nil
 }
 
@@ -2212,7 +2212,7 @@ func (m *MicrosandboxRuntime) RunAgent(ctx context.Context) error {
 	}
 	sessions, _, listCode, listErr := m.Client.ExecCapture(ctx, m.InstanceName(), "cd /workspace && opencode session list --standalone --format json")
 	if listErr == nil && listCode != 0 {
-		listErr = fmt.Errorf("OpenCode session list exited with code %d", listCode)
+		listErr = fmt.Errorf("la liste des sessions OpenCode s'est terminée avec le code %d", listCode)
 	}
 	hasSessions := false
 	if listErr == nil {
@@ -2224,7 +2224,7 @@ func (m *MicrosandboxRuntime) RunAgent(ctx context.Context) error {
 		var code int
 		help, stderr, code, probeErr = m.Client.ExecCapture(ctx, m.InstanceName(), "opencode --help")
 		if probeErr == nil && code != 0 {
-			probeErr = fmt.Errorf("OpenCode help exited with code %d", code)
+			probeErr = fmt.Errorf("l'aide OpenCode s'est terminée avec le code %d", code)
 		}
 	}
 	resumeArgs, warn := OpenCodeResumeArgs(hasSessions, listErr, help+"\n"+stderr, probeErr)
@@ -2245,7 +2245,7 @@ func (m *MicrosandboxRuntime) RunAgent(ctx context.Context) error {
 		return err
 	}
 	if code != 0 {
-		return fmt.Errorf("opencode TUI exited %d inside %s", code, m.InstanceName())
+		return fmt.Errorf("le TUI OpenCode s'est terminé avec le code %d dans %s", code, m.InstanceName())
 	}
 	return nil
 }
@@ -2273,7 +2273,7 @@ func (m *MicrosandboxRuntime) runPiAgent(ctx context.Context) error {
 		return err
 	}
 	if code != 0 {
-		return fmt.Errorf("Pi TUI exited %d inside %s", code, m.InstanceName())
+		return fmt.Errorf("le TUI Pi s'est terminé avec le code %d dans %s", code, m.InstanceName())
 	}
 	return nil
 }
@@ -2297,9 +2297,9 @@ func (m *MicrosandboxRuntime) Status(ctx context.Context) (string, error) {
 		return "", err
 	}
 	if !exists {
-		return fmt.Sprintf("%s does not exist", m.InstanceName()), nil
+		return fmt.Sprintf("%s n'existe pas", m.InstanceName()), nil
 	}
-	return fmt.Sprintf("%s is %s", m.InstanceName(), sandbox.Status), nil
+	return fmt.Sprintf("%s : %s", m.InstanceName(), sandbox.Status), nil
 }
 
 func (m *MicrosandboxRuntime) IsRunning(ctx context.Context) (bool, error) {
@@ -2345,14 +2345,14 @@ func (m *MicrosandboxRuntime) StopInstance(ctx context.Context, name string) err
 		return err
 	}
 	if !exists {
-		fmt.Printf("%s does not exist.\n", name)
+		fmt.Printf("%s n'existe pas.\n", name)
 		return nil
 	}
 	if sandbox.Status != "running" {
-		fmt.Printf("%s is not running.\n", name)
+		fmt.Printf("%s n'est pas en cours d'exécution.\n", name)
 		return nil
 	}
-	fmt.Printf("Stopping %s...\n", name)
+	fmt.Printf("Arrêt de %s...\n", name)
 	return m.Client.Stop(ctx, name)
 }
 

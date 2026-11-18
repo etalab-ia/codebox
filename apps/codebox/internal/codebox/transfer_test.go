@@ -89,7 +89,7 @@ func TestTransferExcludesDotenvByDefault(t *testing.T) {
 			reason = e.Reason
 		}
 	}
-	if !strings.Contains(reason, "dotenv") {
+	if !strings.Contains(reason, "fichier .env") {
 		t.Fatalf(".env exclusion reason = %q", reason)
 	}
 }
@@ -152,7 +152,7 @@ func TestTransferExcludesIgnoredAndSymlinks(t *testing.T) {
 	if state["debug.log"].Included {
 		t.Fatal("an ignored file must not cross")
 	}
-	if !strings.Contains(state["debug.log"].Reason, "git-ignored") {
+	if !strings.Contains(state["debug.log"].Reason, "ignoré par Git") {
 		t.Fatalf("ignored reason = %q", state["debug.log"].Reason)
 	}
 	if state["link"].Included {
@@ -171,7 +171,7 @@ func TestTransferOptInIsPerFileAndRecorded(t *testing.T) {
 	gitInitForTransfer(t, dir)
 
 	store := TransferOptInStore{Path: filepath.Join(t.TempDir(), "transfer-optin.json"), FS: DefaultFS}
-	if err := store.Allow(".env", "dotenv file (default-deny)"); err != nil {
+	if err := store.Allow(".env", "fichier .env (refusé par défaut)"); err != nil {
 		t.Fatal(err)
 	}
 	records, err := store.Load()
@@ -458,7 +458,7 @@ func TestTransferWithoutGitleaksStillFiltersNames(t *testing.T) {
 	if !man.GitleaksMissing {
 		t.Fatal("the manifest must report that detection did not run")
 	}
-	if !strings.Contains(man.Summary(), "secret detection did not run") {
+	if !strings.Contains(man.Summary(), "la détection de secrets n'a pas pu s'exécuter") {
 		t.Fatalf("the summary must warn: %q", man.Summary())
 	}
 	if strings.Contains(strings.ToLower(man.Summary()), "gitleaks") {

@@ -53,10 +53,10 @@ type Server struct {
 // NewServer validates configuration and returns a Server.
 func NewServer(cfg Config, identity IdentityProvider, store SecretStore, tokens *TokenIssuer, attempts *AttemptStore, limiter *RateLimiter, now func() time.Time) (*Server, error) {
 	if identity == nil || store == nil || tokens == nil || attempts == nil || limiter == nil {
-		return nil, errors.New("gateway requires an identity provider, a secret store, a token issuer, an attempt store and a rate limiter")
+		return nil, errors.New("la passerelle exige un fournisseur d'identité, un magasin de secrets, un émetteur de jetons, un magasin de tentatives et un limiteur de débit")
 	}
 	if _, err := url.ParseRequestURI(cfg.PublicURL); err != nil {
-		return nil, fmt.Errorf("public URL is not a valid absolute URL: %w", err)
+		return nil, fmt.Errorf("l'URL publique n'est pas une URL absolue valide : %w", err)
 	}
 	if now == nil {
 		now = time.Now
@@ -112,26 +112,26 @@ func parseLoginParams(q url.Values) (loginParams, error) {
 	case "terminal":
 		p.terminal = true
 	default:
-		return p, fmt.Errorf("unsupported login mode %q", mode)
+		return p, fmt.Errorf("mode de connexion non pris en charge %q", mode)
 	}
 	raw := q.Get("port")
 	if raw == "" {
 		if p.terminal {
 			return p, nil
 		}
-		return p, errors.New("a loopback port is required")
+		return p, errors.New("un port loopback est requis")
 	}
 	port, err := strconv.Atoi(raw)
 	if err != nil || port < 1024 || port > 65535 {
-		return p, errors.New("port must be an integer between 1024 and 65535")
+		return p, errors.New("le port doit être un entier entre 1024 et 65535")
 	}
 	if p.terminal {
-		return p, errors.New("terminal mode does not use a loopback port")
+		return p, errors.New("le mode terminal n'utilise pas de port loopback")
 	}
 	loopbackState := q.Get("loopback_state")
 	decodedState, err := base64.RawURLEncoding.DecodeString(loopbackState)
 	if err != nil || len(decodedState) != 32 || base64.RawURLEncoding.EncodeToString(decodedState) != loopbackState {
-		return p, errors.New("loopback state must be 32 bytes of canonical base64url")
+		return p, errors.New("loopback_state doit représenter 32 octets en base64url canonique")
 	}
 	p.loopbackState = loopbackState
 	p.port = port
@@ -140,7 +140,7 @@ func parseLoginParams(q url.Values) (loginParams, error) {
 
 func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 	if ok, retry := s.limiter.Allow("login:" + ClientIP(r)); !ok {
-		writeError(w, http.StatusTooManyRequests, secrets.ErrCodeRateLimited, "too many login attempts, retry in "+retry.Round(time.Second).String())
+		writeError(w, http.StatusTooManyRequests, secrets.ErrCodeRateLimited, "trop de tentatives de connexion, réessayez dans "+retry.Round(time.Second).String())
 		return
 	}
 	params, err := parseLoginParams(r.URL.Query())
@@ -150,22 +150,22 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 	}
 	state, err := randomURLToken(32)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "internal_error", "could not start a login")
+		writeError(w, http.StatusInternalServerError, "internal_error", "impossible de démarrer une connexion")
 		return
 	}
 	nonce, err := randomURLToken(32)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "internal_error", "could not start a login")
+		writeError(w, http.StatusInternalServerError, "internal_error", "impossible de démarrer une connexion")
 		return
 	}
 	verifier, err := randomURLToken(32)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "internal_error", "could not start a login")
+		writeError(w, http.StatusInternalServerError, "internal_error", "impossible de démarrer une connexion")
 		return
 	}
 	attempt := &LoginAttempt{State: state, Nonce: nonce, CodeVerifier: verifier, LoopbackPort: params.port, LoopbackState: params.loopbackState}
 	if err := s.attempts.Put(attempt); err != nil {
-		writeError(w, http.StatusTooManyRequests, secrets.ErrCodeRateLimited, "too many logins in progress; retry shortly")
+		writeError(w, http.StatusTooManyRequests, secrets.ErrCodeRateLimited, "trop de connexions en cours ; réessayez bientôt")
 		return
 	}
 	challenge := sha256.Sum256([]byte(verifier))
@@ -174,7 +174,7 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 		s.audit(r, "login.start_failed",
 			slog.String("reason", "identity_provider_unavailable"),
 			slog.String("error_class", upstreamErrorClass(err)))
-		writeError(w, http.StatusServiceUnavailable, secrets.ErrCodeUpstreamUnavailable, "ProConnect is unreachable; retry shortly")
+		writeError(w, http.StatusServiceUnavailable, secrets.ErrCodeUpstreamUnavailable, "ProConnect est injoignable ; réessayez bientôt")
 		return
 	}
 	s.audit(r, "login.started", slog.Int("port", params.port), slog.Bool("terminal", params.terminal))
@@ -188,12 +188,12 @@ func (s *Server) authenticated(next func(http.ResponseWriter, *http.Request, Tok
 		header := r.Header.Get("Authorization")
 		token, ok := strings.CutPrefix(header, "Bearer ")
 		if !ok || strings.TrimSpace(token) == "" {
-			writeError(w, http.StatusUnauthorized, secrets.ErrCodeUnauthorized, "a bearer session token is required")
+			writeError(w, http.StatusUnauthorized, secrets.ErrCodeUnauthorized, "un jeton de session Bearer est requis")
 			return
 		}
 		claims, err := s.tokens.Verify(strings.TrimSpace(token), tokenPurposeSession)
 		if err != nil {
-			writeError(w, http.StatusUnauthorized, secrets.ErrCodeUnauthorized, "this session is invalid or expired; run codebox secrets login again")
+			writeError(w, http.StatusUnauthorized, secrets.ErrCodeUnauthorized, "cette session est invalide ou expirée ; relancez codebox secrets login")
 			return
 		}
 		s.audit(r, "request.authorized", slog.String("subject", hashPrefix(claims.Email)), slog.String("token", TokenFingerprint(token)), slog.String("path", r.URL.Path))
@@ -205,35 +205,35 @@ func (s *Server) handleCallback(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
 	state := q.Get("state")
 	if state == "" {
-		writeError(w, http.StatusBadRequest, secrets.ErrCodeInvalidRequest, "missing state")
+		writeError(w, http.StatusBadRequest, secrets.ErrCodeInvalidRequest, "paramètre state manquant")
 		return
 	}
 	attempt, ok := s.attempts.Take(state)
 	if !ok {
-		writeError(w, http.StatusBadRequest, secrets.ErrCodeInvalidRequest, "unknown or expired login; start again from codebox")
+		writeError(w, http.StatusBadRequest, secrets.ErrCodeInvalidRequest, "connexion inconnue ou expirée ; relancez depuis codebox")
 		return
 	}
 	if errCode := q.Get("error"); errCode != "" {
 		// Report the provider's error code only: descriptions can embed request
 		// fragments, and the user restarts from codebox anyway.
 		s.audit(r, "login.provider_error", slog.String("error", errCode))
-		writeError(w, http.StatusUnauthorized, secrets.ErrCodeUnauthorized, "ProConnect rejected the login: "+errCode)
+		writeError(w, http.StatusUnauthorized, secrets.ErrCodeUnauthorized, "ProConnect a refusé la connexion : "+errCode)
 		return
 	}
 	code := q.Get("code")
 	if code == "" {
-		writeError(w, http.StatusBadRequest, secrets.ErrCodeInvalidRequest, "missing authorization code")
+		writeError(w, http.StatusBadRequest, secrets.ErrCodeInvalidRequest, "code d'autorisation manquant")
 		return
 	}
 	identity, err := s.identity.Exchange(r.Context(), code, attempt.CodeVerifier, attempt.Nonce)
 	if err != nil {
 		if errors.Is(err, ErrMFARequired) {
 			s.audit(r, "login.mfa_required")
-			writeError(w, http.StatusForbidden, secrets.ErrCodeMFARequired, "two-factor authentication is required; enable it with your organisation account and retry")
+			writeError(w, http.StatusForbidden, secrets.ErrCodeMFARequired, "l'authentification à deux facteurs est requise ; activez-la avec votre compte d'organisation puis réessayez")
 			return
 		}
 		s.audit(r, "login.exchange_failed", slog.String("reason", auditReason(err)))
-		writeError(w, http.StatusServiceUnavailable, secrets.ErrCodeUpstreamUnavailable, "ProConnect login could not be verified; retry shortly")
+		writeError(w, http.StatusServiceUnavailable, secrets.ErrCodeUpstreamUnavailable, "la connexion ProConnect n'a pas pu être vérifiée ; réessayez bientôt")
 		return
 	}
 	claims := TokenClaims{Subject: identity.Subject, Email: identity.Email, SIRET: identity.SIRET, ACR: identity.ACR}
@@ -241,7 +241,7 @@ func (s *Server) handleCallback(w http.ResponseWriter, r *http.Request) {
 	if attempt.LoopbackPort != 0 {
 		token, expires, err := s.tokens.IssueSession(claims)
 		if err != nil {
-			writeError(w, http.StatusInternalServerError, "internal_error", "could not issue a session token")
+			writeError(w, http.StatusInternalServerError, "internal_error", "impossible d'émettre un jeton de session")
 			return
 		}
 		target := url.URL{
@@ -268,7 +268,7 @@ func (s *Server) handleCallback(w http.ResponseWriter, r *http.Request) {
 	// identity that ProConnect already authenticated.
 	ticket, ticketExpiry, err := s.tokens.IssueTicket(claims, s.cfg.TicketLifetime)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "internal_error", "could not issue a login code")
+		writeError(w, http.StatusInternalServerError, "internal_error", "impossible d'émettre un code de connexion")
 		return
 	}
 	s.audit(r, "login.terminal_code_issued", slog.String("subject", hashPrefix(claims.Email)))
@@ -281,7 +281,7 @@ func (s *Server) handleCallback(w http.ResponseWriter, r *http.Request) {
 // handleDeviceToken exchanges a terminal-flow code for a session token.
 func (s *Server) handleDeviceToken(w http.ResponseWriter, r *http.Request) {
 	if ok, retry := s.limiter.Allow("device:" + ClientIP(r)); !ok {
-		writeError(w, http.StatusTooManyRequests, secrets.ErrCodeRateLimited, "too many attempts, retry in "+retry.Round(time.Second).String())
+		writeError(w, http.StatusTooManyRequests, secrets.ErrCodeRateLimited, "trop de tentatives, réessayez dans "+retry.Round(time.Second).String())
 		return
 	}
 	var req secrets.DeviceTokenExchangeRequest
@@ -293,21 +293,21 @@ func (s *Server) handleDeviceToken(w http.ResponseWriter, r *http.Request) {
 	// session token unusable here and vice versa.
 	claims, err := s.tokens.Verify(req.SessionID, tokenPurposeTicket)
 	if err != nil {
-		writeError(w, http.StatusUnauthorized, secrets.ErrCodeUnauthorized, "this login code is invalid or expired; run codebox secrets login again")
+		writeError(w, http.StatusUnauthorized, secrets.ErrCodeUnauthorized, "ce code de connexion est invalide ou expiré ; relancez codebox secrets login")
 		return
 	}
 	// A ticket is single-use: the first exchange consumes it, so a code
 	// recovered from clipboard or shell history stops working immediately.
 	if !s.attempts.ConsumeOnce(TokenFingerprint(req.SessionID), s.cfg.TicketLifetime) {
 		s.audit(r, "login.ticket_replayed", slog.String("subject", hashPrefix(claims.Email)))
-		writeError(w, http.StatusUnauthorized, secrets.ErrCodeUnauthorized, "this login code has already been used; run codebox secrets login again")
+		writeError(w, http.StatusUnauthorized, secrets.ErrCodeUnauthorized, "ce code de connexion a déjà été utilisé ; relancez codebox secrets login")
 		return
 	}
 	token, expires, err := s.tokens.IssueSession(TokenClaims{
 		Subject: claims.Subject, Email: claims.Email, SIRET: claims.SIRET, ACR: claims.ACR,
 	})
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "internal_error", "could not issue a session token")
+		writeError(w, http.StatusInternalServerError, "internal_error", "impossible d'émettre un jeton de session")
 		return
 	}
 	s.audit(r, "login.session_issued", slog.String("subject", hashPrefix(claims.Email)))
@@ -326,7 +326,7 @@ func (s *Server) handleLoopback(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.Header().Set("Cache-Control", "no-store")
 	_, _ = w.Write([]byte(`<!doctype html><meta charset="utf-8"><title>codebox</title>
-<p>Login complete. You can close this tab and return to your terminal.</p>`))
+<p>Connexion terminée. Vous pouvez fermer cet onglet et revenir à votre terminal.</p>`))
 }
 
 func (s *Server) handleWhoAmI(w http.ResponseWriter, r *http.Request, claims TokenClaims) {
@@ -337,7 +337,7 @@ func (s *Server) handleWhoAmI(w http.ResponseWriter, r *http.Request, claims Tok
 
 func (s *Server) handleCreateProject(w http.ResponseWriter, r *http.Request, claims TokenClaims) {
 	if ok, retry := s.limiter.Allow("create:" + SubjectKey(claims)); !ok {
-		writeError(w, http.StatusTooManyRequests, secrets.ErrCodeRateLimited, "too many project creations, retry in "+retry.Round(time.Second).String())
+		writeError(w, http.StatusTooManyRequests, secrets.ErrCodeRateLimited, "trop de créations de projet, réessayez dans "+retry.Round(time.Second).String())
 		return
 	}
 	if err := s.identity.ValidateProjectCreation(Identity{SIRET: claims.SIRET, Email: claims.Email}); err != nil {
@@ -352,7 +352,7 @@ func (s *Server) handleCreateProject(w http.ResponseWriter, r *http.Request, cla
 	}
 	projectID, err := secrets.NewProjectID()
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "internal_error", "could not allocate a project identifier")
+		writeError(w, http.StatusInternalServerError, "internal_error", "impossible d'attribuer un identifiant de projet")
 		return
 	}
 	if err := s.store.CreateProject(r.Context(), projectID, claims.Email, claims.ACR); err != nil {
@@ -378,7 +378,7 @@ func (s *Server) authorizeProject(ctx context.Context, projectID string, claims 
 	}
 	acl, err := secrets.ParseACL(string(data))
 	if err != nil {
-		return secrets.ACL{}, "", 0, fmt.Errorf("%w: stored ACL is unreadable", ErrStoreInvalid)
+		return secrets.ACL{}, "", 0, fmt.Errorf("%w : l'ACL stockée est illisible", ErrStoreInvalid)
 	}
 	role, ok := acl.Authorize(claims.Email, claims.SIRET)
 	if !ok {
@@ -388,7 +388,7 @@ func (s *Server) authorizeProject(ctx context.Context, projectID string, claims 
 }
 
 // ErrForbidden marks an authorization denial for the caller's identity.
-var ErrForbidden = errors.New("this identity is not allowed on the project")
+var ErrForbidden = errors.New("cette identité n'est pas autorisée sur le projet")
 
 func (s *Server) handleListMembers(w http.ResponseWriter, r *http.Request, claims TokenClaims) {
 	projectID := r.PathValue("id")
@@ -408,7 +408,7 @@ func (s *Server) handleUpdateMembers(w http.ResponseWriter, r *http.Request, cla
 		return
 	}
 	if role != secrets.RoleOwner {
-		writeError(w, http.StatusForbidden, secrets.ErrCodeForbidden, "only a project owner may change the member list")
+		writeError(w, http.StatusForbidden, secrets.ErrCodeForbidden, "seul un propriétaire de projet peut modifier la liste des membres")
 		return
 	}
 	var req secrets.UpdateMembersRequest
@@ -421,13 +421,13 @@ func (s *Server) handleUpdateMembers(w http.ResponseWriter, r *http.Request, cla
 	// the request must not be allowed to restore access after a revocation.
 	if req.BaseRevision != authorizationRevision {
 		s.audit(r, "members.stale_base_revision")
-		writeError(w, http.StatusConflict, secrets.ErrCodeConflict, "the project ACL changed since this change was authorized; review the fresh member list and retry")
+		writeError(w, http.StatusConflict, secrets.ErrCodeConflict, "l'ACL du projet a changé depuis l'autorisation de cette modification ; consultez la liste des membres à jour puis réessayez")
 		return
 	}
 	acl, err := secrets.NewACL(req.Entries)
 	if err != nil {
 		if errors.Is(err, secrets.ErrNoOwner) {
-			writeError(w, http.StatusBadRequest, secrets.ErrCodeInvalidRequest, "a project must retain at least one owner")
+			writeError(w, http.StatusBadRequest, secrets.ErrCodeInvalidRequest, "un projet doit conserver au moins un propriétaire")
 			return
 		}
 		writeError(w, http.StatusBadRequest, secrets.ErrCodeInvalidRequest, err.Error())
@@ -450,7 +450,7 @@ func (s *Server) handlePushSecrets(w http.ResponseWriter, r *http.Request, claim
 		return
 	}
 	if role != secrets.RoleOwner {
-		writeError(w, http.StatusForbidden, secrets.ErrCodeForbidden, "only a project owner may push secrets")
+		writeError(w, http.StatusForbidden, secrets.ErrCodeForbidden, "seul un propriétaire de projet peut publier des secrets")
 		return
 	}
 	var req secrets.PushSecretsRequest
@@ -489,7 +489,7 @@ func (s *Server) handleResolve(w http.ResponseWriter, r *http.Request, claims To
 		return
 	}
 	if ok, retry := s.limiter.Allow("resolve:" + SubjectKey(claims)); !ok {
-		writeError(w, http.StatusTooManyRequests, secrets.ErrCodeRateLimited, "too many resolutions, retry in "+retry.Round(time.Second).String())
+		writeError(w, http.StatusTooManyRequests, secrets.ErrCodeRateLimited, "trop de résolutions, réessayez dans "+retry.Round(time.Second).String())
 		return
 	}
 	var req secrets.ResolveRequest
@@ -508,7 +508,7 @@ func (s *Server) handleResolve(w http.ResponseWriter, r *http.Request, claims To
 	}
 	bundle, err := secrets.UnmarshalBundle(data)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, secrets.ErrCodeACLCorrupt, "the stored secret bundle is unreadable; ask a project owner to push it again")
+		writeError(w, http.StatusInternalServerError, secrets.ErrCodeACLCorrupt, "le lot de secrets stocké est illisible ; demandez à un propriétaire de projet de le publier à nouveau")
 		return
 	}
 	components := bundle.Components
@@ -533,9 +533,9 @@ func (s *Server) writeAuthorizeError(w http.ResponseWriter, r *http.Request, err
 	switch {
 	case errors.Is(err, ErrForbidden):
 		s.audit(r, "access.denied")
-		writeError(w, http.StatusForbidden, secrets.ErrCodeForbidden, "this identity is not allowed on the project")
+		writeError(w, http.StatusForbidden, secrets.ErrCodeForbidden, "cette identité n'est pas autorisée sur le projet")
 	case errors.Is(err, secrets.ErrInvalidProjectID):
-		writeError(w, http.StatusBadRequest, secrets.ErrCodeInvalidRequest, "project identifier is not a valid UUIDv4")
+		writeError(w, http.StatusBadRequest, secrets.ErrCodeInvalidRequest, "l'identifiant de projet n'est pas un UUIDv4 valide")
 	default:
 		s.writeStoreError(w, err)
 	}
@@ -544,13 +544,13 @@ func (s *Server) writeAuthorizeError(w http.ResponseWriter, r *http.Request, err
 func (s *Server) writeStoreError(w http.ResponseWriter, err error) {
 	switch {
 	case errors.Is(err, ErrStoreNotFound):
-		writeError(w, http.StatusNotFound, secrets.ErrCodeNotFound, "no such project")
+		writeError(w, http.StatusNotFound, secrets.ErrCodeNotFound, "projet introuvable")
 	case errors.Is(err, ErrStoreConflict):
-		writeError(w, http.StatusConflict, secrets.ErrCodeConflict, "the project changed since this change was prepared; review a fresh state and retry")
+		writeError(w, http.StatusConflict, secrets.ErrCodeConflict, "le projet a changé depuis la préparation de cette modification ; consultez un état à jour puis réessayez")
 	case errors.Is(err, ErrStoreInvalid):
-		writeError(w, http.StatusInternalServerError, secrets.ErrCodeACLCorrupt, "the stored data is unreadable")
+		writeError(w, http.StatusInternalServerError, secrets.ErrCodeACLCorrupt, "les données stockées sont illisibles")
 	default:
-		writeError(w, http.StatusServiceUnavailable, secrets.ErrCodeUpstreamUnavailable, "the secret store is unavailable; retry shortly")
+		writeError(w, http.StatusServiceUnavailable, secrets.ErrCodeUpstreamUnavailable, "le magasin de secrets est indisponible ; réessayez bientôt")
 	}
 }
 
@@ -587,13 +587,13 @@ func upstreamErrorClass(err error) string {
 	msg := err.Error()
 	var stage string
 	switch {
-	case strings.Contains(msg, "userinfo"), strings.Contains(msg, "UserInfo"):
+	case strings.Contains(msg, "UserInfo"), strings.Contains(msg, "userinfo"):
 		stage = "userinfo"
-	case strings.Contains(msg, "id token"):
+	case strings.Contains(msg, "jeton d'identité"):
 		stage = "id_token"
 	case strings.Contains(msg, "discovery"):
 		stage = "discovery"
-	case strings.Contains(msg, "token"):
+	case strings.Contains(msg, "jeton"):
 		stage = "token"
 	case strings.Contains(msg, "jwks"):
 		stage = "jwks"
@@ -609,12 +609,12 @@ func upstreamErrorClass(err error) string {
 		return stage + "_timeout"
 	case errors.As(err, &netErr):
 		return stage + "_network"
-	case strings.Contains(msg, "returned HTTP"):
+	case strings.Contains(msg, "renvoyé HTTP"):
 		return stage + "_http_status"
-	case strings.Contains(msg, "not valid JSON"), strings.Contains(msg, "unreadable"),
-		strings.Contains(msg, "not a valid OIDC payload"), strings.Contains(msg, "neither JSON nor a signed JWT"):
+	case strings.Contains(msg, "JSON valide"), strings.Contains(msg, "illisible"),
+		strings.Contains(msg, "charge OIDC valide"), strings.Contains(msg, "ni du JSON ni un JWT signé"):
 		return stage + "_bad_payload"
-	case strings.Contains(msg, "missing required endpoints"), strings.Contains(msg, "does not match"):
+	case strings.Contains(msg, "points de terminaison requis"), strings.Contains(msg, "ne correspond pas"):
 		return stage + "_invalid_discovery"
 	default:
 		return stage + "_other"
