@@ -826,4 +826,22 @@ if env FAKE_OS=Linux FAKE_ARCH=x86_64 FAKE_ASSET=$asset FAKE_BINARY="$fake_binar
 fi
 [ ! -s "$temp_root/blocked-urls" ] || { printf 'permission failure performed network requests\n' >&2; exit 1; }
 
+# install.ps1 is French and carries accents, and it declares
+# `#Requires -Version 5.1`: Windows PowerShell 5.1 decodes a BOM-less file with
+# the ANSI code page and would mangle every accented character, so the file
+# must stay UTF-8 WITH a BOM. This check runs on every POSIX host, unlike the
+# PowerShell suite, which needs pwsh.
+installer_ps1="$repo_root/scripts/install.ps1"
+bom=$(od -An -tx1 -N 3 "$installer_ps1" | tr -d ' \n')
+[ "$bom" = 'efbbbf' ] || { printf 'install.ps1 must be saved as UTF-8 with a BOM (found %s)\n' "$bom" >&2; exit 1; }
+# The BOM must sit ahead of the directive on the very first line: PowerShell
+# only honors #Requires at the top of the file.
+requires_hex=$(printf '%s' '#Requires -Version 5.1' | od -An -tx1 | tr -d ' \n')
+first_directive=$(od -An -tx1 -j 3 -N 22 "$installer_ps1" | tr -d ' \n')
+[ "$first_directive" = "$requires_hex" ] || { printf 'install.ps1 must start with the BOM then #Requires -Version 5.1\n' >&2; exit 1; }
+# Accents must be real characters, not an unaccented workaround.
+LC_ALL=C grep -q 'é' "$installer_ps1" || { printf 'install.ps1 must keep accented French, not an unaccented workaround\n' >&2; exit 1; }
+grep -q 'réessayez dans quelques minutes' "$installer_ps1" || { printf 'install.ps1 missing-asset retry hint is not in French\n' >&2; exit 1; }
+grep -q 'installateur codebox :' "$installer_ps1" || { printf 'install.ps1 error prefix is not in French\n' >&2; exit 1; }
+
 printf 'POSIX installer checks passed\n'

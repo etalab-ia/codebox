@@ -37,10 +37,10 @@ const MaxACLEntries = 256
 
 // ErrNoOwner is returned when an ACL write would leave a project with zero
 // explicit `owner:<email>` principals, preventing accidental lockout.
-var ErrNoOwner = errors.New("project ACL must retain at least one owner:<email> entry")
+var ErrNoOwner = errors.New("l'ACL du projet doit conserver au moins une entrée owner:<email>")
 
 // ErrACLTooLarge is returned when an input or canonicalized ACL exceeds MaxACLBytes.
-var ErrACLTooLarge = fmt.Errorf("ACL exceeds maximum size (%d bytes)", MaxACLBytes)
+var ErrACLTooLarge = fmt.Errorf("l'ACL dépasse la taille maximale (%d octets)", MaxACLBytes)
 
 // ACLEntry represents one normalized rule in `/acl/<projectId>`.
 type ACLEntry struct {
@@ -56,7 +56,7 @@ type ParseError struct {
 }
 
 func (e *ParseError) Error() string {
-	return fmt.Sprintf("invalid ACL at line %d: %s", e.Line, e.Reason)
+	return fmt.Sprintf("ACL invalide à la ligne %d : %s", e.Line, e.Reason)
 }
 
 // ACL is a validated, immutable in-memory access-control list for one project.
@@ -114,11 +114,11 @@ func ParseACL(text string) (ACL, error) {
 		lineNo := idx + 1
 		line = strings.TrimSuffix(line, "\r")
 		if !utf8.ValidString(line) {
-			return ACL{}, &ParseError{Line: lineNo, Reason: "contains invalid UTF-8"}
+			return ACL{}, &ParseError{Line: lineNo, Reason: "contient de l'UTF-8 invalide"}
 		}
 		for _, r := range line {
 			if (r < 32 && r != '\t') || r == 127 {
-				return ACL{}, &ParseError{Line: lineNo, Reason: "contains control characters"}
+				return ACL{}, &ParseError{Line: lineNo, Reason: "contient des caractères de contrôle"}
 			}
 		}
 		trimmed := strings.TrimSpace(line)
@@ -131,7 +131,7 @@ func ParseACL(text string) (ACL, error) {
 		}
 		raw = append(raw, entry)
 		if len(raw) > MaxACLEntries {
-			return ACL{}, &ParseError{Line: lineNo, Reason: fmt.Sprintf("exceeds maximum of %d ACL entries", MaxACLEntries)}
+			return ACL{}, &ParseError{Line: lineNo, Reason: fmt.Sprintf("dépasse le maximum de %d entrées ACL", MaxACLEntries)}
 		}
 	}
 	return NewACL(raw)
@@ -139,7 +139,7 @@ func ParseACL(text string) (ACL, error) {
 
 func parseACLEntryLine(line string) (ACLEntry, error) {
 	if strings.ContainsAny(line, " \t") {
-		return ACLEntry{}, errors.New("unexpected whitespace inside entry (place comments on their own '#' line)")
+		return ACLEntry{}, errors.New("espace inattendu dans l'entrée (placez les commentaires sur leur propre ligne '#')")
 	}
 	if idx := strings.IndexByte(line, ':'); idx >= 0 {
 		prefix := strings.ToLower(line[:idx])
@@ -163,7 +163,7 @@ func parseACLEntryLine(line string) (ACLEntry, error) {
 			}
 			return ACLEntry{Kind: EntrySIRET, Value: val}, nil
 		default:
-			return ACLEntry{}, fmt.Errorf("unknown rule prefix %q (expected owner:, member:, or siret:)", prefix)
+			return ACLEntry{}, fmt.Errorf("préfixe de règle inconnu %q (attendu owner:, member: ou siret :)", prefix)
 		}
 	}
 	email, err := NormalizeEmail(line)
@@ -177,7 +177,7 @@ func parseACLEntryLine(line string) (ACLEntry, error) {
 // enforcing that at least one explicit owner remains present.
 func NewACL(entries []ACLEntry) (ACL, error) {
 	if len(entries) > MaxACLEntries {
-		return ACL{}, fmt.Errorf("ACL exceeds maximum of %d entries", MaxACLEntries)
+		return ACL{}, fmt.Errorf("l'ACL dépasse le maximum de %d entrées", MaxACLEntries)
 	}
 	owners := make(map[string]bool)
 	members := make(map[string]bool)
@@ -188,23 +188,23 @@ func NewACL(entries []ACLEntry) (ACL, error) {
 		case EntryOwner:
 			email, err := NormalizeEmail(e.Value)
 			if err != nil {
-				return ACL{}, fmt.Errorf("invalid owner entry: %w", err)
+				return ACL{}, fmt.Errorf("entrée owner invalide : %w", err)
 			}
 			owners[email] = true
 		case EntryMember:
 			email, err := NormalizeEmail(e.Value)
 			if err != nil {
-				return ACL{}, fmt.Errorf("invalid member entry: %w", err)
+				return ACL{}, fmt.Errorf("entrée member invalide : %w", err)
 			}
 			members[email] = true
 		case EntrySIRET:
 			s := strings.TrimSpace(e.Value)
 			if err := ValidateSIRET(s); err != nil {
-				return ACL{}, fmt.Errorf("invalid siret entry: %w", err)
+				return ACL{}, fmt.Errorf("entrée siret invalide : %w", err)
 			}
 			sirets[s] = true
 		default:
-			return ACL{}, fmt.Errorf("unsupported ACL entry kind %q", e.Kind)
+			return ACL{}, fmt.Errorf("type d'entrée ACL non pris en charge %q", e.Kind)
 		}
 	}
 
@@ -258,26 +258,26 @@ func (a ACL) Format() string {
 func NormalizeEmail(raw string) (string, error) {
 	s := strings.ToLower(strings.TrimSpace(raw))
 	if len(s) < 5 || len(s) > 254 {
-		return "", fmt.Errorf("invalid email address %q", raw)
+		return "", fmt.Errorf("adresse électronique invalide %q", raw)
 	}
 	if strings.ContainsAny(s, " \t\r\n/\\:") {
-		return "", fmt.Errorf("invalid email address %q", raw)
+		return "", fmt.Errorf("adresse électronique invalide %q", raw)
 	}
 	at := strings.IndexByte(s, '@')
 	if at <= 0 || at != strings.LastIndexByte(s, '@') || at == len(s)-1 {
-		return "", fmt.Errorf("invalid email address %q", raw)
+		return "", fmt.Errorf("adresse électronique invalide %q", raw)
 	}
 	local, domain := s[:at], s[at+1:]
 	if strings.HasPrefix(local, ".") || strings.HasSuffix(local, ".") || strings.Contains(local, "..") {
-		return "", fmt.Errorf("invalid email local part in %q", raw)
+		return "", fmt.Errorf("partie locale invalide dans l'adresse électronique %q", raw)
 	}
 	for _, r := range local {
 		if !((r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') || strings.ContainsRune(".!#$%&'*+/=?^_`{|}~-", r)) {
-			return "", fmt.Errorf("invalid character in email %q", raw)
+			return "", fmt.Errorf("caractère invalide dans l'adresse électronique %q", raw)
 		}
 	}
 	if err := ValidateDestinationHost(domain); err != nil {
-		return "", fmt.Errorf("invalid email domain in %q", raw)
+		return "", fmt.Errorf("domaine invalide dans l'adresse électronique %q", raw)
 	}
 	return s, nil
 }
@@ -287,11 +287,11 @@ func NormalizeEmail(raw string) (string, error) {
 // issue synthetic 14-digit SIRET values.
 func ValidateSIRET(s string) error {
 	if len(s) != 14 {
-		return fmt.Errorf("SIRET %q must be exactly 14 digits", s)
+		return fmt.Errorf("le SIRET %q doit comporter exactement 14 chiffres", s)
 	}
 	for i := 0; i < len(s); i++ {
 		if s[i] < '0' || s[i] > '9' {
-			return fmt.Errorf("SIRET %q must contain digits only", s)
+			return fmt.Errorf("le SIRET %q ne doit contenir que des chiffres", s)
 		}
 	}
 	return nil

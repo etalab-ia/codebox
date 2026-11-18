@@ -218,19 +218,19 @@ func LoadConfigEnv() Config {
 // parseStartTimeout parses CODEBOX_START_TIMEOUT, a whole number of seconds.
 func parseStartTimeout(value string) (time.Duration, error) {
 	if value == "" {
-		return 0, fmt.Errorf("CODEBOX_START_TIMEOUT must be a whole number of seconds")
+		return 0, fmt.Errorf("CODEBOX_START_TIMEOUT doit être un nombre entier de secondes")
 	}
 	for _, r := range value {
 		if r < '0' || r > '9' {
-			return 0, fmt.Errorf("CODEBOX_START_TIMEOUT must be a whole number of seconds")
+			return 0, fmt.Errorf("CODEBOX_START_TIMEOUT doit être un nombre entier de secondes")
 		}
 	}
 	seconds, err := strconv.Atoi(value)
 	if err != nil {
-		return 0, fmt.Errorf("CODEBOX_START_TIMEOUT must be a whole number of seconds")
+		return 0, fmt.Errorf("CODEBOX_START_TIMEOUT doit être un nombre entier de secondes")
 	}
 	if seconds < 1 {
-		return 0, fmt.Errorf("CODEBOX_START_TIMEOUT must be at least 1 second")
+		return 0, fmt.Errorf("CODEBOX_START_TIMEOUT doit être d'au moins 1 seconde")
 	}
 	return time.Duration(seconds) * time.Second, nil
 }
@@ -241,10 +241,10 @@ func parseStartTimeout(value string) (time.Duration, error) {
 func parsePositiveInt(value string) (int, error) {
 	n, err := strconv.Atoi(value)
 	if err != nil {
-		return 0, fmt.Errorf("must be a whole number, got %q", value)
+		return 0, fmt.Errorf("doit être un nombre entier, reçu %q", value)
 	}
 	if n < 1 {
-		return 0, fmt.Errorf("must be at least 1, got %d", n)
+		return 0, fmt.Errorf("doit être d'au moins 1, reçu %d", n)
 	}
 	return n, nil
 }
@@ -334,7 +334,7 @@ func LoadConfig(lookup EnvLookup) Config {
 			n, err = parsePositiveInt(v)
 		}
 		if err == nil && f.max > 0 && n > f.max {
-			err = fmt.Errorf("must be at most %d, got %d", f.max, n)
+			err = fmt.Errorf("doit être au plus %d, reçu %d", f.max, n)
 		}
 		if err != nil {
 			if cfg.SandboxResourcesErr == nil {

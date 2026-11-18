@@ -35,40 +35,40 @@ var repairImportedProjectFn = func(wizard codebox.InitWizard, plan codebox.InitP
 func parseAlbertCodeImportArgs(args []string) (albertCodeImportOptions, error) {
 	opts := albertCodeImportOptions{root: "."}
 	if len(args) == 0 || args[0] != "albert-code" {
-		return opts, fmt.Errorf("usage: codebox import albert-code [--root PATH] [--apply] [--import-albert-key]")
+		return opts, fmt.Errorf("usage : codebox import albert-code [--root PATH] [--apply] [--import-albert-key]")
 	}
 	for i := 1; i < len(args); i++ {
 		switch args[i] {
 		case "--apply":
 			if opts.apply {
-				return opts, fmt.Errorf("--apply may be given only once")
+				return opts, fmt.Errorf("--apply ne peut être indiqué qu'une seule fois")
 			}
 			opts.apply = true
 		case "--import-albert-key":
 			if opts.importAlbertKey {
-				return opts, fmt.Errorf("--import-albert-key may be given only once")
+				return opts, fmt.Errorf("--import-albert-key ne peut être indiqué qu'une seule fois")
 			}
 			opts.importAlbertKey = true
 		case "--root":
 			if i+1 >= len(args) || strings.HasPrefix(args[i+1], "-") {
-				return opts, fmt.Errorf("--root requires a directory path")
+				return opts, fmt.Errorf("--root exige un chemin de dossier")
 			}
 			i++
 			opts.root = args[i]
 		default:
-			return opts, fmt.Errorf("unknown import option %q", args[i])
+			return opts, fmt.Errorf("option d'import inconnue %q", args[i])
 		}
 	}
 	if opts.importAlbertKey && !opts.apply {
-		return opts, fmt.Errorf("--import-albert-key requires --apply; preview does not store credentials")
+		return opts, fmt.Errorf("--import-albert-key exige --apply ; l'aperçu n'enregistre aucun identifiant")
 	}
 	return opts, nil
 }
 
 func albertCodeImportCmd(args []string) (int, error) {
 	if (len(args) == 1 && args[0] == "--help") || (len(args) == 2 && args[0] == "albert-code" && args[1] == "--help") {
-		fmt.Println("Usage: codebox import albert-code [--root PATH] [--apply] [--import-albert-key]")
-		fmt.Println("Preview is read-only. --apply writes project configuration; --import-albert-key separately imports a supported literal key from .env.")
+		fmt.Println("Usage : codebox import albert-code [--root PATH] [--apply] [--import-albert-key]")
+		fmt.Println("L'aperçu est en lecture seule. --apply écrit la configuration du projet ; --import-albert-key importe séparément une clé littérale prise en charge depuis .env.")
 		return 0, nil
 	}
 	opts, err := parseAlbertCodeImportArgs(args)
@@ -83,10 +83,10 @@ func albertCodeImportCmd(args []string) (int, error) {
 		catalogue, err := projectSkillCatalogueFn(context.Background())
 		if err != nil {
 			if opts.apply {
-				return 1, fmt.Errorf("resolve legacy skills against the pinned official catalogue: %w", err)
+				return 1, fmt.Errorf("résoudre les skills héritées par rapport au catalogue officiel épinglé : %w", err)
 			}
 			plan.SkillCatalogueUnavailable = true
-			plan.ReviewItems = append(plan.ReviewItems, "official skills catalogue unavailable; legacy skills cannot be resolved")
+			plan.ReviewItems = append(plan.ReviewItems, "catalogue officiel de skills indisponible ; les skills héritées ne peuvent pas être résolues")
 			sort.Strings(plan.ReviewItems)
 		} else {
 			plan.ResolveSkills(catalogue)
@@ -94,12 +94,12 @@ func albertCodeImportCmd(args []string) (int, error) {
 	}
 	if opts.importAlbertKey && !plan.CredentialAvailable {
 		if plan.CredentialNeedsReview {
-			return 2, fmt.Errorf(".env contains an unsupported or repeated ALBERT_API_KEY assignment; reduce it to one literal assignment before importing")
+			return 2, fmt.Errorf("le .env contient une affectation ALBERT_API_KEY non prise en charge ou répétée ; réduisez-la à une seule affectation littérale avant d'importer")
 		}
-		return 2, fmt.Errorf("--import-albert-key requires a literal ALBERT_API_KEY in the project .env")
+		return 2, fmt.Errorf("--import-albert-key exige une valeur littérale ALBERT_API_KEY dans le .env du projet")
 	}
 	if opts.importAlbertKey {
-		fmt.Printf("This will store the ALBERT_API_KEY from %s/.env in the native credential store (%s); the value will not be displayed.\n", plan.Root, codebox.StoreAvailability())
+		fmt.Printf("L'ALBERT_API_KEY de %s/.env va être enregistrée dans le trousseau natif (%s) ; la valeur ne sera pas affichée.\n", plan.Root, codebox.StoreAvailability())
 	}
 	if opts.apply && len(plan.Platforms) > 0 {
 		if err := validateImportedPlatforms(plan); err != nil {
@@ -108,13 +108,13 @@ func albertCodeImportCmd(args []string) (int, error) {
 	}
 	fmt.Print(plan.Format())
 	if !opts.apply {
-		fmt.Println("Preview only. Pass --apply to write the codebox project manifest and lockfile.")
-		fmt.Println("No changes made.")
+		fmt.Println("Aperçu seulement. Indiquez --apply pour écrire le manifeste et le fichier de verrouillage du projet codebox.")
+		fmt.Println("Aucun changement effectué.")
 		warnUnapprovedImportInputs(plan.Root)
 		return 0, nil
 	}
 	if len(plan.SourceFiles) == 0 {
-		return 1, fmt.Errorf("no supported Albert Code project files were detected")
+		return 1, fmt.Errorf("aucun fichier de projet Albert Code pris en charge n'a été détecté")
 	}
 	credentialRef := ""
 	if opts.importAlbertKey {
@@ -140,10 +140,10 @@ func albertCodeImportCmd(args []string) (int, error) {
 	}
 	setupPlan, err := wizard.Plan(answers)
 	if err != nil {
-		return 1, fmt.Errorf("build codebox import plan: %w", err)
+		return 1, fmt.Errorf("construire le plan d'import codebox : %w", err)
 	}
 	for _, warning := range setupPlan.Warnings {
-		fmt.Fprintf(os.Stderr, "Warning: %s\n", warning)
+		fmt.Fprintf(os.Stderr, "Attention : %s\n", warning)
 	}
 	existingMatches := false
 	if existing, err := codebox.ReadProjectManifest(codebox.DefaultFS, setupPlan.ManifestPath); err == nil {
@@ -162,7 +162,7 @@ func albertCodeImportCmd(args []string) (int, error) {
 		if unknownFields || !importMatchesManifest(setupPlan.Answers, existing) ||
 			codebox.ValidateDependencySet(existing, lock) != nil ||
 			!importSkillLocksMatch(setupPlan.SkillLocks, lock.Skills) {
-			return 1, fmt.Errorf("%s already contains a codebox setup that differs from the import; review it with 'codebox init' rather than overwriting it", setupPlan.ManifestPath)
+			return 1, fmt.Errorf("%s contient déjà une configuration codebox différente de celle de l'import ; examinez-la avec 'codebox init' plutôt que de l'écraser", setupPlan.ManifestPath)
 		}
 		existingMatches = true
 	} else if !os.IsNotExist(err) {
@@ -174,10 +174,10 @@ func albertCodeImportCmd(args []string) (int, error) {
 		// an imported OpenAI-compatible model lives on its own platform.
 		warning, err := catalogueModelWarningFn(plan.Root, plan.Model)
 		if err != nil {
-			return 1, fmt.Errorf("validate imported model: %w", err)
+			return 1, fmt.Errorf("valider le modèle importé : %w", err)
 		}
 		if warning != "" {
-			fmt.Fprintf(os.Stderr, "Warning: %s\n", warning)
+			fmt.Fprintf(os.Stderr, "Attention : %s\n", warning)
 		}
 	}
 	apply := func() error {
@@ -226,7 +226,7 @@ func mergeImportedProviders(plan codebox.AlbertCodeImport) error {
 		for _, existing := range us.Providers {
 			if existing.Kind == platform.Kind {
 				if existing.BaseURL != platform.BaseURL {
-					return fmt.Errorf("an OpenAI-compatible platform is already configured for %s; importing %s would attach its models to the wrong endpoint. Remove or align the existing platform first", existing.BaseURL, platform.BaseURL)
+					return fmt.Errorf("une plateforme compatible OpenAI est déjà configurée pour %s ; importer %s attacherait ses modèles au mauvais point d'accès. Supprimez ou alignez d'abord la plateforme existante", existing.BaseURL, platform.BaseURL)
 				}
 				configured = true
 				break
@@ -251,7 +251,7 @@ func mergeImportedProviders(plan codebox.AlbertCodeImport) error {
 		us.DefaultModel = plan.Model
 	}
 	if _, err := codebox.ResolveProviders(us.Providers); err != nil {
-		return fmt.Errorf("the merged platform configuration is invalid: %w", err)
+		return fmt.Errorf("la configuration de plateforme fusionnée est invalide : %w", err)
 	}
 	if err := codebox.WriteUserSettings(codebox.DefaultFS, path, us); err != nil {
 		return err
@@ -280,13 +280,13 @@ func validateImportedPlatforms(plan codebox.AlbertCodeImport) error {
 	}
 	for _, platform := range plan.Platforms {
 		if _, err := codebox.ResolveProvider(platform); err != nil {
-			return fmt.Errorf("the imported platform is invalid: %w", err)
+			return fmt.Errorf("la plateforme importée est invalide : %w", err)
 		}
 		matched := false
 		for _, current := range existing {
 			if current.Kind == platform.Kind {
 				if current.BaseURL != platform.BaseURL {
-					return fmt.Errorf("an OpenAI-compatible platform is already configured for %s; importing %s would attach its models to the wrong endpoint. Remove or align the existing platform first", current.BaseURL, platform.BaseURL)
+					return fmt.Errorf("une plateforme compatible OpenAI est déjà configurée pour %s ; importer %s attacherait ses modèles au mauvais point d'accès. Supprimez ou alignez d'abord la plateforme existante", current.BaseURL, platform.BaseURL)
 				}
 				matched = true
 			}
@@ -298,7 +298,7 @@ func validateImportedPlatforms(plan codebox.AlbertCodeImport) error {
 	// The complete set must satisfy the same invariants as a launch: in
 	// particular, two platforms may not share a destination host.
 	if _, err := codebox.ResolveProviders(existing); err != nil {
-		return fmt.Errorf("the imported platform conflicts with the current configuration: %w", err)
+		return fmt.Errorf("la plateforme importée entre en conflit avec la configuration actuelle : %w", err)
 	}
 	return nil
 }
@@ -315,7 +315,7 @@ func validateImportedPlatforms(plan codebox.AlbertCodeImport) error {
 func warnUnapprovedImportInputs(projectRoot string) {
 	unapproved, err := codebox.DiscoverUnapprovedInputs(codebox.DefaultFS, codebox.DefaultStateDir(), projectRoot)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Warning: could not check which project inputs still need trust approval: %v\n", err)
+		fmt.Fprintf(os.Stderr, "Attention : impossible de vérifier quelles entrées du projet attendent encore une approbation de confiance : %v\n", err)
 		return
 	}
 	if len(unapproved) == 0 {
@@ -325,8 +325,8 @@ func warnUnapprovedImportInputs(projectRoot string) {
 	for _, u := range unapproved {
 		lines = append(lines, fmt.Sprintf("  %s (%s)", u.Path, u.Reason))
 	}
-	fmt.Printf("This project declares inputs that execute code or launch processes (OpenCode plugins and MCP commands, Pi extensions and settings), and they are not approved at their current content:\n%s\n"+
-		"The first 'codebox' run will stop for this. Review them, then run 'codebox trust approve' from %s to record approval for the current content.\n",
+	fmt.Printf("Ce projet déclare des entrées qui exécutent du code ou lancent des processus (greffons OpenCode et commandes MCP, extensions et réglages Pi), et elles ne sont pas approuvées pour leur contenu actuel :\n%s\n"+
+		"Le premier lancement de 'codebox' s'arrêtera pour cela. Relisez-les, puis lancez 'codebox trust approve' depuis %s pour enregistrer l'approbation du contenu actuel.\n",
 		strings.Join(lines, "\n"), projectRoot)
 }
 
@@ -337,7 +337,7 @@ func applyAlbertCodeImport(plan codebox.AlbertCodeImport, wizard codebox.InitWiz
 	if importKey {
 		store = importCredentialStoreFn()
 		if store == nil {
-			return fmt.Errorf("the native credential store is unavailable; use 'codebox auth add albert' to configure credentials manually")
+			return fmt.Errorf("le trousseau natif est indisponible ; utilisez 'codebox auth add albert' pour configurer les identifiants manuellement")
 		}
 		data, err := readAlbertImportDotenv(filepath.Join(plan.Root, ".env"))
 		if err != nil {
@@ -347,9 +347,9 @@ func applyAlbertCodeImport(plan codebox.AlbertCodeImport, wizard codebox.InitWiz
 		importedCredential, available = codebox.ReadLegacyAlbertCredential(string(data))
 		if !available {
 			if codebox.LegacyAlbertCredentialNeedsManualReview(string(data)) {
-				return fmt.Errorf(".env contains an unsupported or repeated ALBERT_API_KEY assignment; reduce it to one literal assignment before importing")
+				return fmt.Errorf("le .env contient une affectation ALBERT_API_KEY non prise en charge ou répétée ; réduisez-la à une seule affectation littérale avant d'importer")
 			}
-			return fmt.Errorf("no non-empty literal ALBERT_API_KEY was found in .env")
+			return fmt.Errorf("aucune valeur littérale ALBERT_API_KEY non vide n'a été trouvée dans le .env")
 		}
 		credentialCreated, err = storeImportedAlbertCredential(context.Background(), store, importedCredential)
 		if err != nil {
@@ -358,27 +358,27 @@ func applyAlbertCodeImport(plan codebox.AlbertCodeImport, wizard codebox.InitWiz
 	}
 	if existingMatches {
 		if !setupPlan.InstructionsChanged {
-			fmt.Println("This Albert Code project has already been imported; no project files changed.")
+			fmt.Println("Ce projet Albert Code a déjà été importé ; aucun fichier de projet n'a été modifié.")
 			return nil
 		}
 		if err := repairImportedProjectFn(wizard, setupPlan); err != nil {
 			if removeErr := rollbackImportedCredential(context.Background(), store, credentialCreated, importedCredential); removeErr != nil {
-				return fmt.Errorf("repair managed skill instructions: %v; newly imported credential could not be removed: %w", err, removeErr)
+				return fmt.Errorf("réparer les instructions de skills gérées : %v ; l'identifiant fraîchement importé n'a pas pu être supprimé : %w", err, removeErr)
 			}
-			return fmt.Errorf("repair managed skill instructions: %w", err)
+			return fmt.Errorf("réparer les instructions de skills gérées : %w", err)
 		}
-		fmt.Printf("Reconciled the existing import and managed skill instructions in %s.\n", setupPlan.ManifestPath)
+		fmt.Printf("Import existant et instructions de skills gérées réconciliés dans %s.\n", setupPlan.ManifestPath)
 		return nil
 	}
 	if err := applyImportedProjectFn(wizard, setupPlan); err != nil {
 		if removeErr := rollbackImportedCredential(context.Background(), store, credentialCreated, importedCredential); removeErr != nil {
-			return fmt.Errorf("apply project import: %v; newly imported credential could not be removed: %w", err, removeErr)
+			return fmt.Errorf("appliquer l'import du projet : %v ; l'identifiant fraîchement importé n'a pas pu être supprimé : %w", err, removeErr)
 		}
-		return fmt.Errorf("apply project import: %w", err)
+		return fmt.Errorf("appliquer l'import du projet : %w", err)
 	}
-	fmt.Printf("Imported the recognized settings into %s. Legacy configuration files were left untouched.\n", setupPlan.ManifestPath)
+	fmt.Printf("Réglages reconnus importés dans %s. Les fichiers de configuration hérités ont été laissés intacts.\n", setupPlan.ManifestPath)
 	if len(plan.Skills) > 0 {
-		fmt.Println("AGENTS.md was updated only through the codebox managed skills section; existing text was preserved.")
+		fmt.Println("AGENTS.md n'a été mis à jour que par la section de skills gérées de codebox ; le texte existant a été préservé.")
 	}
 	return nil
 }
@@ -390,7 +390,7 @@ func withAlbertCredentialImportLock(action func() error) error {
 	}
 	release, err := lock.Acquire()
 	if err != nil {
-		return fmt.Errorf("acquire Albert credential import lock: %w", err)
+		return fmt.Errorf("acquérir le verrou d'import de l'identifiant Albert : %w", err)
 	}
 	defer release()
 	return action()
@@ -400,15 +400,15 @@ func storeImportedAlbertCredential(ctx context.Context, store codebox.Credential
 	stored, err := store.Get(ctx, codebox.CredentialAlbert)
 	if err == nil {
 		if stored != value {
-			return false, fmt.Errorf("an Albert credential is already stored; refusing to replace it during import")
+			return false, fmt.Errorf("un identifiant Albert est déjà enregistré ; refus de le remplacer pendant l'import")
 		}
 		return false, nil
 	}
 	if !codebox.IsCredentialNotFound(err) {
-		return false, fmt.Errorf("read native Albert credential status: %w", err)
+		return false, fmt.Errorf("lire l'état de l'identifiant Albert natif : %w", err)
 	}
 	if err := store.Put(ctx, codebox.CredentialAlbert, value); err != nil {
-		return false, fmt.Errorf("store Albert credential: %w", err)
+		return false, fmt.Errorf("enregistrer l'identifiant Albert : %w", err)
 	}
 	bumpImportedCredentialGenerationFn(codebox.CredentialAlbert)
 	// Record the store the import wrote to, so later starts read the value from
@@ -431,7 +431,7 @@ func rollbackImportedCredential(ctx context.Context, store codebox.CredentialSto
 		return err
 	}
 	if stored != expected {
-		return fmt.Errorf("the Albert credential changed during import; refusing to remove it")
+		return fmt.Errorf("l'identifiant Albert a changé pendant l'import ; refus de le supprimer")
 	}
 	if err := store.Remove(ctx, codebox.CredentialAlbert); err != nil && !codebox.IsCredentialNotFound(err) {
 		return err
@@ -486,7 +486,7 @@ func importSkillLocksMatch(expected, actual map[string]codebox.SkillLock) bool {
 func manifestHasUnknownFields(raw []byte) (bool, error) {
 	var fields map[string]json.RawMessage
 	if err := json.Unmarshal(raw, &fields); err != nil {
-		return false, fmt.Errorf("read existing project manifest fields: %w", err)
+		return false, fmt.Errorf("lire les champs du manifeste de projet existant : %w", err)
 	}
 	known := map[string]bool{
 		"schemaVersion": true, "project": true, "runtime": true, "isolation": true,
@@ -505,7 +505,7 @@ func manifestHasUnknownFields(raw []byte) (bool, error) {
 func readExistingImportManifest(path string) ([]byte, error) {
 	data, err := codebox.ReadAlbertCodeImportFile(path)
 	if err != nil {
-		return nil, fmt.Errorf("read existing import manifest %s: %w", path, err)
+		return nil, fmt.Errorf("lire le manifeste d'import existant %s : %w", path, err)
 	}
 	return data, nil
 }
@@ -525,7 +525,7 @@ func sameStrings(a, b []string) bool {
 func readAlbertImportDotenv(path string) ([]byte, error) {
 	data, err := codebox.ReadAlbertCodeImportFile(path)
 	if err != nil {
-		return nil, fmt.Errorf("read project .env: %w", err)
+		return nil, fmt.Errorf("lire le .env du projet : %w", err)
 	}
 	return data, nil
 }

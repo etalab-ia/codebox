@@ -129,7 +129,7 @@ func TestAgentVMCreateVMRollsBackOnEditFailure(t *testing.T) {
 	if !runner.hasCall("limactl delete " + DefaultAgentVMVM + " --force") {
 		t.Errorf("expected rollback delete after edit failure, calls: %v", runner.calls)
 	}
-	if !strings.Contains(err.Error(), "removed") {
+	if !strings.Contains(err.Error(), "supprimé") {
 		t.Errorf("error should mention the rollback: %v", err)
 	}
 }
@@ -592,7 +592,7 @@ func TestAgentVMStatus(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Status: %v", err)
 	}
-	if !strings.Contains(state, "running") {
+	if !strings.Contains(state, "en cours d'exécution") {
 		t.Fatalf("Status = %q", state)
 	}
 }
@@ -609,7 +609,7 @@ func TestAgentVMStartPreflightsWorkspace(t *testing.T) {
 	if err == nil {
 		t.Fatal("Start must refuse a workspace containing .env")
 	}
-	if !strings.Contains(err.Error(), "refusing to start") {
+	if !strings.Contains(err.Error(), "démarrage refusé") {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if len(runner.calls) != 0 {
@@ -629,7 +629,7 @@ func TestAgentVMRestartPreflightsWorkspace(t *testing.T) {
 	if err == nil {
 		t.Fatal("Restart must refuse a workspace containing .env")
 	}
-	if !strings.Contains(err.Error(), "refusing to start") {
+	if !strings.Contains(err.Error(), "démarrage refusé") {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if runner.hasCall("limactl delete") || runner.hasCall("limactl stop") {

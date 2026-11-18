@@ -121,10 +121,10 @@ func TestWorkspaceStatusReportsFilteredSet(t *testing.T) {
 	if !strings.Contains(out, "src/main.go") || !strings.Contains(out, ".env") {
 		t.Fatalf("status must report both the crossing file and the exclusion: %q", out)
 	}
-	if !strings.Contains(out, "dotenv") {
+	if !strings.Contains(out, "fichier .env (refusé par défaut)") {
 		t.Fatalf("the exclusion reason must be shown: %q", out)
 	}
-	if !strings.Contains(out, "not mounted") {
+	if !strings.Contains(out, "n'est pas monté") {
 		t.Fatalf("the status must state that the checkout is not mounted: %q", out)
 	}
 	if _, err := os.Stat(filepath.Join(dir, "transfer-optin.json")); err == nil {
@@ -167,7 +167,7 @@ func TestWorkspaceAllowRefusesStructuralExclusion(t *testing.T) {
 	if code == 0 || err == nil {
 		t.Fatalf("a structural exclusion must be refused: code=%d err=%v", code, err)
 	}
-	if !strings.Contains(err.Error(), "structural") {
+	if !strings.Contains(err.Error(), "structurelle") {
 		t.Fatalf("the refusal must say why: %v", err)
 	}
 	records, lerr := store.Load()

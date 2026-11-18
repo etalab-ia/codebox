@@ -27,7 +27,7 @@ func TestResolveHarness(t *testing.T) {
 				if err == nil {
 					t.Fatalf("ResolveHarness(%q) = %q, want an error", tc.in, got)
 				}
-				if !strings.Contains(err.Error(), "opencode or pi") {
+				if !strings.Contains(err.Error(), "opencode ou pi") {
 					t.Fatalf("error %q does not name the accepted surface", err)
 				}
 				return

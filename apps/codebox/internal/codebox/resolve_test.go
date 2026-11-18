@@ -269,7 +269,7 @@ func TestReadUserSettingsNewerSchemaRejected(t *testing.T) {
 	fs := newMapFS()
 	fs.WriteFile("/x/settings.json", []byte(`{"schemaVersion": 99, "defaultRuntime": "tart"}`), 0o600)
 	_, err := ReadUserSettings(fs, "/x/settings.json")
-	if err == nil || !strings.Contains(err.Error(), "newer than this build supports") {
+	if err == nil || !strings.Contains(err.Error(), "plus récent que ce que cette version prend en charge") {
 		t.Fatalf("err = %v, want unsupported-schema error", err)
 	}
 }
@@ -278,7 +278,7 @@ func TestReadUserSettingsMissingSchemaVersionRejected(t *testing.T) {
 	fs := newMapFS()
 	fs.WriteFile("/x/settings.json", []byte(`{"defaultRuntime": "tart"}`), 0o600)
 	_, err := ReadUserSettings(fs, "/x/settings.json")
-	if err == nil || !strings.Contains(err.Error(), "schemaVersion missing or invalid") {
+	if err == nil || !strings.Contains(err.Error(), "schemaVersion manquant ou invalide") {
 		t.Fatalf("err = %v, want missing-schema error", err)
 	}
 }
@@ -331,7 +331,7 @@ func TestProjectManifestMCPSelectionBumpsSchemaAndReadsPreviousVersion(t *testin
 		t.Fatalf("schema 7 secrets manifest = %+v, %v", manifest, err)
 	}
 	fs.files[path] = []byte(`{"schemaVersion":8}`)
-	if _, err := ReadProjectManifest(fs, path); err == nil || !strings.Contains(err.Error(), "newer than this build supports") {
+	if _, err := ReadProjectManifest(fs, path); err == nil || !strings.Contains(err.Error(), "plus récent que ce que cette version prend en charge") {
 		t.Fatalf("unsupported future manifest schema error = %v", err)
 	}
 }
@@ -357,7 +357,7 @@ func TestReadLockfileNewerSchemaRejected(t *testing.T) {
 	fs := newMapFS()
 	fs.files["/root/.codebox/lock.json"] = []byte(`{"schemaVersion": 4, "entries": {}}`)
 	_, err := ReadLockfile(fs, "/root/.codebox/lock.json")
-	if err == nil || !strings.Contains(err.Error(), "newer than this build supports") {
+	if err == nil || !strings.Contains(err.Error(), "plus récent que ce que cette version prend en charge") {
 		t.Fatalf("err = %v, want unsupported-schema error", err)
 	}
 }
@@ -462,7 +462,7 @@ func TestImportLegacyDotenvCredentialIsAdviceNotValue(t *testing.T) {
 	if strings.Contains(out, "sk-super-secret") || strings.Contains(out, "abc") {
 		t.Errorf("preview leaked secret bytes: %q", out)
 	}
-	if !strings.Contains(out, "credential store") {
+	if !strings.Contains(out, "magasin d'identifiants") {
 		t.Errorf("preview missing credential advice: %q", out)
 	}
 }

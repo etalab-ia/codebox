@@ -79,7 +79,7 @@ func TestMSBPiCompositionFailureIsRefusedBeforeTheGuestIsTouched(t *testing.T) {
 		"attach":  func() error { return m.runPiAgent(ctx) },
 	} {
 		err := run()
-		if err == nil || !strings.Contains(err.Error(), "cannot compose the managed Pi provider configuration") {
+		if err == nil || !strings.Contains(err.Error(), "impossible de composer la configuration de fournisseur Pi gérée") {
 			t.Fatalf("%s error = %v, want the Pi composition refusal", name, err)
 		}
 	}

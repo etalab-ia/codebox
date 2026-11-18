@@ -482,10 +482,10 @@ func validateInitSmallModelInput(root, value string) (string, error) {
 	if model == codebox.MinistralSmallModelRef {
 		connected, err := initAlbertConnectedFn()
 		if err != nil {
-			return "", fmt.Errorf("cannot determine whether Albert API is connected: %w", err)
+			return "", fmt.Errorf("impossible de déterminer si l'API Albert est connectée : %w", err)
 		}
 		if !connected {
-			return "", fmt.Errorf("Ministral 3 8B requires Albert API to be connected; run 'codebox setup' to connect it, or keep the main model")
+			return "", fmt.Errorf("Ministral 3 8B exige que l'API Albert soit connectée ; lancez 'codebox setup' pour la connecter, ou conservez le modèle principal")
 		}
 	}
 	return catalogueModelWarningFn(root, model)
@@ -577,7 +577,7 @@ func askInitAdvancedHuh(opts initOptions, answers codebox.InitAnswers) (codebox.
 			input = answers.SmallModel
 			field = newInitSmallModelSelect(answers.Root, &input)
 		default:
-			return answers, fmt.Errorf("unknown advanced setting %q", choice)
+			return answers, fmt.Errorf("réglage avancé inconnu : %q", choice)
 		}
 		back, err = runInitAdvancedForm(huh.NewForm(huh.NewGroup(field)))
 		if err != nil {
@@ -919,7 +919,7 @@ func askInitQuestionsHuh(opts initOptions, answers codebox.InitAnswers) (codebox
 		if !answers.SkillsSet {
 			current, err := currentProjectSkillSelection(answers.Root)
 			if err != nil {
-				return answers, fmt.Errorf("read current project skills: %w", err)
+				return answers, fmt.Errorf("impossible de lire les skills actuelles du projet : %w", err)
 			}
 			skills = current
 			// The comparison baseline below must match what the form
@@ -954,11 +954,11 @@ func askInitQuestionsHuh(opts initOptions, answers codebox.InitAnswers) (codebox
 		if !opts.Set["root"] {
 			rootGroup = huh.NewGroup(
 				huh.NewInput().
-					Title("Project root").
-					Description(fmt.Sprintf("Directory the manifest and sandbox config live in. Leave empty to keep %s.", answers.Root)).
+					Title("Racine du projet").
+					Description(fmt.Sprintf("Dossier qui contient le manifeste et la configuration de la machine isolée. Laissez vide pour conserver %s.", answers.Root)).
 					Placeholder(answers.Root).
 					Value(&root),
-			).Title("Project")
+			).Title("Projet")
 		}
 
 		// Runtime, isolation, model, resources and the credential reference

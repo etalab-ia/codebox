@@ -193,21 +193,21 @@ func validateSecretBindings(bindings []msbSecretBinding) error {
 	hostFor := map[string]CredentialKind{}
 	for _, b := range bindings {
 		if b.GuestEnv == "" || b.HostEnv == "" {
-			return fmt.Errorf("binding %s: guest and host variable names are required", b.Kind)
+			return fmt.Errorf("liaison %s : les noms de variables de la machine isolée et du poste sont requis", b.Kind)
 		}
 		if prev, dup := guestEnvs[b.GuestEnv]; dup {
-			return fmt.Errorf("bindings %s and %s share guest variable %s", prev, b.Kind, b.GuestEnv)
+			return fmt.Errorf("les liaisons %s et %s partagent la variable de machine isolée %s", prev, b.Kind, b.GuestEnv)
 		}
 		guestEnvs[b.GuestEnv] = b.Kind
 		if len(b.AllowHosts) == 0 {
-			return fmt.Errorf("binding %s: at least one allowed host is required", b.Kind)
+			return fmt.Errorf("liaison %s : au moins un hôte autorisé est requis", b.Kind)
 		}
 		for _, host := range b.AllowHosts {
 			if !isDNSName(host) {
-				return fmt.Errorf("binding %s: %q is not a DNS name", b.Kind, host)
+				return fmt.Errorf("liaison %s : %q n'est pas un nom DNS", b.Kind, host)
 			}
 			if prev, dup := hostFor[host]; dup {
-				return fmt.Errorf("bindings %s and %s both allow host %s: a credential must have exactly one destination set", prev, b.Kind, host)
+				return fmt.Errorf("les liaisons %s et %s autorisent toutes deux l'hôte %s : un identifiant ne doit avoir qu'une seule destination", prev, b.Kind, host)
 			}
 			hostFor[host] = b.Kind
 		}
@@ -667,7 +667,7 @@ func resolveAlbertWith(read credentialReader, ctx context.Context, cfg Config, f
 	if ref := strings.TrimSpace(cfg.CredentialRef); ref != "" {
 		v, s, rerr := read(ctx, CredentialKind(ref), from)
 		if rerr != nil {
-			return "", "", "", "", fmt.Errorf("credentialRef %q: %w (store it with 'codebox auth add %s', or fix the reference)", ref, rerr, ref)
+			return "", "", "", "", fmt.Errorf("credentialRef %q : %w (enregistrez-la avec 'codebox auth add %s', ou corrigez la référence)", ref, rerr, ref)
 		}
 		return v, bindingSourceStore, s, ref, nil
 	}
@@ -689,7 +689,7 @@ func resolveAlbertWith(read credentialReader, ctx context.Context, cfg Config, f
 	// come back or the user may store it) from a structural mismatch (fatal).
 	// A bare message would make this the one transient case classified as
 	// structural (#204).
-	return "", "", "", "", fmt.Errorf("%w: no Albert credential found: export ALBERT_API_KEY in the environment, or store one with 'codebox auth add albert'", ErrCredentialNotFound)
+	return "", "", "", "", fmt.Errorf("%w: aucun identifiant Albert trouvé : exportez ALBERT_API_KEY dans l'environnement, ou enregistrez-en un avec 'codebox auth add albert'", ErrCredentialNotFound)
 }
 
 // resolveProviderWith resolves one inference platform's key. The credentialRef
@@ -713,7 +713,7 @@ func resolveProviderWith(read credentialReader, ctx context.Context, cfg Config,
 	if !isNotFound(rerr) {
 		return "", "", "", "", rerr
 	}
-	return "", "", "", "", fmt.Errorf("%w: no %s credential found: import %s for this platform, or store one with 'codebox auth add %s'", ErrCredentialNotFound, kind, envName, kind)
+	return "", "", "", "", fmt.Errorf("%w: aucun identifiant %s trouvé : importez %s pour cette plateforme, ou enregistrez-en un avec 'codebox auth add %s'", ErrCredentialNotFound, kind, envName, kind)
 }
 
 // ResolveProviderKeysWith resolves the key of every configured platform, in
@@ -763,7 +763,7 @@ func withHostSecrets(bindings []resolvedBinding, fn func() error) (err error) {
 		prev, ok := os.LookupEnv(b.HostEnv)
 		saved = append(saved, prior{prev, ok})
 		if err := os.Setenv(b.HostEnv, b.value); err != nil {
-			return fmt.Errorf("publishing %s transport variable: %w", b.Kind, err)
+			return fmt.Errorf("publication de la variable de transport %s : %w", b.Kind, err)
 		}
 	}
 	defer func() {

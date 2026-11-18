@@ -190,7 +190,7 @@ func TestAuthStatusReportsTheRecordedStore(t *testing.T) {
 			t.Fatalf("status: code=%d err=%v", code, err)
 		}
 	})
-	if !strings.Contains(out, "albert: read from the file store") {
+	if !strings.Contains(out, "albert : lu depuis le magasin file") {
 		t.Fatalf("status did not report the recorded store:\n%s", out)
 	}
 }

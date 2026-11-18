@@ -71,7 +71,7 @@ func TestWaitHealthyDeadline(t *testing.T) {
 	cfg := HealthConfig{Deadline: 60 * time.Millisecond, PollInterval: 5 * time.Millisecond, RequestTimeout: time.Second}
 	start := time.Now()
 	err := WaitHealthy(context.Background(), srv.URL, "opencode", "pw", cfg, nil)
-	if err == nil || !strings.Contains(err.Error(), "did not become healthy") {
+	if err == nil || !strings.Contains(err.Error(), "n'est pas devenu sain") {
 		t.Fatalf("expected deadline error, got %v", err)
 	}
 	if elapsed := time.Since(start); elapsed > 500*time.Millisecond {
@@ -182,7 +182,7 @@ func TestWaitHealthyReportsProgress(t *testing.T) {
 		t.Fatal("expected a timeout error")
 	}
 	out := progress.String()
-	if !strings.Contains(out, "still waiting for the backend") {
+	if !strings.Contains(out, "en attente du backend") {
 		t.Fatalf("progress output = %q, want a waiting line", out)
 	}
 	if !strings.Contains(out, srv.URL) {
@@ -246,7 +246,7 @@ func TestCheckBackendLargeProviderPayload(t *testing.T) {
 			t.Fatalf("CheckBackend: %v", err)
 		}
 	})
-	if !strings.Contains(out, "albert provider: registered") {
+	if !strings.Contains(out, "fournisseur albert : enregistré") {
 		t.Fatalf("provider line missing from check output: %q", out)
 	}
 }

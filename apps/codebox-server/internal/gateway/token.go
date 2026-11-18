@@ -69,16 +69,16 @@ const (
 func NewTokenIssuer(seedB64 string, issuer string, maxLife time.Duration, now func() time.Time) (*TokenIssuer, error) {
 	seed, err := base64.RawURLEncoding.DecodeString(strings.TrimSpace(seedB64))
 	if err != nil {
-		return nil, fmt.Errorf("token seed must be base64url without padding: %w", err)
+		return nil, fmt.Errorf("la graine de signature de jetons doit être en base64url sans remplissage : %w", err)
 	}
 	if len(seed) != ed25519.SeedSize {
-		return nil, fmt.Errorf("token seed must decode to %d bytes, got %d", ed25519.SeedSize, len(seed))
+		return nil, fmt.Errorf("la graine de signature de jetons doit faire %d octets une fois décodée, %d obtenus", ed25519.SeedSize, len(seed))
 	}
 	if strings.TrimSpace(issuer) == "" {
-		return nil, errors.New("token issuer must not be empty")
+		return nil, errors.New("l'émetteur de jetons ne doit pas être vide")
 	}
 	if maxLife <= 0 || maxLife > 24*time.Hour {
-		return nil, errors.New("token lifetime must be positive and at most 24h")
+		return nil, errors.New("la durée de vie des jetons doit être positive et d'au plus 24 h")
 	}
 	if now == nil {
 		now = time.Now
@@ -98,7 +98,7 @@ func NewTokenIssuer(seedB64 string, issuer string, maxLife time.Duration, now fu
 func NewTokenSeed() (string, error) {
 	seed := make([]byte, ed25519.SeedSize)
 	if _, err := crand.Read(seed); err != nil {
-		return "", fmt.Errorf("generate token seed: %w", err)
+		return "", fmt.Errorf("génération de la graine de signature de jetons : %w", err)
 	}
 	return base64.RawURLEncoding.EncodeToString(seed), nil
 }
@@ -117,13 +117,13 @@ func (t *TokenIssuer) IssueTicket(claims TokenClaims, ttl time.Duration) (string
 
 func (t *TokenIssuer) issue(claims TokenClaims, purpose string, ttl time.Duration) (string, time.Time, error) {
 	if claims.Email == "" || claims.Subject == "" {
-		return "", time.Time{}, errors.New("token claims require sub and email")
+		return "", time.Time{}, errors.New("les revendications du jeton exigent sub et email")
 	}
 	now := t.now().UTC()
 	exp := now.Add(ttl)
 	jtiBytes := make([]byte, 16)
 	if _, err := crand.Read(jtiBytes); err != nil {
-		return "", time.Time{}, fmt.Errorf("token identifier: %w", err)
+		return "", time.Time{}, fmt.Errorf("identifiant de jeton : %w", err)
 	}
 	jti := base64.RawURLEncoding.EncodeToString(jtiBytes)
 	header, err := json.Marshal(tokenHeader{Alg: "EdDSA", Typ: tokenType})
@@ -153,12 +153,12 @@ func (t *TokenIssuer) issue(claims TokenClaims, purpose string, ttl time.Duratio
 func (t *TokenIssuer) Verify(token, purpose string) (TokenClaims, error) {
 	parts := strings.Split(token, ".")
 	if len(parts) != 3 {
-		return TokenClaims{}, errors.New("malformed token")
+		return TokenClaims{}, errors.New("jeton malformé")
 	}
 	signingInput := parts[0] + "." + parts[1]
 	signature, err := base64.RawURLEncoding.DecodeString(parts[2])
 	if err != nil {
-		return TokenClaims{}, errors.New("malformed token signature")
+		return TokenClaims{}, errors.New("signature de jeton malformée")
 	}
 	// RawURLEncoding accepts encodings with nonzero unused bits. Reject any
 	// segment that is not its own canonical encoding, so a re-encoded ticket
@@ -166,37 +166,37 @@ func (t *TokenIssuer) Verify(token, purpose string) (TokenClaims, error) {
 	for _, segment := range parts {
 		decoded, err := base64.RawURLEncoding.DecodeString(segment)
 		if err != nil || base64.RawURLEncoding.EncodeToString(decoded) != segment {
-			return TokenClaims{}, errors.New("token segments must use canonical unpadded base64url encoding")
+			return TokenClaims{}, errors.New("les segments du jeton doivent utiliser l'encodage base64url canonique sans remplissage")
 		}
 	}
 	if !ed25519.Verify(t.public, []byte(signingInput), signature) {
-		return TokenClaims{}, errors.New("invalid token signature")
+		return TokenClaims{}, errors.New("signature de jeton invalide")
 	}
 	rawHeader, err := base64.RawURLEncoding.DecodeString(parts[0])
 	if err != nil {
-		return TokenClaims{}, errors.New("malformed token header")
+		return TokenClaims{}, errors.New("en-tête de jeton malformé")
 	}
 	var header tokenHeader
 	if err := json.Unmarshal(rawHeader, &header); err != nil || header.Alg != "EdDSA" || header.Typ != tokenType {
-		return TokenClaims{}, errors.New("unsupported token header")
+		return TokenClaims{}, errors.New("en-tête de jeton non pris en charge")
 	}
 	rawPayload, err := base64.RawURLEncoding.DecodeString(parts[1])
 	if err != nil {
-		return TokenClaims{}, errors.New("malformed token payload")
+		return TokenClaims{}, errors.New("charge de jeton malformée")
 	}
 	var payload tokenPayload
 	if err := json.Unmarshal(rawPayload, &payload); err != nil {
-		return TokenClaims{}, errors.New("malformed token payload")
+		return TokenClaims{}, errors.New("charge de jeton malformée")
 	}
 	if payload.Issuer != t.issuer || payload.Purpose != purpose {
-		return TokenClaims{}, errors.New("token is not valid for this service")
+		return TokenClaims{}, errors.New("ce jeton n'est pas valide pour ce service")
 	}
 	now := t.now().UTC()
 	if payload.ExpiresAt <= now.Unix() {
-		return TokenClaims{}, errors.New("token expired")
+		return TokenClaims{}, errors.New("jeton expiré")
 	}
 	if payload.IssuedAt > now.Add(time.Minute).Unix() {
-		return TokenClaims{}, errors.New("token issued in the future")
+		return TokenClaims{}, errors.New("jeton émis dans le futur")
 	}
 	return TokenClaims{
 		Subject:   payload.Subject,

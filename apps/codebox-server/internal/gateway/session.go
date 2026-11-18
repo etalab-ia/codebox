@@ -54,13 +54,13 @@ func NewAttemptStore(ttl time.Duration, maxItems int, now func() time.Time) *Att
 // refusing to grow without bound.
 func (a *AttemptStore) Put(attempt *LoginAttempt) error {
 	if attempt == nil || attempt.State == "" {
-		return errors.New("login attempt requires a state value")
+		return errors.New("une tentative de connexion exige une valeur state")
 	}
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	a.evictExpiredLocked()
 	if len(a.attempts) >= a.maxItems {
-		return errors.New("too many logins in progress; retry shortly")
+		return errors.New("trop de connexions en cours ; réessayez bientôt")
 	}
 	attempt.CreatedAt = a.now().UTC()
 	a.attempts[attempt.State] = attempt

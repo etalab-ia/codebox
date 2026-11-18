@@ -328,7 +328,7 @@ type ReconcileFacts struct {
 //     serving -> restart backend; stopped -> start
 func PlanReconcile(applied *InstanceState, desired DesiredState, facts ReconcileFacts) ReconcilePlan {
 	if !facts.Exists {
-		return ReconcilePlan{Ops: []ReconcileOp{OpCreate}, Reason: "instance does not exist"}
+		return ReconcilePlan{Ops: []ReconcileOp{OpCreate}, Reason: "l'instance n'existe pas"}
 	}
 	if facts.CreationFixedChanged {
 		return ReconcilePlan{
@@ -338,7 +338,7 @@ func PlanReconcile(applied *InstanceState, desired DesiredState, facts Reconcile
 			// became a provenance check in P22) or omit one it does (guest
 			// sizing, the agent harness), because it is the only thing the
 			// user sees before deciding whether to lose the guest's state.
-			Reason: "the isolation level, image, guest profile, agent harness, workspace provenance, guest sizing or Microsandbox published ports changed; these are fixed at creation",
+			Reason: "le niveau d'isolation, l'image, le profil de la machine isolée, le harnais d'agent, la provenance de l'espace de travail, la taille de la machine isolée ou les ports publiés Microsandbox ont changé ; ces éléments sont fixés à la création",
 		}
 	}
 	if applied == nil {
@@ -346,30 +346,30 @@ func PlanReconcile(applied *InstanceState, desired DesiredState, facts Reconcile
 		// attributes match the facts (no change detected), so the safe
 		// classification is a full non-destructive refresh.
 		if facts.Running {
-			return ReconcilePlan{Ops: []ReconcileOp{OpRefreshCredentials, OpRestartVM}, Reason: "instance predates reconciliation state; refreshing"}
+			return ReconcilePlan{Ops: []ReconcileOp{OpRefreshCredentials, OpRestartVM}, Reason: "l'instance est antérieure à l'état de réconciliation ; actualisation"}
 		}
-		return ReconcilePlan{Ops: []ReconcileOp{OpRefreshCredentials, OpStartVM}, Reason: "instance predates reconciliation state; refreshing for the next boot"}
+		return ReconcilePlan{Ops: []ReconcileOp{OpRefreshCredentials, OpStartVM}, Reason: "l'instance est antérieure à l'état de réconciliation ; actualisation pour le prochain démarrage"}
 	}
 	revChanged := applied.ConfigRevision != desired.ConfigRevision()
 	if revChanged || facts.CredentialChanged {
 		if facts.Running {
 			return ReconcilePlan{
 				Ops:    []ReconcileOp{OpRefreshCredentials, OpRestartVM},
-				Reason: "configuration changed; restarting the VM (non-destructive) to apply it",
+				Reason: "la configuration a changé ; redémarrage non destructif de la machine pour l'appliquer",
 			}
 		}
 		return ReconcilePlan{
 			Ops:    []ReconcileOp{OpRefreshCredentials, OpStartVM},
-			Reason: "configuration changed; refreshing for the next boot",
+			Reason: "la configuration a changé ; actualisation pour le prochain démarrage",
 		}
 	}
 	switch {
 	case facts.Running && facts.Healthy:
-		return ReconcilePlan{Ops: []ReconcileOp{OpNoOp}, Reason: "desired state already applied"}
+		return ReconcilePlan{Ops: []ReconcileOp{OpNoOp}, Reason: "état souhaité déjà appliqué"}
 	case facts.Running:
-		return ReconcilePlan{Ops: []ReconcileOp{OpRestartBackend}, Reason: "VM is up but the backend is not serving"}
+		return ReconcilePlan{Ops: []ReconcileOp{OpRestartBackend}, Reason: "la machine est démarrée mais le backend ne répond pas"}
 	default:
-		return ReconcilePlan{Ops: []ReconcileOp{OpStartVM}, Reason: "instance is stopped"}
+		return ReconcilePlan{Ops: []ReconcileOp{OpStartVM}, Reason: "l'instance est arrêtée"}
 	}
 }
 
@@ -382,9 +382,9 @@ type ErrRecreateNeeded struct {
 }
 
 func (e *ErrRecreateNeeded) Error() string {
-	return fmt.Sprintf("%s cannot apply this change in place: %s. "+
-		"Recreating is destructive and loses guest sessions, tools installed in the guest, and guest-only files; "+
-		"run 'codebox recreate --microsandbox' if that is acceptable",
+	return fmt.Sprintf("%s ne peut pas appliquer ce changement sur place : %s. "+
+		"La recréation est destructive et fait perdre les sessions de la machine isolée, les outils installés dans la machine isolée et les fichiers propres à la machine isolée ; "+
+		"lancez 'codebox recreate --microsandbox' si cela est acceptable",
 		e.Instance, e.Reason)
 }
 
@@ -406,11 +406,11 @@ func ReadInstanceState(fs FS, path string) (*InstanceState, error) {
 	}
 	var st InstanceState
 	if err := json.Unmarshal(data, &st); err != nil {
-		return nil, fmt.Errorf("instance state %s: %w", path, err)
+		return nil, fmt.Errorf("état d'instance %s : %w", path, err)
 	}
 	if st.SchemaVersion > maxSupportedInstanceStateSchema {
-		return nil, fmt.Errorf("instance state %s: schemaVersion %d is newer than this build supports (%d); "+
-			"refusing to touch the instance rather than guess at unknown state", path, st.SchemaVersion, maxSupportedInstanceStateSchema)
+		return nil, fmt.Errorf("état d'instance %s : schemaVersion %d est plus récent que ce que cette version prend en charge (%d) ; "+
+			"refus de toucher à l'instance plutôt que de deviner un état inconnu", path, st.SchemaVersion, maxSupportedInstanceStateSchema)
 	}
 	return &st, nil
 }
@@ -442,7 +442,7 @@ func (m *MicrosandboxRuntime) Reconcile(ctx context.Context) error {
 	lock := &ProjectLock{Path: SetupLockPath(stateDir, m.InstanceName()), FS: DefaultFS}
 	release, err := lock.Acquire()
 	if err != nil {
-		return fmt.Errorf("another codebox setup is running for %s: %w", m.InstanceName(), err)
+		return fmt.Errorf("une autre configuration codebox est en cours pour %s : %w", m.InstanceName(), err)
 	}
 	defer release()
 
@@ -478,9 +478,9 @@ func (m *MicrosandboxRuntime) Reconcile(ctx context.Context) error {
 		// allow-list of known-bad cases, so a failure nobody anticipated
 		// fails closed instead of silently falling through to the warning.
 		if !isTransientCredentialFailure(resolveErr) {
-			return fmt.Errorf("cannot start %s: %w", m.InstanceName(), resolveErr)
+			return fmt.Errorf("impossible de démarrer %s : %w", m.InstanceName(), resolveErr)
 		}
-		m.warn("identifiants indisponibles : références existantes conservées ; détail : codebox doctor", "Warning: cannot resolve the credentials of %s (%v); reusing the persisted secret references. Store the credential and restart to bind it.", m.InstanceName(), resolveErr)
+		m.warn("identifiants indisponibles : références existantes conservées ; détail : codebox doctor", "Avertissement : impossible de résoudre les identifiants de %s (%v) ; les références de secrets enregistrées sont conservées. Enregistrez l'identifiant puis redémarrez pour l'associer.", m.InstanceName(), resolveErr)
 	}
 	if err := os.MkdirAll(m.cfg.WorkspaceDir, 0o755); err != nil {
 		return err
@@ -531,7 +531,7 @@ func (m *MicrosandboxRuntime) Reconcile(ctx context.Context) error {
 		// The journal is authoritative for this revision: a fresh plan of
 		// [noop] must not override it, or a failed update is never retried.
 		pending = journalToOps(applied.Pending)
-		m.say("Resuming interrupted apply for %s at: %s", m.InstanceName(), joinOps(pending))
+		m.say("Reprise de l'application interrompue de %s à l'étape : %s", m.InstanceName(), joinOps(pending))
 	} else if plan.IsNoOp() {
 		// A healthy no-op start does not call Start. Check the already
 		// initialized workflow before any guest mutations. This must not
@@ -574,8 +574,8 @@ func (m *MicrosandboxRuntime) Reconcile(ctx context.Context) error {
 	// effect, with the journal intact, so a later run with a resolvable
 	// credential resumes here.
 	if !resolved && containsCredentialOps(pending) {
-		return fmt.Errorf("cannot apply the credential operations of %s (%s): the credential set could not be resolved (%v). "+
-			"Store or restore the credential, then retry; nothing was changed",
+		return fmt.Errorf("impossible d'appliquer les opérations d'identifiants de %s (%s) : l'ensemble d'identifiants n'a pas pu être résolu (%v). "+
+			"Enregistrez ou restaurez l'identifiant, puis réessayez ; rien n'a été modifié",
 			m.InstanceName(), joinOps(pending), resolveErr)
 	}
 
@@ -597,7 +597,7 @@ func (m *MicrosandboxRuntime) Reconcile(ctx context.Context) error {
 		st.CPUs, st.MemoryMB = applied.CPUs, applied.MemoryMB
 	}
 	if err := WriteInstanceState(DefaultFS, path, st); err != nil {
-		return fmt.Errorf("persisting reconcile journal for %s: %w", m.InstanceName(), err)
+		return fmt.Errorf("enregistrement du journal de réconciliation de %s : %w", m.InstanceName(), err)
 	}
 	return withHostSecrets(bindings, func() error {
 		for i, op := range pending {
@@ -606,19 +606,19 @@ func (m *MicrosandboxRuntime) Reconcile(ctx context.Context) error {
 			// restarted server cannot miss an init change made while unhealthy.
 			if op == OpRestartBackend && m.cfg.ProjectSkillsManaged {
 				if err := m.installProjectSkills(ctx); err != nil {
-					return fmt.Errorf("reconcile project skills before restarting the backend: %w", err)
+					return fmt.Errorf("réconciliation des skills du projet avant de redémarrer le backend : %w", err)
 				}
 			}
 			if err := m.applyReconcileOp(ctx, op, bindings); err != nil {
 				// Journal the remaining ops: the next run resumes here.
 				st.Pending = opsToJournal(pending[i:])
 				_ = WriteInstanceState(DefaultFS, path, st)
-				return fmt.Errorf("reconcile %s failed at %s (will resume there): %w", m.InstanceName(), op, err)
+				return fmt.Errorf("réconciliation de %s : échec à l'étape %s (reprise à cette étape) : %w", m.InstanceName(), op, err)
 			}
 			if i < len(pending)-1 {
 				st.Pending = opsToJournal(pending[i+1:])
 				if err := WriteInstanceState(DefaultFS, path, st); err != nil {
-					return fmt.Errorf("advancing reconcile journal for %s: %w", m.InstanceName(), err)
+					return fmt.Errorf("avancement du journal de réconciliation de %s : %w", m.InstanceName(), err)
 				}
 			}
 		}
@@ -856,7 +856,7 @@ func (m *MicrosandboxRuntime) applyReconcileOp(ctx context.Context, op Reconcile
 		}
 		return m.Start(ctx)
 	default:
-		return fmt.Errorf("unsupported reconcile op %q", op)
+		return fmt.Errorf("opération de réconciliation non prise en charge %q", op)
 	}
 }
 
@@ -916,8 +916,8 @@ func joinOps(ops []ReconcileOp) string {
 // destructive Clean, and no reconcile plan reaches it implicitly
 // (NeedsRecreate is surfaced as an error, never executed).
 func (m *MicrosandboxRuntime) Recreate(ctx context.Context) error {
-	lossSummary := "guest sessions, tools installed in the guest, and guest-only files"
-	fmt.Printf("Recreating %s. This DESTROYS: %s.\n", m.InstanceName(), lossSummary)
+	lossSummary := "les sessions de la machine isolée, les outils installés dans la machine isolée et les fichiers propres à la machine isolée"
+	fmt.Printf("Recréation de %s. Cela DÉTRUIT : %s.\n", m.InstanceName(), lossSummary)
 	if err := m.validateConfig(); err != nil {
 		return err
 	}
@@ -942,8 +942,8 @@ func (m *MicrosandboxRuntime) Recreate(ctx context.Context) error {
 	// rather than treating the running guest as an untracked legacy instance.
 	state := m.desiredState(true, bindings, nil).toState()
 	if err := WriteInstanceState(DefaultFS, instanceStatePath(DefaultStateDir(), m.InstanceName()), state); err != nil {
-		return fmt.Errorf("persisting recreated state for %s: %w", m.InstanceName(), err)
+		return fmt.Errorf("enregistrement de l'état recréé de %s : %w", m.InstanceName(), err)
 	}
-	fmt.Printf("%s recreated.\n", m.InstanceName())
+	fmt.Printf("%s recréée.\n", m.InstanceName())
 	return nil
 }

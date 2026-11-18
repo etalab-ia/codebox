@@ -263,7 +263,7 @@ func TestApplyRecordStoreRoundtrip(t *testing.T) {
 	if err := os.WriteFile(path, []byte("{not json"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := store.Load(); err == nil || !strings.Contains(err.Error(), "applied-changes record") {
+	if _, err := store.Load(); err == nil || !strings.Contains(err.Error(), "enregistrement des modifications appliquées") {
 		t.Fatalf("Load on corrupt JSON = %v, want an applied-changes record error", err)
 	}
 }
@@ -663,7 +663,7 @@ func TestCollectGuestChangesFailsClosedOnCountMismatch(t *testing.T) {
 	}
 	m, _ := applyTestRuntime(t, client)
 	_, err := m.CollectGuestChanges(context.Background())
-	if err == nil || !strings.Contains(err.Error(), "changed while it was being read") {
+	if err == nil || !strings.Contains(err.Error(), "a changé pendant sa lecture") {
 		t.Fatalf("error = %v, want the fail-closed mismatch message", err)
 	}
 }
@@ -677,7 +677,7 @@ func TestCollectGuestChangesReportsGuestFailures(t *testing.T) {
 		}
 		m, _ := applyTestRuntime(t, client)
 		_, err := m.CollectGuestChanges(context.Background())
-		if err == nil || !strings.Contains(err.Error(), "could not list its changes") {
+		if err == nil || !strings.Contains(err.Error(), "n'a pas pu lister ses modifications") {
 			t.Fatalf("error = %v, want the numstat failure", err)
 		}
 	})
@@ -690,7 +690,7 @@ func TestCollectGuestChangesReportsGuestFailures(t *testing.T) {
 		}
 		m, _ := applyTestRuntime(t, client)
 		_, err := m.CollectGuestChanges(context.Background())
-		if err == nil || !strings.Contains(err.Error(), "could not produce a diff") {
+		if err == nil || !strings.Contains(err.Error(), "n'a pas pu produire un diff") {
 			t.Fatalf("error = %v, want the diff failure", err)
 		}
 	})
@@ -705,17 +705,17 @@ func TestCollectGuestChangesRefusesUnsealedWorkspace(t *testing.T) {
 		{
 			"missing instance",
 			&fakeMSBClient{exists: false},
-			"does not exist yet",
+			"n'existe pas encore",
 		},
 		{
 			"bind-mounted workspace",
 			&fakeMSBClient{exists: true, mount: "/home/user/proj"},
-			"mounted from the host",
+			"monté depuis le poste",
 		},
 		{
 			"unowned storage",
 			&fakeMSBClient{exists: true, owned: boolPtr(false)},
-			"guest-owned storage",
+			"n'est pas un stockage propre à la machine isolée",
 		},
 	}
 	for _, tc := range cases {
@@ -736,7 +736,7 @@ func TestApplyPolicyCheck(t *testing.T) {
 	man := TransferManifest{
 		Entries: []TransferEntry{
 			{Rel: "src/app.js", Included: true},
-			{Rel: "big.bin", Included: false, Reason: "above the per-file transfer cap", Exclusion: TransferExclusionSizeCap},
+			{Rel: "big.bin", Included: false, Reason: "au-delà du plafond de transfert par fichier", Exclusion: TransferExclusionSizeCap},
 			{Rel: "link", Included: false, Exclusion: TransferExclusionSymlink},
 		},
 	}
@@ -748,12 +748,12 @@ func TestApplyPolicyCheck(t *testing.T) {
 		rel  string
 		want string
 	}{
-		{"git metadata is structural", ".git/config", "Git metadata never crosses the isolation boundary"},
-		{"git directory itself", ".git", "Git metadata never crosses the isolation boundary"},
+		{"git metadata is structural", ".git/config", "les métadonnées Git ne franchissent jamais la frontière d'isolation"},
+		{"git directory itself", ".git", "les métadonnées Git ne franchissent jamais la frontière d'isolation"},
 		{"opt-in re-includes a dotenv file", ".env.local", ""},
-		{"dotenv is default-deny", ".env", "dotenv file (default-deny)"},
+		{"dotenv is default-deny", ".env", "fichier dotenv (refusé par défaut)"},
 		{"manifest entry that crossed", "src/app.js", ""},
-		{"manifest entry refused with a reason", "big.bin", "above the per-file transfer cap"},
+		{"manifest entry refused with a reason", "big.bin", "au-delà du plafond de transfert par fichier"},
 		{"manifest entry refused by class", "link", "symlink"},
 		{"unknown path is allowed", "src/new-file.ts", ""},
 	}
@@ -778,7 +778,7 @@ func TestApplyPolicyCheckRefusesGitIgnoredAgentPath(t *testing.T) {
 	p := newApplyPolicy(root, TransferManifest{GitManaged: true}, nil)
 	ctx := context.Background()
 
-	if got := p.check(ctx, GuestChange{Rel: "node_modules/derived.js"}); got != "git-ignored (local or derived state)" {
+	if got := p.check(ctx, GuestChange{Rel: "node_modules/derived.js"}); got != "ignoré par git (état local ou dérivé)" {
 		t.Fatalf("ignored path: check = %q, want the git-ignored refusal", got)
 	}
 	if got := p.check(ctx, GuestChange{Rel: "src/new-file.ts"}); got != "" {
@@ -803,7 +803,7 @@ func TestApplyPolicyCheckRefusesAboveTheCap(t *testing.T) {
 	ctx := context.Background()
 	header := "diff --git a/big.bin b/big.bin\nindex 111..222 100644\nGIT binary patch\nliteral "
 	over := header + strconv.FormatInt(DefaultTransferMaxFileBytes+1, 10) + "\ndata 4\n"
-	if got := p.check(ctx, GuestChange{Rel: "big.bin", Patch: []byte(over)}); got != "above the per-file transfer cap" {
+	if got := p.check(ctx, GuestChange{Rel: "big.bin", Patch: []byte(over)}); got != "au-delà du plafond de transfert par fichier" {
 		t.Fatalf("check over the cap = %q, want the cap refusal", got)
 	}
 	at := header + strconv.FormatInt(DefaultTransferMaxFileBytes, 10) + "\ndata 4\n"
@@ -1526,7 +1526,7 @@ func TestReadGuestFile(t *testing.T) {
 		client.execCaptureResults = []fakeMSBExecCaptureResult{{code: 1, stderr: "no such file"}}
 		m, _ := applyTestRuntime(t, client)
 		_, _, err := m.ReadGuestFile(ctx, "gone.txt")
-		if err == nil || !strings.Contains(err.Error(), "could not read gone.txt") {
+		if err == nil || !strings.Contains(err.Error(), "n'a pas pu lire gone.txt") {
 			t.Fatalf("err = %v, want a guest read failure naming the file", err)
 		}
 	})
@@ -1535,7 +1535,7 @@ func TestReadGuestFile(t *testing.T) {
 		client.execCaptureResults = []fakeMSBExecCaptureResult{{stdout: "bmV3ZXIK"}}
 		m, _ := applyTestRuntime(t, client)
 		_, _, err := m.ReadGuestFile(ctx, "src/app.js")
-		if err == nil || !strings.Contains(err.Error(), "no file header") {
+		if err == nil || !strings.Contains(err.Error(), "aucun en-tête de fichier") {
 			t.Fatalf("err = %v, want a missing-header error", err)
 		}
 	})
@@ -1544,7 +1544,7 @@ func TestReadGuestFile(t *testing.T) {
 		client.execCaptureResults = []fakeMSBExecCaptureResult{{stdout: "nine 6\nbmV3ZXIK"}}
 		m, _ := applyTestRuntime(t, client)
 		_, _, err := m.ReadGuestFile(ctx, "src/app.js")
-		if err == nil || !strings.Contains(err.Error(), "unreadable permission") {
+		if err == nil || !strings.Contains(err.Error(), "permissions illisibles") {
 			t.Fatalf("err = %v, want an unreadable-permission error", err)
 		}
 	})
@@ -1553,7 +1553,7 @@ func TestReadGuestFile(t *testing.T) {
 		client.execCaptureResults = []fakeMSBExecCaptureResult{{stdout: "644 6\n!!not-base64!!"}}
 		m, _ := applyTestRuntime(t, client)
 		_, _, err := m.ReadGuestFile(ctx, "src/app.js")
-		if err == nil || !strings.Contains(err.Error(), "unreadable content") {
+		if err == nil || !strings.Contains(err.Error(), "contenu illisible") {
 			t.Fatalf("err = %v, want an unreadable-content error", err)
 		}
 	})
@@ -1591,7 +1591,7 @@ func TestGuestContentDigests(t *testing.T) {
 		client.execCaptureResults = []fakeMSBExecCaptureResult{{stdout: "only-one"}}
 		m, _ := applyTestRuntime(t, client)
 		_, err := m.guestContentDigests(ctx, []string{"a.txt", "b.txt"})
-		if err == nil || !strings.Contains(err.Error(), "files asked") {
+		if err == nil || !strings.Contains(err.Error(), "fichiers demandés") {
 			t.Fatalf("err = %v, want a digest-count mismatch error", err)
 		}
 	})
@@ -1600,7 +1600,7 @@ func TestGuestContentDigests(t *testing.T) {
 		client.execCaptureResults = []fakeMSBExecCaptureResult{{stdout: ""}}
 		m, _ := applyTestRuntime(t, client)
 		_, err := m.guestContentDigests(ctx, []string{"a.txt"})
-		if err == nil || !strings.Contains(err.Error(), "files asked") {
+		if err == nil || !strings.Contains(err.Error(), "fichiers demandés") {
 			t.Fatalf("err = %v, want a digest-count mismatch error", err)
 		}
 	})
@@ -1726,7 +1726,7 @@ func TestPrepareApplyReviewMarksRecoveredAndRefused(t *testing.T) {
 	if !review.Recovered["src/app.js"] {
 		t.Fatalf("recovered = %v, want src/app.js", review.Recovered)
 	}
-	if got := review.Refused[".env"]; got != "dotenv file (default-deny)" {
+	if got := review.Refused[".env"]; got != "fichier dotenv (refusé par défaut)" {
 		t.Fatalf(".env refusal = %q, want the dotenv default-deny", got)
 	}
 	applicable := review.Applicable()

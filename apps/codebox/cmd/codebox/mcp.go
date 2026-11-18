@@ -20,7 +20,7 @@ var probeRemoteMCPFn = codebox.ProbeRemoteMCP
 
 func mcpCommand(args []string) (int, error) {
 	if len(args) != 1 || args[0] != "status" {
-		return 2, fmt.Errorf("Usage: codebox mcp status")
+		return 2, fmt.Errorf("Usage : codebox mcp status")
 	}
 	projectRoot, err := discoverMCPProjectRootFn()
 	if err != nil {
@@ -35,28 +35,28 @@ func mcpCommand(args []string) (int, error) {
 		return 1, err
 	}
 	if len(ids) == 0 {
-		fmt.Println("No managed MCPs configured.")
+		fmt.Println("Aucun MCP géré configuré.")
 		return 0, nil
 	}
 	failed := false
 	for _, id := range ids {
 		if browser, ok := codebox.BrowserMCPByID(id); ok {
-			fmt.Fprintf(os.Stdout, "%-16s guest-local configured (%s@%s); not probed from host\n", id, browser.Package, browser.Version)
+			fmt.Fprintf(os.Stdout, "%-16s local à la machine isolée, configuré (%s@%s) ; non sondé depuis le poste\n", id, browser.Package, browser.Version)
 			continue
 		}
 		if reason, removed := codebox.RemovedMCPIDs[id]; removed {
-			fmt.Fprintf(os.Stdout, "%-16s inactive: %s\n", id, reason)
+			fmt.Fprintf(os.Stdout, "%-16s inactif : %s\n", id, reason)
 			continue
 		}
 		connector := connectorByID(id)
 		health := probeRemoteMCPFn(context.Background(), nil, connector)
-		fmt.Fprintf(os.Stdout, "%-10s %-28s configured -> %s (%s): %s\n", id, connector.Endpoint, health.State, connector.HealthAction, health.Detail)
+		fmt.Fprintf(os.Stdout, "%-10s %-28s configuré -> %s (%s) : %s\n", id, connector.Endpoint, health.State, connector.HealthAction, health.Detail)
 		if health.State != codebox.MCPVerified {
 			failed = true
 		}
 	}
 	if failed {
-		return 1, fmt.Errorf("one or more remote MCPs could not be verified")
+		return 1, fmt.Errorf("un ou plusieurs MCP distants n'ont pas pu être vérifiés")
 	}
 	return 0, nil
 }

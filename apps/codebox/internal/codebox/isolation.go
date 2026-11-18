@@ -41,7 +41,7 @@ func ResolveIsolation(flag, preference string) (Isolation, error) {
 	case IsolationBackend, IsolationFull:
 		return Isolation(value), nil
 	default:
-		return "", fmt.Errorf("expected --isolation backend or --isolation full (ISOLATION must be backend or full), got %q", value)
+		return "", fmt.Errorf("valeur attendue --isolation backend ou --isolation full (ISOLATION doit valoir backend ou full), obtenu %q", value)
 	}
 }
 

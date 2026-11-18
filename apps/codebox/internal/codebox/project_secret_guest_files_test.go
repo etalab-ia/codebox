@@ -399,6 +399,21 @@ func TestPlanGuestSecretPublish(t *testing.T) {
 	}
 }
 
+func TestPluralUsesFrenchSuffixes(t *testing.T) {
+	for _, test := range []struct {
+		count int
+		want  string
+	}{
+		{count: 0, want: "s"},
+		{count: 1, want: ""},
+		{count: 2, want: "s"},
+	} {
+		if got := plural(test.count); got != test.want {
+			t.Errorf("plural(%d) = %q, want %q", test.count, got, test.want)
+		}
+	}
+}
+
 // TestInspectingAManagedFileNeverReadsItBack is the regression for the leak
 // issue #190 names: the runtime persists the stdout of guest executions in a
 // host log, so a command that prints a managed file copies its plaintext there.
@@ -583,7 +598,7 @@ func TestAForgeableHeaderIsNotTreatedAsOurs(t *testing.T) {
 		_, err := m.syncGuestSecretFiles(t.Context(), []ProjectSecretDelivery{
 			testDelivery(".env", "API_KEY", "JC_API_KEY", "__CODEBOX_SECRET_aaa__", "api.example.com"),
 		}, nil)
-		if err == nil || !strings.Contains(err.Error(), "were not written by codebox") {
+		if err == nil || !strings.Contains(err.Error(), "sans avoir été écrit par codebox") {
 			t.Fatalf("%s: the publish must be refused, not treated as ours: %v", name, err)
 		}
 		if client.files[guestPath] != content {
@@ -610,7 +625,7 @@ func TestSyncGuestSecretFilesRefusesToClobberProjectFile(t *testing.T) {
 	_, err := m.syncGuestSecretFiles(t.Context(), []ProjectSecretDelivery{
 		testDelivery(".env", "API_KEY", "JC_API_KEY", "__CODEBOX_SECRET_aaa__", "api.example.com"),
 	}, nil)
-	if err == nil || !strings.Contains(err.Error(), "were not written by codebox") {
+	if err == nil || !strings.Contains(err.Error(), "sans avoir été écrit par codebox") {
 		t.Fatalf("the publish must be refused: %v", err)
 	}
 	if client.files[guestPath] != own {

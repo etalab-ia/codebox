@@ -19,7 +19,7 @@ import (
 //	bindings revoke <github|context7>
 func bindingsCmd(args []string, instance string) (int, error) {
 	if len(args) == 0 {
-		fmt.Fprintln(os.Stderr, "Usage: codebox bindings list | approve <kind> | revoke <kind>")
+		fmt.Fprintln(os.Stderr, "Usage : codebox bindings list | approve <kind> | revoke <kind>")
 		return 2, nil
 	}
 	stateDir := codebox.DefaultStateDir()
@@ -32,7 +32,7 @@ func bindingsCmd(args []string, instance string) (int, error) {
 	case "revoke":
 		return bindingsRevokeCmd(path, instance, args[1:])
 	default:
-		return 2, fmt.Errorf("Unknown bindings command: %s (expected list, approve or revoke)", args[0])
+		return 2, fmt.Errorf("commande bindings inconnue : %s (attendu : list, approve ou revoke)", args[0])
 	}
 }
 
@@ -43,20 +43,20 @@ func bindingsListCmd(path, instance string) (int, error) {
 	if err != nil {
 		return 1, err
 	}
-	fmt.Printf("Credential bindings for %s:\n", instance)
+	fmt.Printf("Liaisons d'identifiants pour %s :\n", instance)
 	for _, b := range codebox.RegisteredBindings() {
 		if !b.Optional {
-			fmt.Printf("  %-10s always bound as %s (allowed hosts: %s)\n", b.Kind, b.GuestEnv, strings.Join(b.AllowHosts, ", "))
+			fmt.Printf("  %-10s toujours lié comme %s (hôtes autorisés : %s)\n", b.Kind, b.GuestEnv, strings.Join(b.AllowHosts, ", "))
 			continue
 		}
-		state := "not approved"
+		state := "non approuvé"
 		if approvals.Approves(b.Kind) {
-			state = "approved"
+			state = "approuvé"
 			if _, err := codebox.ReadStoredCredential(context.Background(), b.Kind); err != nil {
-				state = "approved, but no credential stored (codebox auth add " + string(b.Kind) + ")"
+				state = "approuvé, mais aucun identifiant enregistré (codebox auth add " + string(b.Kind) + ")"
 			}
 		}
-		fmt.Printf("  %-10s %-12s as %s (allowed hosts: %s)\n", b.Kind, state, b.GuestEnv, strings.Join(b.AllowHosts, ", "))
+		fmt.Printf("  %-10s %-12s comme %s (hôtes autorisés : %s)\n", b.Kind, state, b.GuestEnv, strings.Join(b.AllowHosts, ", "))
 	}
 	return 0, nil
 }
@@ -65,7 +65,7 @@ func bindingsListCmd(path, instance string) (int, error) {
 // The binding takes effect at the next start of the project's instance.
 func bindingsApproveCmd(path string, args []string) (int, error) {
 	if len(args) != 1 {
-		return 2, fmt.Errorf("Usage: codebox bindings approve <github|context7>")
+		return 2, fmt.Errorf("Usage : codebox bindings approve <github|context7>")
 	}
 	kind, err := codebox.ParseOptionalBindingKind(args[0])
 	if err != nil {
@@ -74,10 +74,10 @@ func bindingsApproveCmd(path string, args []string) (int, error) {
 	if kind == codebox.CredentialGithub {
 		project, err := codebox.DiscoverProject(".")
 		if err != nil {
-			return 1, fmt.Errorf("GitHub approval requires a project directory: %w", err)
+			return 1, fmt.Errorf("l'approbation GitHub exige un dossier de projet : %w", err)
 		}
 		if runtime, _ := projectRuntimeIsolation(project.Root); runtime != "" && runtime != codebox.RuntimeMicrosandbox {
-			return 1, fmt.Errorf("the protected GitHub guest workflow is available only for Microsandbox projects")
+			return 1, fmt.Errorf("le workflow GitHub protégé de la machine isolée n'est disponible que pour les projets Microsandbox")
 		}
 		if _, err := githubInitPreflightFn(project.Root); err != nil {
 			return 1, err
@@ -86,7 +86,7 @@ func bindingsApproveCmd(path string, args []string) (int, error) {
 	if err := codebox.ApproveBinding(codebox.DefaultFS, path, kind); err != nil {
 		return 1, err
 	}
-	fmt.Printf("Approved the %s binding for this project. It takes effect at the next start; the credential must be stored (codebox auth add %s).\n", kind, kind)
+	fmt.Printf("Liaison %s approuvée pour ce projet. Elle prend effet au prochain démarrage ; l'identifiant doit être enregistré (codebox auth add %s).\n", kind, kind)
 	return 0, nil
 }
 
@@ -95,7 +95,7 @@ func bindingsApproveCmd(path string, args []string) (int, error) {
 // persisted when stopped).
 func bindingsRevokeCmd(path, instance string, args []string) (int, error) {
 	if len(args) != 1 {
-		return 2, fmt.Errorf("Usage: codebox bindings revoke <github|context7>")
+		return 2, fmt.Errorf("Usage : codebox bindings revoke <github|context7>")
 	}
 	// Parse the kind through the same validation as approve: an
 	// unvalidated string would let `bindings revoke albert` strip the
@@ -113,11 +113,11 @@ func bindingsRevokeCmd(path, instance string, args []string) (int, error) {
 	}
 	switch {
 	case revoked && live:
-		fmt.Printf("Revoked the %s binding from the running instance %s. Its guest environment keeps the inert placeholder until the next restart.\n", kind, instance)
+		fmt.Printf("Liaison %s révoquée sur l'instance en cours %s. Son environnement de machine isolée conserve le marqueur inerte jusqu'au prochain redémarrage.\n", kind, instance)
 	case revoked:
-		fmt.Printf("Cleared the persisted %s binding from %s (effective at its next start).\n", kind, instance)
+		fmt.Printf("Liaison persistante %s effacée de %s (effective à son prochain démarrage).\n", kind, instance)
 	default:
-		fmt.Printf("Lifted the %s approval for this project (no running or stopped instance to update).\n", kind)
+		fmt.Printf("Approbation %s levée pour ce projet (aucune instance en cours ou arrêtée à mettre à jour).\n", kind)
 	}
 	return 0, nil
 }

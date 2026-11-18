@@ -62,7 +62,7 @@ func TestTrustLifecycle(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(unapproved) != 1 || unapproved[0].Reason != "changed since approval" {
+	if len(unapproved) != 1 || unapproved[0].Reason != "modifié depuis l'approbation" {
 		t.Fatalf("a changed plugin must be unapproved as changed: %+v", unapproved)
 	}
 
@@ -105,7 +105,7 @@ func TestV2ExecutionDeclarationsRequireFreshTrust(t *testing.T) {
 			if err := os.WriteFile(path, []byte(config+"\n"), 0o600); err != nil {
 				t.Fatal(err)
 			}
-			if got, err := DiscoverUnapprovedInputs(DefaultFS, state, root); err != nil || len(got) != 1 || got[0].Reason != "changed since approval" {
+			if got, err := DiscoverUnapprovedInputs(DefaultFS, state, root); err != nil || len(got) != 1 || got[0].Reason != "modifié depuis l'approbation" {
 				t.Fatalf("changed v2 declaration kept prior approval: %+v, %v", got, err)
 			}
 		})
@@ -136,7 +136,7 @@ func TestDeclaredPluginCodeChangeRequiresFreshTrust(t *testing.T) {
 		t.Fatal(err)
 	}
 	wantPath := filepath.Join(".opencode", "declared", "lib", "hook.js")
-	if len(got) != 1 || got[0].Path != wantPath || got[0].Reason != "changed since approval" {
+	if len(got) != 1 || got[0].Path != wantPath || got[0].Reason != "modifié depuis l'approbation" {
 		t.Fatalf("changed declared plugin code kept prior approval: %+v", got)
 	}
 }
@@ -168,7 +168,7 @@ func TestNestedConfigDeclaredPluginCodeChangeRequiresFreshTrust(t *testing.T) {
 		t.Fatal(err)
 	}
 	wantPath := filepath.Join(".opencode", "declared", "index.js")
-	if len(got) != 1 || got[0].Path != wantPath || got[0].Reason != "changed since approval" {
+	if len(got) != 1 || got[0].Path != wantPath || got[0].Reason != "modifié depuis l'approbation" {
 		t.Fatalf("nested config plugin code kept prior approval: %+v", got)
 	}
 }
@@ -203,7 +203,7 @@ func TestFileURLDeclaredPluginCodeChangeRequiresFreshTrust(t *testing.T) {
 		t.Fatal(err)
 	}
 	wantPath := filepath.Join(".opencode", "declared", "index.js")
-	if len(got) != 1 || got[0].Path != wantPath || got[0].Reason != "changed since approval" {
+	if len(got) != 1 || got[0].Path != wantPath || got[0].Reason != "modifié depuis l'approbation" {
 		t.Fatalf("file URL plugin code kept prior approval: %+v", got)
 	}
 }
@@ -267,7 +267,7 @@ func TestRemoteMCPEndpointChangeRequiresFreshTrust(t *testing.T) {
 		t.Fatal(err)
 	}
 	got, err := DiscoverUnapprovedInputs(DefaultFS, stateDir, root)
-	if err != nil || len(got) != 1 || got[0].Reason != "changed since approval" {
+	if err != nil || len(got) != 1 || got[0].Reason != "modifié depuis l'approbation" {
 		t.Fatalf("changed endpoint should require fresh approval: %+v, %v", got, err)
 	}
 }
@@ -341,7 +341,7 @@ func TestApproveDropsStaleEntries(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(unapproved) != 1 || unapproved[0].Reason != "unapproved" {
+	if len(unapproved) != 1 || unapproved[0].Reason != "non approuvé" {
 		t.Fatalf("a re-created file must need a fresh approval: %+v", unapproved)
 	}
 }
@@ -434,7 +434,7 @@ func TestPiProjectInputsRequireTrust(t *testing.T) {
 		t.Fatal(err)
 	}
 	if len(unapproved) != 1 || unapproved[0].Path != filepath.Join(".pi", "extensions", "hook.ts") ||
-		unapproved[0].Reason != "changed since approval" {
+		unapproved[0].Reason != "modifié depuis l'approbation" {
 		t.Fatalf("a changed extension must need fresh approval: %+v", unapproved)
 	}
 }
@@ -489,7 +489,7 @@ func TestPiDeclaredExtensionContentRequiresFreshApproval(t *testing.T) {
 		t.Fatal(err)
 	}
 	if len(unapproved) != 1 || unapproved[0].Path != filepath.Join("hooks", "startup.ts") ||
-		unapproved[0].Reason != "changed since approval" {
+		unapproved[0].Reason != "modifié depuis l'approbation" {
 		t.Fatalf("a changed declared extension must need fresh approval: %+v", unapproved)
 	}
 }
@@ -543,7 +543,7 @@ func TestPiDeclaredPackageContentRequiresFreshApproval(t *testing.T) {
 		t.Fatal(err)
 	}
 	if len(unapproved) != 1 || unapproved[0].Path != filepath.Join("vendor", "pkg", "index.ts") ||
-		unapproved[0].Reason != "changed since approval" {
+		unapproved[0].Reason != "modifié depuis l'approbation" {
 		t.Fatalf("a changed local package must need fresh approval: %+v", unapproved)
 	}
 }

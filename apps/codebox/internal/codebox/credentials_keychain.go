@@ -43,7 +43,7 @@ func (k *KeychainStore) Put(ctx context.Context, kind CredentialKind, value stri
 		return classifyExecError("add", k.Kind(), res, err)
 	}
 	if res.ExitCode != 0 {
-		return storeErrorf("add", k.Kind(), "denied", "exit %d: %s", res.ExitCode, strings.TrimSpace(res.Stderr))
+		return storeErrorf("add", k.Kind(), "denied", "code %d : %s", res.ExitCode, strings.TrimSpace(res.Stderr))
 	}
 	return nil
 }
@@ -62,11 +62,11 @@ func (k *KeychainStore) Get(ctx context.Context, kind CredentialKind) (string, e
 		}
 		// "could not be decrypted" and user-denied ACL prompts both land
 		// here; the keychain is present but access is refused.
-		return "", storeErrorf("get", k.Kind(), "denied", "exit %d: %s", res.ExitCode, strings.TrimSpace(res.Stderr))
+		return "", storeErrorf("get", k.Kind(), "denied", "code %d : %s", res.ExitCode, strings.TrimSpace(res.Stderr))
 	}
 	value := strings.TrimSuffix(res.Stdout, "\n")
 	if value == "" {
-		return "", storeErrorf("get", k.Kind(), "corrupt", "empty value stored for %s", kind)
+		return "", storeErrorf("get", k.Kind(), "corrupt", "valeur vide enregistrée pour %s", kind)
 	}
 	return value, nil
 }
@@ -82,7 +82,7 @@ func (k *KeychainStore) Remove(ctx context.Context, kind CredentialKind) error {
 		if strings.Contains(res.Stderr, "could not be found") {
 			return ErrCredentialNotFound
 		}
-		return storeErrorf("remove", k.Kind(), "denied", "exit %d: %s", res.ExitCode, strings.TrimSpace(res.Stderr))
+		return storeErrorf("remove", k.Kind(), "denied", "code %d : %s", res.ExitCode, strings.TrimSpace(res.Stderr))
 	}
 	return nil
 }
@@ -100,9 +100,9 @@ func (k *KeychainStore) Verify(ctx context.Context) error {
 		if strings.Contains(res.Stderr, "could not be found") {
 			return nil // store reachable, entry absent: healthy
 		}
-		return storeErrorf("verify", k.Kind(), "denied", "exit %d: %s", res.ExitCode, strings.TrimSpace(res.Stderr))
+		return storeErrorf("verify", k.Kind(), "denied", "code %d : %s", res.ExitCode, strings.TrimSpace(res.Stderr))
 	}
-	return fmt.Errorf("verify sentinel unexpectedly found in keychain")
+	return fmt.Errorf("sentinelle de vérification trouvée de façon inattendue dans le Keychain")
 }
 
 // Generation returns no marker: the native store has no store-local

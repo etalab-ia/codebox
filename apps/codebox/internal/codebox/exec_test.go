@@ -159,7 +159,7 @@ func TestStartRejectsOversizedStdin(t *testing.T) {
 	dir := t.TempDir()
 	payload := strings.Repeat("x", maxStdinPayload+1)
 	err := (OSStarter{}).Start(strings.NewReader(payload), filepath.Join(dir, "log"), "/bin/cat")
-	if err == nil || !strings.Contains(err.Error(), "stdin payload exceeds") {
+	if err == nil || !strings.Contains(err.Error(), "la charge utile sur stdin dépasse") {
 		t.Fatalf("expected oversized-payload error, got %v", err)
 	}
 }

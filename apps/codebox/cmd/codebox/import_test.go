@@ -61,7 +61,7 @@ func TestStoreImportedAlbertCredentialDoesNotOverwrite(t *testing.T) {
 func TestRollbackImportedCredentialPreservesReplacement(t *testing.T) {
 	store := &importTestCredentialStore{value: "replacement-key", set: true}
 	err := rollbackImportedCredential(context.Background(), store, true, "imported-key")
-	if err == nil || !strings.Contains(err.Error(), "changed during import") {
+	if err == nil || !strings.Contains(err.Error(), "a changé pendant l'import") {
 		t.Fatalf("rollback of a replaced credential returned %v", err)
 	}
 	if store.value != "replacement-key" || !store.set {
@@ -130,7 +130,7 @@ func TestAlbertCodeImportRefusesSymlinkedProjectStateDirectory(t *testing.T) {
 	}
 
 	code, err := albertCodeImportCmd([]string{"albert-code", "--root", root, "--apply"})
-	if code != 1 || err == nil || !strings.Contains(err.Error(), "project state directory") {
+	if code != 1 || err == nil || !strings.Contains(err.Error(), "dossier d'état de projet") {
 		t.Fatalf("import through symlinked project state directory: code=%d err=%v", code, err)
 	}
 	entries, err := os.ReadDir(outside)
@@ -180,7 +180,7 @@ func TestAlbertCodeImportPreviewAndApplyAreSafeAndIdempotent(t *testing.T) {
 	if err != nil || code != 0 {
 		t.Fatalf("preview: code=%d err=%v", code, err)
 	}
-	if strings.Contains(preview, "do-not-print-this-value") || !strings.Contains(preview, "Preview only") || !strings.Contains(preview, "sealed guest clone") {
+	if strings.Contains(preview, "do-not-print-this-value") || !strings.Contains(preview, "Aperçu seulement") || !strings.Contains(preview, "clone scellé") {
 		t.Fatalf("unsafe or incomplete preview: %s", preview)
 	}
 	// The recommendation must name the imported project's directory as
@@ -193,7 +193,7 @@ func TestAlbertCodeImportPreviewAndApplyAreSafeAndIdempotent(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(preview, "not approved at their current content") || !strings.Contains(preview, "opencode.json (unapproved)") || !strings.Contains(preview, "'codebox trust approve' from "+project.Root) {
+	if !strings.Contains(preview, "ne sont pas approuvées pour leur contenu actuel") || !strings.Contains(preview, "opencode.json (non approuvé)") || !strings.Contains(preview, "'codebox trust approve' depuis "+project.Root) {
 		t.Fatalf("preview must announce the trust approval the first run will require (#154), naming %q: %s", project.Root, preview)
 	}
 	manifestPath := codebox.ProjectManifestPath(root)
@@ -210,10 +210,10 @@ func TestAlbertCodeImportPreviewAndApplyAreSafeAndIdempotent(t *testing.T) {
 	if err != nil || code != 0 {
 		t.Fatalf("apply: code=%d err=%v, output=%s", code, err, out)
 	}
-	if strings.Contains(out, "Preview only") {
+	if strings.Contains(out, "Aperçu seulement") {
 		t.Fatalf("apply output must not claim to be a preview (#154): %s", out)
 	}
-	if !strings.Contains(out, "not approved at their current content") || !strings.Contains(out, "opencode.json (unapproved)") || !strings.Contains(out, "'codebox trust approve' from "+project.Root) {
+	if !strings.Contains(out, "ne sont pas approuvées pour leur contenu actuel") || !strings.Contains(out, "opencode.json (non approuvé)") || !strings.Contains(out, "'codebox trust approve' depuis "+project.Root) {
 		t.Fatalf("apply must announce the trust approval the first run will require (#154), naming %q: %s", project.Root, out)
 	}
 	manifest, err := codebox.ReadProjectManifest(codebox.DefaultFS, manifestPath)
@@ -242,7 +242,7 @@ func TestAlbertCodeImportPreviewAndApplyAreSafeAndIdempotent(t *testing.T) {
 	second := captureStdout(t, func() {
 		code, err = albertCodeImportCmd([]string{"albert-code", "--root", root, "--apply"})
 	})
-	if err != nil || code != 0 || !strings.Contains(second, "already been imported") {
+	if err != nil || code != 0 || !strings.Contains(second, "déjà été importé") {
 		t.Fatalf("second import was not an idempotent no-op: code=%d err=%v output=%s", code, err, second)
 	}
 	if !strings.Contains(second, "trust approve") {
@@ -284,7 +284,7 @@ func TestAlbertCodeImportRefusesMCPsAbsentFromLegacySources(t *testing.T) {
 	if err := os.Remove(configPath); err != nil {
 		t.Fatal(err)
 	}
-	if code, err := albertCodeImportCmd([]string{"albert-code", "--root", root, "--apply"}); code != 1 || err == nil || !strings.Contains(err.Error(), "differs from the import") {
+	if code, err := albertCodeImportCmd([]string{"albert-code", "--root", root, "--apply"}); code != 1 || err == nil || !strings.Contains(err.Error(), "différente de celle de l'import") {
 		t.Fatalf("re-import accepted an MCP absent from legacy sources: code=%d err=%v", code, err)
 	}
 	manifest, err := codebox.ReadProjectManifest(codebox.DefaultFS, codebox.ProjectManifestPath(root))
@@ -360,7 +360,7 @@ func TestAlbertCodeImportAppliesSkillsAndPreservesAlbertManagedInstructions(t *t
 	if err := codebox.WriteLockfile(codebox.DefaultFS, codebox.ProjectLockPath(root), lock); err != nil {
 		t.Fatal(err)
 	}
-	if code, err := albertCodeImportCmd([]string{"albert-code", "--root", root, "--apply"}); code != 1 || err == nil || !strings.Contains(err.Error(), "differs from the import") {
+	if code, err := albertCodeImportCmd([]string{"albert-code", "--root", root, "--apply"}); code != 1 || err == nil || !strings.Contains(err.Error(), "différente de celle de l'import") {
 		t.Fatalf("re-import accepted a changed skill pin: code=%d err=%v", code, err)
 	}
 	lock.Skills["official/example"] = expectedSkillLock
@@ -376,7 +376,7 @@ func TestAlbertCodeImportAppliesSkillsAndPreservesAlbertManagedInstructions(t *t
 			t.Fatalf("AGENTS.md lost %q after import: %s", want, updated)
 		}
 	}
-	if !strings.Contains(output, "AGENTS.md was updated only through the codebox managed skills section") {
+	if !strings.Contains(output, "n'a été mis à jour que par la section de skills gérées") {
 		t.Fatalf("apply output omitted managed-instructions result: %s", output)
 	}
 	second := captureStdout(t, func() {
@@ -385,7 +385,7 @@ func TestAlbertCodeImportAppliesSkillsAndPreservesAlbertManagedInstructions(t *t
 			t.Fatalf("second apply with skills: code=%d err=%v", code, err)
 		}
 	})
-	if !strings.Contains(second, "already been imported") {
+	if !strings.Contains(second, "déjà été importé") {
 		t.Fatalf("skill import was not idempotent: %s", second)
 	}
 }
@@ -419,7 +419,7 @@ func TestAlbertCodeImportRepairsMissingManagedSkillInstructionsOnReimport(t *tes
 	output := captureStdout(t, func() {
 		code, commandErr = albertCodeImportCmd([]string{"albert-code", "--root", root, "--apply"})
 	})
-	if commandErr != nil || code != 0 || !strings.Contains(output, "Reconciled the existing import") {
+	if commandErr != nil || code != 0 || !strings.Contains(output, "réconciliés dans") {
 		t.Fatalf("re-import did not repair managed instructions: code=%d err=%v output=%s", code, commandErr, output)
 	}
 	updated, err := os.ReadFile(filepath.Join(root, "AGENTS.md"))
@@ -449,7 +449,7 @@ func TestAlbertCodeImportRefusesToWriteThroughSymlinkedAgentsFile(t *testing.T) 
 	}
 	stubProjectSkills(t)
 	stubImportSkillResolver(t)
-	if _, err := albertCodeImportCmd([]string{"albert-code", "--root", root, "--apply"}); err == nil || !strings.Contains(err.Error(), "not a regular file") {
+	if _, err := albertCodeImportCmd([]string{"albert-code", "--root", root, "--apply"}); err == nil || !strings.Contains(err.Error(), "n'est pas un fichier régulier") {
 		t.Fatalf("import through symlinked AGENTS.md was not refused: %v", err)
 	}
 	if got, err := os.ReadFile(target); err != nil || string(got) != targetContents {
@@ -516,7 +516,7 @@ func TestAlbertCodeImportRefusesExistingManagedFieldsAbsentFromLegacySource(t *t
 		t.Fatal(err)
 	}
 	code, err := albertCodeImportCmd([]string{"albert-code", "--root", root, "--apply"})
-	if code != 1 || err == nil || !strings.Contains(err.Error(), "differs from the import") {
+	if code != 1 || err == nil || !strings.Contains(err.Error(), "différente de celle de l'import") {
 		t.Fatalf("import with unrelated existing model = (%d, %v); want refusal", code, err)
 	}
 	if got, err := os.ReadFile(runtimeScript); err != nil || string(got) != script {
@@ -556,7 +556,7 @@ func TestAlbertCodeImportRefusesUnexplainedManifestFields(t *testing.T) {
 				t.Fatal(err)
 			}
 			code, err := albertCodeImportCmd([]string{"albert-code", "--root", root, "--apply"})
-			if code != 1 || err == nil || !strings.Contains(err.Error(), "differs from the import") {
+			if code != 1 || err == nil || !strings.Contains(err.Error(), "différente de celle de l'import") {
 				t.Fatalf("manifest with unaccounted %s field: code=%d err=%v", tc.name, code, err)
 			}
 		})
@@ -585,7 +585,7 @@ func TestAlbertCodeImportPreviewShowsUnresolvedSkillsWhenCatalogueIsOffline(t *t
 			t.Fatalf("offline preview: code=%d err=%v", code, err)
 		}
 	})
-	if !strings.Contains(preview, "Legacy skills not resolved (catalogue unavailable): rgaa") {
+	if !strings.Contains(preview, "Skills hérités non résolus (catalogue indisponible) : rgaa") {
 		t.Fatalf("offline preview omitted legacy skill name: %s", preview)
 	}
 	if _, err := os.Stat(codebox.ProjectManifestPath(root)); !os.IsNotExist(err) {
@@ -650,7 +650,7 @@ func TestValidateImportedPlatformsRejectsAnEndpointConflict(t *testing.T) {
 		Kind: codebox.ProviderOpenAICompatible, Name: "OpenRouter", BaseURL: "https://openrouter.ai/api/v1",
 	}}}
 	err = validateImportedPlatforms(conflicting)
-	if err == nil || !strings.Contains(err.Error(), "already configured") {
+	if err == nil || !strings.Contains(err.Error(), "déjà configurée pour") {
 		t.Fatalf("a different endpoint must be refused: %v", err)
 	}
 	same := codebox.AlbertCodeImport{Platforms: []codebox.ProviderSettings{{
@@ -677,7 +677,7 @@ func TestValidateImportedPlatformsRejectsASharedDestination(t *testing.T) {
 		Kind: codebox.ProviderOpenAICompatible, Name: "Mistral again", BaseURL: "https://api.mistral.ai/v1",
 	}}}
 	err = validateImportedPlatforms(plan)
-	if err == nil || !strings.Contains(err.Error(), "share the host") {
+	if err == nil || !strings.Contains(err.Error(), "partagent l'hôte") {
 		t.Fatalf("a shared destination must be refused: %v", err)
 	}
 }

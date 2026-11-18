@@ -90,24 +90,24 @@ func RecommendedDefaultGuestMemoryMB(hostMemoryMB int) int {
 // capacity. The setting is a hard ceiling, not a recommendation.
 func ValidateGuestResources(host HostResources, guestCPUs, guestMemoryMB int) error {
 	if host.CPUs <= 0 || host.MemoryMB <= 0 {
-		return fmt.Errorf("cannot enforce the guest resource limit because host capacity could not be detected")
+		return fmt.Errorf("impossible d'appliquer la limite de ressources de la machine isolée : la capacité du poste n'a pas pu être détectée")
 	}
 	if guestCPUs < 1 {
-		return fmt.Errorf("guest CPU request must be at least 1, got %d", guestCPUs)
+		return fmt.Errorf("la demande de processeurs de la machine isolée doit être d'au moins 1, obtenu %d", guestCPUs)
 	}
 	if guestMemoryMB < 1 {
-		return fmt.Errorf("guest memory request must be at least 1 MiB, got %d", guestMemoryMB)
+		return fmt.Errorf("la demande de mémoire de la machine isolée doit être d'au moins 1 MiB, obtenu %d", guestMemoryMB)
 	}
 	maxCPUs := MaxGuestCPUs(host.CPUs)
 	if maxCPUs < 1 {
-		return fmt.Errorf("host has no detected logical CPUs available for the guest")
+		return fmt.Errorf("aucun processeur logique du poste n'est disponible pour la machine isolée")
 	}
 	if guestCPUs > maxCPUs {
-		return fmt.Errorf("guest CPU request %d exceeds detected host capacity (%d logical CPUs)", guestCPUs, maxCPUs)
+		return fmt.Errorf("la demande de %d processeurs dépasse la capacité détectée du poste (%d processeurs logiques)", guestCPUs, maxCPUs)
 	}
 	maxMemory := MaxGuestMemoryMB(host.MemoryMB)
 	if guestMemoryMB > maxMemory {
-		return fmt.Errorf("guest memory request %s exceeds detected host capacity (%s)", FormatMemorySize(guestMemoryMB), FormatMemorySize(maxMemory))
+		return fmt.Errorf("la demande de mémoire %s dépasse la capacité détectée du poste (%s)", FormatMemorySize(guestMemoryMB), FormatMemorySize(maxMemory))
 	}
 	return nil
 }
@@ -135,7 +135,7 @@ func GuestResourceWarnings(host HostResources, guestCPUs, guestMemoryMB int) []s
 func ParseMemorySize(value string) (int, error) {
 	value = strings.TrimSpace(value)
 	if value == "" {
-		return 0, fmt.Errorf("memory size is empty")
+		return 0, fmt.Errorf("la taille de mémoire est vide")
 	}
 	upper := strings.ToUpper(value)
 	unit := "MiB"
@@ -150,23 +150,23 @@ func ParseMemorySize(value string) (int, error) {
 		}
 	}
 	if !memorySizePattern.MatchString(numeric) {
-		return 0, fmt.Errorf("must be a positive MiB number or a GiB size such as 4G or 2.5G, got %q", value)
+		return 0, fmt.Errorf("doit être un nombre de MiB positif ou une taille en GiB telle que 4G ou 2.5G, obtenu %q", value)
 	}
 	r, ok := new(big.Rat).SetString(numeric)
 	if !ok || r.Sign() <= 0 {
-		return 0, fmt.Errorf("must be greater than zero, got %q", value)
+		return 0, fmt.Errorf("doit être supérieur à zéro, obtenu %q", value)
 	}
 	r.Mul(r, new(big.Rat).SetInt64(factor))
 	mb := new(big.Int).Quo(r.Num(), r.Denom())
 	if !mb.IsInt64() || mb.Int64() > int64(MaxSandboxMemoryMB) {
-		return 0, fmt.Errorf("must not exceed %d MiB", MaxSandboxMemoryMB)
+		return 0, fmt.Errorf("ne doit pas dépasser %d MiB", MaxSandboxMemoryMB)
 	}
 	if unit == "MiB" && r.Denom().Cmp(big.NewInt(1)) != 0 {
-		return 0, fmt.Errorf("MiB values must be whole numbers, got %q", value)
+		return 0, fmt.Errorf("les valeurs en MiB doivent être des nombres entiers, obtenu %q", value)
 	}
 	parsed := int(mb.Int64())
 	if parsed < 1 {
-		return 0, fmt.Errorf("must be at least 1 MiB, got %q", value)
+		return 0, fmt.Errorf("doit être d'au moins 1 MiB, obtenu %q", value)
 	}
 	return parsed, nil
 }

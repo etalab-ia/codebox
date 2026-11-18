@@ -100,7 +100,7 @@ type LocalSkillSelections struct {
 
 func LocalSkillSelectionsPath(stateDir, instance string) (string, error) {
 	if !validProjectInstance(instance) {
-		return "", fmt.Errorf("invalid project instance for local skill state")
+		return "", fmt.Errorf("instance de projet invalide pour l'état des skills locaux")
 	}
 	return filepath.Join(InstanceStateDir(stateDir, instance), "skills.json"), nil
 }
@@ -115,10 +115,10 @@ func ReadLocalSkillSelections(fs FS, path string) (LocalSkillSelections, error) 
 	}
 	var selection LocalSkillSelections
 	if err := json.Unmarshal(data, &selection); err != nil {
-		return LocalSkillSelections{}, fmt.Errorf("local skill selections %s: invalid JSON: %w", path, err)
+		return LocalSkillSelections{}, fmt.Errorf("sélections de skills locaux %s : JSON invalide : %w", path, err)
 	}
 	if selection.SchemaVersion != 1 {
-		return LocalSkillSelections{}, fmt.Errorf("local skill selections %s: unsupported schemaVersion %d", path, selection.SchemaVersion)
+		return LocalSkillSelections{}, fmt.Errorf("sélections de skills locaux %s : schemaVersion %d non pris en charge", path, selection.SchemaVersion)
 	}
 	if err := validateSkillIDs(selection.Skills, nil); err != nil {
 		return LocalSkillSelections{}, err
@@ -232,7 +232,7 @@ func ProjectSkillCatalogue(ctx context.Context) ([]ProjectSkill, error) {
 // the revision used by ordinary init.
 func ProjectSkillCatalogueAtRevision(ctx context.Context, revision string) ([]ProjectSkill, error) {
 	if !isGitRevision(revision) {
-		return nil, fmt.Errorf("invalid project skills revision %q", revision)
+		return nil, fmt.Errorf("révision des skills de projet invalide %q", revision)
 	}
 	ctx, cancel := context.WithTimeout(ctx, skillSourceTimeout)
 	defer cancel()
@@ -261,7 +261,7 @@ func parseProjectSkillCatalogue(entries []skillTreeEntry, readBlob func(string) 
 			continue
 		}
 		if entry.Mode != "100644" {
-			return nil, fmt.Errorf("skill %s is not a regular file", entry.Path)
+			return nil, fmt.Errorf("le skill %s n'est pas un fichier régulier", entry.Path)
 		}
 		data, err := readBlob(entry.OID)
 		if err != nil {
@@ -269,13 +269,13 @@ func parseProjectSkillCatalogue(entries []skillTreeEntry, readBlob func(string) 
 		}
 		meta, err := parseSkillFrontmatter(data)
 		if err != nil {
-			return nil, fmt.Errorf("skill %s: %w", entry.Path, err)
+			return nil, fmt.Errorf("skill %s : %w", entry.Path, err)
 		}
 		if !skillNamePattern.MatchString(meta.Name) || meta.Name != name {
-			return nil, fmt.Errorf("skill %s declares invalid or mismatched name %q", entry.Path, meta.Name)
+			return nil, fmt.Errorf("le skill %s déclare un nom %q invalide ou incohérent", entry.Path, meta.Name)
 		}
 		if previous, exists := seen[meta.Name]; exists {
-			return nil, fmt.Errorf("duplicate skill name %q in %s and %s", meta.Name, previous, entry.Path)
+			return nil, fmt.Errorf("nom de skill %q en double dans %s et %s", meta.Name, previous, entry.Path)
 		}
 		seen[meta.Name] = entry.Path
 		result = append(result, ProjectSkill{
@@ -297,7 +297,7 @@ func ResolveProjectSkills(ctx context.Context, ids []string) ([]ProjectSkill, ma
 // lock can be written to a project.
 func ResolveProjectSkillsAtRevision(ctx context.Context, ids []string, revision string) ([]ProjectSkill, map[string]SkillLock, error) {
 	if !isGitRevision(revision) {
-		return nil, nil, fmt.Errorf("invalid project skills revision %q", revision)
+		return nil, nil, fmt.Errorf("révision des skills de projet invalide %q", revision)
 	}
 	ctx, cancel := context.WithTimeout(ctx, skillSourceTimeout)
 	defer cancel()
@@ -323,15 +323,15 @@ func ResolveProjectSkillsAtRevision(ctx context.Context, ids []string, revision 
 		skill := byID[id]
 		raw, err := gitOutput(ctx, repo, "archive", "--format=tar", revision, "LICENSE", skill.Path)
 		if err != nil {
-			return nil, nil, fmt.Errorf("archive selected skill %s: %w", id, err)
+			return nil, nil, fmt.Errorf("archivage du skill sélectionné %s : %w", id, err)
 		}
 		archive, err := normalizeSkillArchive(bytes.NewReader(raw), skill.Path, skill.Name)
 		if err != nil {
-			return nil, nil, fmt.Errorf("archive selected skill %s: %w", id, err)
+			return nil, nil, fmt.Errorf("archivage du skill sélectionné %s : %w", id, err)
 		}
 		totalBytes += int64(len(archive))
 		if totalBytes > maxSkillSetBytes {
-			return nil, nil, fmt.Errorf("selected skills exceed the %d-byte total cache/guest limit", maxSkillSetBytes)
+			return nil, nil, fmt.Errorf("les skills sélectionnés dépassent la limite totale de %d octets du cache et de la machine isolée", maxSkillSetBytes)
 		}
 		digest := sha256.Sum256(archive)
 		lock := SkillLock{Repository: projectSkillsRepository, Revision: revision, SHA256: hex.EncodeToString(digest[:])}
@@ -340,7 +340,7 @@ func ResolveProjectSkillsAtRevision(ctx context.Context, ids []string, revision 
 		}
 		cached, err := readCachedSkillArchive(skill.Name, lock)
 		if err != nil || !equalBytes(cached, archive) {
-			return nil, nil, fmt.Errorf("skill %s failed its post-cache SHA-256 integrity check", id)
+			return nil, nil, fmt.Errorf("le skill %s a échoué à sa vérification d'intégrité SHA-256 après mise en cache", id)
 		}
 		selected = append(selected, skill)
 		locks[id] = lock
@@ -358,25 +358,25 @@ func LoadLockedSkillPackages(ids []string, locks map[string]SkillLock) ([]SkillP
 	for _, id := range ids {
 		lock, ok := locks[id]
 		if !ok {
-			return nil, fmt.Errorf("skill %s has no lock entry; re-run 'codebox init' while online to pin it", id)
+			return nil, fmt.Errorf("le skill %s n'a pas d'entrée de verrouillage ; relancez 'codebox init' en ligne pour l'épingler", id)
 		}
 		if lock.Repository != projectSkillsRepository || !isGitRevision(lock.Revision) || !isSHA256(lock.SHA256) {
-			return nil, fmt.Errorf("skill %s has an invalid source lock", id)
+			return nil, fmt.Errorf("le skill %s a un verrouillage de source invalide", id)
 		}
 		_, name, ok := parseProjectSkillID(id)
 		if !ok {
-			return nil, fmt.Errorf("invalid skill id %q", id)
+			return nil, fmt.Errorf("identifiant de skill invalide %q", id)
 		}
 		archive, err := readCachedSkillArchive(name, lock)
 		if err != nil {
-			return nil, fmt.Errorf("skill %s: %w", id, err)
+			return nil, fmt.Errorf("skill %s : %w", id, err)
 		}
 		totalBytes += int64(len(archive))
 		if totalBytes > maxSkillSetBytes {
-			return nil, fmt.Errorf("selected skills exceed the %d-byte total cache/guest limit", maxSkillSetBytes)
+			return nil, fmt.Errorf("les skills sélectionnés dépassent la limite totale de %d octets du cache et de la machine isolée", maxSkillSetBytes)
 		}
 		if err := validateNormalizedSkillArchive(archive, name); err != nil {
-			return nil, fmt.Errorf("skill %s cached archive: %w", id, err)
+			return nil, fmt.Errorf("archive en cache du skill %s : %w", id, err)
 		}
 		packages = append(packages, SkillPackage{ID: id, Name: name, Lock: lock, Archive: archive})
 	}
@@ -531,7 +531,7 @@ func renderManagedInstructions(start, end string, ids []string, locks map[string
 		for _, id := range ids {
 			lock, ok := locks[id]
 			if !ok {
-				return "", fmt.Errorf("skill %s has no lock entry", id)
+				return "", fmt.Errorf("le skill %s n'a pas d'entrée de verrouillage", id)
 			}
 			fmt.Fprintf(&b, "- `%s` at `%s`\n", id, lock.Revision)
 		}
@@ -622,7 +622,7 @@ func managedSkillMarkers(text, start, end string) (int, int, error) {
 		return -1, -1, nil
 	}
 	if starts != 1 || ends != 1 || startLine >= endLine {
-		return -1, -1, errors.New("AGENTS.md has malformed or ambiguous codebox skill markers; edit the markers before continuing")
+		return -1, -1, errors.New("AGENTS.md a des marqueurs de skills codebox mal formés ou ambigus ; corrigez les marqueurs avant de continuer")
 	}
 	return startLine, endLine, nil
 }
@@ -630,12 +630,12 @@ func managedSkillMarkers(text, start, end string) (int, int, error) {
 func parseSkillFrontmatter(data []byte) (skillFrontmatter, error) {
 	var meta skillFrontmatter
 	if len(data) > maxSkillFileBytes {
-		return meta, fmt.Errorf("SKILL.md exceeds the %d-byte limit", maxSkillFileBytes)
+		return meta, fmt.Errorf("SKILL.md dépasse la limite de %d octets", maxSkillFileBytes)
 	}
 	text := strings.ReplaceAll(string(data), "\r\n", "\n")
 	lines := strings.Split(text, "\n")
 	if len(lines) < 3 || lines[0] != "---" {
-		return meta, errors.New("SKILL.md must start with YAML frontmatter")
+		return meta, errors.New("SKILL.md doit commencer par un frontmatter YAML")
 	}
 	end := -1
 	for i := 1; i < len(lines); i++ {
@@ -645,19 +645,19 @@ func parseSkillFrontmatter(data []byte) (skillFrontmatter, error) {
 		}
 	}
 	if end < 0 {
-		return meta, errors.New("SKILL.md frontmatter is not terminated")
+		return meta, errors.New("le frontmatter de SKILL.md n'est pas terminé")
 	}
 	frontmatter := []byte(strings.Join(lines[1:end], "\n"))
 	if len(frontmatter) > 64<<10 {
-		return meta, errors.New("SKILL.md frontmatter exceeds the 64 KiB limit")
+		return meta, errors.New("le frontmatter de SKILL.md dépasse la limite de 64 KiB")
 	}
 	if err := yaml.Unmarshal(frontmatter, &meta); err != nil {
-		return meta, fmt.Errorf("invalid YAML frontmatter: %w", err)
+		return meta, fmt.Errorf("frontmatter YAML invalide : %w", err)
 	}
 	meta.Name = strings.TrimSpace(meta.Name)
 	meta.Description = strings.TrimSpace(meta.Description)
 	if meta.Name == "" || meta.Description == "" {
-		return meta, errors.New("SKILL.md must provide a non-empty name and description")
+		return meta, errors.New("SKILL.md doit fournir un nom et une description non vides")
 	}
 	return meta, nil
 }
@@ -688,23 +688,23 @@ func parseProjectSkillID(id string) (category, name string, ok bool) {
 
 func validateSkillIDs(ids []string, known map[string]ProjectSkill) error {
 	if len(ids) > maxProjectSkills {
-		return fmt.Errorf("at most %d project skills may be selected", maxProjectSkills)
+		return fmt.Errorf("au plus %d skills de projet peuvent être sélectionnés", maxProjectSkills)
 	}
 	seen := make(map[string]bool, len(ids))
 	for _, id := range ids {
 		if id == "" || (!strings.HasPrefix(id, "official/") && !strings.HasPrefix(id, "experimental/")) {
-			return fmt.Errorf("invalid skill id %q; use official/<name> or experimental/<name>", id)
+			return fmt.Errorf("identifiant de skill invalide %q ; utilisez official/<name> ou experimental/<name>", id)
 		}
 		if _, _, ok := parseProjectSkillID(id); !ok {
-			return fmt.Errorf("invalid skill id %q", id)
+			return fmt.Errorf("identifiant de skill invalide %q", id)
 		}
 		if seen[id] {
-			return fmt.Errorf("skill %q was selected more than once", id)
+			return fmt.Errorf("le skill %q a été sélectionné plusieurs fois", id)
 		}
 		seen[id] = true
 		if known != nil {
 			if _, ok := known[id]; !ok {
-				return fmt.Errorf("unknown project skill %q", id)
+				return fmt.Errorf("skill de projet inconnu %q", id)
 			}
 		}
 	}
@@ -718,7 +718,7 @@ func ValidateProjectSkillIDs(ids []string) error {
 
 func validateProjectSkillRuntime(runtime Runtime, ids []string) error {
 	if len(ids) > 0 && runtime != RuntimeMicrosandbox {
-		return fmt.Errorf("selected project skills require the sealed microsandbox runtime")
+		return fmt.Errorf("les skills de projet sélectionnés exigent le runtime microsandbox scellé")
 	}
 	return nil
 }
@@ -734,7 +734,7 @@ func normalizeSkillArchive(src io.Reader, sourceDir, expectedName string) ([]byt
 			break
 		}
 		if err != nil {
-			return nil, fmt.Errorf("invalid source archive: %w", err)
+			return nil, fmt.Errorf("archive source invalide : %w", err)
 		}
 		// git archive may add a PAX global header for the source commit
 		// timestamp. It carries no skill payload and is not extracted.
@@ -742,7 +742,7 @@ func normalizeSkillArchive(src io.Reader, sourceDir, expectedName string) ([]byt
 			continue
 		}
 		if count >= maxSkillFiles {
-			return nil, fmt.Errorf("archive exceeds %d entries", maxSkillFiles)
+			return nil, fmt.Errorf("l'archive dépasse %d entrées", maxSkillFiles)
 		}
 		name := strings.ReplaceAll(h.Name, "\\", "/")
 		if sourceDir != "" {
@@ -757,7 +757,7 @@ func normalizeSkillArchive(src io.Reader, sourceDir, expectedName string) ([]byt
 					continue
 				}
 				if !strings.HasPrefix(name, prefix) {
-					return nil, fmt.Errorf("archive entry %q is outside selected skill", h.Name)
+					return nil, fmt.Errorf("l'entrée d'archive %q est hors du skill sélectionné", h.Name)
 				}
 				name = strings.TrimPrefix(name, prefix)
 			}
@@ -770,27 +770,27 @@ func normalizeSkillArchive(src io.Reader, sourceDir, expectedName string) ([]byt
 			continue
 		}
 		if name == "" || path.IsAbs(name) || clean != name || clean == ".." || strings.HasPrefix(clean, "../") {
-			return nil, fmt.Errorf("unsafe archive entry %q", h.Name)
+			return nil, fmt.Errorf("entrée d'archive %q non sûre", h.Name)
 		}
 		if strings.ContainsAny(clean, " \t\r\n\\") {
-			return nil, fmt.Errorf("archive entry %q has an unsupported path", h.Name)
+			return nil, fmt.Errorf("l'entrée d'archive %q a un chemin non pris en charge", h.Name)
 		}
 		switch h.Typeflag {
 		case tar.TypeDir:
 			continue
 		case tar.TypeReg, tar.TypeRegA:
 		default:
-			return nil, fmt.Errorf("archive entry %q is not a regular file", h.Name)
+			return nil, fmt.Errorf("l'entrée d'archive %q n'est pas un fichier régulier", h.Name)
 		}
 		if h.Size < 0 || h.Size > maxSkillFileBytes || total+h.Size > maxSkillArchiveBytes {
-			return nil, fmt.Errorf("archive entry %q exceeds the size limit", h.Name)
+			return nil, fmt.Errorf("l'entrée d'archive %q dépasse la limite de taille", h.Name)
 		}
 		if _, exists := files[clean]; exists {
-			return nil, fmt.Errorf("archive contains duplicate path %q", clean)
+			return nil, fmt.Errorf("l'archive contient un chemin en double %q", clean)
 		}
 		data, err := io.ReadAll(io.LimitReader(tr, h.Size+1))
 		if err != nil || int64(len(data)) != h.Size {
-			return nil, fmt.Errorf("archive entry %q has a truncated body", h.Name)
+			return nil, fmt.Errorf("le corps de l'entrée d'archive %q est tronqué", h.Name)
 		}
 		total += h.Size
 		files[clean] = data
@@ -800,16 +800,16 @@ func normalizeSkillArchive(src io.Reader, sourceDir, expectedName string) ([]byt
 				return nil, err
 			}
 			if meta.Name != expectedName {
-				return nil, fmt.Errorf("SKILL.md declares %q, want %q", meta.Name, expectedName)
+				return nil, fmt.Errorf("SKILL.md déclare %q, attendu %q", meta.Name, expectedName)
 			}
 			foundSkill = true
 		}
 	}
 	if !foundSkill {
-		return nil, errors.New("archive does not contain a root SKILL.md")
+		return nil, errors.New("l'archive ne contient pas de SKILL.md à la racine")
 	}
 	if _, exists := files[".codebox-checksums"]; exists {
-		return nil, errors.New("skill archive uses a reserved codebox metadata path")
+		return nil, errors.New("l'archive de skill utilise un chemin de métadonnées codebox réservé")
 	}
 	var checksums strings.Builder
 	for _, name := range sortedSkillFiles(files) {
@@ -836,18 +836,18 @@ func normalizeSkillArchive(src io.Reader, sourceDir, expectedName string) ([]byt
 		return nil, err
 	}
 	if compressed.Len() > maxSkillArchiveBytes {
-		return nil, fmt.Errorf("normalized archive exceeds %d bytes", maxSkillArchiveBytes)
+		return nil, fmt.Errorf("l'archive normalisée dépasse %d octets", maxSkillArchiveBytes)
 	}
 	return compressed.Bytes(), nil
 }
 
 func validateNormalizedSkillArchive(data []byte, expectedName string) error {
 	if len(data) > maxSkillArchiveBytes {
-		return fmt.Errorf("archive exceeds %d bytes", maxSkillArchiveBytes)
+		return fmt.Errorf("l'archive dépasse %d octets", maxSkillArchiveBytes)
 	}
 	zr, err := gzip.NewReader(bytes.NewReader(data))
 	if err != nil {
-		return fmt.Errorf("invalid gzip archive: %w", err)
+		return fmt.Errorf("archive gzip invalide : %w", err)
 	}
 	defer zr.Close()
 	tr := tar.NewReader(zr)
@@ -859,48 +859,48 @@ func validateNormalizedSkillArchive(data []byte, expectedName string) error {
 			break
 		}
 		if err != nil {
-			return fmt.Errorf("invalid archive: %w", err)
+			return fmt.Errorf("archive invalide : %w", err)
 		}
 		if count >= maxSkillFiles+1 {
-			return fmt.Errorf("archive exceeds %d entries", maxSkillFiles+1)
+			return fmt.Errorf("l'archive dépasse %d entrées", maxSkillFiles+1)
 		}
 		name := h.Name
 		if name == "" || path.Clean(name) != name || path.IsAbs(name) || strings.HasPrefix(name, "../") || strings.ContainsAny(name, " \t\r\n\\") {
-			return fmt.Errorf("unsafe archive entry %q", name)
+			return fmt.Errorf("entrée d'archive %q non sûre", name)
 		}
 		if h.Typeflag != tar.TypeReg && h.Typeflag != tar.TypeRegA {
-			return fmt.Errorf("archive entry %q is not a regular file", name)
+			return fmt.Errorf("l'entrée d'archive %q n'est pas un fichier régulier", name)
 		}
 		if h.Mode != 0o644 || h.Size < 0 || h.Size > maxSkillFileBytes || total+h.Size > maxSkillArchiveBytes {
-			return fmt.Errorf("archive entry %q has unsafe mode or size", name)
+			return fmt.Errorf("l'entrée d'archive %q a un mode ou une taille non sûrs", name)
 		}
 		if _, exists := files[name]; exists {
-			return fmt.Errorf("archive contains duplicate path %q", name)
+			return fmt.Errorf("l'archive contient un chemin en double %q", name)
 		}
 		body, err := io.ReadAll(io.LimitReader(tr, h.Size+1))
 		if err != nil || int64(len(body)) != h.Size {
-			return fmt.Errorf("archive entry %q is truncated", name)
+			return fmt.Errorf("l'entrée d'archive %q est tronquée", name)
 		}
 		files[name] = body
 		total += h.Size
 	}
 	metadata, ok := files[".codebox-checksums"]
 	if !ok {
-		return errors.New("archive is missing its integrity manifest")
+		return errors.New("l'archive n'a pas de manifeste d'intégrité")
 	}
 	skill, ok := files["SKILL.md"]
 	if !ok {
-		return errors.New("archive does not contain a root SKILL.md")
+		return errors.New("l'archive ne contient pas de SKILL.md à la racine")
 	}
 	if _, ok := files["LICENSE"]; !ok {
-		return errors.New("archive is missing the upstream catalogue license")
+		return errors.New("l'archive n'a pas la licence du catalogue amont")
 	}
 	frontmatter, err := parseSkillFrontmatter(skill)
 	if err != nil {
 		return err
 	}
 	if frontmatter.Name != expectedName {
-		return fmt.Errorf("SKILL.md declares %q, want %q", frontmatter.Name, expectedName)
+		return fmt.Errorf("SKILL.md déclare %q, attendu %q", frontmatter.Name, expectedName)
 	}
 	content := make(map[string][]byte, len(files)-1)
 	for name, body := range files {
@@ -914,7 +914,7 @@ func validateNormalizedSkillArchive(data []byte, expectedName string) error {
 		fmt.Fprintf(&want, "%s  %s\n", hex.EncodeToString(digest[:]), name)
 	}
 	if !bytes.Equal(metadata, []byte(want.String())) {
-		return errors.New("archive integrity manifest does not match file contents")
+		return errors.New("le manifeste d'intégrité de l'archive ne correspond pas au contenu des fichiers")
 	}
 	return nil
 }
@@ -934,21 +934,21 @@ func cachedProjectSkillsRepo(ctx context.Context) (string, error) {
 
 func cachedProjectSkillsRepoAt(ctx context.Context, revision string) (string, error) {
 	if !isGitRevision(revision) {
-		return "", fmt.Errorf("invalid project skills revision %q", revision)
+		return "", fmt.Errorf("révision des skills de projet invalide %q", revision)
 	}
 	cache, err := userCacheDirFn()
 	if err != nil {
-		return "", fmt.Errorf("resolve the user cache directory: %w", err)
+		return "", fmt.Errorf("résolution du dossier de cache utilisateur : %w", err)
 	}
 	parent := filepath.Join(cache, "codebox", "skill-sources")
 	dest := filepath.Join(parent, revision)
 	if info, err := os.Lstat(dest); err == nil {
 		if !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
-			return "", fmt.Errorf("skill source cache %s is not a regular directory", dest)
+			return "", fmt.Errorf("le cache source des skills %s n'est pas un dossier régulier", dest)
 		}
 		got, err := gitOutput(ctx, dest, "rev-parse", "FETCH_HEAD")
 		if err != nil || strings.TrimSpace(string(got)) != revision {
-			return "", fmt.Errorf("skill source cache %s does not match pinned revision %s", dest, revision)
+			return "", fmt.Errorf("le cache source des skills %s ne correspond pas à la révision épinglée %s", dest, revision)
 		}
 		return dest, nil
 	} else if !os.IsNotExist(err) {
@@ -969,13 +969,13 @@ func cachedProjectSkillsRepoAt(ctx context.Context, revision string) (string, er
 		return "", err
 	}
 	if _, err := runGit(ctx, tmp, "fetch", "--depth=1", "origin", revision); err != nil {
-		return "", fmt.Errorf("fetch project skills catalogue at %s: %w", revision, err)
+		return "", fmt.Errorf("récupération du catalogue de skills de projet sur %s : %w", revision, err)
 	}
 	// Read directly from fetched Git objects. A checkout would invoke any
 	// user-configured smudge filter named by the external repository.
 	got, err := gitOutput(ctx, tmp, "rev-parse", "FETCH_HEAD")
 	if err != nil || strings.TrimSpace(string(got)) != revision {
-		return "", errors.New("the skills source did not resolve to the requested commit")
+		return "", errors.New("la source des skills n'a pas résolu vers le commit demandé")
 	}
 	if err := os.Rename(tmp, dest); err != nil {
 		if info, statErr := os.Lstat(dest); statErr == nil && info.IsDir() && info.Mode()&os.ModeSymlink == 0 {
@@ -984,7 +984,7 @@ func cachedProjectSkillsRepoAt(ctx context.Context, revision string) (string, er
 				return dest, nil
 			}
 		}
-		return "", fmt.Errorf("cache the pinned skills source: %w", err)
+		return "", fmt.Errorf("mise en cache de la source des skills épinglée : %w", err)
 	}
 	return dest, nil
 }
@@ -1005,11 +1005,11 @@ func readSkillTreeAt(ctx context.Context, repo, revision string) ([]skillTreeEnt
 		}
 		meta, p, ok := bytes.Cut(record, []byte{'\t'})
 		if !ok {
-			return nil, errors.New("invalid skills Git tree record")
+			return nil, errors.New("enregistrement d'arbre Git des skills invalide")
 		}
 		parts := strings.Fields(string(meta))
 		if len(parts) != 3 {
-			return nil, errors.New("invalid skills Git tree metadata")
+			return nil, errors.New("métadonnées d'arbre Git des skills invalides")
 		}
 		entries = append(entries, skillTreeEntry{Mode: parts[0], OID: parts[2], Path: string(p)})
 	}
@@ -1019,7 +1019,7 @@ func readSkillTreeAt(ctx context.Context, repo, revision string) ([]skillTreeEnt
 func runGit(ctx context.Context, dir string, args ...string) ([]byte, error) {
 	hooks, err := os.MkdirTemp("", "codebox-git-hooks-disabled-")
 	if err != nil {
-		return nil, fmt.Errorf("create isolated Git hook directory: %w", err)
+		return nil, fmt.Errorf("création du dossier de hooks Git isolé : %w", err)
 	}
 	defer os.RemoveAll(hooks)
 	fullArgs := append([]string{"-C", dir, "-c", "core.hooksPath=" + hooks, "-c", "init.templateDir="}, args...)
@@ -1055,20 +1055,20 @@ func readCachedSkillArchive(name string, lock SkillLock) ([]byte, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return nil, fmt.Errorf("pinned archive is missing from the offline cache; run 'codebox init --replace --skill <category/%s>' while online", name)
+			return nil, fmt.Errorf("l'archive épinglée est absente du cache hors ligne ; lancez 'codebox init --replace --skill <category/%s>' en ligne", name)
 		}
 		return nil, err
 	}
 	digest := sha256.Sum256(data)
 	if hex.EncodeToString(digest[:]) != lock.SHA256 {
-		return nil, fmt.Errorf("cached archive failed its SHA-256 integrity check")
+		return nil, fmt.Errorf("l'archive en cache a échoué à sa vérification d'intégrité SHA-256")
 	}
 	return data, nil
 }
 
 func skillArchiveCachePath(name string, lock SkillLock) (string, error) {
 	if !skillNamePattern.MatchString(name) || !isGitRevision(lock.Revision) || !isSHA256(lock.SHA256) {
-		return "", errors.New("invalid skill cache key")
+		return "", errors.New("clé de cache de skill invalide")
 	}
 	cache, err := userCacheDirFn()
 	if err != nil {

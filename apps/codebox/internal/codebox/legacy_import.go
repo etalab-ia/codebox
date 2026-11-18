@@ -86,7 +86,7 @@ func ImportLegacyDotenv(content string) LegacyImport {
 		}
 		if isCredentialKey(k) {
 			if imp.CredentialAdvice == "" {
-				imp.CredentialAdvice = fmt.Sprintf("%s is a credential; import it explicitly into the credential store (auth add), never into a managed file", k)
+				imp.CredentialAdvice = fmt.Sprintf("%s est un identifiant ; importez-le explicitement dans le magasin d'identifiants (auth add), jamais dans un fichier géré", k)
 			}
 			continue
 		}
@@ -184,7 +184,7 @@ func isCredentialKey(k string) bool {
 func (imp LegacyImport) FormatLegacyImport() string {
 	var b strings.Builder
 	if len(imp.Mapped) > 0 {
-		b.WriteString("Mapped to managed fields:\n")
+		b.WriteString("Correspondances vers les champs gérés :\n")
 		keys := make([]string, 0, len(imp.Mapped))
 		for k := range imp.Mapped {
 			keys = append(keys, k)
@@ -195,16 +195,16 @@ func (imp LegacyImport) FormatLegacyImport() string {
 		}
 	}
 	if len(imp.Unrecognized) > 0 {
-		b.WriteString("Not carried over (no managed equivalent):\n")
+		b.WriteString("Non repris (aucun équivalent géré) :\n")
 		for _, k := range imp.Unrecognized {
 			fmt.Fprintf(&b, "  %s\n", k)
 		}
 	}
 	if imp.CredentialAdvice != "" {
-		fmt.Fprintf(&b, "Credential: %s\n", imp.CredentialAdvice)
+		fmt.Fprintf(&b, "Identifiant : %s\n", imp.CredentialAdvice)
 	}
 	if b.Len() == 0 {
-		b.WriteString("Nothing to import.\n")
+		b.WriteString("Rien à importer.\n")
 	}
 	return b.String()
 }

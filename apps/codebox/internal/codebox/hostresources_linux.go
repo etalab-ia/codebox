@@ -13,7 +13,7 @@ import (
 func hostMemoryBytes() (uint64, error) {
 	file, err := os.Open("/proc/meminfo")
 	if err != nil {
-		return 0, fmt.Errorf("read host memory: %w", err)
+		return 0, fmt.Errorf("lecture de la mémoire du poste : %w", err)
 	}
 	defer file.Close()
 
@@ -26,16 +26,16 @@ func hostMemoryBytes() (uint64, error) {
 		}
 		kib, parseErr := strconv.ParseUint(fields[1], 10, 64)
 		if parseErr != nil {
-			return 0, fmt.Errorf("parse host memory: %w", parseErr)
+			return 0, fmt.Errorf("analyse de la mémoire du poste : %w", parseErr)
 		}
 		total = kib * 1024
 		break
 	}
 	if err := scanner.Err(); err != nil {
-		return 0, fmt.Errorf("read host memory: %w", err)
+		return 0, fmt.Errorf("lecture de la mémoire du poste : %w", err)
 	}
 	if total == 0 {
-		return 0, fmt.Errorf("host memory total not found in /proc/meminfo")
+		return 0, fmt.Errorf("mémoire totale du poste introuvable dans /proc/meminfo")
 	}
 	return linuxMemoryLimit(total), nil
 }

@@ -91,9 +91,9 @@ exit 0
 	case 0:
 		return nil
 	case 2:
-		return storeErrorf("add", w.Kind(), "denied", "CredWriteW failed")
+		return storeErrorf("add", w.Kind(), "denied", "échec de CredWriteW")
 	default:
-		return storeErrorf("add", w.Kind(), "corrupt", "exit %d: %s", res.ExitCode, strings.TrimSpace(res.Stderr))
+		return storeErrorf("add", w.Kind(), "corrupt", "code %d : %s", res.ExitCode, strings.TrimSpace(res.Stderr))
 	}
 }
 
@@ -125,13 +125,13 @@ exit 0
 		value := strings.TrimSuffix(res.Stdout, "\n")
 		value = strings.TrimSuffix(value, "\r")
 		if value == "" {
-			return "", storeErrorf("get", w.Kind(), "corrupt", "empty value stored for %s", kind)
+			return "", storeErrorf("get", w.Kind(), "corrupt", "valeur vide enregistrée pour %s", kind)
 		}
 		return value, nil
 	case 1:
 		return "", ErrCredentialNotFound
 	default:
-		return "", storeErrorf("get", w.Kind(), "denied", "exit %d: %s", res.ExitCode, strings.TrimSpace(res.Stderr))
+		return "", storeErrorf("get", w.Kind(), "denied", "code %d : %s", res.ExitCode, strings.TrimSpace(res.Stderr))
 	}
 }
 
@@ -156,7 +156,7 @@ exit 0
 	case 1:
 		return ErrCredentialNotFound
 	default:
-		return storeErrorf("remove", w.Kind(), "denied", "exit %d: %s", res.ExitCode, strings.TrimSpace(res.Stderr))
+		return storeErrorf("remove", w.Kind(), "denied", "code %d : %s", res.ExitCode, strings.TrimSpace(res.Stderr))
 	}
 }
 
@@ -184,9 +184,9 @@ exit 3  # sentinel unexpectedly present
 	case 0:
 		return nil
 	case 3:
-		return fmt.Errorf("verify sentinel unexpectedly found in credential manager")
+		return fmt.Errorf("sentinelle de vérification trouvée de façon inattendue dans Windows Credential Manager")
 	default:
-		return storeErrorf("verify", w.Kind(), "denied", "exit %d: %s", res.ExitCode, strings.TrimSpace(res.Stderr))
+		return storeErrorf("verify", w.Kind(), "denied", "code %d : %s", res.ExitCode, strings.TrimSpace(res.Stderr))
 	}
 }
 

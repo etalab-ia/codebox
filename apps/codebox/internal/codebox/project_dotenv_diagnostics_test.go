@@ -40,7 +40,7 @@ func TestImportRefusalNamesTheVariableAndTheRule(t *testing.T) {
 			name:    "bare carriage return inside a value",
 			data:    "CR_VALUE=bad\rreturn\n",
 			wantVar: "CR_VALUE",
-			wantIn:  "carriage return",
+			wantIn:  "retour chariot",
 		},
 		{
 			name:    "invalid UTF-8",
@@ -61,7 +61,7 @@ func TestImportRefusalNamesTheVariableAndTheRule(t *testing.T) {
 			name:    "unsupported variable name",
 			data:    "1invalid=1\n",
 			wantVar: "1invalid",
-			wantIn:  "not supported",
+			wantIn:  "pris en charge",
 		},
 	} {
 		_, err := ParseProjectDotenv([]byte(c.data))
@@ -78,7 +78,7 @@ func TestImportRefusalNamesTheVariableAndTheRule(t *testing.T) {
 		if strings.Contains(err.Error(), "too large or contains invalid text") {
 			t.Errorf("%s: the merged message must be split: %v", c.name, err)
 		}
-		if strings.Contains(err.Error(), "syntax is invalid or unsupported") {
+		if strings.Contains(err.Error(), "syntaxe dotenv invalide ou non prise en charge") {
 			t.Errorf("%s: a diagnosed fault must not fall back to the generic wording: %v", c.name, err)
 		}
 	}
@@ -102,7 +102,7 @@ func TestImportRefusalRedactsUnsafeVariableName(t *testing.T) {
 		if err == nil {
 			t.Fatalf("%s: an unsupported variable name must be refused", c.name)
 		}
-		if !strings.Contains(err.Error(), "not supported") {
+		if !strings.Contains(err.Error(), "pris en charge") {
 			t.Errorf("%s: the refusal must state the rule: %v", c.name, err)
 		}
 		if strings.Contains(err.Error(), c.suspect) {
@@ -122,7 +122,7 @@ func TestImportRefusalRedactsUnsafeVariableName(t *testing.T) {
 func TestImportRefusalNeverEchoesTheValue(t *testing.T) {
 	const secret = "SUPERSECRET_TOKEN_9f3a"
 	for _, c := range []struct{ name, data string }{
-		{"carriage return", "K=" + secret + "\rtailfragment\n"},
+		{"retour chariot", "K=" + secret + "\rtailfragment\n"},
 		{"invalid UTF-8", "K=" + secret + "\xff\xfe\n"},
 		{"NUL byte", "K=" + secret + "\x00x\n"},
 	} {
@@ -190,13 +190,13 @@ func TestImportRefusalNamesTheCarriageReturnSplitAtEOF(t *testing.T) {
 		if err == nil {
 			t.Fatalf("%s: a carriage return splitting a value must be refused", c.name)
 		}
-		if !strings.Contains(err.Error(), "K:") {
+		if !strings.Contains(err.Error(), "K :") {
 			t.Errorf("%s: the refusal must name K: %v", c.name, err)
 		}
-		if !strings.Contains(err.Error(), "carriage return") {
+		if !strings.Contains(err.Error(), "retour chariot") {
 			t.Errorf("%s: the refusal must state the carriage-return rule: %v", c.name, err)
 		}
-		if strings.Contains(err.Error(), "variable name") && strings.Contains(err.Error(), "not supported") {
+		if strings.Contains(err.Error(), "nom de variable") && strings.Contains(err.Error(), "pris en charge") {
 			t.Errorf("%s: the empty-variable-name message must not replace the CR diagnosis: %v", c.name, err)
 		}
 	}
@@ -215,10 +215,10 @@ func TestImportRefusalNamesStrayTextWithoutAnAssignment(t *testing.T) {
 		if err == nil {
 			t.Fatalf("%s: stray non-assignment text must be refused", c.name)
 		}
-		if !strings.Contains(err.Error(), "not a named assignment") {
+		if !strings.Contains(err.Error(), "n'est pas une affectation nommée") {
 			t.Errorf("%s: the refusal must name the stray-text class: %v", c.name, err)
 		}
-		if strings.Contains(err.Error(), "variable name") && strings.Contains(err.Error(), "not supported") {
+		if strings.Contains(err.Error(), "nom de variable") && strings.Contains(err.Error(), "pris en charge") {
 			t.Errorf("%s: the empty-variable-name message must not be used: %v", c.name, err)
 		}
 	}
@@ -237,7 +237,7 @@ func TestImportRefusalNamesTheEnclosingAssignmentNotTheContinuation(t *testing.T
 	if err == nil {
 		t.Fatal("an invalid byte inside a multiline value must be refused")
 	}
-	if !strings.Contains(err.Error(), "K:") {
+	if !strings.Contains(err.Error(), "K :") {
 		t.Errorf("the refusal must name the enclosing assignment K: %v", err)
 	}
 	if strings.Contains(err.Error(), secret) || strings.Contains(err.Error(), "9f3a") {
@@ -255,10 +255,10 @@ func TestImportRefusalBlamesOnlyTheFaultyCarriageReturn(t *testing.T) {
 	if err == nil {
 		t.Fatal("an unterminated quoted value must be refused")
 	}
-	if strings.Contains(err.Error(), "A:") || strings.Contains(err.Error(), "B:") {
+	if strings.Contains(err.Error(), "A :") || strings.Contains(err.Error(), "B :") {
 		t.Errorf("a legal bare-CR separator must not be blamed for an unrelated failure: %v", err)
 	}
-	if strings.Contains(err.Error(), "carriage return") {
+	if strings.Contains(err.Error(), "retour chariot") {
 		t.Errorf("the failure is an unterminated quote, not a carriage return: %v", err)
 	}
 }
@@ -283,13 +283,13 @@ func TestImportRefusalDoesNotBlameALegalSeparatorForBackticks(t *testing.T) {
 			t.Fatalf("%q: a backtick value must be refused", in)
 		}
 		msg := err.Error()
-		if strings.Contains(msg, "carriage return") {
+		if strings.Contains(msg, "retour chariot") {
 			t.Errorf("%q: a legal separator must not be blamed for a backtick refusal: %v", in, err)
 		}
-		if !strings.Contains(msg, "backtick") {
+		if !strings.Contains(msg, "accent grave") {
 			t.Errorf("%q: the real fault is the backtick value: %v", in, err)
 		}
-		if !strings.Contains(msg, "K:") {
+		if !strings.Contains(msg, "K :") {
 			t.Errorf("%q: the refusal must name K, the statement that carries the backtick: %v", in, err)
 		}
 		if strings.Contains(msg, secret) {
@@ -323,7 +323,7 @@ func TestCarriageReturnRemedyIsAccurate(t *testing.T) {
 	if strings.Contains(msg, "convert the file to LF") {
 		t.Errorf("LF conversion does not repair this shape, so it must not be advised: %v", err)
 	}
-	if !strings.Contains(msg, "remove the carriage return") {
+	if !strings.Contains(msg, "supprimez le retour chariot") {
 		t.Errorf("the advice must be the remedy that works: %v", err)
 	}
 }
@@ -346,7 +346,7 @@ func TestImportRefusalDoesNotBlameACommentLine(t *testing.T) {
 		if err == nil {
 			t.Fatalf("%s: expected a refusal", c.name)
 		}
-		for _, innocent := range []string{"NEXT:", "A:", "B:"} {
+		for _, innocent := range []string{"NEXT :", "A :", "B :"} {
 			if strings.Contains(err.Error(), innocent) {
 				t.Errorf("%s: a comment byte must not be attributed to %s: %v", c.name, innocent, err)
 			}
@@ -363,10 +363,10 @@ func TestImportRefusalIgnoresCarriageReturnInsideQuotes(t *testing.T) {
 	if err == nil {
 		t.Fatal("an unterminated quoted value must be refused")
 	}
-	if strings.Contains(err.Error(), "A:") {
+	if strings.Contains(err.Error(), "A :") {
 		t.Errorf("a carriage return inside a quoted value must not be blamed: %v", err)
 	}
-	if strings.Contains(err.Error(), "carriage return") {
+	if strings.Contains(err.Error(), "retour chariot") {
 		t.Errorf("the real fault is the unterminated quote: %v", err)
 	}
 }
@@ -380,7 +380,7 @@ func TestImportRefusalHandlesEscapedQuotes(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected a refusal")
 	}
-	if strings.Contains(err.Error(), "A:") {
+	if strings.Contains(err.Error(), "A :") {
 		t.Errorf("the byte after an escaped quote belongs to B, not A: %v", err)
 	}
 }
@@ -456,10 +456,10 @@ func TestImportRefusalReachesTheFaultyCarriageReturnBeyondLegalOnes(t *testing.T
 	if err == nil {
 		t.Fatal("a carriage return splitting a value must be refused")
 	}
-	if !strings.Contains(err.Error(), "K:") {
+	if !strings.Contains(err.Error(), "K :") {
 		t.Errorf("the faulty carriage return must be named even after legal ones: %v", err)
 	}
-	if !strings.Contains(err.Error(), "carriage return") {
+	if !strings.Contains(err.Error(), "retour chariot") {
 		t.Errorf("the refusal must state the carriage-return rule: %v", err)
 	}
 }
@@ -480,7 +480,7 @@ func TestImportRefusalNamesTheVariableOnANearCapLine(t *testing.T) {
 	if err == nil {
 		t.Fatal("a NUL in a value must be refused")
 	}
-	if !strings.Contains(err.Error(), "K:") {
+	if !strings.Contains(err.Error(), "K :") {
 		t.Errorf("the refusal must name K even on a near-cap line: %v", err)
 	}
 
@@ -489,7 +489,7 @@ func TestImportRefusalNamesTheVariableOnANearCapLine(t *testing.T) {
 	if err == nil {
 		t.Fatal("a carriage return splitting a value must be refused")
 	}
-	if !strings.Contains(err.Error(), "K:") {
+	if !strings.Contains(err.Error(), "K :") {
 		t.Errorf("the split must be attributed to K, not lost to the long line: %v", err)
 	}
 }
@@ -505,10 +505,10 @@ func TestImportSizeLimitStillReportsSize(t *testing.T) {
 	if err == nil {
 		t.Fatal("a file over the limit must be refused")
 	}
-	if !strings.Contains(err.Error(), "limit") || !strings.Contains(err.Error(), "byte") {
+	if !strings.Contains(err.Error(), "limite") || !strings.Contains(err.Error(), "octets") {
 		t.Fatalf("the refusal must name the size and the limit: %v", err)
 	}
-	if strings.Contains(err.Error(), "UTF-8") || strings.Contains(err.Error(), "carriage return") {
+	if strings.Contains(err.Error(), "UTF-8") || strings.Contains(err.Error(), "retour chariot") {
 		t.Fatalf("a size fault must not be reported as an encoding fault: %v", err)
 	}
 }
@@ -534,7 +534,7 @@ func TestImportRefusalSkipsCommentAndBlankCarriageReturnSeparators(t *testing.T)
 		if err == nil {
 			t.Fatal("a carriage return splitting a value must be refused")
 		}
-		if !strings.Contains(err.Error(), "K:") {
+		if !strings.Contains(err.Error(), "K :") {
 			t.Errorf("the fault must be named past comment separators: %v", err)
 		}
 	case <-time.After(10 * time.Second):
@@ -552,7 +552,7 @@ func TestImportRefusalKeepsAMalformedSeparatorAsCandidate(t *testing.T) {
 	if err == nil {
 		t.Fatal("a carriage return splitting a value must be refused")
 	}
-	if !strings.Contains(err.Error(), "K:") {
+	if !strings.Contains(err.Error(), "K :") {
 		t.Errorf("a malformed-looking separator must not hide the fault: %v", err)
 	}
 }
@@ -565,7 +565,7 @@ func TestImportRefusalNamesQuotedDuplicateOverwrittenByLaterAssignment(t *testin
 	if err == nil {
 		t.Fatal("a NUL byte in a value must be refused")
 	}
-	if !strings.Contains(err.Error(), "A:") {
+	if !strings.Contains(err.Error(), "A :") {
 		t.Errorf("a quoted duplicate overwritten later must still be named: %v", err)
 	}
 	if !strings.Contains(err.Error(), "NUL") {
@@ -589,7 +589,7 @@ func TestImportRefusalNamesTheFaultPastOverlappingLegalSeparators(t *testing.T) 
 	if err == nil {
 		t.Fatal("a carriage return splitting a value must be refused")
 	}
-	if !strings.Contains(err.Error(), "K:") {
+	if !strings.Contains(err.Error(), "K :") {
 		t.Errorf("overlapping legal separators must not cost the diagnosis: %v", err)
 	}
 }
@@ -615,7 +615,7 @@ func TestImportFaultScanStaysLinearAcrossQuotedValues(t *testing.T) {
 		if err == nil {
 			t.Fatal("a carriage return splitting a value must be refused")
 		}
-		if !strings.HasPrefix(err.Error(), "K:") {
+		if !strings.HasPrefix(err.Error(), "K :") {
 			t.Errorf("the fault is in K: %v", err)
 		}
 	case <-time.After(10 * time.Second):
@@ -645,7 +645,7 @@ func TestImportRefusalNamesTheFaultAfterAQuotedValueOnTheSameLine(t *testing.T) 
 			if err == nil {
 				t.Fatal("a carriage return splitting a value must be refused")
 			}
-			if !strings.HasPrefix(err.Error(), "K:") {
+			if !strings.HasPrefix(err.Error(), "K :") {
 				t.Errorf("the fault is in K, not in the separators before it: %v", err)
 			}
 		})
@@ -670,7 +670,7 @@ func TestImportRefusalIgnoresQuotedCarriageReturnsInABudgetedFile(t *testing.T) 
 	if err == nil {
 		t.Fatal("a carriage return splitting a value must be refused")
 	}
-	if !strings.Contains(err.Error(), "K:") {
+	if !strings.Contains(err.Error(), "K :") {
 		t.Errorf("legal quoted carriage returns must not cost the diagnosis: %v", err)
 	}
 }
@@ -719,7 +719,7 @@ func TestImportRefusalStillNamesTheFaultAfterTheFilterBudget(t *testing.T) {
 	if err == nil {
 		t.Fatal("a carriage return splitting a value must be refused")
 	}
-	if !strings.Contains(err.Error(), "K:") {
+	if !strings.Contains(err.Error(), "K :") {
 		t.Errorf("a legal-separator prefix must not cost the diagnosis: %v", err)
 	}
 }
@@ -747,7 +747,7 @@ func TestImportRefusalNamesTheFaultInALargeClassicMacFile(t *testing.T) {
 		if err == nil {
 			t.Fatal("a carriage return splitting a value must be refused")
 		}
-		if !strings.Contains(err.Error(), "K:") {
+		if !strings.Contains(err.Error(), "K :") {
 			t.Errorf("a large well-formed file must not cost the diagnosis: %v", err)
 		}
 	case <-time.After(10 * time.Second):
@@ -768,10 +768,10 @@ func TestImportRefusalNamesAValueSplitBySeveralCarriageReturns(t *testing.T) {
 		if err == nil {
 			t.Fatalf("a value split by carriage returns must be refused: %q", in)
 		}
-		if !strings.Contains(err.Error(), "K:") {
+		if !strings.Contains(err.Error(), "K :") {
 			t.Errorf("a value split by several carriage returns must be named: %q -> %v", in, err)
 		}
-		if !strings.Contains(err.Error(), "carriage return") {
+		if !strings.Contains(err.Error(), "retour chariot") {
 			t.Errorf("the refusal must state the carriage-return rule: %v", err)
 		}
 	}
@@ -787,10 +787,10 @@ func TestImportRefusalDoesNotClaimTheRemainderHasNoAssignment(t *testing.T) {
 	if err == nil {
 		t.Fatal("a carriage return splitting a value must be refused")
 	}
-	if !strings.Contains(err.Error(), "K:") {
+	if !strings.Contains(err.Error(), "K :") {
 		t.Errorf("the fault must be named: %v", err)
 	}
-	if strings.Contains(err.Error(), "has no assignment") {
+	if strings.Contains(err.Error(), "n'a pas d'affectation") {
 		t.Errorf("the remainder does contain a delimiter; the message must not claim otherwise: %v", err)
 	}
 }
@@ -833,7 +833,7 @@ func TestImportRefusalNamesSingleQuotedDuplicateOverwrittenByLaterAssignment(t *
 	if err == nil {
 		t.Fatal("a NUL byte in a value must be refused")
 	}
-	if !strings.Contains(err.Error(), "A:") {
+	if !strings.Contains(err.Error(), "A :") {
 		t.Errorf("a single-quoted duplicate overwritten later must still be named: %v", err)
 	}
 	if !strings.Contains(err.Error(), "NUL") {
@@ -854,10 +854,10 @@ func TestImportRefusalStillNamesTheFaultAcrossCRLFLineEndings(t *testing.T) {
 		if err == nil {
 			t.Fatalf("%s: a carriage return splitting a value must be refused", c.name)
 		}
-		if !strings.Contains(err.Error(), "K:") {
+		if !strings.Contains(err.Error(), "K :") {
 			t.Errorf("%s: the fault is in K: %v", c.name, err)
 		}
-		if !strings.Contains(err.Error(), "carriage return") {
+		if !strings.Contains(err.Error(), "retour chariot") {
 			t.Errorf("%s: the refusal must state the carriage-return rule: %v", c.name, err)
 		}
 	}
@@ -874,13 +874,13 @@ func TestImportRefusalAmbiguousLocationNamesNothing(t *testing.T) {
 	if err == nil {
 		t.Fatal("a carriage return splitting a value must be refused")
 	}
-	if !strings.Contains(err.Error(), "syntax is invalid or unsupported") {
+	if !strings.Contains(err.Error(), "syntaxe dotenv invalide ou non prise en charge") {
 		t.Errorf("an unnameable split must fall back to the generic wording: %v", err)
 	}
 	if strings.Contains(err.Error(), longName) {
 		t.Errorf("the unsafe name must be redacted: %v", err)
 	}
-	if strings.Contains(err.Error(), "carriage return") {
+	if strings.Contains(err.Error(), "retour chariot") {
 		t.Errorf("the generic fallback must not claim a carriage-return rule it cannot tie to a variable: %v", err)
 	}
 }
@@ -900,7 +900,7 @@ func TestImportRefusalNamesTheSplitWithALaterAssignmentOnTheFragmentLine(t *test
 	if err == nil {
 		t.Fatal("a carriage return splitting a value must be refused")
 	}
-	if !strings.Contains(err.Error(), "K:") {
+	if !strings.Contains(err.Error(), "K :") {
 		t.Errorf("a later statement must not hide the fault: %v", err)
 	}
 }
@@ -923,7 +923,7 @@ func TestImportRefusalNamesHyphenatedNameAsUnsupported(t *testing.T) {
 		if !strings.Contains(err.Error(), c.wantVar) {
 			t.Errorf("%s: the refusal must name %q: %v", c.name, c.wantVar, err)
 		}
-		if !strings.Contains(err.Error(), "not supported") {
+		if !strings.Contains(err.Error(), "pris en charge") {
 			t.Errorf("%s: the refusal must state the rule: %v", c.name, err)
 		}
 	}
@@ -958,10 +958,10 @@ func TestImportRefusalRefusesBacktickValues(t *testing.T) {
 		if strings.Contains(msg, "SUPERSECRET") || strings.Contains(msg, "SECRET2") {
 			t.Errorf("%s: the refusal must not quote the value: %v", c.name, err)
 		}
-		if !strings.Contains(msg, "backtick") {
+		if !strings.Contains(msg, "accent grave") {
 			t.Errorf("%s: the refusal must state the rule: %v", c.name, err)
 		}
-		if c.named != "" && !strings.Contains(msg, c.named+":") {
+		if c.named != "" && !strings.Contains(msg, c.named+" :") {
 			t.Errorf("%s: the refusal must name the variable %q: %v", c.name, c.named, err)
 		}
 		if c.named == "" && strings.Contains(msg, strings.Repeat("N", 20)) {
@@ -971,7 +971,7 @@ func TestImportRefusalRefusesBacktickValues(t *testing.T) {
 	// A bad name fails its key scan before the value is reached, so the name
 	// rule is reported, not the backtick rule.
 	_, err := ParseProjectDotenv([]byte("MY-KEY=`X`\n"))
-	if err == nil || strings.Contains(err.Error(), "backtick") {
+	if err == nil || strings.Contains(err.Error(), "accent grave") {
 		t.Errorf("a key-scan failure must take precedence over the backtick rule: %v", err)
 	}
 	// A backtick that does not open the value is literal content, not a

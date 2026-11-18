@@ -56,7 +56,7 @@ func TestInitPlanRefusesNonRegularAgentsBeforeReading(t *testing.T) {
 			tc.entry(t, root)
 			wizard := InitWizard{StateDir: t.TempDir()}
 			_, err := wizard.Plan(InitAnswers{Root: root, Runtime: RuntimeTart})
-			if err == nil || !strings.Contains(err.Error(), "not a regular file") {
+			if err == nil || !strings.Contains(err.Error(), "n'est pas un fichier régulier") {
 				t.Fatalf("plan must refuse a non-regular AGENTS.md before reading it, got %v", err)
 			}
 		})
@@ -90,7 +90,7 @@ func TestInitApplyRefusesNonRegularAgentsAddedAfterPlanning(t *testing.T) {
 	if err := syscall.Mkfifo(filepath.Join(root, "AGENTS.md"), 0o644); err != nil {
 		t.Skipf("cannot create FIFO: %v", err)
 	}
-	if err := wizard.Apply(plan, true); err == nil || !strings.Contains(err.Error(), "not a regular file") {
+	if err := wizard.Apply(plan, true); err == nil || !strings.Contains(err.Error(), "n'est pas un fichier régulier") {
 		t.Fatalf("apply must refuse a FIFO AGENTS.md before reading it, got %v", err)
 	}
 }

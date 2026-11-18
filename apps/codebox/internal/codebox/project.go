@@ -99,7 +99,7 @@ func DiscoverProject(dir string) (ProjectContext, error) {
 	// worktree root rather than a link path outside it.
 	resolved, err := filepath.EvalSymlinks(abs)
 	if err != nil {
-		return ProjectContext{}, fmt.Errorf("resolve project directory %s: %w", abs, err)
+		return ProjectContext{}, fmt.Errorf("résolution du dossier de projet %s : %w", abs, err)
 	}
 	root := resolved
 	if top, err := gitWorktreeRoot(resolved); err == nil {
@@ -127,11 +127,11 @@ func gitWorktreeRoot(dir string) (string, error) {
 	cmd.Env = append(os.Environ(), "GIT_OPTIONAL_LOCKS=0")
 	out, err := cmd.Output()
 	if err != nil {
-		return "", fmt.Errorf("not inside a git worktree: %w", err)
+		return "", fmt.Errorf("hors d'une copie de travail git : %w", err)
 	}
 	top := strings.TrimSpace(string(out))
 	if top == "" {
-		return "", fmt.Errorf("git rev-parse --show-toplevel returned nothing for %s", dir)
+		return "", fmt.Errorf("git rev-parse --show-toplevel n'a rien renvoyé pour %s", dir)
 	}
 	return filepath.FromSlash(top), nil
 }
@@ -247,10 +247,10 @@ func (r *ProjectRegistry) loadLocked() error {
 	}
 	var rf registryFile
 	if err := json.Unmarshal(data, &rf); err != nil {
-		return fmt.Errorf("project registry %s: %w", r.Path, err)
+		return fmt.Errorf("registre de projets %s : %w", r.Path, err)
 	}
 	if rf.SchemaVersion > registrySchemaVersion {
-		return fmt.Errorf("project registry %s: schemaVersion %d is newer than this build supports (%d)", r.Path, rf.SchemaVersion, registrySchemaVersion)
+		return fmt.Errorf("registre de projets %s : schemaVersion %d est plus récent que ce que cette version prend en charge (%d)", r.Path, rf.SchemaVersion, registrySchemaVersion)
 	}
 	r.entries = map[string]string{}
 	for _, e := range rf.Entries {
@@ -290,11 +290,11 @@ func (r *ProjectRegistry) Register(root, instance string) error {
 			return err
 		}
 		if existing, ok := r.entries[root]; ok && existing != instance {
-			return fmt.Errorf("project %s is already registered to instance %s; rebinding to %s requires an explicit rebind", root, existing, instance)
+			return fmt.Errorf("le projet %s est déjà enregistré sur l'instance %s ; le relier à %s exige un rebind explicite", root, existing, instance)
 		}
 		for otherRoot, otherInst := range r.entries {
 			if otherRoot != root && otherInst == instance {
-				return fmt.Errorf("instance %s is already registered to project %s; refusing to create a duplicate registration", instance, otherRoot)
+				return fmt.Errorf("l'instance %s est déjà enregistrée sur le projet %s ; refus de créer un enregistrement en double", instance, otherRoot)
 			}
 		}
 		if r.entries[root] == instance {
@@ -323,7 +323,7 @@ func (r *ProjectRegistry) Rebind(root, instance string) error {
 		}
 		for otherRoot, otherInst := range r.entries {
 			if otherRoot != root && otherInst == instance {
-				return fmt.Errorf("instance %s is already registered to project %s", instance, otherRoot)
+				return fmt.Errorf("l'instance %s est déjà enregistrée sur le projet %s", instance, otherRoot)
 			}
 		}
 		prev, had := r.entries[root]
@@ -422,7 +422,7 @@ func (l *ProjectLock) Acquire() (release func(), err error) {
 		}
 		if !os.IsExist(err) {
 			if retryableCreate(err) {
-				lastReadErr = fmt.Errorf("create project lock %s: %w", l.Path, err)
+				lastReadErr = fmt.Errorf("création du verrou de projet %s : %w", l.Path, err)
 				time.Sleep(pollInterval)
 				continue
 			}
@@ -445,7 +445,7 @@ func (l *ProjectLock) Acquire() (release func(), err error) {
 			// so a permanently unreadable lock path (e.g. a directory)
 			// stays diagnosable instead of degrading into a generic
 			// timeout.
-			lastReadErr = fmt.Errorf("read project lock %s: %w", l.Path, rerr)
+			lastReadErr = fmt.Errorf("lecture du verrou de projet %s : %w", l.Path, rerr)
 			if time.Since(started) < waitTimeout {
 				time.Sleep(pollInterval)
 				continue
@@ -504,15 +504,15 @@ func (l *ProjectLock) Acquire() (release func(), err error) {
 func projectLockWaitError(fs FS, lockPath, stealPath string, waited time.Duration) error {
 	if data, err := fs.ReadFile(lockPath); err == nil {
 		if pid, ok := projectLockPID(data); ok && processAlive(pid) {
-			return fmt.Errorf("timed out after %s waiting for project lock %s held by PID %d", waited, lockPath, pid)
+			return fmt.Errorf("délai dépassé après %s en attente du verrou de projet %s détenu par le PID %d", waited, lockPath, pid)
 		}
 	}
 	if data, err := fs.ReadFile(stealPath); err == nil {
 		if pid, ok := projectLockPID(data); ok {
-			return fmt.Errorf("timed out after %s waiting for project lock %s; takeover marker %s is held by PID %d", waited, lockPath, stealPath, pid)
+			return fmt.Errorf("délai dépassé après %s en attente du verrou de projet %s ; le marqueur de reprise %s est détenu par le PID %d", waited, lockPath, stealPath, pid)
 		}
 	}
-	return fmt.Errorf("timed out after %s waiting for project lock %s", waited, lockPath)
+	return fmt.Errorf("délai dépassé après %s en attente du verrou de projet %s", waited, lockPath)
 }
 
 func projectLockToken() []byte {

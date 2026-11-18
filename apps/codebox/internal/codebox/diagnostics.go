@@ -638,7 +638,7 @@ func verifyCredentialStore(ctx context.Context, preferred string) (string, error
 	}
 	store := DefaultCredentialStore()
 	if store == nil {
-		return "none", errors.New("native credential store is not supported on this platform")
+		return "none", errors.New("magasin d'identifiants natif non pris en charge sur cette plateforme")
 	}
 	if err := store.Verify(ctx); err != nil {
 		return store.Kind(), err
@@ -739,5 +739,5 @@ func (r DiagnosticsReport) SummaryPath() string {
 	if len(failed) == 0 {
 		return "ok"
 	}
-	return "failed: " + strings.Join(failed, ", ")
+	return "échec : " + strings.Join(failed, ", ")
 }

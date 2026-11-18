@@ -95,7 +95,7 @@ func TestApplyProjectUpdateRefusesSymlinkedProjectStateDirectory(t *testing.T) {
 	}
 	manifestBefore := readFileForTest(t, filepath.Join(outside, "project.json"))
 	lockBefore := readFileForTest(t, filepath.Join(outside, "lock.json"))
-	if err := plan.Apply(DefaultFS); err == nil || !strings.Contains(err.Error(), "not a regular project state directory") {
+	if err := plan.Apply(DefaultFS); err == nil || !strings.Contains(err.Error(), "dossier d'état de projet") {
 		t.Fatalf("Apply error = %v; want symlink refusal", err)
 	}
 	if !equalBytes(manifestBefore, readFileForTest(t, filepath.Join(outside, "project.json"))) || !equalBytes(lockBefore, readFileForTest(t, filepath.Join(outside, "lock.json"))) {
@@ -165,7 +165,7 @@ func TestPlanProjectUpdateRejectsIntegrityMismatch(t *testing.T) {
 	_, err := PlanProjectUpdate(context.Background(), DefaultFS, root, nil, strings.Repeat("c", 40), func(_ context.Context, ids []string, revision string) ([]ProjectSkill, map[string]SkillLock, error) {
 		return nil, map[string]SkillLock{ids[0]: {Repository: projectSkillsRepository, Revision: revision, SHA256: "tampered"}}, nil
 	})
-	if err == nil || !strings.Contains(err.Error(), "SHA-256 validation") {
+	if err == nil || !strings.Contains(err.Error(), "SHA-256") {
 		t.Fatalf("plan error = %v, want integrity mismatch", err)
 	}
 }
@@ -257,7 +257,7 @@ func TestRecoverProjectUpdateRefusesUnknownManifestOrLockEdits(t *testing.T) {
 			}
 			manifestBefore := readFileForTest(t, ProjectManifestPath(root))
 			lockBefore := readFileForTest(t, ProjectLockPath(root))
-			if err := RecoverProjectUpdate(DefaultFS, root); err == nil || !strings.Contains(err.Error(), "contains bytes not recorded in pending journal") {
+			if err := RecoverProjectUpdate(DefaultFS, root); err == nil || !strings.Contains(err.Error(), "non enregistrés dans le journal") {
 				t.Fatalf("recovery error = %v, want refusal for unknown %s bytes", err, name)
 			}
 			if !equalBytes(manifestBefore, readFileForTest(t, ProjectManifestPath(root))) || !equalBytes(lockBefore, readFileForTest(t, ProjectLockPath(root))) {
@@ -530,7 +530,7 @@ func TestProjectUpdateRejectsStalePlan(t *testing.T) {
 	if err := WriteLockfile(DefaultFS, ProjectLockPath(root), oldLock); err != nil {
 		t.Fatal(err)
 	}
-	if err := plan.Apply(DefaultFS); err == nil || !strings.Contains(err.Error(), "changed after the update plan") {
+	if err := plan.Apply(DefaultFS); err == nil || !strings.Contains(err.Error(), "après la création du plan de mise à jour") {
 		t.Fatalf("Apply error = %v, want stale-plan refusal", err)
 	}
 	lock, err := ReadLockfile(DefaultFS, ProjectLockPath(root))
@@ -608,7 +608,7 @@ func TestLoadProjectSkillStateRejectsMismatchedDependencySet(t *testing.T) {
 	if err := WriteLockfile(DefaultFS, ProjectLockPath(root), lock); err != nil {
 		t.Fatal(err)
 	}
-	if _, _, _, _, err := LoadProjectSkillState(DefaultFS, root, t.TempDir(), "cb-update-test"); err == nil || !strings.Contains(err.Error(), "different dependency sets") {
+	if _, _, _, _, err := LoadProjectSkillState(DefaultFS, root, t.TempDir(), "cb-update-test"); err == nil || !strings.Contains(err.Error(), "ensembles de dépendances différents") {
 		t.Fatalf("LoadProjectSkillState error = %v, want mismatched-pair rejection", err)
 	}
 }

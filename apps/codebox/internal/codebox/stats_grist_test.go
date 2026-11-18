@@ -96,7 +96,7 @@ func TestFlushStatsRefusesAnInsecureEndpoint(t *testing.T) {
 			if err == nil {
 				t.Fatal("an insecure endpoint must be refused")
 			}
-			if !strings.Contains(err.Error(), "not secure") {
+			if !strings.Contains(err.Error(), "n'est pas sécurisé") {
 				t.Fatalf("the error must say why: %v", err)
 			}
 			if events, _ := PendingStatsEvents(DefaultFS, stateDir); len(events) != 1 {

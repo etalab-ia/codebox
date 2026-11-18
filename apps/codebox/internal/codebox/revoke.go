@@ -57,8 +57,8 @@ type ErrRevocationBlocked struct {
 }
 
 func (e *ErrRevocationBlocked) Error() string {
-	return fmt.Sprintf("credential %q is held in plaintext by running instances %v; "+
-		"stop them first (codebox stop) — removing the stored credential cannot revoke a copy the guest already holds",
+	return fmt.Sprintf("l'identifiant %q est détenu en clair par des instances en cours d'exécution %v ; "+
+		"arrêtez-les d'abord (codebox stop) — supprimer l'identifiant stocké ne peut pas révoquer la copie que la machine isolée détient déjà",
 		e.Kind, e.Instances)
 }
 
@@ -187,7 +187,7 @@ func (r Revoker) Revoke(ctx context.Context, entry string) (RevokeReport, error)
 
 	for _, rm := range removals {
 		if err := r.MSB.RemoveSecrets(ctx, rm.instance, []string{rm.guestEnv}, rm.live); err != nil {
-			return rep, fmt.Errorf("revoking %s from %s: %w", entry, rm.instance, err)
+			return rep, fmt.Errorf("révocation de %s sur %s : %w", entry, rm.instance, err)
 		}
 		rep.Revolved = appendUniqueString(rep.Revolved, rm.guestEnv)
 		if rm.live {
@@ -455,7 +455,7 @@ func BoundStoreMarkers(fs FS, stateDir, instance string) []string {
 func RevokeInstanceBinding(ctx context.Context, instance string, kind CredentialKind) (revoked bool, live bool, err error) {
 	binding, ok := bindingForKind(kind)
 	if !ok {
-		return false, false, fmt.Errorf("unknown credential kind %q", kind)
+		return false, false, fmt.Errorf("type d'identifiant inconnu %q", kind)
 	}
 	client := sdkMSBClient{}
 	sb, exists, err := client.Lookup(ctx, instance)
@@ -467,7 +467,7 @@ func RevokeInstanceBinding(ctx context.Context, instance string, kind Credential
 	}
 	live = sb.Status == "running"
 	if err := client.RemoveSecrets(ctx, instance, []string{binding.GuestEnv}, live); err != nil {
-		return false, false, fmt.Errorf("revoking %s from %s: %w", kind, instance, err)
+		return false, false, fmt.Errorf("révocation de %s sur %s : %w", kind, instance, err)
 	}
 	return true, live, nil
 }
@@ -476,4 +476,4 @@ func RevokeInstanceBinding(ctx context.Context, instance string, kind Credential
 // instance exists (Microsandbox control plane unreachable). It is not a
 // verdict on the registration: callers treat it as "cannot verify" and
 // decide whether to proceed.
-var ErrLookupFailed = errors.New("microsandbox lookup failed")
+var ErrLookupFailed = errors.New("échec de la recherche microsandbox")

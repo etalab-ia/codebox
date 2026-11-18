@@ -268,7 +268,7 @@ func TestMicrosandboxInstallsPinnedSkillInOpenCodeGlobalDirectory(t *testing.T) 
 			installCommand = call
 		}
 	}
-	for _, expected := range []string{"${XDG_CONFIG_HOME", "parent=\"$config_home/opencode/skills\"", "dest=\"$parent/rgaa\"", "sha256sum -c", "tar -xzf", "refusing to overwrite"} {
+	for _, expected := range []string{"${XDG_CONFIG_HOME", "parent=\"$config_home/opencode/skills\"", "dest=\"$parent/rgaa\"", "sha256sum -c", "tar -xzf", "refus de l’écraser"} {
 		if !strings.Contains(installCommand, expected) {
 			t.Fatalf("guest install command lacks %q: %s", expected, installCommand)
 		}
@@ -307,7 +307,7 @@ func TestGuestSkillInventoryScriptRejectsOrphanedManagedDirectory(t *testing.T) 
 		t.Fatal(err)
 	}
 	output, err = run()
-	if err == nil || !strings.Contains(string(output), "managed skill directory exists without its project-skill inventory") {
+	if err == nil || !strings.Contains(string(output), "inventaire de skills du projet") {
 		t.Fatalf("orphaned managed skill was accepted: output = %q, err = %v", output, err)
 	}
 }
@@ -336,7 +336,7 @@ func TestGuestSkillPreflightFindsManagedDirectoriesOmittedFromInventory(t *testi
 	if err := os.WriteFile(filepath.Join(managedDir, ".codebox-source"), []byte("pinned-source"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if output, err := run(nil); err == nil || !strings.Contains(string(output), "project-skill inventory") {
+	if output, err := run(nil); err == nil || !strings.Contains(string(output), "inventaire de skills du projet") {
 		t.Fatalf("managed directory omitted from an empty inventory was accepted: output=%q err=%v", output, err)
 	}
 	if output, err := run([]string{"rgaa"}); err != nil || len(output) != 0 {
@@ -365,7 +365,7 @@ func TestLocalOnlyInstructionPreflightRetriesAndExplainsRecovery(t *testing.T) {
 	if err == nil {
 		t.Fatal("versioned managed instructions should block local-only startup")
 	}
-	for _, expected := range []string{"workspace export", "workspace sync", "while the guest is running", "codebox recreate"} {
+	for _, expected := range []string{"workspace export", "workspace sync", "pendant que la machine isolée tourne", "codebox recreate"} {
 		if !strings.Contains(err.Error(), expected) {
 			t.Errorf("recovery error %q does not mention %q", err, expected)
 		}
@@ -478,7 +478,7 @@ func TestVerifyProjectSkillsRejectsDuplicateDiscovery(t *testing.T) {
 	m := NewMicrosandboxRuntime(Config{ProjectSkills: []SkillPackage{{Name: "rgaa"}}})
 	m.Client = client
 	err := m.verifyProjectSkills(context.Background())
-	if err == nil || !strings.Contains(err.Error(), `reports the pinned skill "rgaa" more than once`) {
+	if err == nil || !strings.Contains(err.Error(), `signale le skill épinglé "rgaa" plus d'une fois`) {
 		t.Fatalf("duplicate discovery error = %v", err)
 	}
 }
@@ -494,12 +494,12 @@ func TestVerifyProjectSkillsFullIsolationCleansUpVerificationOwnedService(t *tes
 		},
 		"discovery error": {
 			apiResult: fakeMSBExecCaptureResult{stdout: "not json"},
-			wantErr:   "invalid OpenCode response",
+			wantErr:   "réponse OpenCode invalide",
 		},
 		"cleanup error": {
 			apiResult:  fakeMSBExecCaptureResult{stdout: `{"data":[{"name":"rgaa"}]}`},
 			stopResult: fakeMSBExecCaptureResult{code: 1, stderr: "boom"},
-			wantErr:    "opencode service stop exited 1: boom",
+			wantErr:    "'opencode service stop' s'est terminé avec le code 1 : boom",
 		},
 	} {
 		t.Run(name, func(t *testing.T) {
@@ -1046,7 +1046,7 @@ func TestMicrosandboxFullModeCreateTimesOutWaitingForToolchain(t *testing.T) {
 	m.cfg.StartTimeout = 20 * time.Millisecond
 	m.toolchainPollDelay = time.Millisecond
 	err := m.Start(context.Background())
-	if err == nil || !strings.Contains(err.Error(), "toolchain") {
+	if err == nil || !strings.Contains(err.Error(), "chaîne d'outils") {
 		t.Fatalf("Start error = %v, want a toolchain readiness timeout", err)
 	}
 }
@@ -1066,7 +1066,7 @@ func TestMicrosandboxFullModeRunningRechecksToolchain(t *testing.T) {
 	m.cfg.StartTimeout = 20 * time.Millisecond
 	m.toolchainPollDelay = time.Millisecond
 	err := m.Start(context.Background())
-	if err == nil || !strings.Contains(err.Error(), "toolchain") {
+	if err == nil || !strings.Contains(err.Error(), "chaîne d'outils") {
 		t.Fatalf("Start error = %v, want a toolchain readiness timeout", err)
 	}
 	if hasCall(client, "exec "+msbSandbox+" "+msbRelaunchCommand) {
@@ -1233,7 +1233,7 @@ func TestMicrosandboxFullModeSurfacesInvalidStartTimeout(t *testing.T) {
 	client := &fakeMSBClient{execDefault: &fakeMSBExecResult{code: msbPrepareProgress}}
 	m := newTestMicrosandbox(t, client)
 	m.cfg.Isolation = IsolationFull
-	m.cfg.StartTimeoutErr = errors.New("CODEBOX_START_TIMEOUT must be a whole number of seconds")
+	m.cfg.StartTimeoutErr = errors.New("CODEBOX_START_TIMEOUT doit être un nombre entier de secondes")
 	err := m.Start(context.Background())
 	if err == nil || !strings.Contains(err.Error(), "CODEBOX_START_TIMEOUT") {
 		t.Fatalf("Start error = %v, want the configuration error", err)
@@ -1273,7 +1273,7 @@ func TestMicrosandboxDoctorReportsDiagnostics(t *testing.T) {
 			t.Fatalf("Doctor: %v", err)
 		}
 	})
-	if !strings.Contains(out, "KVM: available") || !strings.Contains(out, "is ready") {
+	if !strings.Contains(out, "KVM: available") || !strings.Contains(out, "est prêt") {
 		t.Fatalf("doctor output = %q", out)
 	}
 	if hasCall(client, "ensure") {
@@ -1301,7 +1301,7 @@ func TestSDKMicrosandboxDoctorDoesNotInstallMissingRuntime(t *testing.T) {
 	t.Setenv("MSB_LIBKRUNFW_PATH", "")
 
 	_, err := (sdkMSBClient{}).Doctor(context.Background())
-	if err == nil || !strings.Contains(err.Error(), "managed Microsandbox runtime is missing") {
+	if err == nil || !strings.Contains(err.Error(), "Microsandbox géré est absent") {
 		t.Fatalf("Doctor error = %v, want missing-runtime diagnostic", err)
 	}
 	if _, statErr := os.Stat(runtimePath); !os.IsNotExist(statErr) {
@@ -1345,7 +1345,7 @@ func TestMicrosandboxRefusesLegacyBindMount(t *testing.T) {
 	if err == nil {
 		t.Fatal("Start must refuse an instance with a host bind mount at /workspace")
 	}
-	for _, want := range []string{"/somewhere/else", "clean --microsandbox", "never converted in place"} {
+	for _, want := range []string{"/somewhere/else", "clean --microsandbox", "jamais convertie sur place"} {
 		if !strings.Contains(err.Error(), want) {
 			t.Fatalf("refusal must mention %q: %v", want, err)
 		}
@@ -1577,7 +1577,7 @@ func TestMicrosandboxRestartAdvisesOnDotenvButProceeds(t *testing.T) {
 			t.Fatalf("Restart must proceed: a host .env is not mounted and cannot reach the guest: %v", err)
 		}
 	})
-	if !strings.Contains(stderr, ".env") || !strings.Contains(stderr, "excluded from transfer") {
+	if !strings.Contains(stderr, ".env") || !strings.Contains(stderr, "exclu du transfert") {
 		t.Fatalf("hygiene note must name the excluded file: %q", stderr)
 	}
 	// And the filter really excludes it: the dotenv file is not in the
@@ -2318,7 +2318,7 @@ func containsString(haystack []string, needle string) bool {
 func TestWarnUnprotectedRuntimeNamesTheRuntimeAndTheRisk(t *testing.T) {
 	for _, runtimeName := range []string{"Tart", "agent-vm"} {
 		out := captureStderr(t, func() { warnUnprotectedRuntime(runtimeName) })
-		for _, want := range []string{runtimeName, "no secret injection", "inference credentials", "isolation backend and full"} {
+		for _, want := range []string{runtimeName, "n'a pas d'injection de secrets", "identifiants d'inférence", "isolation backend comme complète"} {
 			if !strings.Contains(out, want) {
 				t.Fatalf("warning for %s missing %q: %s", runtimeName, want, out)
 			}
@@ -2341,7 +2341,7 @@ func TestMicrosandboxLegacyOpenCodeScriptRequiresExplicitRecreation(t *testing.T
 			m := newTestMicrosandbox(t, client)
 			m.cfg.Isolation = isolation
 			err := m.Start(context.Background())
-			if err == nil || !strings.Contains(err.Error(), "legacy OpenCode") || !strings.Contains(err.Error(), "Export") || !strings.Contains(err.Error(), "recreate") {
+			if err == nil || !strings.Contains(err.Error(), "OpenCode historique") || !strings.Contains(err.Error(), "Export") || !strings.Contains(err.Error(), "recreate") {
 				t.Fatalf("legacy immutable script needs an actionable, non-destructive refusal: %v", err)
 			}
 			if hasCall(client, "start "+msbSandbox) || hasCall(client, "stop "+msbSandbox) || hasCall(client, "remove "+msbSandbox) {
@@ -2573,7 +2573,7 @@ func TestMSBRestartRefusesRecordedSizingChange(t *testing.T) {
 	if err == nil {
 		t.Fatal("a recorded sizing change must refuse the restart")
 	}
-	for _, want := range []string{"8 CPUs", "16384", "recreate --microsandbox"} {
+	for _, want := range []string{"8 CPU", "16384", "recreate --microsandbox"} {
 		if !strings.Contains(err.Error(), want) {
 			t.Fatalf("the refusal must mention %q: %v", want, err)
 		}
@@ -2662,7 +2662,7 @@ func TestRecoverRefusesBindMountedWorkspace(t *testing.T) {
 	if err == nil {
 		t.Fatal("Recover must refuse a bind-mounted workspace")
 	}
-	if !strings.Contains(err.Error(), "mounted from the host") {
+	if !strings.Contains(err.Error(), "monté depuis le poste") {
 		t.Fatalf("Recover refusal should name the host mount, got: %v", err)
 	}
 	// The guard must refuse before any boot attempt.
@@ -2888,10 +2888,10 @@ func TestRecoverRefusesPersistedProjectSecretWithRemovedDestination(t *testing.T
 	if err == nil {
 		t.Fatal("Recover must refuse a persisted destination the current approval no longer grants")
 	}
-	if !strings.Contains(err.Error(), "not all still approved") {
+	if !strings.Contains(err.Error(), "ne sont pas toutes encore approuvées") {
 		t.Fatalf("refusal should name the destination mismatch, got: %v", err)
 	}
-	if !strings.Contains(err.Error(), "recreate the sandbox") {
+	if !strings.Contains(err.Error(), "recréez la machine isolée") {
 		t.Fatalf("refusal should tell the user to recreate the sandbox, got: %v", err)
 	}
 	if hasCall(client, "start ") {
@@ -2919,7 +2919,7 @@ func TestRecoverRefusesPersistedProjectSecretWithStalePlaceholder(t *testing.T) 
 	if err == nil {
 		t.Fatal("Recover must refuse a persisted placeholder that no longer matches the approval marker")
 	}
-	if !strings.Contains(err.Error(), "placeholder no longer matches") {
+	if !strings.Contains(err.Error(), "espace réservé persisté ne correspond plus") {
 		t.Fatalf("refusal should name the placeholder mismatch, got: %v", err)
 	}
 	if hasCall(client, "start ") {
@@ -2949,7 +2949,7 @@ func TestRecoverRefusesPersistedProjectSecretWithoutProvenance(t *testing.T) {
 			ref: func(t *testing.T, s *ProjectSecretStore) persistedSecretRef {
 				return persistedSecretRef{HostEnv: "CODEBOX_HOST_PROJECT_JC_API_KEY", Placeholder: marker(t, s)}
 			},
-			wantErr: "carries no destination allowlist",
+			wantErr: "ne porte aucune liste d'hôtes de destination autorisés",
 		},
 		{
 			name: "no placeholder",
@@ -2959,7 +2959,7 @@ func TestRecoverRefusesPersistedProjectSecretWithoutProvenance(t *testing.T) {
 					AllowedHosts: []string{"api.example.com"},
 				}
 			},
-			wantErr: "carries no placeholder",
+			wantErr: "ne porte aucun espace réservé",
 		},
 	}
 	for _, tc := range cases {
@@ -3022,7 +3022,7 @@ func TestRecoverRefusesPersistedProviderWhoseEndpointChanged(t *testing.T) {
 	if err == nil {
 		t.Fatal("Recover must refuse when the configured platform no longer matches the persisted registration")
 	}
-	if !strings.Contains(err.Error(), "no longer include the configured platform's host") {
+	if !strings.Contains(err.Error(), "n'incluent plus l'hôte") {
 		t.Fatalf("refusal should name the endpoint mismatch, got: %v", err)
 	}
 	if resolved {
@@ -3136,7 +3136,7 @@ func TestRecoverRefusesMissingSandbox(t *testing.T) {
 	if err == nil {
 		t.Fatal("Recover must refuse a nonexistent sandbox")
 	}
-	if !strings.Contains(err.Error(), "does not exist") {
+	if !strings.Contains(err.Error(), "n'existe pas") {
 		t.Fatalf("Recover refusal should say the sandbox does not exist, got: %v", err)
 	}
 }
@@ -3154,7 +3154,7 @@ func TestRecoverTimesOutWhenGuestShellUnreachable(t *testing.T) {
 	if err == nil {
 		t.Fatal("Recover must fail when the guest shell never becomes reachable")
 	}
-	if !strings.Contains(err.Error(), "not reachable") {
+	if !strings.Contains(err.Error(), "n'a pas été joignable") {
 		t.Fatalf("Recover failure should state the guest shell was unreachable, got: %v", err)
 	}
 	if strings.Contains(strings.Join(client.calls, "\n"), msbRelaunchCommand) {

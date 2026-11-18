@@ -41,12 +41,12 @@ type ScalewayStore struct {
 // the network.
 func NewScalewayStore(baseURL, secretKey, projectID, region string, httpClient *http.Client) (*ScalewayStore, error) {
 	if strings.TrimSpace(secretKey) == "" || strings.TrimSpace(projectID) == "" {
-		return nil, errors.New("Scaleway secret key and project ID are required")
+		return nil, errors.New("la clé secrète Scaleway et l'identifiant de projet sont requis")
 	}
 	switch region {
 	case "fr-par", "nl-ams", "pl-waw":
 	default:
-		return nil, fmt.Errorf("unsupported Scaleway region %q", region)
+		return nil, fmt.Errorf("région Scaleway %q non prise en charge", region)
 	}
 	if strings.HasSuffix(baseURL, "/") {
 		baseURL = strings.TrimSuffix(baseURL, "/")
@@ -85,10 +85,10 @@ func (s *ScalewayStore) listSecretID(ctx context.Context, path, name string) (st
 	defer func() { _ = resp.Body.Close() }()
 	body, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 	if err != nil {
-		return "", fmt.Errorf("%w: secret list unreadable", ErrStoreUnavailable)
+		return "", fmt.Errorf("%w : liste des secrets illisible", ErrStoreUnavailable)
 	}
 	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("%w: secret list returned HTTP %d", ErrStoreUnavailable, resp.StatusCode)
+		return "", fmt.Errorf("%w : la liste des secrets a renvoyé HTTP %d", ErrStoreUnavailable, resp.StatusCode)
 	}
 	var doc struct {
 		Secrets []struct {
@@ -98,7 +98,7 @@ func (s *ScalewayStore) listSecretID(ctx context.Context, path, name string) (st
 		} `json:"secrets"`
 	}
 	if err := json.Unmarshal(body, &doc); err != nil {
-		return "", fmt.Errorf("%w: secret list is not valid JSON", ErrStoreInvalid)
+		return "", fmt.Errorf("%w : la liste des secrets n'est pas du JSON valide", ErrStoreInvalid)
 	}
 	for _, item := range doc.Secrets {
 		if item.Path == path && item.Name == name {
@@ -141,21 +141,21 @@ func (s *ScalewayStore) ensureSecret(ctx context.Context, path, name, descriptio
 	defer func() { _ = resp.Body.Close() }()
 	body, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 	if err != nil {
-		return "", fmt.Errorf("%w: secret creation unreadable", ErrStoreUnavailable)
+		return "", fmt.Errorf("%w : création de secret illisible", ErrStoreUnavailable)
 	}
 	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
 		// A concurrent creation makes the list the authoritative check.
 		if id, listErr := s.listSecretID(ctx, path, name); listErr == nil {
 			return id, nil
 		}
-		return "", fmt.Errorf("%w: secret creation returned HTTP %d", ErrStoreUnavailable, resp.StatusCode)
+		return "", fmt.Errorf("%w : la création de secret a renvoyé HTTP %d", ErrStoreUnavailable, resp.StatusCode)
 	}
 	var created struct {
 		ID        string `json:"id"`
 		Protected bool   `json:"protected"`
 	}
 	if err := json.Unmarshal(body, &created); err != nil || created.ID == "" {
-		return "", fmt.Errorf("%w: secret creation payload is not valid JSON", ErrStoreInvalid)
+		return "", fmt.Errorf("%w : la charge de création de secret n'est pas du JSON valide", ErrStoreInvalid)
 	}
 	if !created.Protected {
 		if err := s.protectSecret(ctx, created.ID); err != nil {
@@ -178,7 +178,7 @@ func (s *ScalewayStore) protectSecret(ctx context.Context, secretID string) erro
 	}
 	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("%w: enabling secret protection returned HTTP %d", ErrStoreUnavailable, resp.StatusCode)
+		return fmt.Errorf("%w : l'activation de la protection du secret a renvoyé HTTP %d", ErrStoreUnavailable, resp.StatusCode)
 	}
 	return nil
 }
@@ -205,25 +205,25 @@ func (s *ScalewayStore) readVersion(ctx context.Context, path, name, revision st
 	defer func() { _ = resp.Body.Close() }()
 	body, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 	if err != nil {
-		return nil, 0, fmt.Errorf("%w: secret version unreadable", ErrStoreUnavailable)
+		return nil, 0, fmt.Errorf("%w : version de secret illisible", ErrStoreUnavailable)
 	}
 	switch resp.StatusCode {
 	case http.StatusOK:
 	case http.StatusNotFound:
 		return nil, 0, ErrStoreNotFound
 	default:
-		return nil, 0, fmt.Errorf("%w: secret version access returned HTTP %d", ErrStoreUnavailable, resp.StatusCode)
+		return nil, 0, fmt.Errorf("%w : l'accès à la version du secret a renvoyé HTTP %d", ErrStoreUnavailable, resp.StatusCode)
 	}
 	var doc struct {
 		Revision uint32 `json:"revision"`
 		Data     string `json:"data"`
 	}
 	if err := json.Unmarshal(body, &doc); err != nil {
-		return nil, 0, fmt.Errorf("%w: secret version payload is not valid JSON", ErrStoreInvalid)
+		return nil, 0, fmt.Errorf("%w : la charge de la version du secret n'est pas du JSON valide", ErrStoreInvalid)
 	}
 	raw, err := base64.StdEncoding.DecodeString(doc.Data)
 	if err != nil {
-		return nil, 0, fmt.Errorf("%w: secret version payload is not base64", ErrStoreInvalid)
+		return nil, 0, fmt.Errorf("%w : la charge de la version du secret n'est pas du base64", ErrStoreInvalid)
 	}
 	return raw, doc.Revision, nil
 }
@@ -295,7 +295,7 @@ func (s *ScalewayStore) writeVersionConditional(ctx context.Context, path, name,
 		// A competitor appended during our window: retract ours so the earlier
 		// committed value stays live, and report the conflict.
 		if disableErr := s.setVersionEnabled(ctx, id, revision, false); disableErr != nil {
-			return 0, fmt.Errorf("%w: could not retract a superseded version: %v", ErrStoreUnavailable, disableErr)
+			return 0, fmt.Errorf("%w : impossible de rétracter une version remplacée : %v", ErrStoreUnavailable, disableErr)
 		}
 		return 0, ErrStoreConflict
 	}
@@ -331,7 +331,7 @@ func (s *ScalewayStore) disableVersionsBelow(ctx context.Context, secretID strin
 			continue
 		}
 		if err := s.setVersionEnabled(ctx, secretID, v.Revision, false); err != nil {
-			return fmt.Errorf("%w: could not disable the superseded version %d: %v", ErrStoreUnavailable, v.Revision, err)
+			return fmt.Errorf("%w : impossible de désactiver la version remplacée %d : %v", ErrStoreUnavailable, v.Revision, err)
 		}
 	}
 	return nil
@@ -363,19 +363,19 @@ func (s *ScalewayStore) versionMetadataRevision(ctx context.Context, secretID, r
 	defer func() { _ = resp.Body.Close() }()
 	body, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 	if err != nil {
-		return 0, fmt.Errorf("%w: secret version metadata unreadable", ErrStoreUnavailable)
+		return 0, fmt.Errorf("%w : métadonnées de version de secret illisibles", ErrStoreUnavailable)
 	}
 	if resp.StatusCode == http.StatusNotFound {
 		return 0, ErrStoreNotFound
 	}
 	if resp.StatusCode != http.StatusOK {
-		return 0, fmt.Errorf("%w: secret version metadata returned HTTP %d", ErrStoreUnavailable, resp.StatusCode)
+		return 0, fmt.Errorf("%w : les métadonnées de version de secret ont renvoyé HTTP %d", ErrStoreUnavailable, resp.StatusCode)
 	}
 	var doc struct {
 		Revision uint32 `json:"revision"`
 	}
 	if err := json.Unmarshal(body, &doc); err != nil {
-		return 0, fmt.Errorf("%w: secret version metadata is not valid JSON", ErrStoreInvalid)
+		return 0, fmt.Errorf("%w : les métadonnées de version de secret ne sont pas du JSON valide", ErrStoreInvalid)
 	}
 	return doc.Revision, nil
 }
@@ -400,20 +400,20 @@ func (s *ScalewayStore) listVersions(ctx context.Context, secretID string) ([]se
 		body, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 		_ = resp.Body.Close()
 		if err != nil {
-			return nil, fmt.Errorf("%w: secret version list unreadable", ErrStoreUnavailable)
+			return nil, fmt.Errorf("%w : liste des versions de secret illisible", ErrStoreUnavailable)
 		}
 		if resp.StatusCode == http.StatusNotFound {
 			return nil, ErrStoreNotFound
 		}
 		if resp.StatusCode != http.StatusOK {
-			return nil, fmt.Errorf("%w: secret version list returned HTTP %d", ErrStoreUnavailable, resp.StatusCode)
+			return nil, fmt.Errorf("%w : la liste des versions de secret a renvoyé HTTP %d", ErrStoreUnavailable, resp.StatusCode)
 		}
 		var doc struct {
 			Versions   []secretVersion `json:"versions"`
 			TotalCount uint64          `json:"total_count"`
 		}
 		if err := json.Unmarshal(body, &doc); err != nil {
-			return nil, fmt.Errorf("%w: secret version list is not valid JSON", ErrStoreInvalid)
+			return nil, fmt.Errorf("%w : la liste des versions de secret n'est pas du JSON valide", ErrStoreInvalid)
 		}
 		all = append(all, doc.Versions...)
 		if len(doc.Versions) < pageSize || uint64(len(all)) >= doc.TotalCount {
@@ -448,16 +448,16 @@ func (s *ScalewayStore) appendVersion(ctx context.Context, secretID, description
 	defer func() { _ = resp.Body.Close() }()
 	raw, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 	if err != nil {
-		return 0, fmt.Errorf("%w: secret version creation unreadable", ErrStoreUnavailable)
+		return 0, fmt.Errorf("%w : création de version de secret illisible", ErrStoreUnavailable)
 	}
 	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
-		return 0, fmt.Errorf("%w: secret version creation returned HTTP %d", ErrStoreUnavailable, resp.StatusCode)
+		return 0, fmt.Errorf("%w : la création de version de secret a renvoyé HTTP %d", ErrStoreUnavailable, resp.StatusCode)
 	}
 	var doc struct {
 		Revision uint32 `json:"revision"`
 	}
 	if err := json.Unmarshal(raw, &doc); err != nil || doc.Revision == 0 {
-		return 0, fmt.Errorf("%w: secret version creation payload is not valid JSON", ErrStoreInvalid)
+		return 0, fmt.Errorf("%w : la charge de création de version de secret n'est pas du JSON valide", ErrStoreInvalid)
 	}
 	return doc.Revision, nil
 }
@@ -481,7 +481,7 @@ func (s *ScalewayStore) setVersionEnabled(ctx context.Context, secretID string, 
 	}
 	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("%s version %d returned HTTP %d", action, revision, resp.StatusCode)
+		return fmt.Errorf("l'action %s sur la version %d a renvoyé HTTP %d", action, revision, resp.StatusCode)
 	}
 	return nil
 }
@@ -567,7 +567,7 @@ func (s *ScalewayStore) WriteBundle(ctx context.Context, projectID string, baseR
 func (s *ScalewayStore) do(req *http.Request) (*http.Response, error) {
 	resp, err := s.httpClient.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("%w: %v", ErrStoreUnavailable, err)
+		return nil, fmt.Errorf("%w : %v", ErrStoreUnavailable, err)
 	}
 	return resp, nil
 }

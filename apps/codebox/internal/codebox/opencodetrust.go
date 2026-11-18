@@ -58,10 +58,10 @@ func ReadTrustRecord(fs FS, stateDir, projectRoot string) (TrustRecord, error) {
 	}
 	var r TrustRecord
 	if err := json.Unmarshal(data, &r); err != nil {
-		return TrustRecord{}, fmt.Errorf("trust record %s: %w", opencodeTrustPath(stateDir, projectRoot), err)
+		return TrustRecord{}, fmt.Errorf("enregistrement de confiance %s : %w", opencodeTrustPath(stateDir, projectRoot), err)
 	}
 	if r.SchemaVersion > trustRecordSchemaVersion {
-		return TrustRecord{}, fmt.Errorf("trust record %s: schemaVersion %d is newer than this build supports (%d)",
+		return TrustRecord{}, fmt.Errorf("enregistrement de confiance %s : schemaVersion %d est plus récent que ce que cette version prend en charge (%d)",
 			opencodeTrustPath(stateDir, projectRoot), r.SchemaVersion, trustRecordSchemaVersion)
 	}
 	return r, nil
@@ -102,10 +102,10 @@ func hashFileContent(root, rel string) (string, error) {
 		return "", err
 	}
 	if fi.Mode()&os.ModeSymlink != 0 {
-		return "", fmt.Errorf("%s is a symlink; refusing to approve a repointable path", path)
+		return "", fmt.Errorf("%s est un lien symbolique ; refus d'approuver un chemin réorientable", path)
 	}
 	if !fi.Mode().IsRegular() {
-		return "", fmt.Errorf("%s is not a regular file; refusing to hash it", path)
+		return "", fmt.Errorf("%s n'est pas un fichier ordinaire ; refus de le hacher", path)
 	}
 	file, err := os.Open(path)
 	if err != nil {
@@ -117,7 +117,7 @@ func hashFileContent(root, rel string) (string, error) {
 		return "", err
 	}
 	if !opened.Mode().IsRegular() || !os.SameFile(fi, opened) {
-		return "", fmt.Errorf("%s changed while opening; refusing to hash it", path)
+		return "", fmt.Errorf("%s a changé pendant l'ouverture ; refus de le hacher", path)
 	}
 	h := sha256.New()
 	if _, err := io.Copy(h, file); err != nil {
@@ -208,15 +208,15 @@ func DiscoverUnapprovedInputs(fs FS, stateDir, projectRoot string) ([]Unapproved
 	check := func(rel string) {
 		hash, err := hashFileContent(projectRoot, rel)
 		if err != nil {
-			out = append(out, UnapprovedInput{Path: rel, Reason: "unreadable: " + err.Error()})
+			out = append(out, UnapprovedInput{Path: rel, Reason: "illisible : " + err.Error()})
 			return
 		}
 		prior, was := approved[rel]
 		switch {
 		case !was:
-			out = append(out, UnapprovedInput{Path: rel, Reason: "unapproved", Hash: hash})
+			out = append(out, UnapprovedInput{Path: rel, Reason: "non approuvé", Hash: hash})
 		case prior != hash:
-			out = append(out, UnapprovedInput{Path: rel, Reason: "changed since approval", Hash: hash})
+			out = append(out, UnapprovedInput{Path: rel, Reason: "modifié depuis l'approbation", Hash: hash})
 		}
 	}
 	for _, rel := range inputs.ExecutionInputPaths(projectRoot) {
@@ -292,7 +292,7 @@ func ApproveExecutionInputs(fs FS, stateDir, projectRoot string) error {
 	add := func(rel string) error {
 		hash, err := hashFileContent(projectRoot, rel)
 		if err != nil {
-			return fmt.Errorf("approve %s: %w", rel, err)
+			return fmt.Errorf("approbation de %s : %w", rel, err)
 		}
 		keep[rel] = hash
 		return nil

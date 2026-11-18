@@ -52,7 +52,7 @@ func msbRuntimeArtifactFor(goos, goarch string) (msbRuntimeArtifact, error) {
 	case "arm64":
 		platform = "aarch64"
 	default:
-		return msbRuntimeArtifact{}, fmt.Errorf("unsupported Microsandbox architecture: %s", goarch)
+		return msbRuntimeArtifact{}, fmt.Errorf("architecture Microsandbox non prise en charge : %s", goarch)
 	}
 
 	var artifact msbRuntimeArtifact
@@ -97,7 +97,7 @@ func msbRuntimeArtifactFor(goos, goarch string) (msbRuntimeArtifact, error) {
 			libName: "libkrunfw.dll",
 		}
 	default:
-		return msbRuntimeArtifact{}, fmt.Errorf("unsupported Microsandbox platform: %s/%s", goos, goarch)
+		return msbRuntimeArtifact{}, fmt.Errorf("plateforme Microsandbox non prise en charge : %s/%s", goos, goarch)
 	}
 	artifact.name = fmt.Sprintf("microsandbox-%s-%s.tar.gz", goos, platform)
 	return artifact, nil
@@ -112,7 +112,7 @@ func MSBSDKVersion() string {
 
 func ensureMSBRuntime(ctx context.Context, client *http.Client) error {
 	if msb.SDKVersion() != msbRuntimeVersion {
-		return fmt.Errorf("Microsandbox SDK/runtime version mismatch: SDK %s, hosted runtime %s", msb.SDKVersion(), msbRuntimeVersion)
+		return fmt.Errorf("incompatibilité de version Microsandbox SDK/runtime : SDK %s, runtime hébergé %s", msb.SDKVersion(), msbRuntimeVersion)
 	}
 	if external, err := validateExternalMSBRuntime(ctx); external || err != nil {
 		return err
@@ -143,7 +143,7 @@ func ensureMSBRuntime(ctx context.Context, client *http.Client) error {
 	}
 	if _, err := msb.ResolveRuntime(msb.RuntimeConfig{}); err != nil {
 		_ = os.Remove(msbRuntimeMarker(home))
-		return fmt.Errorf("validate installed Microsandbox runtime: %w", err)
+		return fmt.Errorf("validation du runtime Microsandbox installé : %w", err)
 	}
 	return writeMSBRuntimeMarker(home, artifact)
 }
@@ -157,15 +157,15 @@ func validateExternalMSBRuntime(ctx context.Context) (bool, error) {
 		return false, nil
 	}
 	if msbPath == "" || libPath == "" {
-		return true, fmt.Errorf("set both MSB_PATH and MSB_LIBKRUNFW_PATH for a manually installed Microsandbox runtime")
+		return true, fmt.Errorf("définissez à la fois MSB_PATH et MSB_LIBKRUNFW_PATH pour un runtime Microsandbox installé manuellement")
 	}
 	for name, file := range map[string]string{"MSB_PATH": msbPath, "MSB_LIBKRUNFW_PATH": libPath} {
 		info, err := os.Stat(file)
 		if err != nil {
-			return true, fmt.Errorf("%s points at %s: %w", name, file, err)
+			return true, fmt.Errorf("%s pointe vers %s : %w", name, file, err)
 		}
 		if !info.Mode().IsRegular() {
-			return true, fmt.Errorf("%s must point at a regular file: %s", name, file)
+			return true, fmt.Errorf("%s doit pointer vers un fichier régulier : %s", name, file)
 		}
 	}
 	version, err := installedMSBVersion(ctx, msbPath)
@@ -173,7 +173,7 @@ func validateExternalMSBRuntime(ctx context.Context) (bool, error) {
 		return true, err
 	}
 	if version != msbRuntimeVersion {
-		return true, fmt.Errorf("MSB_PATH reports msb %s; codebox requires msb %s", version, msbRuntimeVersion)
+		return true, fmt.Errorf("MSB_PATH signale msb %s ; codebox requiert msb %s", version, msbRuntimeVersion)
 	}
 	return true, nil
 }
@@ -182,7 +182,7 @@ func validateExternalMSBRuntime(ctx context.Context) (bool, error) {
 // downloading, or changing its provenance marker.
 func validateInstalledMSBRuntime(ctx context.Context) error {
 	if msb.SDKVersion() != msbRuntimeVersion {
-		return fmt.Errorf("Microsandbox SDK/runtime version mismatch: SDK %s, hosted runtime %s", msb.SDKVersion(), msbRuntimeVersion)
+		return fmt.Errorf("incompatibilité de version Microsandbox SDK/runtime : SDK %s, runtime hébergé %s", msb.SDKVersion(), msbRuntimeVersion)
 	}
 	if external, err := validateExternalMSBRuntime(ctx); external || err != nil {
 		return err
@@ -196,7 +196,7 @@ func validateInstalledMSBRuntime(ctx context.Context) error {
 		return err
 	}
 	if !managedMSBRuntimeTrusted(home, artifact) {
-		return fmt.Errorf("managed Microsandbox runtime is missing or failed integrity checks; run 'codebox start --microsandbox' to install or repair it")
+		return fmt.Errorf("le runtime Microsandbox géré est absent ou a échoué aux contrôles d'intégrité ; lancez 'codebox start --microsandbox' pour l'installer ou le réparer")
 	}
 	return nil
 }
@@ -204,11 +204,11 @@ func validateInstalledMSBRuntime(ctx context.Context) error {
 func installedMSBVersion(ctx context.Context, binary string) (string, error) {
 	out, err := exec.CommandContext(ctx, binary, "--version").CombinedOutput()
 	if err != nil {
-		return "", fmt.Errorf("run %s --version: %w: %s", binary, err, strings.TrimSpace(string(out)))
+		return "", fmt.Errorf("exécution de %s --version : %w : %s", binary, err, strings.TrimSpace(string(out)))
 	}
 	version := strings.TrimSpace(string(out))
 	if !strings.HasPrefix(version, "msb ") {
-		return "", fmt.Errorf("unexpected %s --version output: %q", binary, version)
+		return "", fmt.Errorf("sortie inattendue de %s --version : %q", binary, version)
 	}
 	return strings.TrimPrefix(version, "msb "), nil
 }
@@ -219,7 +219,7 @@ func msbRuntimeHome() (string, error) {
 	}
 	home, err := os.UserHomeDir()
 	if err != nil {
-		return "", fmt.Errorf("resolve home directory: %w", err)
+		return "", fmt.Errorf("résolution du répertoire personnel : %w", err)
 	}
 	return filepath.Join(home, ".microsandbox"), nil
 }
@@ -257,11 +257,11 @@ func managedMSBRuntimeTrusted(home string, artifact msbRuntimeArtifact) bool {
 
 func downloadAndInstallMSBRuntime(ctx context.Context, client *http.Client, home string, artifact msbRuntimeArtifact) error {
 	if err := os.MkdirAll(home, 0o755); err != nil {
-		return fmt.Errorf("create Microsandbox home %s: %w", home, err)
+		return fmt.Errorf("création du répertoire Microsandbox %s : %w", home, err)
 	}
 	archive, err := os.CreateTemp(home, ".codebox-msb-runtime-*.tar.gz")
 	if err != nil {
-		return fmt.Errorf("create runtime download: %w", err)
+		return fmt.Errorf("création du téléchargement du runtime : %w", err)
 	}
 	archivePath := archive.Name()
 	defer os.Remove(archivePath)
@@ -277,23 +277,23 @@ func downloadAndInstallMSBRuntime(ctx context.Context, client *http.Client, home
 	resp, err := client.Do(req)
 	if err != nil {
 		archive.Close()
-		return fmt.Errorf("download %s: %w", url, err)
+		return fmt.Errorf("téléchargement de %s : %w", url, err)
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
 		archive.Close()
-		return fmt.Errorf("download %s: HTTP %d", url, resp.StatusCode)
+		return fmt.Errorf("téléchargement de %s : HTTP %d", url, resp.StatusCode)
 	}
 	progress := &runtimeDownloadProgress{total: resp.ContentLength, enabled: term.IsTerminal(int(os.Stderr.Fd()))}
 	n, err := io.Copy(archive, io.LimitReader(io.TeeReader(resp.Body, progress), msbRuntimeMaxArchive+1))
 	progress.finish()
 	if err != nil {
 		archive.Close()
-		return fmt.Errorf("download %s: %w", url, err)
+		return fmt.Errorf("téléchargement de %s : %w", url, err)
 	}
 	if n > msbRuntimeMaxArchive {
 		archive.Close()
-		return fmt.Errorf("download %s: archive exceeds %d bytes", url, msbRuntimeMaxArchive)
+		return fmt.Errorf("téléchargement de %s : l'archive dépasse %d octets", url, msbRuntimeMaxArchive)
 	}
 	if _, err := archive.Seek(0, io.SeekStart); err != nil {
 		archive.Close()
@@ -302,7 +302,7 @@ func downloadAndInstallMSBRuntime(ctx context.Context, client *http.Client, home
 	fmt.Fprintln(os.Stderr, "  [2/3] Vérification de l'intégrité")
 	if err := verifySHA256(archive, artifact.sha256); err != nil {
 		archive.Close()
-		return fmt.Errorf("verify %s: %w", artifact.name, err)
+		return fmt.Errorf("vérification de %s : %w", artifact.name, err)
 	}
 	if _, err := archive.Seek(0, io.SeekStart); err != nil {
 		archive.Close()
@@ -311,7 +311,7 @@ func downloadAndInstallMSBRuntime(ctx context.Context, client *http.Client, home
 	fmt.Fprintln(os.Stderr, "  [3/3] Préparation")
 	if err := extractMSBRuntime(archive, home, artifact); err != nil {
 		archive.Close()
-		return fmt.Errorf("extract %s: %w", artifact.name, err)
+		return fmt.Errorf("extraction de %s : %w", artifact.name, err)
 	}
 	if err := archive.Close(); err != nil {
 		return err
@@ -366,7 +366,7 @@ func verifySHA256(r io.Reader, expected string) error {
 	}
 	actual := fmt.Sprintf("%x", hash.Sum(nil))
 	if actual != strings.ToLower(expected) {
-		return fmt.Errorf("SHA-256 mismatch: got %s, expected %s", actual, expected)
+		return fmt.Errorf("empreinte SHA-256 non concordante : obtenue %s, attendue %s", actual, expected)
 	}
 	return nil
 }
@@ -374,7 +374,7 @@ func verifySHA256(r io.Reader, expected string) error {
 func extractMSBRuntime(r io.Reader, home string, artifact msbRuntimeArtifact) error {
 	gz, err := gzip.NewReader(r)
 	if err != nil {
-		return fmt.Errorf("gzip reader: %w", err)
+		return fmt.Errorf("lecture gzip : %w", err)
 	}
 	defer gz.Close()
 
@@ -390,7 +390,7 @@ func extractMSBRuntime(r io.Reader, home string, artifact msbRuntimeArtifact) er
 			break
 		}
 		if err != nil {
-			return fmt.Errorf("read tar: %w", err)
+			return fmt.Errorf("lecture tar : %w", err)
 		}
 		name := path.Base(header.Name)
 		destination, wanted := destinations[name]
@@ -398,10 +398,10 @@ func extractMSBRuntime(r io.Reader, home string, artifact msbRuntimeArtifact) er
 			continue
 		}
 		if header.Typeflag != tar.TypeReg {
-			return fmt.Errorf("%s is not a regular file", header.Name)
+			return fmt.Errorf("%s n'est pas un fichier régulier", header.Name)
 		}
 		if found[name] {
-			return fmt.Errorf("duplicate runtime file %s", name)
+			return fmt.Errorf("fichier de runtime en double %s", name)
 		}
 		if err := atomicCopyFile(destination, tarReader, 0o755); err != nil {
 			return err
@@ -410,16 +410,16 @@ func extractMSBRuntime(r io.Reader, home string, artifact msbRuntimeArtifact) er
 	}
 	for name := range destinations {
 		if !found[name] {
-			return fmt.Errorf("runtime archive is missing %s", name)
+			return fmt.Errorf("l'archive du runtime ne contient pas %s", name)
 		}
 	}
 	for _, link := range artifact.libSymlink {
 		linkPath := filepath.Join(home, "lib", link[0])
 		if err := os.Remove(linkPath); err != nil && !os.IsNotExist(err) {
-			return fmt.Errorf("remove old symlink %s: %w", linkPath, err)
+			return fmt.Errorf("suppression de l'ancien lien symbolique %s : %w", linkPath, err)
 		}
 		if err := os.Symlink(link[1], linkPath); err != nil {
-			return fmt.Errorf("symlink %s -> %s: %w", linkPath, link[1], err)
+			return fmt.Errorf("lien symbolique %s -> %s : %w", linkPath, link[1], err)
 		}
 	}
 	return nil
@@ -442,7 +442,7 @@ func atomicCopyFile(destination string, source io.Reader, mode os.FileMode) erro
 	}
 	if n > msbRuntimeMaxFile {
 		temp.Close()
-		return fmt.Errorf("runtime file exceeds %d bytes", msbRuntimeMaxFile)
+		return fmt.Errorf("le fichier du runtime dépasse %d octets", msbRuntimeMaxFile)
 	}
 	if err := temp.Chmod(mode); err != nil {
 		temp.Close()
@@ -455,7 +455,7 @@ func atomicCopyFile(destination string, source io.Reader, mode os.FileMode) erro
 		_ = os.Remove(destination)
 	}
 	if err := os.Rename(tempName, destination); err != nil {
-		return fmt.Errorf("replace %s: %w", destination, err)
+		return fmt.Errorf("remplacement de %s : %w", destination, err)
 	}
 	return nil
 }

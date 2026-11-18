@@ -20,7 +20,7 @@ type ValueSource struct {
 // NewValueSource builds a remote resolver for the project manifest's ID.
 func NewValueSource(client *Client, projectID string) (*ValueSource, error) {
 	if client == nil {
-		return nil, fmt.Errorf("gateway client is required")
+		return nil, fmt.Errorf("un client de passerelle est requis")
 	}
 	if err := secrets.ValidateProjectID(projectID); err != nil {
 		return nil, err
@@ -51,11 +51,11 @@ func (s *ValueSource) ResolveProjectSecretValues(ctx context.Context, requests [
 	for _, req := range requests {
 		vars, ok := resolved.Components[req.Identity.Component]
 		if !ok {
-			return nil, fmt.Errorf("gateway bundle has no component %s (revision %d)", req.Identity.Component, resolved.Revision)
+			return nil, fmt.Errorf("le lot de secrets de la passerelle ne contient pas le composant %s (révision %d)", req.Identity.Component, resolved.Revision)
 		}
 		value, ok := vars[req.Identity.Name]
 		if !ok {
-			return nil, fmt.Errorf("gateway bundle has no variable %s in %s (revision %d)", req.Identity.Name, req.Identity.Component, resolved.Revision)
+			return nil, fmt.Errorf("le lot de secrets de la passerelle ne contient pas la variable %s dans %s (révision %d)", req.Identity.Name, req.Identity.Component, resolved.Revision)
 		}
 		// Carry the gateway bundle revision as a non-secret reference. The
 		// resolved binding's storeEntry() feeds bindingsRevision and
@@ -84,7 +84,7 @@ func BuildRuntimeValueSource(ctx context.Context, projectID string, store codebo
 	}
 	token, err := store.Get(ctx, codebox.CredentialCodeboxServer)
 	if err != nil {
-		return nil, true, fmt.Errorf("gateway session missing; run codebox secrets login: %w", err)
+		return nil, true, fmt.Errorf("session de passerelle absente ; lancez codebox secrets login : %w", err)
 	}
 	client, err := New(baseURL, token, httpClient)
 	if err != nil {

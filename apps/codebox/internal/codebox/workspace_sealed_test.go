@@ -126,7 +126,7 @@ func TestSyncRefusesOverCommittedGuestChanges(t *testing.T) {
 	gitInitForTransfer(t, m.cfg.WorkspaceDir)
 
 	err := m.SyncGuestWorkspace(context.Background(), SyncOptions{Print: func(string) {}})
-	if err == nil || !strings.Contains(err.Error(), "committed changes") {
+	if err == nil || !strings.Contains(err.Error(), "modifications commitées") {
 		t.Fatalf("a refresh over committed guest work must be refused: %v", err)
 	}
 	if len(client.written) != 0 {
@@ -210,7 +210,7 @@ func TestSyncRefusesLegacyGuestWithoutRecoveryBase(t *testing.T) {
 	writeFile(t, m.cfg.WorkspaceDir, "main.go", "package main\n")
 	gitInitForTransfer(t, m.cfg.WorkspaceDir)
 	err := m.SyncGuestWorkspace(context.Background(), SyncOptions{Force: true, Print: func(string) {}})
-	if err == nil || !strings.Contains(err.Error(), "predates recovery-base tracking") {
+	if err == nil || !strings.Contains(err.Error(), "antérieur au suivi de la base de récupération") {
 		t.Fatalf("a legacy refresh must be refused rather than risk hiding commits: %v", err)
 	}
 	if len(client.written) != 0 {
@@ -232,7 +232,7 @@ func TestSyncRefusesEmptyTransferSet(t *testing.T) {
 	if err == nil {
 		t.Fatal("an empty transfer set must be refused rather than provision an empty workspace")
 	}
-	if !strings.Contains(err.Error(), "excluded all") {
+	if !strings.Contains(err.Error(), "a exclu les") {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }
@@ -340,7 +340,7 @@ func TestProvisionEmptySourceCreatesEmptyRepository(t *testing.T) {
 	if err := m.ProvisionGuestWorkspace(context.Background(), SyncOptions{Print: func(s string) { out.WriteString(s) }}); err != nil {
 		t.Fatalf("an empty source must still provision: %v", err)
 	}
-	if !strings.Contains(out.String(), "empty repository") {
+	if !strings.Contains(out.String(), "dépôt vide") {
 		t.Fatalf("the empty case must be stated plainly: %q", out.String())
 	}
 	if !hasCall(client, "exec "+msbSandbox) {
@@ -442,7 +442,7 @@ func TestWorkspaceOpsRefuseLegacyBindMount(t *testing.T) {
 			if err == nil {
 				t.Fatal("the operation must refuse a host-mounted workspace")
 			}
-			if !strings.Contains(err.Error(), "mounted from the host") {
+			if !strings.Contains(err.Error(), "monté depuis le poste") {
 				t.Fatalf("the refusal must name the cause: %v", err)
 			}
 			if len(client.written) != 0 {
@@ -465,7 +465,7 @@ func TestWorkspaceOpsRefuseUnprovenProvenance(t *testing.T) {
 	if err == nil {
 		t.Fatal("an unproven workspace must be refused")
 	}
-	if !strings.Contains(err.Error(), "not guest-owned storage") {
+	if !strings.Contains(err.Error(), "n'est pas un stockage propre à la machine isolée") {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }
@@ -475,7 +475,7 @@ func TestWorkspaceOpsRefuseUnprovenProvenance(t *testing.T) {
 func TestWorkspaceOpsRefuseMissingInstance(t *testing.T) {
 	m := newTestMicrosandbox(t, &fakeMSBClient{exists: false})
 	err := m.SyncGuestWorkspace(context.Background(), SyncOptions{Print: func(string) {}})
-	if err == nil || !strings.Contains(err.Error(), "does not exist yet") {
+	if err == nil || !strings.Contains(err.Error(), "n'existe pas encore") {
 		t.Fatalf("expected an actionable not-found error, got %v", err)
 	}
 }
@@ -491,7 +491,7 @@ func TestSyncHonoursRecordedOptInWithoutTheFlag(t *testing.T) {
 	gitInitForTransfer(t, m.cfg.WorkspaceDir)
 
 	store := TransferOptInStore{Path: TransferOptInPath(m.StateDir, m.InstanceName()), FS: DefaultFS}
-	if err := store.Allow(".env", "dotenv file (default-deny)"); err != nil {
+	if err := store.Allow(".env", "fichier .env (refusé par défaut)"); err != nil {
 		t.Fatal(err)
 	}
 	// No OptIn in the options: the recorded decision must still apply.
@@ -721,7 +721,7 @@ git commit -q -am 'agent work'
 
 			out, err := runShellTest(guestRecoveryRefreshScript(guest, archive, base, "T", "t@example.test"), guest)
 			if tc.wantErr {
-				if err == nil || !strings.Contains(string(out), "pre-refresh state was restored") {
+				if err == nil || !strings.Contains(string(out), "a été restauré") {
 					t.Fatalf("conflicting refresh must fail after restoring the backup: %v: %s", err, out)
 				}
 			} else {
@@ -986,7 +986,7 @@ git commit -q -am 'agent work'
 	}
 
 	out, err := runShellTest(guestRecoveryRefreshScript(guest, archive, base, "T", "t@example.test"), guest)
-	if err == nil || !strings.Contains(string(out), "pre-refresh state was restored") {
+	if err == nil || !strings.Contains(string(out), "a été restauré") {
 		t.Fatalf("conflicting refresh must fail after restoring the backup: %v: %s", err, out)
 	}
 	if got := strings.TrimSpace(gitTestOutput(t, guest, "rev-parse", "HEAD")); got != originalHead {
@@ -1107,7 +1107,7 @@ git commit -q -am 'agent work'
 	}
 
 	out, err := runShellTest(guestRecoveryRefreshScript(guest, archive, base, "T", "t@example.test"), guest)
-	if err == nil || !strings.Contains(string(out), "could not be extracted") || !strings.Contains(string(out), "pre-refresh state was restored") {
+	if err == nil || !strings.Contains(string(out), "n’a pas pu être extrait") || !strings.Contains(string(out), "a été restauré") {
 		t.Fatalf("extraction failure must roll back explicitly: %v: %s", err, out)
 	}
 	if strings.Contains(string(out), guestRecoveryBasePrefix) {

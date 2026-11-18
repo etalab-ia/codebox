@@ -214,10 +214,10 @@ func readReviewedFileSnapshot(fs FS, path string) (reviewedFileSnapshot, error) 
 func (s reviewedFileSnapshot) validateCurrent(fs FS, path string) error {
 	current, err := readReviewedFileSnapshot(fs, path)
 	if err != nil {
-		return fmt.Errorf("cannot re-read %s before Apply: %w", path, err)
+		return fmt.Errorf("impossible de relire %s avant Apply : %w", path, err)
 	}
 	if current.existed != s.existed || !bytes.Equal(current.data, s.data) {
-		return fmt.Errorf("%s changed after the review; run init again to review the current files before applying", path)
+		return fmt.Errorf("%s a changé après la revue ; relancez init pour revoir les fichiers actuels avant d'appliquer", path)
 	}
 	return nil
 }
@@ -260,7 +260,7 @@ func applyManagedFileMutations(fs FS, mutations []managedFileMutation) error {
 		snapshot := managedFileSnapshot{path: mutation.path, mode: mutation.mode}
 		if info, err := os.Lstat(mutation.path); err == nil {
 			if info.Mode()&os.ModeSymlink != 0 {
-				return fmt.Errorf("%s is a symlink; refusing to replace managed data", mutation.path)
+				return fmt.Errorf("%s est un lien symbolique ; refus de remplacer des données gérées", mutation.path)
 			}
 			if info.Mode().IsRegular() {
 				snapshot.mode = info.Mode().Perm()
@@ -272,7 +272,7 @@ func applyManagedFileMutations(fs FS, mutations []managedFileMutation) error {
 		if err == nil {
 			snapshot.data, snapshot.exists = data, true
 		} else if !os.IsNotExist(err) {
-			return fmt.Errorf("snapshot %s before Apply: %w", mutation.path, err)
+			return fmt.Errorf("instantané de %s avant Apply : %w", mutation.path, err)
 		}
 		snapshots[i] = snapshot
 	}
@@ -283,14 +283,14 @@ func applyManagedFileMutations(fs FS, mutations []managedFileMutation) error {
 				snapshot := snapshots[j]
 				if snapshot.exists {
 					if rollbackErr := atomicWrite(fs, snapshot.path, snapshot.data, snapshot.mode); rollbackErr != nil {
-						rollbackErrors = append(rollbackErrors, fmt.Sprintf("restore %s: %v", snapshot.path, rollbackErr))
+						rollbackErrors = append(rollbackErrors, fmt.Sprintf("restauration de %s : %v", snapshot.path, rollbackErr))
 					}
 				} else if rollbackErr := fs.Remove(snapshot.path); rollbackErr != nil && !os.IsNotExist(rollbackErr) {
-					rollbackErrors = append(rollbackErrors, fmt.Sprintf("remove %s: %v", snapshot.path, rollbackErr))
+					rollbackErrors = append(rollbackErrors, fmt.Sprintf("suppression de %s : %v", snapshot.path, rollbackErr))
 				}
 			}
 			if len(rollbackErrors) > 0 {
-				return fmt.Errorf("Apply failed (%v) and rollback was incomplete: %s", err, strings.Join(rollbackErrors, "; "))
+				return fmt.Errorf("échec d'Apply (%v) et retour arrière incomplet : %s", err, strings.Join(rollbackErrors, "; "))
 			}
 			return err
 		}
@@ -327,21 +327,21 @@ func (w InitWizard) Plan(answers InitAnswers) (InitPlan, error) {
 
 	given := strings.TrimSpace(answers.Root)
 	if given == "" {
-		return plan, fmt.Errorf("the project root is required")
+		return plan, fmt.Errorf("la racine du projet est requise")
 	}
 	// The same discovery the launch path uses, so the two cannot disagree: a
 	// directory inside a Git worktree resolves to the worktree root, and
 	// writing a manifest anywhere else would be a manifest nothing reads.
 	pc, err := DiscoverProject(given)
 	if err != nil {
-		return plan, fmt.Errorf("project root %s: %w", given, err)
+		return plan, fmt.Errorf("racine du projet %s : %w", given, err)
 	}
 	info, err := os.Stat(pc.Root)
 	if err != nil {
-		return plan, fmt.Errorf("project root %s: %w", given, err)
+		return plan, fmt.Errorf("racine du projet %s : %w", given, err)
 	}
 	if !info.IsDir() {
-		return plan, fmt.Errorf("project root %s is not a directory", pc.Root)
+		return plan, fmt.Errorf("la racine du projet %s n'est pas un dossier", pc.Root)
 	}
 	plan.Answers.Root = pc.Root
 	// Warn only when the user named a directory that is genuinely INSIDE the
@@ -369,11 +369,11 @@ func (w InitWizard) Plan(answers InitAnswers) (InitPlan, error) {
 	plan.Answers.Runtime = rt
 	if answers.GitHubWorkflow {
 		if rt != RuntimeMicrosandbox {
-			return plan, fmt.Errorf("the protected GitHub guest workflow requires the microsandbox runtime")
+			return plan, fmt.Errorf("le flux GitHub protégé de la machine isolée exige le runtime microsandbox")
 		}
 		remote, err := ParseGitHubRemote(answers.GitHubRemote.URL)
 		if err != nil || remote != answers.GitHubRemote {
-			return plan, fmt.Errorf("the GitHub guest workflow requires a GitHub.com origin remote")
+			return plan, fmt.Errorf("le flux GitHub de la machine isolée exige un remote origin GitHub.com")
 		}
 		plan.Answers.GitHubRemote = remote
 	}
@@ -457,12 +457,12 @@ func (w InitWizard) Plan(answers InitAnswers) (InitPlan, error) {
 
 	if answers.CPUs != 0 {
 		if answers.CPUs < 0 || answers.CPUs > MaxSandboxCPUs {
-			return plan, fmt.Errorf("CPUs must be 1 to %d, got %d", MaxSandboxCPUs, answers.CPUs)
+			return plan, fmt.Errorf("les processeurs doivent être entre 1 et %d, reçu %d", MaxSandboxCPUs, answers.CPUs)
 		}
 	}
 	if answers.MemoryMB != 0 {
 		if answers.MemoryMB < 0 || answers.MemoryMB > MaxSandboxMemoryMB {
-			return plan, fmt.Errorf("memory must be 1 to %d MiB, got %d", MaxSandboxMemoryMB, answers.MemoryMB)
+			return plan, fmt.Errorf("la mémoire doit être entre 1 et %d MiB, reçu %d", MaxSandboxMemoryMB, answers.MemoryMB)
 		}
 	}
 	if w.HostResources != nil {
@@ -603,7 +603,7 @@ func (w InitWizard) Plan(answers InitAnswers) (InitPlan, error) {
 		for _, id := range answers.RetainedSkills {
 			pin, ok := existingPins[id]
 			if !ok {
-				return plan, fmt.Errorf("retained skill %q has no existing pin to preserve", id)
+				return plan, fmt.Errorf("le skill conservé %q n'a aucune révision existante à préserver", id)
 			}
 			if plan.SkillLocks == nil {
 				plan.SkillLocks = map[string]SkillLock{}
@@ -619,7 +619,7 @@ func (w InitWizard) Plan(answers InitAnswers) (InitPlan, error) {
 		return plan, err
 	}
 	if len(selected) > 0 && len(plan.SkillLocks) == 0 {
-		return plan, fmt.Errorf("the selected skills have no pinned lock data")
+		return plan, fmt.Errorf("les skills sélectionnés n'ont aucune donnée de verrouillage épinglée")
 	}
 	if len(selected) > 0 {
 		verifySkills := w.VerifySkills
@@ -662,7 +662,7 @@ func (w InitWizard) Plan(answers InitAnswers) (InitPlan, error) {
 		plan.InstructionsPath = instructionsPath
 		if info, statErr := os.Lstat(plan.InstructionsPath); statErr == nil {
 			if !info.Mode().IsRegular() {
-				return plan, fmt.Errorf("%s is not a regular file; refusing to change managed instructions", plan.InstructionsPath)
+				return plan, fmt.Errorf("%s n'est pas un fichier régulier ; refus de modifier les instructions gérées", plan.InstructionsPath)
 			}
 			plan.InstructionsExisted = true
 			data, readErr := fs.ReadFile(plan.InstructionsPath)
@@ -970,49 +970,49 @@ func FormatInitInstructionsDiff(plan InitPlan) string {
 func FormatInitReview(plan InitPlan) string {
 	var b strings.Builder
 	a := plan.Answers
-	b.WriteString("Review the project setup:\n")
-	fmt.Fprintf(&b, "  project      %s\n", a.Root)
-	fmt.Fprintf(&b, "  sharing      %s runtime, isolation %s\n", a.Runtime, a.Isolation)
+	b.WriteString("Récapitulatif de la configuration du projet :\n")
+	fmt.Fprintf(&b, "  projet       %s\n", a.Root)
+	fmt.Fprintf(&b, "  partage      %s runtime, isolation %s\n", a.Runtime, a.Isolation)
 	if a.Isolation == IsolationFull {
-		b.WriteString("               the agent, its TUI and its credentials run inside the guest\n")
+		b.WriteString("               l'agent, son TUI et ses identifiants s'exécutent dans la machine isolée\n")
 	} else {
-		b.WriteString("               the agent runs inside the guest and the TUI attaches from this machine\n")
+		b.WriteString("               l'agent s'exécute dans la machine isolée et le TUI s'y attache depuis ce poste\n")
 	}
 	if a.Model != "" {
-		fmt.Fprintf(&b, "  model        %s\n", a.Model)
+		fmt.Fprintf(&b, "  modèle       %s\n", a.Model)
 	} else {
-		b.WriteString("  model        the built-in default\n")
+		b.WriteString("  modèle       celui par défaut\n")
 	}
 	if a.SmallModel != "" {
-		fmt.Fprintf(&b, "  small model  %s\n", a.SmallModel)
+		fmt.Fprintf(&b, "  petit modèle %s\n", a.SmallModel)
 	} else {
-		b.WriteString("  small model  same as the main model\n")
+		b.WriteString("  petit modèle identique au modèle principal\n")
 	}
-	fmt.Fprintf(&b, "  resources    %d CPUs, %s (fixed when the guest is created)\n", plan.GuestCPUs, FormatMemorySize(plan.GuestMemoryMB))
+	fmt.Fprintf(&b, "  ressources   %d processeurs, %s (fixés à la création de la machine isolée)\n", plan.GuestCPUs, FormatMemorySize(plan.GuestMemoryMB))
 	if a.BrowserResourceGuidance != "" {
-		fmt.Fprintf(&b, "  host fit     %s\n", a.BrowserResourceGuidance)
+		fmt.Fprintf(&b, "  conseil      %s\n", a.BrowserResourceGuidance)
 	}
 	if a.CredentialRef != "" {
-		fmt.Fprintf(&b, "  credential   reference %q\n", a.CredentialRef)
+		fmt.Fprintf(&b, "  identifiant  référence %q\n", a.CredentialRef)
 	} else {
-		b.WriteString("  credential   the global Albert credential\n")
+		b.WriteString("  identifiant  clé Albert API globale\n")
 	}
 	// No claim is made here about where the credential VALUE lives: the
 	// manifest records a reference, and what each runtime then does with the
 	// secret differs (Microsandbox proxies it, Tart and agent-vm hand it to
 	// the guest). Promising "it stays on the host" would be false for two of
 	// the three.
-	b.WriteString("               (the manifest records the reference, never a value)\n")
+	b.WriteString("               (le manifeste enregistre la référence, jamais la valeur)\n")
 	if a.GitHubWorkflow {
-		fmt.Fprintf(&b, "  GitHub       agent may push changes to a branch of %s and open a draft pull request\n", a.GitHubRemote.Repo)
-		b.WriteString("               Approval is local to this machine and is not written to the project\n")
+		fmt.Fprintf(&b, "  GitHub       l'agent peut pousser ses modifications sur une branche de %s et ouvrir une pull request en brouillon\n", a.GitHubRemote.Repo)
+		b.WriteString("               l'autorisation est locale à ce poste et n'est pas écrite dans le projet\n")
 	} else {
-		b.WriteString("  GitHub       no approval for this project; any approval already recorded on this machine is unchanged\n")
+		b.WriteString("  GitHub       aucune autorisation pour ce projet ; une autorisation déjà enregistrée sur ce poste reste inchangée\n")
 	}
 	if len(a.MCPConnectors) == 0 {
-		b.WriteString("  MCPs         none selected\n")
+		b.WriteString("  MCP          aucun sélectionné\n")
 	} else {
-		fmt.Fprintf(&b, "  MCPs         %s\n", strings.Join(a.MCPConnectors, ", "))
+		fmt.Fprintf(&b, "  MCP          %s\n", strings.Join(a.MCPConnectors, ", "))
 		for _, id := range a.MCPConnectors {
 			reason, removed := RemovedMCPIDs[id]
 			if !removed {
@@ -1037,77 +1037,77 @@ func FormatInitReview(plan InitPlan) string {
 		}
 	}
 	if len(a.Skills) == 0 {
-		b.WriteString("  skills       no managed project skills selected\n")
+		b.WriteString("  skills       aucun skill de projet sélectionné\n")
 	} else {
-		storage := "versioned in .codebox/lock.json"
+		storage := "versionnés dans .codebox/lock.json"
 		if a.SkillsLocalOnly {
-			storage = "host-local; not shared with repository clones"
+			storage = "propres à ce poste ; non partagés avec les clones du dépôt"
 		}
 		fmt.Fprintf(&b, "  skills       %s\n", storage)
 		for _, id := range a.Skills {
 			lock := plan.SkillLocks[id]
-			fmt.Fprintf(&b, "               %s at %s (sha256:%s)\n", id, lock.Revision, lock.SHA256[:12])
+			fmt.Fprintf(&b, "               %s à %s (sha256:%s)\n", id, lock.Revision, lock.SHA256[:12])
 		}
-		b.WriteString("               selected skills are instruction artifacts, not a security boundary\n")
+		b.WriteString("               les skills sélectionnés sont des artefacts d'instructions, pas une frontière de sécurité\n")
 		if a.SkillsLocalOnly {
-			b.WriteString("               local-only selection does not add managed rules to AGENTS.md\n")
+			b.WriteString("               une sélection locale n'ajoute aucune règle gérée à AGENTS.md\n")
 		}
 	}
-	b.WriteString("  state        versioned in .codebox/ (shared with whoever clones the repository)\n")
-	fmt.Fprintf(&b, "  manifest     %s\n", plan.ManifestPath)
+	b.WriteString("  état         versionné dans .codebox/ (partagé avec les clones du dépôt)\n")
+	fmt.Fprintf(&b, "  manifeste    %s\n", plan.ManifestPath)
 	fmt.Fprintf(&b, "  lockfile     %s\n", plan.LockPath)
 	if plan.LocalSkillsPath != "" {
-		action := "previous host-local selection will be removed after migration to versioned storage"
+		action := "l'ancienne sélection propre à ce poste sera supprimée après migration vers le stockage versionné"
 		if a.SkillsLocalOnly {
-			action = "selected IDs and pins stored here (mode 0600; not committed)"
+			action = "identifiants et révisions sélectionnés stockés ici (mode 0600 ; non commités)"
 			if len(a.Skills) == 0 {
-				action = "empty selection; existing local pins will be cleared (mode 0600; not committed)"
+				action = "sélection vide ; les révisions locales existantes seront effacées (mode 0600 ; non commitées)"
 			}
 		}
-		fmt.Fprintf(&b, "  local skills %s (%s)\n", plan.LocalSkillsPath, action)
+		fmt.Fprintf(&b, "  skills locaux %s (%s)\n", plan.LocalSkillsPath, action)
 	}
-	b.WriteString("\nDownloads and activation:\n")
+	b.WriteString("\nTéléchargements et activation :\n")
 	if len(plan.SkillEntries) > 0 {
-		b.WriteString("  Selected skill archives are resolved and verified in the host cache for these pins; the guest installs them on its next launch.\n")
+		b.WriteString("  Les archives des skills sélectionnés sont résolues et vérifiées dans le cache du poste pour ces révisions ; la machine isolée les installe à son prochain lancement.\n")
 	} else if len(a.Skills) > 0 {
-		b.WriteString("  Existing skill pins are preserved; the guest reconciles them on its next launch.\n")
+		b.WriteString("  Les révisions de skills existantes sont conservées ; la machine isolée les réconcilie à son prochain lancement.\n")
 	} else {
-		b.WriteString("  No project skill archives are selected.\n")
+		b.WriteString("  Aucune archive de skill de projet n'est sélectionnée.\n")
 	}
 	if HasBrowserMCPSelection(a.MCPConnectors) {
-		b.WriteString("  The digest-pinned Debian browser profile and selected MCP packages download inside the guest on first launch; no host browser is used.\n")
-		b.WriteString("  DevTools listens only on guest loopback. Changing to or from this image on an existing guest requires explicit recreation; init never recreates a guest.\n")
+		b.WriteString("  Le profil de navigateur Debian épinglé par empreinte et les paquets MCP sélectionnés se téléchargent dans la machine isolée au premier lancement ; aucun navigateur du poste n'est utilisé.\n")
+		b.WriteString("  DevTools n'écoute que sur la boucle locale de la machine isolée. Passer à cette image, ou la quitter, sur une machine isolée existante exige une recréation explicite ; init ne recrée jamais de machine isolée.\n")
 	}
-	b.WriteString("  Init does not boot or restart a VM.\n")
-	b.WriteString("  Managed MCP changes apply on the next launch, which may restart a running guest non-destructively.\n")
+	b.WriteString("  L'initialisation ne démarre ni ne redémarre de machine isolée.\n")
+	b.WriteString("  Les changements de MCP gérés prennent effet au prochain lancement, ce qui peut redémarrer la machine isolée sans effacer son contenu.\n")
 	if a.Runtime == RuntimeMicrosandbox {
-		b.WriteString("\nThe guest receives a filtered copy of the project: .env files, ignored files,\n" +
-			"symlinks and files flagged by secret detection are excluded by default ('codebox workspace status').\n")
+		b.WriteString("\nLa machine isolée reçoit une copie filtrée du projet : fichiers .env, fichiers ignorés,\n" +
+			"liens symboliques et fichiers signalés par la détection de secrets sont exclus par défaut ('codebox workspace status').\n")
 	} else {
-		b.WriteString("\nThis runtime MOUNTS the project into the guest: everything in it is readable there,\n" +
-			"including any secret it holds (a .env file blocks the start).\n")
+		b.WriteString("\nCe runtime MONTE le projet dans la machine isolée : tout son contenu y est lisible,\n" +
+			"y compris les secrets qu'il contient (un fichier .env bloque le démarrage).\n")
 	}
 	for _, warning := range plan.Warnings {
-		fmt.Fprintf(&b, "\nWarning: %s\n", warning)
+		fmt.Fprintf(&b, "\nAttention : %s\n", warning)
 	}
 	if plan.ExistingManifest != nil {
-		b.WriteString("\nA project manifest already exists and would be REPLACED:\n")
+		b.WriteString("\nUn manifeste de projet existe déjà et sera REMPLACÉ :\n")
 		b.WriteString(formatManifestSummary(*plan.ExistingManifest))
 	}
 	if plan.InstructionsChanged {
 		before, _ := managedSkillZone(plan.InstructionsBefore)
 		after, _ := managedSkillZone(plan.InstructionsAfter)
-		b.WriteString("\nAGENTS.md managed-zone diff (all text outside this block is preserved byte-for-byte):\n")
-		b.WriteString("If the workspace filter marks AGENTS.md ignored or secret-like, it will not reach the guest without a per-file allow decision.\n")
+		b.WriteString("\nDiff de la section gérée d'AGENTS.md (tout le texte hors de ce bloc est conservé octet pour octet) :\n")
+		b.WriteString("Si le filtre de copie marque AGENTS.md comme ignoré ou de type secret, il n'atteindra la machine isolée qu'après une autorisation fichier par fichier.\n")
 		if before == "" {
-			b.WriteString("  current: no managed skills block\n")
+			b.WriteString("  actuel : aucune section de skills gérée\n")
 		} else {
-			fmt.Fprintf(&b, "--- current ---\n%s", ensureReviewNewline(before))
+			fmt.Fprintf(&b, "--- actuel ---\n%s", ensureReviewNewline(before))
 		}
 		if after == "" {
-			b.WriteString("+++ proposed: remove the managed block\n")
+			b.WriteString("+++ proposé : suppression de la section gérée\n")
 		} else {
-			fmt.Fprintf(&b, "+++ proposed +++\n%s", ensureReviewNewline(after))
+			fmt.Fprintf(&b, "+++ proposé +++\n%s", ensureReviewNewline(after))
 		}
 	}
 	return b.String()
@@ -1143,27 +1143,27 @@ func formatManifestSummary(pm ProjectManifest) string {
 			lines = append(lines, fmt.Sprintf("    %-12s %s", label, value))
 		}
 	}
-	add("project", pm.Project)
+	add("projet", pm.Project)
 	add("runtime", pm.Runtime)
 	add("isolation", pm.Isolation)
-	add("model", pm.Model)
-	add("smallModel", pm.SmallModel)
+	add("modèle", pm.Model)
+	add("petit modèle", pm.SmallModel)
 	if pm.CPUs > 0 {
-		add("cpus", fmt.Sprintf("%d", pm.CPUs))
+		add("processeurs", fmt.Sprintf("%d", pm.CPUs))
 	}
 	if pm.MemoryMB > 0 {
-		add("memory", fmt.Sprintf("%d MiB", pm.MemoryMB))
+		add("mémoire", fmt.Sprintf("%d MiB", pm.MemoryMB))
 	}
-	add("credential", pm.CredentialRef)
-	add("storage", pm.Storage)
+	add("identifiant", pm.CredentialRef)
+	add("stockage", pm.Storage)
 	if len(pm.Skills) > 0 {
 		add("skills", strings.Join(pm.Skills, ", "))
 	}
 	if pm.SkillsLocalOnly {
-		add("skillStorage", "local-only")
+		add("stockage skills", "local-only")
 	}
 	if len(lines) == 0 {
-		return "    (the existing manifest sets nothing)\n"
+		return "    (le manifeste existant ne définit rien)\n"
 	}
 	return strings.Join(lines, "\n") + "\n"
 }
@@ -1178,7 +1178,7 @@ func (w InitWizard) Apply(plan InitPlan, replace bool) error {
 			return err
 		}
 		if err := recoverProjectUpdateLocked(fs, plan.Answers.Root); err != nil {
-			return fmt.Errorf("recover prior project update: %w", err)
+			return fmt.Errorf("récupération de la mise à jour de projet précédente : %w", err)
 		}
 		return w.applyLocked(plan, replace)
 	})
@@ -1194,7 +1194,7 @@ func (w InitWizard) applyLocked(plan InitPlan, replace bool) error {
 	// guarantee would be only as strong as the snapshot.
 	existingManifest, readErr := ReadProjectManifest(fs, plan.ManifestPath)
 	if readErr == nil && !replace {
-		return fmt.Errorf("%s already exists; re-run with the replace option, or edit it directly", plan.ManifestPath)
+		return fmt.Errorf("%s existe déjà ; relancez avec l'option de remplacement, ou modifiez-le directement", plan.ManifestPath)
 	}
 	if readErr != nil && !os.IsNotExist(readErr) {
 		// An unreadable manifest must not be silently replaced either.
@@ -1219,7 +1219,7 @@ func (w InitWizard) applyLocked(plan InitPlan, replace bool) error {
 	}
 	if readErr == nil {
 		if err := ValidateDependencySet(existingManifest, kept); err != nil {
-			return fmt.Errorf("recover or repair the project before reinitializing: %w", err)
+			return fmt.Errorf("récupérez ou réparez le projet avant de réinitialiser : %w", err)
 		}
 	}
 	dependencySetID := ""
@@ -1231,7 +1231,7 @@ func (w InitWizard) applyLocked(plan InitPlan, replace bool) error {
 	if dependencySetID == "" {
 		dependencySetID, err = newDependencySetID()
 		if err != nil {
-			return fmt.Errorf("create dependency-set identity: %w", err)
+			return fmt.Errorf("création de l'identité de l'ensemble de dépendances : %w", err)
 		}
 	}
 	instructionsChanged := false
@@ -1251,7 +1251,7 @@ func (w InitWizard) applyLocked(plan InitPlan, replace bool) error {
 	}
 	if instructionsPath != "" {
 		if info, err := os.Lstat(instructionsPath); err == nil && !info.Mode().IsRegular() {
-			return fmt.Errorf("%s is not a regular file; refusing to change managed instructions", instructionsPath)
+			return fmt.Errorf("%s n'est pas un fichier régulier ; refus de modifier les instructions gérées", instructionsPath)
 		} else if err != nil && !os.IsNotExist(err) {
 			return err
 		}
@@ -1272,7 +1272,7 @@ func (w InitWizard) applyLocked(plan InitPlan, replace bool) error {
 	var localSelection LocalSkillSelections
 	if plan.Answers.SkillsLocalOnly {
 		if plan.LocalSkillsPath == "" {
-			return fmt.Errorf("local-only skill state path was not resolved")
+			return fmt.Errorf("le chemin de l'état local des skills n'a pas été résolu")
 		}
 		localSelection = LocalSkillSelections{Skills: append([]string(nil), plan.Answers.Skills...), Pins: cloneSkillLocks(plan.SkillLocks)}
 	}

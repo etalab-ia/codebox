@@ -168,7 +168,8 @@ func (u *LaunchUX) Warnings() []string {
 
 // Say writes a phase line. Nothing is written on a terminal: the checklist
 // rendered at the end of the launch carries the same information, and the
-// phases in between stay silent so the terminal does not fill with English.
+// phases in between stay silent so the terminal does not fill with verbose
+// runtime detail.
 func (u *LaunchUX) Say(format string, args ...any) {
 	if u == nil || u.Terminal {
 		return

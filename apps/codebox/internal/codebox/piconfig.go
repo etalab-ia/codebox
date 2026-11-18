@@ -215,7 +215,7 @@ func ComposePiModelsConfig(o ManagedOverlay) (string, error) {
 	o = piEffectiveOverlay(o)
 	providers := piProviders(o)
 	if len(providers) == 0 {
-		return "", fmt.Errorf("no inference platform to configure for Pi")
+		return "", fmt.Errorf("aucune plateforme d'inférence à configurer pour Pi")
 	}
 	if err := validatePiModelPlatform(o, providers); err != nil {
 		return "", err

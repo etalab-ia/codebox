@@ -162,15 +162,15 @@ func parseRuntimeNameOn(name, goos string) (Runtime, error) {
 		return RuntimeMicrosandbox, nil
 	case string(RuntimeTart):
 		if goos == "windows" {
-			return "", fmt.Errorf("tart is macOS only; use --microsandbox")
+			return "", fmt.Errorf("tart est réservé à macOS ; utilisez --microsandbox")
 		}
 		return RuntimeTart, nil
 	case string(RuntimeAgentVM):
 		if goos == "windows" {
-			return "", fmt.Errorf("agent-vm is macOS/Linux only; use --microsandbox")
+			return "", fmt.Errorf("agent-vm est réservé à macOS/Linux ; utilisez --microsandbox")
 		}
 		return RuntimeAgentVM, nil
 	default:
-		return "", fmt.Errorf("expected --microsandbox, --tart or --agent-vm (RUNTIME must be microsandbox, tart or agent-vm)")
+		return "", fmt.Errorf("attendu --microsandbox, --tart ou --agent-vm (RUNTIME doit valoir microsandbox, tart ou agent-vm)")
 	}
 }

@@ -73,14 +73,14 @@ var (
 	// ErrProductionScopeForbidden is returned whenever a caller attempts to
 	// target a production scope or profile. Shared secrets in codebox are
 	// strictly scoped to development workflows.
-	ErrProductionScopeForbidden = errors.New("production secrets are out of scope; shared codebox secrets support development workflows only")
+	ErrProductionScopeForbidden = errors.New("les secrets de production sont hors périmètre ; les secrets partagés codebox ne prennent en charge que les flux de développement")
 
 	// ErrBundleTooLarge is returned when a serialized bundle exceeds MaxBundleBytes.
-	ErrBundleTooLarge = fmt.Errorf("secret bundle exceeds maximum size (%d bytes)", MaxBundleBytes)
+	ErrBundleTooLarge = fmt.Errorf("le lot de secrets dépasse la taille maximale (%d octets)", MaxBundleBytes)
 
 	// ErrInvalidProjectID is returned when a project identifier is not a
 	// canonical lowercase RFC 4122 UUIDv4.
-	ErrInvalidProjectID = errors.New("project ID must be a canonical lowercase UUIDv4")
+	ErrInvalidProjectID = errors.New("l'identifiant de projet doit être un UUIDv4 canonique en minuscules")
 )
 
 // Bundle is the versioned per-project secret payload stored under
@@ -207,7 +207,7 @@ func (e APIError) Error() string {
 func NewProjectID() (string, error) {
 	var b [16]byte
 	if _, err := rand.Read(b[:]); err != nil {
-		return "", fmt.Errorf("generate project ID: %w", err)
+		return "", fmt.Errorf("génération de l'identifiant de projet : %w", err)
 	}
 	b[6] = (b[6] & 0x0f) | 0x40 // version 4
 	b[8] = (b[8] & 0x3f) | 0x80 // RFC 4122 variant
@@ -279,19 +279,19 @@ func RejectProductionScope(scope string) error {
 // codebox's validSecretComponent contract.
 func ValidateComponentPath(p string) error {
 	if !utf8.ValidString(p) {
-		return fmt.Errorf("component path contains invalid UTF-8")
+		return fmt.Errorf("le chemin du composant contient de l'UTF-8 invalide")
 	}
 	if p == "" || len(p) > 256 || p == "." || path.IsAbs(p) || path.Clean(p) != p || strings.ContainsAny(p, "\\:") {
-		return fmt.Errorf("invalid dotenv component path %q", p)
+		return fmt.Errorf("chemin de composant dotenv invalide %q", p)
 	}
 	for _, seg := range strings.Split(p, "/") {
 		if seg == "" || seg == "." || seg == ".." {
-			return fmt.Errorf("invalid dotenv component path %q", p)
+			return fmt.Errorf("chemin de composant dotenv invalide %q", p)
 		}
 	}
 	for _, r := range p {
 		if r < 32 || r == 127 {
-			return fmt.Errorf("invalid control character in component path")
+			return fmt.Errorf("caractère de contrôle invalide dans le chemin du composant")
 		}
 	}
 	return nil
@@ -301,11 +301,11 @@ func ValidateComponentPath(p string) error {
 // variable identifier ([A-Za-z_][A-Za-z0-9_]*).
 func ValidateVariableName(name string) error {
 	if name == "" || len(name) > 128 {
-		return fmt.Errorf("invalid secret variable name")
+		return fmt.Errorf("nom de variable de secret invalide")
 	}
 	for i, r := range name {
 		if r != '_' && !(r >= 'a' && r <= 'z') && !(r >= 'A' && r <= 'Z') && !(i > 0 && r >= '0' && r <= '9') {
-			return fmt.Errorf("invalid secret variable name %q", name)
+			return fmt.Errorf("nom de variable de secret invalide %q", name)
 		}
 	}
 	return nil
@@ -317,7 +317,7 @@ func ValidateVariableName(name string) error {
 // MaxBundleBytes.
 func ValidateVariableValue(name, value string) error {
 	if !utf8.ValidString(value) || strings.IndexByte(value, 0) >= 0 {
-		return fmt.Errorf("secret variable %s must be valid UTF-8 without NUL bytes", name)
+		return fmt.Errorf("la variable de secret %s doit être de l'UTF-8 valide sans octet NUL", name)
 	}
 	return nil
 }
@@ -327,18 +327,18 @@ func ValidateVariableValue(name, value string) error {
 // wildcard, or bare IPv4 literal).
 func ValidateDestinationHost(host string) error {
 	if len(host) == 0 || len(host) > 253 || !strings.Contains(host, ".") {
-		return fmt.Errorf("destination %q is not a valid lowercase DNS hostname", host)
+		return fmt.Errorf("la destination %q n'est pas un nom d'hôte DNS valide en minuscules", host)
 	}
 	labels := strings.Split(host, ".")
 	allNumericLabels := true
 	for _, label := range labels {
 		if len(label) == 0 || len(label) > 63 || strings.HasPrefix(label, "-") || strings.HasSuffix(label, "-") {
-			return fmt.Errorf("destination %q is not a valid lowercase DNS hostname", host)
+			return fmt.Errorf("la destination %q n'est pas un nom d'hôte DNS valide en minuscules", host)
 		}
 		labelDigitsOnly := true
 		for _, r := range label {
 			if (r < 'a' || r > 'z') && (r < '0' || r > '9') && r != '-' {
-				return fmt.Errorf("destination %q is not a valid lowercase DNS hostname", host)
+				return fmt.Errorf("la destination %q n'est pas un nom d'hôte DNS valide en minuscules", host)
 			}
 			if r < '0' || r > '9' {
 				labelDigitsOnly = false
@@ -349,7 +349,7 @@ func ValidateDestinationHost(host string) error {
 		}
 	}
 	if allNumericLabels {
-		return fmt.Errorf("destination %q must be a DNS hostname, not an IPv4 address", host)
+		return fmt.Errorf("la destination %q doit être un nom d'hôte DNS, pas une adresse IPv4", host)
 	}
 	return nil
 }
@@ -421,17 +421,17 @@ func ValidateBindingHints(hints []BindingHint) error {
 		}
 		id := h.Component + "\x00" + h.Name
 		if seenIdentity[id] {
-			return fmt.Errorf("duplicate binding hint for %s in %s", h.Name, h.Component)
+			return fmt.Errorf("liaison déclarée en double pour %s dans %s", h.Name, h.Component)
 		}
 		seenIdentity[id] = true
 
 		switch h.NormalizedDelivery() {
 		case DeliveryGuest:
 			if len(h.Destinations) > 0 {
-				return fmt.Errorf("guest-readable binding hint %s (%s) must not declare destinations", h.Name, h.Component)
+				return fmt.Errorf("la liaison lisible par la machine isolée %s (%s) ne doit pas déclarer de destinations", h.Name, h.Component)
 			}
 			if h.GuestEnv != "" {
-				return fmt.Errorf("guest-readable binding hint %s (%s) must not declare guestEnv", h.Name, h.Component)
+				return fmt.Errorf("la liaison lisible par la machine isolée %s (%s) ne doit pas déclarer de guestEnv", h.Name, h.Component)
 			}
 		case DeliveryProxy:
 			effectiveEnv := h.GuestEnv
@@ -439,30 +439,30 @@ func ValidateBindingHints(hints []BindingHint) error {
 				effectiveEnv = DeriveGuestEnv(h.Component, h.Name)
 			}
 			if err := ValidateVariableName(effectiveEnv); err != nil {
-				return fmt.Errorf("binding hint %s (%s) has invalid guestEnv %q", h.Name, h.Component, effectiveEnv)
+				return fmt.Errorf("la liaison %s (%s) a un guestEnv invalide %q", h.Name, h.Component, effectiveEnv)
 			}
 			if prev, dup := seenGuestEnv[effectiveEnv]; dup {
-				return fmt.Errorf("binding hints %s and %s:%s share guestEnv %s", prev, h.Component, h.Name, effectiveEnv)
+				return fmt.Errorf("les liaisons %s et %s:%s partagent le guestEnv %s", prev, h.Component, h.Name, effectiveEnv)
 			}
 			seenGuestEnv[effectiveEnv] = h.Component + ":" + h.Name
 			if len(h.Destinations) == 0 {
-				return fmt.Errorf("proxy binding hint %s (%s) requires at least one destination host", h.Name, h.Component)
+				return fmt.Errorf("la liaison proxy %s (%s) exige au moins un hôte de destination", h.Name, h.Component)
 			}
 			if len(h.Destinations) > MaxDestinationsPerBinding {
-				return fmt.Errorf("proxy binding hint %s (%s) exceeds %d destinations", h.Name, h.Component, MaxDestinationsPerBinding)
+				return fmt.Errorf("la liaison proxy %s (%s) dépasse %d destinations", h.Name, h.Component, MaxDestinationsPerBinding)
 			}
 			seenHost := make(map[string]bool, len(h.Destinations))
 			for _, host := range h.Destinations {
 				if err := ValidateDestinationHost(host); err != nil {
-					return fmt.Errorf("binding hint %s (%s): %w", h.Name, h.Component, err)
+					return fmt.Errorf("liaison %s (%s) : %w", h.Name, h.Component, err)
 				}
 				if seenHost[host] {
-					return fmt.Errorf("binding hint %s (%s) lists destination %s twice", h.Name, h.Component, host)
+					return fmt.Errorf("la liaison %s (%s) liste deux fois la destination %s", h.Name, h.Component, host)
 				}
 				seenHost[host] = true
 			}
 		default:
-			return fmt.Errorf("binding hint %s (%s) has unsupported delivery mode %q", h.Name, h.Component, h.Delivery)
+			return fmt.Errorf("la liaison %s (%s) a un mode de livraison non pris en charge %q", h.Name, h.Component, h.Delivery)
 		}
 	}
 	return nil
@@ -471,21 +471,21 @@ func ValidateBindingHints(hints []BindingHint) error {
 // ValidateComponents validates a map of component -> variable -> value.
 func ValidateComponents(components map[string]map[string]string) error {
 	if len(components) > MaxComponentsPerBundle {
-		return fmt.Errorf("bundle exceeds maximum component count (%d)", MaxComponentsPerBundle)
+		return fmt.Errorf("le lot de secrets dépasse le nombre maximal de composants (%d)", MaxComponentsPerBundle)
 	}
 	for comp, vars := range components {
 		if err := ValidateComponentPath(comp); err != nil {
 			return err
 		}
 		if len(vars) > MaxVariablesPerComponent {
-			return fmt.Errorf("component %s exceeds maximum variable count (%d)", comp, MaxVariablesPerComponent)
+			return fmt.Errorf("le composant %s dépasse le nombre maximal de variables (%d)", comp, MaxVariablesPerComponent)
 		}
 		for name, val := range vars {
 			if err := ValidateVariableName(name); err != nil {
-				return fmt.Errorf("component %s: %w", comp, err)
+				return fmt.Errorf("composant %s : %w", comp, err)
 			}
 			if err := ValidateVariableValue(name, val); err != nil {
-				return fmt.Errorf("component %s: %w", comp, err)
+				return fmt.Errorf("composant %s : %w", comp, err)
 			}
 		}
 	}
@@ -495,7 +495,7 @@ func ValidateComponents(components map[string]map[string]string) error {
 // ValidateBundle checks schema version and component map invariants.
 func ValidateBundle(b Bundle) error {
 	if b.SchemaVersion != BundleSchemaVersion {
-		return fmt.Errorf("unsupported secret bundle schemaVersion %d", b.SchemaVersion)
+		return fmt.Errorf("lot de secrets : schemaVersion %d non prise en charge", b.SchemaVersion)
 	}
 	return ValidateComponents(b.Components)
 }
@@ -526,7 +526,7 @@ func MarshalBundle(components map[string]map[string]string) ([]byte, error) {
 	}
 	data, err := json.Marshal(b)
 	if err != nil {
-		return nil, fmt.Errorf("marshal secret bundle: %w", err)
+		return nil, fmt.Errorf("sérialisation du lot de secrets : %w", err)
 	}
 	if len(data) > MaxBundleBytes {
 		return nil, ErrBundleTooLarge
@@ -543,12 +543,12 @@ func UnmarshalBundle(data []byte) (Bundle, error) {
 		return Bundle{}, ErrBundleTooLarge
 	}
 	if !utf8.Valid(data) || hasUnpairedUTF16Surrogate(data) {
-		return Bundle{}, errors.New("parse secret bundle: payload contains invalid UTF-8")
+		return Bundle{}, errors.New("lecture du lot de secrets : la charge contient de l'UTF-8 invalide")
 	}
 	dec := json.NewDecoder(bytes.NewReader(data))
 	dec.UseNumber()
 
-	if err := expectJSONDelim(dec, '{', "bundle root"); err != nil {
+	if err := expectJSONDelim(dec, '{', "racine du lot"); err != nil {
 		return Bundle{}, err
 	}
 
@@ -557,17 +557,17 @@ func UnmarshalBundle(data []byte) (Bundle, error) {
 	for {
 		tok, err := dec.Token()
 		if err != nil {
-			return Bundle{}, fmt.Errorf("parse secret bundle: %w", err)
+			return Bundle{}, fmt.Errorf("lecture du lot de secrets : %w", err)
 		}
 		if d, ok := tok.(json.Delim); ok && d == '}' {
 			break
 		}
 		key, ok := tok.(string)
 		if !ok {
-			return Bundle{}, errors.New("parse secret bundle: expected object key")
+			return Bundle{}, errors.New("lecture du lot de secrets : clé d'objet attendue")
 		}
 		if seenTop[key] {
-			return Bundle{}, fmt.Errorf("parse secret bundle: duplicate top-level key %q", key)
+			return Bundle{}, fmt.Errorf("lecture du lot de secrets : clé de premier niveau en double %q", key)
 		}
 		seenTop[key] = true
 
@@ -575,15 +575,15 @@ func UnmarshalBundle(data []byte) (Bundle, error) {
 		case "schemaVersion":
 			vTok, err := dec.Token()
 			if err != nil {
-				return Bundle{}, fmt.Errorf("parse secret bundle schemaVersion: %w", err)
+				return Bundle{}, fmt.Errorf("lecture du lot de secrets (schemaVersion) : %w", err)
 			}
 			num, ok := vTok.(json.Number)
 			if !ok {
-				return Bundle{}, errors.New("parse secret bundle: schemaVersion must be an integer")
+				return Bundle{}, errors.New("lecture du lot de secrets : schemaVersion doit être un entier")
 			}
 			ver, err := strconv.Atoi(num.String())
 			if err != nil {
-				return Bundle{}, errors.New("parse secret bundle: schemaVersion must be an integer")
+				return Bundle{}, errors.New("lecture du lot de secrets : schemaVersion doit être un entier")
 			}
 			b.SchemaVersion = ver
 		case "components":
@@ -593,15 +593,15 @@ func UnmarshalBundle(data []byte) (Bundle, error) {
 			}
 			b.Components = comps
 		default:
-			return Bundle{}, fmt.Errorf("parse secret bundle: unknown field %q", key)
+			return Bundle{}, fmt.Errorf("lecture du lot de secrets : champ inconnu %q", key)
 		}
 	}
 
 	if !seenTop["schemaVersion"] || !seenTop["components"] {
-		return Bundle{}, errors.New("parse secret bundle: schemaVersion and components are required")
+		return Bundle{}, errors.New("lecture du lot de secrets : schemaVersion et components sont requis")
 	}
 	if _, err := dec.Token(); !errors.Is(err, io.EOF) {
-		return Bundle{}, errors.New("parse secret bundle: trailing data")
+		return Bundle{}, errors.New("lecture du lot de secrets : données en trop")
 	}
 	if err := ValidateBundle(b); err != nil {
 		return Bundle{}, err
@@ -615,7 +615,7 @@ func UnmarshalBundle(data []byte) (Bundle, error) {
 }
 
 func decodeBundleComponents(dec *json.Decoder) (map[string]map[string]string, error) {
-	if err := expectJSONDelim(dec, '{', "components"); err != nil {
+	if err := expectJSONDelim(dec, '{', "composants"); err != nil {
 		return nil, err
 	}
 	out := make(map[string]map[string]string)
@@ -623,21 +623,21 @@ func decodeBundleComponents(dec *json.Decoder) (map[string]map[string]string, er
 	for {
 		tok, err := dec.Token()
 		if err != nil {
-			return nil, fmt.Errorf("parse secret bundle components: %w", err)
+			return nil, fmt.Errorf("lecture des composants du lot de secrets : %w", err)
 		}
 		if d, ok := tok.(json.Delim); ok && d == '}' {
 			return out, nil
 		}
 		comp, ok := tok.(string)
 		if !ok {
-			return nil, errors.New("parse secret bundle: expected component path string")
+			return nil, errors.New("lecture du lot de secrets : chemin de composant attendu sous forme de chaîne")
 		}
 		if seenComp[comp] {
-			return nil, fmt.Errorf("parse secret bundle: duplicate component %q", comp)
+			return nil, fmt.Errorf("lecture du lot de secrets : composant en double %q", comp)
 		}
 		seenComp[comp] = true
 
-		if err := expectJSONDelim(dec, '{', "component "+comp); err != nil {
+		if err := expectJSONDelim(dec, '{', "composant "+comp); err != nil {
 			return nil, err
 		}
 		vars := make(map[string]string)
@@ -645,27 +645,27 @@ func decodeBundleComponents(dec *json.Decoder) (map[string]map[string]string, er
 		for {
 			kTok, err := dec.Token()
 			if err != nil {
-				return nil, fmt.Errorf("parse secret bundle component %s: %w", comp, err)
+				return nil, fmt.Errorf("lecture du composant %s du lot de secrets : %w", comp, err)
 			}
 			if d, ok := kTok.(json.Delim); ok && d == '}' {
 				break
 			}
 			name, ok := kTok.(string)
 			if !ok {
-				return nil, fmt.Errorf("parse secret bundle component %s: expected variable name", comp)
+				return nil, fmt.Errorf("lecture du composant %s du lot de secrets : nom de variable attendu", comp)
 			}
 			if seenVar[name] {
-				return nil, fmt.Errorf("parse secret bundle component %s: duplicate variable %q", comp, name)
+				return nil, fmt.Errorf("lecture du composant %s du lot de secrets : variable en double %q", comp, name)
 			}
 			seenVar[name] = true
 
 			vTok, err := dec.Token()
 			if err != nil {
-				return nil, fmt.Errorf("parse secret bundle variable %s: %w", name, err)
+				return nil, fmt.Errorf("lecture de la variable %s du lot de secrets : %w", name, err)
 			}
 			val, ok := vTok.(string)
 			if !ok {
-				return nil, fmt.Errorf("parse secret bundle: variable %s in %s must be a JSON string", name, comp)
+				return nil, fmt.Errorf("lecture du lot de secrets : la variable %s dans %s doit être une chaîne JSON", name, comp)
 			}
 			vars[name] = val
 		}
@@ -676,11 +676,11 @@ func decodeBundleComponents(dec *json.Decoder) (map[string]map[string]string, er
 func expectJSONDelim(dec *json.Decoder, want rune, where string) error {
 	tok, err := dec.Token()
 	if err != nil {
-		return fmt.Errorf("parse secret bundle (%s): %w", where, err)
+		return fmt.Errorf("lecture du lot de secrets (%s) : %w", where, err)
 	}
 	d, ok := tok.(json.Delim)
 	if !ok || d != json.Delim(want) {
-		return fmt.Errorf("parse secret bundle: %s must be a JSON object", where)
+		return fmt.Errorf("lecture du lot de secrets : %s doit être un objet JSON", where)
 	}
 	return nil
 }

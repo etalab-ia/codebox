@@ -59,11 +59,11 @@ const guestSecretHeaderLineBytes = 31
 func assertGuestSecretHeaderDigest() {
 	line := []byte(guestSecretHeaderPrefix + "\n")
 	if len(line) != guestSecretHeaderLineBytes {
-		panic(fmt.Sprintf("guest secret header is %d bytes, not %d: update guestSecretHeaderLineBytes", len(line), guestSecretHeaderLineBytes))
+		panic(fmt.Sprintf("l'en-tête de secret de la machine isolée fait %d octets au lieu de %d : mettez à jour guestSecretHeaderLineBytes", len(line), guestSecretHeaderLineBytes))
 	}
 	sum := sha256.Sum256(line)
 	if got := hex.EncodeToString(sum[:]); got != guestSecretHeaderLineDigest {
-		panic(fmt.Sprintf("guest secret header digest is %s, not the pinned %s: update guestSecretHeaderLineDigest", got, guestSecretHeaderLineDigest))
+		panic(fmt.Sprintf("l'empreinte de l'en-tête de secret de la machine isolée est %s au lieu de la valeur épinglée %s : mettez à jour guestSecretHeaderLineDigest", got, guestSecretHeaderLineDigest))
 	}
 }
 
@@ -132,7 +132,7 @@ func dotenvLiteral(value string) (string, error) {
 	// quoted invalid byte can even leave godotenv reading the next line as
 	// part of this value. The original bytes cannot be delivered as a string.
 	if !utf8.ValidString(value) {
-		return "", fmt.Errorf("the value is not valid UTF-8, which the loaders decode as replacement characters or refuse the file over")
+		return "", fmt.Errorf("la valeur n'est pas un texte UTF-8 valide : les loaders la décodent en caractères de remplacement ou refusent tout le fichier")
 	}
 	quotedErr := dotenvQuotedObstacle(value)
 	if quotedErr == nil {
@@ -142,7 +142,7 @@ func dotenvLiteral(value string) (string, error) {
 	if rawErr == nil {
 		return value, nil
 	}
-	return "", fmt.Errorf("quoted: %v; unquoted: %v", quotedErr, rawErr)
+	return "", fmt.Errorf("entre guillemets : %v ; sans guillemets : %v", quotedErr, rawErr)
 }
 
 // dotenvRawObstacle reports why a value cannot be written unquoted, or nil
@@ -192,33 +192,33 @@ func dotenvLiteral(value string) (string, error) {
 // python-dotenv and can even swallow the next line in godotenv.
 func dotenvRawObstacle(value string) error {
 	if value == "" {
-		return fmt.Errorf("is empty, and an unquoted empty value is indistinguishable from an absent one")
+		return fmt.Errorf("est vide, et une valeur vide sans guillemets est indiscernable d'une valeur absente")
 	}
 	for _, r := range value {
 		switch r {
 		case '$':
-			return fmt.Errorf("contains \"$\", which dotenv-expand and godotenv expand in an unquoted value but plain Node dotenv and python-dotenv leave alone")
+			return fmt.Errorf("contient « $ », que dotenv-expand et godotenv développent dans une valeur sans guillemets, alors que plain Node dotenv et python-dotenv le laissent tel quel")
 		case '#':
-			return fmt.Errorf("contains \"#\", which ends an unquoted value: plain Node dotenv cuts it off at any \"#\", and dotenv-expand, python-dotenv and godotenv treat one after whitespace as a comment")
+			return fmt.Errorf("contient « # », qui termine une valeur sans guillemets : plain Node dotenv la coupe à tout « # », et dotenv-expand, python-dotenv et godotenv traitent un « # » après un espace comme un commentaire")
 		case '\n':
-			return fmt.Errorf("contains a newline, which ends an unquoted value")
+			return fmt.Errorf("contient un saut de ligne, qui termine une valeur sans guillemets")
 		case '\r':
-			return fmt.Errorf("contains a carriage return, which the loaders normalise to a newline")
+			return fmt.Errorf("contient un retour chariot, que les loaders normalisent en saut de ligne")
 		}
 	}
 	first, firstSize := utf8.DecodeRuneInString(value)
 	last, _ := utf8.DecodeLastRuneInString(value)
 	if first == '\'' || first == '"' {
-		return fmt.Errorf("starts with %q, which opens a quoted value: godotenv refuses the whole file and python-dotenv misparses it", first)
+		return fmt.Errorf("commence par %q, ce qui ouvre une valeur entre guillemets : godotenv refuse tout le fichier et python-dotenv le lit de travers", first)
 	}
 	if first == '`' && last == '`' && len(value) > firstSize {
-		return fmt.Errorf("starts and ends with a backtick, which plain Node dotenv strips as a wrapping quote pair")
+		return fmt.Errorf("commence et se termine par un accent grave, que plain Node dotenv retire comme une paire de guillemets englobante")
 	}
 	if dotenvTrimmedAtEdge(first) {
-		return fmt.Errorf("starts with %U, which the loaders strip from the edge of an unquoted value", first)
+		return fmt.Errorf("commence par %U, que les loaders retirent au bord d'une valeur sans guillemets", first)
 	}
 	if dotenvTrimmedAtEdge(last) {
-		return fmt.Errorf("ends with %U, which the loaders strip from the edge of an unquoted value", last)
+		return fmt.Errorf("se termine par %U, que les loaders retirent au bord d'une valeur sans guillemets", last)
 	}
 	return nil
 }
@@ -253,19 +253,19 @@ func dotenvTrimmedAtEdge(r rune) bool {
 // refusal says so. LF alone is preserved exactly by every loader.
 func dotenvQuotedObstacle(value string) error {
 	if strings.ContainsRune(value, '\r') {
-		return fmt.Errorf("contains a carriage return, which Node dotenv and python-dotenv normalise to a newline inside a quoted value")
+		return fmt.Errorf("contient un retour chariot, que Node dotenv et python-dotenv normalisent en saut de ligne dans une valeur entre guillemets")
 	}
 	if strings.ContainsRune(value, '\'') {
-		return fmt.Errorf("contains a single quote, which dotenv cannot escape: godotenv refuses the whole file and python-dotenv misparses it")
+		return fmt.Errorf("contient une apostrophe, que dotenv ne sait pas échapper : godotenv refuse tout le fichier et python-dotenv le lit de travers")
 	}
 	if strings.ContainsRune(value, '$') {
-		return fmt.Errorf("contains \"$\", which dotenv-expand and godotenv expand but plain Node dotenv and python-dotenv do not: no single encoding is exact for every loader")
+		return fmt.Errorf("contient « $ », que dotenv-expand et godotenv développent, contrairement à plain Node dotenv et python-dotenv : aucun encodage unique n'est exact pour tous les loaders")
 	}
 	if strings.Contains(value, `\\`) {
-		return fmt.Errorf("contains two consecutive backslashes, which python-dotenv silently collapses to one when quoted")
+		return fmt.Errorf("contient deux barres obliques inverses consécutives, que python-dotenv réduit silencieusement à une seule entre guillemets")
 	}
 	if strings.HasSuffix(value, `\`) {
-		return fmt.Errorf("ends with a backslash, which escapes the closing quote: python-dotenv then loses this value and the next line, and godotenv refuses the whole file")
+		return fmt.Errorf("se termine par une barre oblique inverse, qui échappe le guillemet fermant : python-dotenv perd alors cette valeur et la ligne suivante, et godotenv refuse tout le fichier")
 	}
 	return nil
 }
@@ -344,21 +344,21 @@ func BuildGuestSecretFiles(deliveries []ProjectSecretDelivery) ([]GuestSecretFil
 		seen := map[string]bool{}
 		for _, d := range entries {
 			if seen[d.Name] {
-				return nil, fmt.Errorf("component %s has two approved bindings for %s", component, d.Name)
+				return nil, fmt.Errorf("le composant %s a deux liaisons approuvées pour %s", component, d.Name)
 			}
 			seen[d.Name] = true
 			switch {
 			case d.GuestReadable():
 				if d.Value == nil {
-					return nil, fmt.Errorf("component %s variable %s is guest-readable but its value was not resolved", component, d.Name)
+					return nil, fmt.Errorf("le composant %s, variable %s, est lisible par la machine isolée mais sa valeur n'a pas été résolue", component, d.Name)
 				}
 				literal, err := dotenvLiteral(*d.Value)
 				if err != nil {
-					return nil, fmt.Errorf("component %s variable %s cannot be delivered in a dotenv file: the value %w", component, d.Name, err)
+					return nil, fmt.Errorf("le composant %s, variable %s, ne peut pas être livré dans un fichier dotenv : la valeur %w", component, d.Name, err)
 				}
 				b.WriteString(d.Name + "=" + literal + "\n")
 			case d.Marker == "":
-				return nil, fmt.Errorf("component %s variable %s has no guest marker", component, d.Name)
+				return nil, fmt.Errorf("le composant %s, variable %s, n'a pas de marqueur pour la machine isolée", component, d.Name)
 			default:
 				b.WriteString(d.Name + "=" + d.Marker + "\n")
 			}
@@ -372,10 +372,10 @@ func BuildGuestSecretFiles(deliveries []ProjectSecretDelivery) ([]GuestSecretFil
 // guest workspace or name something other than a dotenv file.
 func validateGuestSecretComponent(component string) error {
 	if !validSecretComponent(component) {
-		return fmt.Errorf("project secret component %q is not a safe project-relative path", component)
+		return fmt.Errorf("le composant de secret de projet %q n'est pas un chemin sûr relatif au projet", component)
 	}
 	if !IsProjectDotenvName(path.Base(component)) {
-		return fmt.Errorf("project secret component %q is not a dotenv file", component)
+		return fmt.Errorf("le composant de secret de projet %q n'est pas un fichier dotenv", component)
 	}
 	return nil
 }
@@ -389,7 +389,7 @@ func guestWorkspaceDotenvPath(component string) (string, error) {
 	}
 	joined := path.Join(msbGuestWorkspace, component)
 	if !strings.HasPrefix(joined, msbGuestWorkspace+"/") {
-		return "", fmt.Errorf("project secret component %q resolves outside the guest workspace", component)
+		return "", fmt.Errorf("le composant de secret de projet %q se résout hors de l'espace de travail de la machine isolée", component)
 	}
 	return joined, nil
 }
@@ -514,17 +514,17 @@ func ReadProjectSecretApplied(fs FS, stateDir, namespace string) (ProjectSecretA
 		if os.IsNotExist(err) {
 			return ProjectSecretApplied{}, nil
 		}
-		return ProjectSecretApplied{}, fmt.Errorf("read the applied project secret inventory: %w", err)
+		return ProjectSecretApplied{}, fmt.Errorf("lecture de l'inventaire des secrets de projet appliqués : %w", err)
 	}
 	if err := json.Unmarshal(data, &record); err != nil {
-		return ProjectSecretApplied{}, fmt.Errorf("the applied project secret inventory is not valid JSON: %w", err)
+		return ProjectSecretApplied{}, fmt.Errorf("l'inventaire des secrets de projet appliqués n'est pas un JSON valide : %w", err)
 	}
 	if record.SchemaVersion != projectSecretAppliedSchemaVersion || record.Namespace != namespace {
-		return ProjectSecretApplied{}, fmt.Errorf("the applied project secret inventory belongs to a different project or schema")
+		return ProjectSecretApplied{}, fmt.Errorf("l'inventaire des secrets de projet appliqués appartient à un autre projet ou schéma")
 	}
 	for _, env := range record.Envs {
 		if env == "" || reservedGuestEnvs()[env] {
-			return ProjectSecretApplied{}, fmt.Errorf("the applied project secret inventory names an invalid guest variable")
+			return ProjectSecretApplied{}, fmt.Errorf("l'inventaire des secrets de projet appliqués nomme une variable de machine isolée invalide")
 		}
 	}
 	for _, guestPath := range record.Files {
@@ -539,7 +539,7 @@ func ReadProjectSecretApplied(fs FS, stateDir, namespace string) (ProjectSecretA
 func WriteProjectSecretApplied(fs FS, stateDir, namespace string, applied ProjectSecretApplied) error {
 	for _, env := range applied.Envs {
 		if env == "" || reservedGuestEnvs()[env] {
-			return fmt.Errorf("refusing to record an invalid applied guest variable")
+			return fmt.Errorf("refus d'enregistrer une variable de machine isolée invalide dans l'inventaire appliqué")
 		}
 	}
 	for _, guestPath := range applied.Files {
@@ -570,7 +570,7 @@ func WriteProjectSecretApplied(fs FS, stateDir, namespace string, applied Projec
 // step into an arbitrary delete inside the guest.
 func validateManagedGuestPath(guestPath string) error {
 	if !strings.HasPrefix(guestPath, msbGuestWorkspace+"/") || strings.Contains(guestPath, "..") {
-		return fmt.Errorf("recorded project secret file %q is not inside the guest workspace", guestPath)
+		return fmt.Errorf("le fichier de secret de projet enregistré %q n'est pas dans l'espace de travail de la machine isolée", guestPath)
 	}
 	return nil
 }
@@ -581,8 +581,8 @@ func validateManagedGuestPath(guestPath string) error {
 // path the plan classified as managed.
 func (m *MicrosandboxRuntime) publishGuestSecretFiles(ctx context.Context, plan GuestSecretPublishPlan) error {
 	if len(plan.Conflicts) > 0 {
-		return fmt.Errorf("refusing to publish project secret files: %s already exist%s in the guest and were not written by codebox; "+
-			"move them aside (or stop generating that component) and start again",
+		return fmt.Errorf("refus de publier les fichiers de secrets de projet : %s est déjà présent%s dans la machine isolée sans avoir été écrit par codebox ; "+
+			"mettez ces fichiers de côté, ou cessez de générer ce composant, puis relancez",
 			strings.Join(plan.Conflicts, ", "), plural(len(plan.Conflicts)))
 	}
 	for _, file := range plan.Writes {
@@ -591,12 +591,12 @@ func (m *MicrosandboxRuntime) publishGuestSecretFiles(ctx context.Context, plan 
 			return err
 		}
 		if err := m.writeGuestFileAtomically(ctx, guestPath, []byte(file.Content), file.Secret); err != nil {
-			return fmt.Errorf("publishing %s: %w", guestPath, err)
+			return fmt.Errorf("publication de %s : %w", guestPath, err)
 		}
 	}
 	for _, guestPath := range plan.Removes {
 		if err := m.removeManagedGuestFile(ctx, guestPath); err != nil {
-			return fmt.Errorf("removing the obsolete project secret file %s: %w", guestPath, err)
+			return fmt.Errorf("suppression du fichier de secret de projet obsolète %s : %w", guestPath, err)
 		}
 	}
 	return nil
@@ -636,7 +636,7 @@ func (m *MicrosandboxRuntime) writeGuestFileAtomically(ctx context.Context, gues
 		// umask 077 rather than `install -m`: both are portable enough, but
 		// this needs no external binary to exist in the guest image.
 		if err := m.guestShell(ctx, "umask 077; : > "+shellQuote(tmp)); err != nil {
-			return fmt.Errorf("creating %s with restrictive permissions: %w", tmp, err)
+			return fmt.Errorf("création de %s avec des permissions restrictives : %w", tmp, err)
 		}
 	}
 	if err := m.Client.WriteFile(ctx, m.InstanceName(), tmp, payload); err != nil {
@@ -760,7 +760,7 @@ func (m *MicrosandboxRuntime) observeGuestSecretFile(ctx context.Context, guestP
 		}
 	case 3:
 	default:
-		return obs, fmt.Errorf("cannot inspect the existing guest file %s (exit %d): %s", guestPath, code, strings.TrimSpace(stderr))
+		return obs, fmt.Errorf("impossible d'inspecter le fichier existant de la machine isolée %s (code %d) : %s", guestPath, code, strings.TrimSpace(stderr))
 	}
 	return obs, nil
 }
@@ -844,8 +844,9 @@ func dedupeStrings(values []string) []string {
 	return out
 }
 
+// plural returns the French plural suffix for a count: "" for one, "s" otherwise.
 func plural(n int) string {
-	if n == 1 {
+	if n != 1 {
 		return "s"
 	}
 	return ""

@@ -25,11 +25,11 @@ func diskFree(path string) (int64, error) {
 		return 0, err
 	}
 	if res.ExitCode != 0 {
-		return 0, fmt.Errorf("disk free probe failed (exit %d): %s", res.ExitCode, strings.TrimSpace(res.Stderr))
+		return 0, fmt.Errorf("échec de la sonde d'espace disque libre (code de sortie %d) : %s", res.ExitCode, strings.TrimSpace(res.Stderr))
 	}
 	v, err := strconv.ParseInt(strings.TrimSpace(res.Stdout), 10, 64)
 	if err != nil {
-		return 0, fmt.Errorf("parse disk free output: %w", err)
+		return 0, fmt.Errorf("analyse de la sortie d'espace disque : %w", err)
 	}
 	return v, nil
 }

@@ -22,13 +22,13 @@ func probeKVM() (bool, string) {
 	if err := unix.Access("/dev/kvm", unix.R_OK|unix.W_OK); err != nil {
 		return false, ""
 	}
-	return true, "/dev/kvm present and accessible"
+	return true, "/dev/kvm présent et accessible"
 }
 
 // probeKVMFailure explains the failure for the user.
 func probeKVMFailure() string {
 	if fi, err := osStatKVM(); err == nil && fi.Mode()&os.ModeCharDevice != 0 {
-		return "/dev/kvm exists but this user cannot open it: add yourself to the kvm group (sudo usermod -aG kvm $USER, then re-login)"
+		return "/dev/kvm existe mais cet utilisateur ne peut pas l'ouvrir : ajoutez-vous au groupe kvm (sudo usermod -aG kvm $USER, puis reconnectez-vous)"
 	}
-	return "/dev/kvm is missing or inaccessible: install KVM support (on a VM host, enable nested virtualization)"
+	return "/dev/kvm est absent ou inaccessible : installez le support KVM (sur une machine hébergeant des VM, activez la virtualisation imbriquée)"
 }

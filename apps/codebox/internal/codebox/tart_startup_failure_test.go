@@ -93,7 +93,7 @@ func TestWaitForAgentNamesTheVZFailureInsteadOfTimingOut(t *testing.T) {
 	if !strings.Contains(msg, "security error") {
 		t.Fatalf("the error must carry the VZ cause, got: %v", err)
 	}
-	if !strings.Contains(msg, "keychain") {
+	if !strings.Contains(msg, "trousseau") {
 		t.Fatalf("the error must name the actionable cause, got: %v", err)
 	}
 	// The whole point is that it stops as soon as the log names the failure
@@ -156,7 +156,7 @@ func TestWaitForAgentDoesNotReportAPreviousRunsFailureOnTimeout(t *testing.T) {
 	if err == nil {
 		t.Fatal("a guest that never answers must time out")
 	}
-	if !strings.Contains(err.Error(), "timed out waiting for") {
+	if !strings.Contains(err.Error(), "délai dépassé") {
 		t.Fatalf("the previous run's failure must not be reported, got: %v", err)
 	}
 	if strings.Contains(err.Error(), "security error") {
@@ -190,7 +190,7 @@ func TestWaitForAgentKeepsThePlainTimeoutWithoutALogFailure(t *testing.T) {
 	if err == nil {
 		t.Fatal("a guest that never answers must time out")
 	}
-	if !strings.Contains(err.Error(), "timed out waiting for") {
+	if !strings.Contains(err.Error(), "délai dépassé") {
 		t.Fatalf("a healthy log must keep the plain timeout, got: %v", err)
 	}
 	if strings.Contains(err.Error(), "VZErrorDomain") || strings.Contains(err.Error(), "keychain") {

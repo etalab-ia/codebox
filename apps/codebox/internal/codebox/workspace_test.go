@@ -155,7 +155,7 @@ func TestCheckWorkspaceGateBlocksOnDotenv(t *testing.T) {
 		t.Fatal("gate must block a workspace containing .env")
 	}
 	msg := err.Error()
-	for _, want := range []string{"refusing to start", ".env", "Move real secrets"} {
+	for _, want := range []string{"démarrage refusé", ".env", "Déplacez les vrais secrets"} {
 		if !contains(msg, want) {
 			t.Errorf("gate error missing %q:\n%s", want, msg)
 		}

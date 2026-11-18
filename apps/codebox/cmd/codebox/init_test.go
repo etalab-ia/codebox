@@ -323,7 +323,7 @@ func TestParseInitArgs(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := validateInitOptions(duplicate); err == nil || !strings.Contains(err.Error(), "selected more than once") {
+	if err := validateInitOptions(duplicate); err == nil || !strings.Contains(err.Error(), "sélectionné plusieurs fois") {
 		t.Fatalf("duplicate skill selection error = %v", err)
 	}
 	for _, args := range [][]string{{"--cpus", "many"}, {"--memory-mb", "x"}, {"--root"}, {"--bogus"}} {
@@ -348,7 +348,7 @@ func TestInitFlagsCannotExceedHostResourceCap(t *testing.T) {
 		{"memory", initOptions{Root: root, MemoryMB: 16385, Set: map[string]bool{"root": true, "memory-mb": true}}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			if code, err := initRun(tc.opts, bufio.NewReader(strings.NewReader("")), false); code == 0 || err == nil || !strings.Contains(err.Error(), "exceeds detected host capacity") {
+			if code, err := initRun(tc.opts, bufio.NewReader(strings.NewReader("")), false); code == 0 || err == nil || !strings.Contains(err.Error(), "dépasse la capacité détectée du poste") {
 				t.Fatalf("initRun = %d, %v; want host capacity rejection", code, err)
 			}
 		})
@@ -367,7 +367,7 @@ func TestNonInteractiveHighResourceAllocationRequiresYes(t *testing.T) {
 		Set: map[string]bool{"root": true, "cpus": true, "memory-mb": true},
 	}
 	code, err := initRun(options, bufio.NewReader(strings.NewReader("")), false)
-	if code == 0 || err == nil || !strings.Contains(err.Error(), "requires explicit confirmation") || !strings.Contains(err.Error(), "--yes") {
+	if code == 0 || err == nil || !strings.Contains(err.Error(), "exige une confirmation explicite") || !strings.Contains(err.Error(), "--yes") {
 		t.Fatalf("non-interactive full-CPU setup = %d, %v; want explicit confirmation error", code, err)
 	}
 	if _, statErr := os.Stat(codebox.ProjectManifestPath(root)); !os.IsNotExist(statErr) {
@@ -416,7 +416,7 @@ func TestInitAutoSelectsSingleCPUWithoutPrompting(t *testing.T) {
 	if code != 0 || err != nil {
 		t.Fatalf("initRun: code=%d err=%v out=\n%s", code, err, out)
 	}
-	if !strings.Contains(out, "selected 1 CPU automatically") || strings.Contains(out, "cpus (`default` resets)") {
+	if !strings.Contains(out, "sélectionné automatiquement") || strings.Contains(out, "processeurs [") {
 		t.Fatalf("the sole CPU value must be stated without prompting: %q", out)
 	}
 	manifest, err := codebox.ReadProjectManifest(codebox.DefaultFS, codebox.ProjectManifestPath(root))
@@ -465,7 +465,7 @@ func TestInitGitHubApprovalStaysOutOfProjectManifest(t *testing.T) {
 	if probeRoot != root || approvedRoot != canonicalRoot {
 		t.Fatalf("verification root = %q, approval root = %q, want %q and canonical %q", probeRoot, approvedRoot, root, canonicalRoot)
 	}
-	if !strings.Contains(out, "agent may push changes to a branch of owner/repo") || !strings.Contains(out, "Accord GitHub enregistré") {
+	if !strings.Contains(out, "l'agent peut pousser ses modifications sur une branche de owner/repo") || !strings.Contains(out, "Accord GitHub enregistré") {
 		t.Fatalf("review must identify the repo and host-local approval: %q", out)
 	}
 	manifest, err := os.ReadFile(codebox.ProjectManifestPath(root))
@@ -498,9 +498,9 @@ func TestInitGitHubWorkflowRejectsNonMicrosandboxRuntime(t *testing.T) {
 		Root: root, Runtime: "tart", GitHub: true, Yes: true,
 		Set: map[string]bool{"root": true, "runtime": true, "github": true},
 	}, bufio.NewReader(strings.NewReader("")), false)
-	want := "requires the microsandbox runtime"
+	want := "exige le runtime microsandbox"
 	if runtime.GOOS == "windows" {
-		want = "tart is macOS only"
+		want = "tart est réservé à macOS"
 	}
 	if code == 0 || err == nil || !strings.Contains(err.Error(), want) {
 		t.Fatalf("non-Microsandbox GitHub workflow: code=%d err=%v", code, err)
@@ -762,8 +762,8 @@ func TestInitGitHubFlagFailsLoudlyWithoutOrigin(t *testing.T) {
 	}
 
 	remote := codebox.GitHubRemote{URL: "https://github.com/owner/repo.git", Repo: "owner/repo"}
-	assertFlagRefused(t, codebox.GitHubProjectStatus{}, "no readable origin remote")
-	assertFlagRefused(t, codebox.GitHubProjectStatus{Remote: remote, HasOrigin: true}, "no GitHub token is stored")
+	assertFlagRefused(t, codebox.GitHubProjectStatus{}, "pas d'origine distante lisible")
+	assertFlagRefused(t, codebox.GitHubProjectStatus{Remote: remote, HasOrigin: true}, "aucun jeton GitHub n'est enregistré")
 	assertFlagRefused(t, codebox.GitHubProjectStatus{
 		Remote: remote, HasOrigin: true, HasToken: true, Rights: codebox.GitHubRepoRightsInsufficient,
 	}, "droits nécessaires")
@@ -980,7 +980,7 @@ func TestInitNonTTYWithAllInputsWritesTheManifest(t *testing.T) {
 			t.Fatalf("initRun: code=%d err=%v", code, err)
 		}
 	})
-	if !strings.Contains(out, "Review the project setup") {
+	if !strings.Contains(out, "Récapitulatif de la configuration du projet") {
 		t.Fatalf("the review must be printed even without a terminal: %q", out)
 	}
 	pm, err := codebox.ReadProjectManifest(codebox.DefaultFS, codebox.ProjectManifestPath(root))
@@ -1436,7 +1436,7 @@ func TestInitSmallModelMinistralRequiresAlbertConnection(t *testing.T) {
 			return validateInitOptions(initOptions{Root: root, SmallModel: "ministral-3-8b-instruct-2512", Set: map[string]bool{"small-model": true}})
 		},
 	} {
-		if err := check(); err == nil || !strings.Contains(err.Error(), "requires Albert API") {
+		if err := check(); err == nil || !strings.Contains(err.Error(), "API Albert") {
 			t.Fatalf("Mistral-only setup must reject Ministral: %v", err)
 		}
 	}
@@ -1448,7 +1448,7 @@ func TestInitSmallModelMinistralRequiresAlbertConnection(t *testing.T) {
 		Set: map[string]bool{"root": true, "small-model": true},
 	}
 	code, err := initRun(opts, bufio.NewReader(strings.NewReader("")), false)
-	if code == 0 || err == nil || !strings.Contains(err.Error(), "requires Albert API") {
+	if code == 0 || err == nil || !strings.Contains(err.Error(), "API Albert") {
 		t.Fatalf("noninteractive init must reject an unavailable provider: code=%d err=%v", code, err)
 	}
 	if _, statErr := os.Stat(codebox.ProjectManifestPath(root)); !os.IsNotExist(statErr) {
@@ -1457,7 +1457,7 @@ func TestInitSmallModelMinistralRequiresAlbertConnection(t *testing.T) {
 }
 
 func TestSmallModelProviderConnectionAtLaunch(t *testing.T) {
-	if err := validateSmallModelProviderConnection([]codebox.InferenceProvider{{Kind: codebox.ProviderMistral}}, codebox.MinistralSmallModelRef); err == nil || !strings.Contains(err.Error(), "requires Albert API") {
+	if err := validateSmallModelProviderConnection([]codebox.InferenceProvider{{Kind: codebox.ProviderMistral}}, codebox.MinistralSmallModelRef); err == nil || !strings.Contains(err.Error(), "API Albert") {
 		t.Fatalf("Mistral-only launch must reject Ministral: %v", err)
 	}
 	if err := validateSmallModelProviderConnection([]codebox.InferenceProvider{{Kind: codebox.ProviderAlbert}}, codebox.MinistralSmallModelRef); err != nil {
@@ -1519,7 +1519,7 @@ func TestInitAdvancedLineSmallModelRetriesProviderError(t *testing.T) {
 			t.Fatalf("line-mode small-model retry failed: %v", err)
 		}
 	})
-	if !strings.Contains(out, "requires Albert API") {
+	if !strings.Contains(out, "API Albert") {
 		t.Fatalf("provider error must be shown inside the prompt loop: %s", out)
 	}
 	if updated.SmallModel != "" || updated.Model != "mistral-large-latest" {
@@ -1584,7 +1584,7 @@ func TestInitNonTTYAcceptsFreshDefaultMCPWithoutPrompt(t *testing.T) {
 			t.Fatalf("initRun: code=%d err=%v", code, err)
 		}
 	})
-	if !strings.Contains(out, "Review the project setup") {
+	if !strings.Contains(out, "Récapitulatif de la configuration du projet") {
 		t.Fatalf("the review must be printed even without a terminal: %q", out)
 	}
 	pm, err := codebox.ReadProjectManifest(codebox.DefaultFS, codebox.ProjectManifestPath(root))
@@ -1749,7 +1749,7 @@ func TestInitLineSkillPromptRetriesTyposAndRetainsOlderPins(t *testing.T) {
 	if !equalStringSlices(got.RetainedSkills, []string{"experimental/old-tool"}) {
 		t.Fatalf("retained skills = %v, want the out-of-catalogue pin", got.RetainedSkills)
 	}
-	for _, want := range []string{"unknown skill \"not-a-skill\"", "experimental/old-tool", "conservées si vous saisissez de nouveaux noms"} {
+	for _, want := range []string{"skill \"not-a-skill\" inconnue", "experimental/old-tool", "conservées si vous saisissez de nouveaux noms"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("retry or retention message missing %q: %s", want, out)
 		}
@@ -1890,7 +1890,7 @@ func TestInitHelpNeedsNoTerminal(t *testing.T) {
 			t.Fatalf("init --help: code=%d err=%v", code, err)
 		}
 	})
-	for _, want := range []string{"--root", "--isolation", "--replace", "no terminal"} {
+	for _, want := range []string{"--root", "--isolation", "--replace", "Sans terminal"} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("the help must document %q: %q", want, out)
 		}
@@ -1932,7 +1932,7 @@ func TestInitSkipsQuestionsAnsweredByFlags(t *testing.T) {
 			t.Fatalf("initRun: code=%d err=%v", code, err)
 		}
 	})
-	for _, asked := range []string{"root:", "machine [", "isolation [", "modèle principal [", "processeurs [", "mémoire [", "Skills sélectionnées"} {
+	for _, asked := range []string{"racine :", "machine [", "isolation [", "modèle principal [", "processeurs [", "mémoire [", "Skills sélectionnées"} {
 		if strings.Contains(out, asked) {
 			t.Fatalf("a question already answered by a flag must not be asked (%q): %q", asked, out)
 		}
@@ -1995,8 +1995,8 @@ func TestInitValidatesFlagsBeforeAsking(t *testing.T) {
 	}{
 		{"bad runtime", initOptions{Root: root, Runtime: "podman", Set: map[string]bool{"root": true, "runtime": true}}, "microsandbox"},
 		{"bad isolation", initOptions{Root: root, Isolation: "sometimes", Set: map[string]bool{"root": true, "isolation": true}}, "isolation"},
-		{"zero cpus", initOptions{Root: root, CPUs: 0, Set: map[string]bool{"root": true, "cpus": true}}, "--cpus must be 1"},
-		{"huge memory", initOptions{Root: root, MemoryMB: codebox.MaxSandboxMemoryMB + 1, Set: map[string]bool{"root": true, "memory-mb": true}}, "--memory-mb must be 1"},
+		{"zero cpus", initOptions{Root: root, CPUs: 0, Set: map[string]bool{"root": true, "cpus": true}}, "--cpus doit être un entier de 1 à"},
+		{"huge memory", initOptions{Root: root, MemoryMB: codebox.MaxSandboxMemoryMB + 1, Set: map[string]bool{"root": true, "memory-mb": true}}, "--memory-mb doit être un entier de 1 à"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			var err error
@@ -2014,7 +2014,7 @@ func TestInitValidatesFlagsBeforeAsking(t *testing.T) {
 // value, not a directory named "--yes".
 func TestParseInitArgsRejectsAFlagAsValue(t *testing.T) {
 	_, err := parseInitArgs([]string{"--root", "--yes"})
-	if err == nil || !strings.Contains(err.Error(), "needs a value") {
+	if err == nil || !strings.Contains(err.Error(), "exige une valeur") {
 		t.Fatalf("error = %v, want a missing-value error", err)
 	}
 }
@@ -2025,7 +2025,7 @@ func TestParseInitArgsRejectsAFlagAsValue(t *testing.T) {
 func TestInitStopsOnAModelTheCatalogueDoesNotList(t *testing.T) {
 	root := initTestProject(t)
 	stubCatalogueCheck(t, func(string, string) (string, error) {
-		return "", fmt.Errorf("the model %q is not in the Albert catalogue", "albert/gone")
+		return "", fmt.Errorf("le modèle %q ne figure pas dans le catalogue Albert", "albert/gone")
 	})
 	var err error
 	_ = captureStdout(t, func() {
@@ -2041,7 +2041,7 @@ func TestInitStopsOnAModelTheCatalogueDoesNotList(t *testing.T) {
 
 	// Unreachable catalogue: a warning, and the setup proceeds.
 	stubCatalogueCheck(t, func(string, string) (string, error) {
-		return "the model was recorded unverified: the catalogue could not be reached", nil
+		return "le modèle a été enregistré sans vérification : le catalogue Albert est injoignable", nil
 	})
 	out := captureStdout(t, func() {
 		code, err := initRun(initOptions{Root: root, Model: "albert/deepseek-v4-flash", Yes: true, Set: map[string]bool{"root": true, "model": true}},
@@ -2050,7 +2050,7 @@ func TestInitStopsOnAModelTheCatalogueDoesNotList(t *testing.T) {
 			t.Fatalf("initRun: code=%d err=%v", code, err)
 		}
 	})
-	if !strings.Contains(out, "unverified") {
+	if !strings.Contains(out, "sans vérification") {
 		t.Fatalf("the warning must reach the user: %q", out)
 	}
 }

@@ -20,7 +20,7 @@ func TestPreflightKVMInaccessibleNamesTheGroupRemedy(t *testing.T) {
 	// The device exists but this user cannot open it: the detail must say
 	// so (the kvm group), not the generic missing-device message.
 	detail := probeKVMFailure()
-	if !stringsContainsLower(detail, "kvm group") {
+	if !stringsContainsLower(detail, "groupe kvm") {
 		t.Fatalf("detail must name the kvm group remedy: %q", detail)
 	}
 }

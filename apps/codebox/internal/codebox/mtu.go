@@ -21,11 +21,11 @@ func ValidateMTU(s string) error {
 		return nil
 	}
 	if !mtuShape.MatchString(s) {
-		return fmt.Errorf("TART_MTU must be auto or an integer from 1280 to 1500")
+		return fmt.Errorf("TART_MTU doit valoir auto ou un entier de 1280 à 1500")
 	}
 	n, err := strconv.Atoi(s)
 	if err != nil || n < 1280 {
-		return fmt.Errorf("TART_MTU must be auto or an integer from 1280 to 1500")
+		return fmt.Errorf("TART_MTU doit valoir auto ou un entier de 1280 à 1500")
 	}
 	return nil
 }

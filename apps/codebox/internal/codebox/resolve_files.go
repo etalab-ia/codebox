@@ -89,20 +89,20 @@ func ReadUserSettings(fs FS, path string) (UserSettings, error) {
 		if os.IsNotExist(err) {
 			return UserSettings{SchemaVersion: userSettingsSchemaVersion}, nil
 		}
-		return UserSettings{}, fmt.Errorf("read user settings: %w", err)
+		return UserSettings{}, fmt.Errorf("lecture des paramètres utilisateur : %w", err)
 	}
 	var raw map[string]any
 	if err := json.Unmarshal(data, &raw); err != nil {
-		return UserSettings{}, fmt.Errorf("user settings %s: invalid JSON: %w", path, err)
+		return UserSettings{}, fmt.Errorf("paramètres utilisateur %s : JSON invalide : %w", path, err)
 	}
-	if err := checkNoSecretFields("user settings", raw); err != nil {
+	if err := checkNoSecretFields("paramètres utilisateur", raw); err != nil {
 		return UserSettings{}, err
 	}
 	var us UserSettings
 	if err := json.Unmarshal(data, &us); err != nil {
-		return UserSettings{}, fmt.Errorf("user settings %s: %w", path, err)
+		return UserSettings{}, fmt.Errorf("paramètres utilisateur %s : %w", path, err)
 	}
-	if err := checkSchemaVersion("user settings", us.SchemaVersion, maxSupportedSettingsSchema); err != nil {
+	if err := checkSchemaVersion("paramètres utilisateur", us.SchemaVersion, maxSupportedSettingsSchema); err != nil {
 		return UserSettings{}, err
 	}
 	return us, nil
@@ -118,20 +118,20 @@ func ReadProjectManifest(fs FS, path string) (ProjectManifest, error) {
 	}
 	var raw map[string]any
 	if err := json.Unmarshal(data, &raw); err != nil {
-		return ProjectManifest{}, fmt.Errorf("project manifest %s: invalid JSON: %w", path, err)
+		return ProjectManifest{}, fmt.Errorf("manifeste de projet %s : JSON invalide : %w", path, err)
 	}
-	if err := checkNoSecretFields("project manifest", raw); err != nil {
+	if err := checkNoSecretFields("manifeste de projet", raw); err != nil {
 		return ProjectManifest{}, err
 	}
 	var pm ProjectManifest
 	if err := json.Unmarshal(data, &pm); err != nil {
-		return ProjectManifest{}, fmt.Errorf("project manifest %s: %w", path, err)
+		return ProjectManifest{}, fmt.Errorf("manifeste de projet %s : %w", path, err)
 	}
-	if err := checkSchemaVersion("project manifest", pm.SchemaVersion, maxSupportedManifestSchema); err != nil {
+	if err := checkSchemaVersion("manifeste de projet", pm.SchemaVersion, maxSupportedManifestSchema); err != nil {
 		return ProjectManifest{}, err
 	}
 	if err := ValidateProjectSecretsManifest(pm.Secrets); err != nil {
-		return ProjectManifest{}, fmt.Errorf("project manifest %s: %w", path, err)
+		return ProjectManifest{}, fmt.Errorf("manifeste de projet %s : %w", path, err)
 	}
 	return pm, nil
 }
@@ -148,16 +148,16 @@ func ReadLockfile(fs FS, path string) (Lockfile, error) {
 	}
 	var lf Lockfile
 	if err := json.Unmarshal(data, &lf); err != nil {
-		return Lockfile{}, fmt.Errorf("lockfile %s: %w", path, err)
+		return Lockfile{}, fmt.Errorf("fichier de verrouillage %s : %w", path, err)
 	}
 	var raw map[string]any
 	if err := json.Unmarshal(data, &raw); err != nil {
-		return Lockfile{}, fmt.Errorf("lockfile %s: invalid JSON: %w", path, err)
+		return Lockfile{}, fmt.Errorf("fichier de verrouillage %s : JSON invalide : %w", path, err)
 	}
-	if err := checkNoSecretFields("project lockfile", raw); err != nil {
+	if err := checkNoSecretFields("fichier de verrouillage du projet", raw); err != nil {
 		return Lockfile{}, err
 	}
-	if err := checkSchemaVersion("lockfile", lf.SchemaVersion, maxSupportedLockfileSchema); err != nil {
+	if err := checkSchemaVersion("fichier de verrouillage", lf.SchemaVersion, maxSupportedLockfileSchema); err != nil {
 		return Lockfile{}, err
 	}
 	return lf, nil
@@ -170,7 +170,7 @@ func ValidateDependencySet(pm ProjectManifest, lf Lockfile) error {
 		return nil
 	}
 	if !isUpdateID(pm.DependencySetID) || pm.DependencySetID != lf.DependencySetID {
-		return fmt.Errorf("project manifest and lockfile belong to different dependency sets; repair the pair before launch")
+		return fmt.Errorf("le manifeste de projet et le fichier de verrouillage appartiennent à des ensembles de dépendances différents ; réparez la paire avant le lancement")
 	}
 	return nil
 }
@@ -182,15 +182,15 @@ func ValidateDependencySet(pm ProjectManifest, lf Lockfile) error {
 func atomicWrite(fs FS, path string, data []byte, perm os.FileMode) error {
 	dir := filepath.Dir(path)
 	if err := fs.MkdirAll(dir, 0o755); err != nil {
-		return fmt.Errorf("create %s: %w", dir, err)
+		return fmt.Errorf("création de %s : %w", dir, err)
 	}
 	name, err := fs.WriteTemp(dir, filepath.Base(path), data, perm)
 	if err != nil {
-		return fmt.Errorf("write %s: %w", path, err)
+		return fmt.Errorf("écriture de %s : %w", path, err)
 	}
 	if err := fs.RenameTmp(name, path); err != nil {
 		_ = fs.Remove(name)
-		return fmt.Errorf("write %s: %w", path, err)
+		return fmt.Errorf("écriture de %s : %w", path, err)
 	}
 	return nil
 }
@@ -224,16 +224,16 @@ func WriteProjectPorts(fs FS, path string, ports []PortMapping) error {
 	}
 	var raw map[string]any
 	if err := json.Unmarshal(data, &raw); err != nil {
-		return fmt.Errorf("project manifest %s: invalid JSON: %w", path, err)
+		return fmt.Errorf("manifeste de projet %s : JSON invalide : %w", path, err)
 	}
-	if err := checkNoSecretFields("project manifest", raw); err != nil {
+	if err := checkNoSecretFields("manifeste de projet", raw); err != nil {
 		return err
 	}
 	var pm ProjectManifest
 	if err := json.Unmarshal(data, &pm); err != nil {
-		return fmt.Errorf("project manifest %s: %w", path, err)
+		return fmt.Errorf("manifeste de projet %s : %w", path, err)
 	}
-	if err := checkSchemaVersion("project manifest", pm.SchemaVersion, maxSupportedManifestSchema); err != nil {
+	if err := checkSchemaVersion("manifeste de projet", pm.SchemaVersion, maxSupportedManifestSchema); err != nil {
 		return err
 	}
 	if ports == nil {

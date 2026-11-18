@@ -106,7 +106,7 @@ func TestInteractiveInitReviewPreservesExistingConfigAndLocalSkillRevisions(t *t
 		t.Fatal(err)
 	}
 	review := FormatInteractiveInitReview(plan)
-	if !strings.Contains(review, "albert/original") || !strings.Contains(review, "cpus") || !strings.Contains(review, "8") {
+	if !strings.Contains(review, "albert/original") || !strings.Contains(review, "processeurs") || !strings.Contains(review, "8") {
 		t.Fatalf("replacement recap hides the old configuration:\n%s", review)
 	}
 
@@ -216,7 +216,7 @@ func TestInitPlanResolvesDefaults(t *testing.T) {
 		t.Fatalf("sizing = %d / %d, want the unset representation", plan.Answers.CPUs, plan.Answers.MemoryMB)
 	}
 	review := FormatInitReview(plan)
-	if !strings.Contains(review, "2 CPUs, 4G") {
+	if !strings.Contains(review, "2 processeurs, 4G") {
 		t.Fatalf("the review must show the effective sizing: %q", review)
 	}
 }
@@ -229,16 +229,16 @@ func TestInitPlanRejectsBadAnswers(t *testing.T) {
 		answers InitAnswers
 		want    string
 	}{
-		{"missing root", InitAnswers{}, "root is required"},
+		{"missing root", InitAnswers{}, "racine du projet est requise"},
 		// The message is the OS's, so assert on the part this code owns: the
 		// path it could not use. "no such file" is Unix wording; Windows says
 		// "The system cannot find the file specified".
 		{"nonexistent root", InitAnswers{Root: filepath.Join(root, "nope")}, "nope"},
-		{"root is a file", InitAnswers{Root: file}, "not a directory"},
+		{"root is a file", InitAnswers{Root: file}, "n'est pas un dossier"},
 		{"unknown runtime", InitAnswers{Root: root, Runtime: "podman"}, "microsandbox"},
 		{"unknown isolation", InitAnswers{Root: root, Isolation: "sometimes"}, "isolation"},
-		{"cpus above the SDK range", InitAnswers{Root: root, CPUs: MaxSandboxCPUs + 1}, "CPUs must be"},
-		{"negative memory", InitAnswers{Root: root, MemoryMB: -1}, "memory must be"},
+		{"cpus above the SDK range", InitAnswers{Root: root, CPUs: MaxSandboxCPUs + 1}, "les processeurs doivent être"},
+		{"negative memory", InitAnswers{Root: root, MemoryMB: -1}, "la mémoire doit être"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -265,7 +265,7 @@ func TestInitPlanEnforcesHostResourceCeiling(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			wizard := InitWizard{HostResources: &host}
 			_, err := wizard.Plan(InitAnswers{Root: root, CPUs: tc.cpus, MemoryMB: tc.memory})
-			if err == nil || !strings.Contains(err.Error(), "exceeds detected host capacity") {
+			if err == nil || !strings.Contains(err.Error(), "dépasse la capacité détectée du poste") {
 				t.Fatalf("Plan error = %v, want host capacity rejection", err)
 			}
 		})
@@ -300,7 +300,7 @@ func TestInitPlanDisplaysHostAdjustedDefaultsWithoutPersistingThem(t *testing.T)
 	if plan.GuestCPUs != 1 || plan.GuestMemoryMB != 3072 {
 		t.Fatalf("effective guest defaults = %d CPUs / %d MiB, want 1 / 3072", plan.GuestCPUs, plan.GuestMemoryMB)
 	}
-	if !strings.Contains(FormatInitReview(plan), "resources    1 CPUs, 3G") {
+	if !strings.Contains(FormatInitReview(plan), "ressources   1 processeurs, 3G") {
 		t.Fatalf("review does not show effective host-adjusted defaults: %s", FormatInitReview(plan))
 	}
 }
@@ -320,7 +320,7 @@ func TestInitPlanGitHubWorkflowRequiresCanonicalRemote(t *testing.T) {
 	if err != nil {
 		t.Fatalf("canonical GitHub remote: %v", err)
 	}
-	if !strings.Contains(FormatInitReview(plan), "agent may push changes to a branch of owner/repo") {
+	if !strings.Contains(FormatInitReview(plan), "l'agent peut pousser ses modifications sur une branche de owner/repo") {
 		t.Fatal("the review must identify the approved repository")
 	}
 }
@@ -375,7 +375,7 @@ func TestInitPlanAndReviewDistinctSmallModel(t *testing.T) {
 	if len(validated) != 2 || validated[0] != "albert/qwen3-coder" || validated[1] != MinistralSmallModelRef {
 		t.Fatalf("main and small model must each be validated: %v", validated)
 	}
-	if !strings.Contains(FormatInitReview(plan), "small model  "+MinistralSmallModelRef) {
+	if !strings.Contains(FormatInitReview(plan), "petit modèle "+MinistralSmallModelRef) {
 		t.Fatal("non-interactive review must distinguish the small model")
 	}
 	review := FormatInteractiveInitReview(plan)
@@ -449,7 +449,7 @@ func TestInitApplyRefusesToReplaceWithoutConsent(t *testing.T) {
 	}
 	// The review shows what would be replaced, not just that something exists.
 	review := FormatInitReview(plan)
-	if !strings.Contains(review, "REPLACED") || !strings.Contains(review, "albert/original") {
+	if !strings.Contains(review, "REMPLACÉ") || !strings.Contains(review, "albert/original") {
 		t.Fatalf("the review must show what would be lost: %q", review)
 	}
 
@@ -569,7 +569,7 @@ func TestInitReviewWarnsAboutAnUnversionedManifest(t *testing.T) {
 	}
 	// The sealed-runtime review must state what the guest receives, since that
 	// is the difference the user is choosing between.
-	if !strings.Contains(FormatInitReview(plan), "filtered copy") {
+	if !strings.Contains(FormatInitReview(plan), "copie filtrée du projet") {
 		t.Fatal("a Microsandbox project must be told the guest gets a filtered copy")
 	}
 	// The mounting-runtime wording only applies where such a runtime is
@@ -583,7 +583,7 @@ func TestInitReviewWarnsAboutAnUnversionedManifest(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(FormatInitReview(mounted), "MOUNTS") {
+	if !strings.Contains(FormatInitReview(mounted), "MONTE le projet") {
 		t.Fatal("a mounting runtime must be told the project is exposed in the guest")
 	}
 }
@@ -665,7 +665,7 @@ func TestInitPinsVersionedSkillsAndManagedInstructionsIdempotently(t *testing.T)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(FormatInitReview(plan), "AGENTS.md managed-zone diff") || !plan.InstructionsChanged {
+	if !strings.Contains(FormatInitReview(plan), "Diff de la section gérée d'AGENTS.md") || !plan.InstructionsChanged {
 		t.Fatalf("review omitted the generated instruction diff: %+v", plan)
 	}
 	if err := wizard.Apply(plan, true); err != nil {
@@ -839,7 +839,7 @@ func TestInitPlanRejectsRetainedSkillWithoutExistingPin(t *testing.T) {
 		SkillsSet:      true,
 		RetainedSkills: []string{"official/fantome"},
 	})
-	if err == nil || !strings.Contains(err.Error(), `retained skill "official/fantome" has no existing pin`) {
+	if err == nil || !strings.Contains(err.Error(), `le skill conservé "official/fantome" n'a aucune révision existante à préserver`) {
 		t.Fatalf("retaining an unpinned skill on a fresh project must fail, got %v", err)
 	}
 	// A pinned project must reject a retained ID it never pinned.
@@ -856,7 +856,7 @@ func TestInitPlanRejectsRetainedSkillWithoutExistingPin(t *testing.T) {
 		SkillsSet:      true,
 		RetainedSkills: []string{"official/fantome"},
 	})
-	if err == nil || !strings.Contains(err.Error(), `retained skill "official/fantome" has no existing pin`) {
+	if err == nil || !strings.Contains(err.Error(), `le skill conservé "official/fantome" n'a aucune révision existante à préserver`) {
 		t.Fatalf("retaining a never-pinned skill must fail, got %v", err)
 	}
 }
@@ -921,7 +921,7 @@ func TestInitApplyRejectsReviewedStateChangesBeforeWriting(t *testing.T) {
 				t.Fatal(readErr)
 			}
 			applyErr := wizard.Apply(plan, true)
-			if applyErr == nil || !strings.Contains(applyErr.Error(), "changed after the review") {
+			if applyErr == nil || !strings.Contains(applyErr.Error(), "a changé après la revue") {
 				t.Fatalf("changed %s was not refused: %v", kind, applyErr)
 			}
 			after, readErr := readReviewedFileSnapshot(DefaultFS, path)
@@ -1097,7 +1097,7 @@ func TestInitLocalOnlySkillsStayOutsideTheCheckout(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if plan.InstructionsChanged || strings.Contains(FormatInitReview(plan), "AGENTS.md managed-zone diff") {
+	if plan.InstructionsChanged || strings.Contains(FormatInitReview(plan), "Diff de la section gérée d'AGENTS.md") {
 		t.Fatal("local-only selection must not preview a project instruction edit")
 	}
 	if err := wizard.Apply(plan, false); err != nil {
@@ -1206,7 +1206,7 @@ func TestMergeManagedInstructionsRefusesSymlink(t *testing.T) {
 		t.Skipf("cannot create symlink: %v", err)
 	}
 	wizard := InitWizard{ResolveSkills: fixtureSkillResolver(t)}
-	if _, err := wizard.Plan(InitAnswers{Root: root, Skills: []string{"official/rgaa"}, SkillsSet: true}); err == nil || !strings.Contains(err.Error(), "not a regular file") {
+	if _, err := wizard.Plan(InitAnswers{Root: root, Skills: []string{"official/rgaa"}, SkillsSet: true}); err == nil || !strings.Contains(err.Error(), "n'est pas un fichier régulier") {
 		t.Fatalf("symlinked AGENTS.md error = %v", err)
 	}
 	if got := readFileForTest(t, outside); string(got) != "keep me\n" {

@@ -43,7 +43,7 @@ func (projectSecretsRealFS) Lstat(p string) (os.FileInfo, error) { return os.Lst
 // It does not create state or import anything.
 func NewProjectSecretStore(root, stateDir string, store CredentialStore) (*ProjectSecretStore, error) {
 	if store == nil || root == "" || stateDir == "" {
-		return nil, fmt.Errorf("project secret storage requires a root, state directory and credential store")
+		return nil, fmt.Errorf("le stockage des secrets de projet exige une racine, un dossier d'état et un magasin d'identifiants")
 	}
 	canonical, namespace, err := projectSecretScope(root)
 	if err != nil {
@@ -74,11 +74,11 @@ func projectSecretScope(root string) (canonical, namespace string, err error) {
 		if os.IsNotExist(err) {
 			return "", "", fmt.Errorf("%w: %v", ErrProjectSecretNoScope, err)
 		}
-		return "", "", fmt.Errorf("resolve project secret scope: %w", err)
+		return "", "", fmt.Errorf("résolution du périmètre des secrets de projet : %w", err)
 	}
 	info, err := os.Stat(canonical)
 	if err != nil || !info.IsDir() {
-		return "", "", fmt.Errorf("%w: project secret root must be an existing directory", ErrProjectSecretNoScope)
+		return "", "", fmt.Errorf("%w : la racine des secrets de projet doit être un dossier existant", ErrProjectSecretNoScope)
 	}
 	digest := sha256.Sum256([]byte(filepath.ToSlash(canonical)))
 	return canonical, hex.EncodeToString(digest[:]), nil
@@ -134,14 +134,14 @@ type ProjectSecretImportResult struct {
 	Removed   int
 }
 
-var ErrProjectSecretCleanupPending = errors.New("project secret cleanup pending; retry with the same credential store")
+var ErrProjectSecretCleanupPending = errors.New("nettoyage des secrets de projet en attente ; relancez avec le même magasin d'identifiants")
 
 // ErrProjectSecretNoScope is returned when a runtime has no project scope at
 // all, so it cannot have project secrets. It exists to be told apart from a
 // store that is configured but cannot be resolved: the first is a legitimate
 // empty result, the second must stop a start before it touches a running
 // sandbox. Callers use errors.Is, so wrapping keeps the distinction.
-var ErrProjectSecretNoScope = errors.New("project secret bindings need a project workspace root")
+var ErrProjectSecretNoScope = errors.New("les liaisons de secrets de projet nécessitent une racine d'espace de travail de projet")
 
 // ErrProjectSecretImportMissing is returned when a binding is approved but the
 // imported value it refers to is absent from the credential store. It is
@@ -151,9 +151,9 @@ var ErrProjectSecretNoScope = errors.New("project secret bindings need a project
 // value, so the inconsistency is structural — only re-importing the component
 // or removing the approval repairs it — and a start must fail rather than
 // silently keep serving the previously delivered secret (#204).
-var ErrProjectSecretImportMissing = errors.New("approved project secret has no imported value")
+var ErrProjectSecretImportMissing = errors.New("le secret de projet approuvé n'a pas de valeur importée")
 
-var ErrProjectSecretSnapshotChanged = errors.New("project secret set changed since preview; review a fresh preview before applying")
+var ErrProjectSecretSnapshotChanged = errors.New("l'ensemble des secrets de projet a changé depuis l'aperçu ; relisez un aperçu à jour avant d'appliquer")
 
 // Windows Credential Manager caps the blob at 2560 bytes. WinCredStore encodes
 // our ASCII envelope as UTF-16: 951 raw bytes produce 1278 code units (2556
@@ -163,13 +163,13 @@ const MaxProjectSecretValueBytes = 951
 func validateProjectSecretValues(values map[string]string) error {
 	for name, value := range values {
 		if !validSecretIdentifier(name) {
-			return fmt.Errorf("invalid dotenv variable name")
+			return fmt.Errorf("nom de variable dotenv invalide")
 		}
 		if !utf8.ValidString(value) || strings.IndexByte(value, 0) >= 0 {
-			return fmt.Errorf("dotenv variable %s is not valid UTF-8 text", name)
+			return fmt.Errorf("la variable dotenv %s n'est pas du texte UTF-8 valide", name)
 		}
 		if len(encodeProjectSecret(value))*2 > 2560 {
-			return fmt.Errorf("dotenv variable %s exceeds the native credential store limit (%d bytes)", name, MaxProjectSecretValueBytes)
+			return fmt.Errorf("la variable dotenv %s dépasse la limite du magasin d'identifiants natif (%d octets)", name, MaxProjectSecretValueBytes)
 		}
 	}
 	return nil
@@ -276,11 +276,11 @@ func encodeProjectSecret(value string) string {
 
 func decodeProjectSecret(value string) (string, error) {
 	if !strings.HasPrefix(value, projectSecretValuePrefix) {
-		return "", fmt.Errorf("invalid stored project secret encoding")
+		return "", fmt.Errorf("encodage invalide du secret de projet stocké")
 	}
 	raw, err := base64.StdEncoding.DecodeString(strings.TrimPrefix(value, projectSecretValuePrefix))
 	if err != nil {
-		return "", fmt.Errorf("invalid stored project secret encoding")
+		return "", fmt.Errorf("encodage invalide du secret de projet stocké")
 	}
 	return string(raw), nil
 }
@@ -296,7 +296,7 @@ func (s *ProjectSecretStore) storeError(op string, err error) error {
 	if errors.As(err, &se) {
 		state = se.State
 	}
-	return &StoreError{Op: op, Kind: s.store.Kind(), State: state, Err: errors.New("project secret operation failed; check the credential store")}
+	return &StoreError{Op: op, Kind: s.store.Kind(), State: state, Err: errors.New("l'opération sur les secrets de projet a échoué ; vérifiez le magasin d'identifiants")}
 }
 
 func (s *ProjectSecretStore) checkPaths() error {
@@ -309,10 +309,10 @@ func (s *ProjectSecretStore) checkPaths() error {
 			return err
 		}
 		if info.Mode()&os.ModeSymlink != 0 {
-			return fmt.Errorf("project secret state must not use symlinks")
+			return fmt.Errorf("l'état des secrets de projet ne doit pas utiliser de liens symboliques")
 		}
 		if (p == s.stateDir || p == s.dir || p == filepath.Dir(s.dir)) && !info.IsDir() {
-			return fmt.Errorf("project secret state directory is not a directory")
+			return fmt.Errorf("le dossier d'état des secrets de projet n'est pas un dossier")
 		}
 	}
 	return nil
@@ -345,25 +345,25 @@ func (s *ProjectSecretStore) readIndex() (projectSecretIndex, error) {
 	// and in the store case it hid the one actionable fact: which store the
 	// values actually went into.
 	if err := json.Unmarshal(raw, &idx); err != nil {
-		return idx, fmt.Errorf("project secret index %s is corrupt (%w): remove it and re-import the component", s.indexPath(), err)
+		return idx, fmt.Errorf("l'index des secrets de projet %s est corrompu (%w) : supprimez-le et réimportez le composant", s.indexPath(), err)
 	}
 	if idx.SchemaVersion != 1 {
-		return idx, fmt.Errorf("project secret index %s has schema version %d, this build understands version 1: re-import the component with this version", s.indexPath(), idx.SchemaVersion)
+		return idx, fmt.Errorf("l'index des secrets de projet %s a la version de schéma %d, cette version du binaire comprend la version 1 : réimportez le composant avec cette version", s.indexPath(), idx.SchemaVersion)
 	}
 	if idx.Namespace != s.namespace {
-		return idx, fmt.Errorf("project secret index %s belongs to another project scope: it was imported from a different checkout root", s.indexPath())
+		return idx, fmt.Errorf("l'index des secrets de projet %s appartient à un autre périmètre de projet : il a été importé depuis une autre racine de dépôt", s.indexPath())
 	}
 	if idx.Store != s.store.Kind() {
-		return idx, fmt.Errorf("the project secrets were imported into the %q credential store, but this command opened the %q store; re-run with the matching store (for example --fallback for the owner-only file store)", idx.Store, s.store.Kind())
+		return idx, fmt.Errorf("les secrets de projet ont été importés dans le magasin d'identifiants %q, mais cette commande a ouvert le magasin %q ; relancez avec le magasin correspondant (par exemple --fallback pour le magasin de fichiers réservé à votre utilisateur)", idx.Store, s.store.Kind())
 	}
 	if !validSecretID(idx.Generation) {
-		return idx, fmt.Errorf("project secret index %s has an invalid generation marker: remove it and re-import the component", s.indexPath())
+		return idx, fmt.Errorf("l'index des secrets de projet %s a un marqueur de génération invalide : supprimez-le et réimportez le composant", s.indexPath())
 	}
 	seen, refs := map[string]bool{}, map[string]bool{}
 	for _, e := range idx.Entries {
 		identity := e.Profile + "\x00" + e.Component + "\x00" + e.Name
 		if !validSecretProfile(e.Profile) || !validSecretComponent(e.Component) || !validSecretIdentifier(e.Name) || !s.validReference(e.Reference) || seen[identity] || refs[e.Reference] {
-			return idx, fmt.Errorf("project secret index contains invalid or duplicate entries")
+			return idx, fmt.Errorf("l'index des secrets de projet contient des entrées invalides ou en double")
 		}
 		seen[identity], refs[e.Reference] = true, true
 	}
@@ -394,12 +394,12 @@ func (s *ProjectSecretStore) recoverPending(ctx context.Context) error {
 	}
 	var j projectSecretJournal
 	if json.Unmarshal(raw, &j) != nil || j.SchemaVersion != 1 || j.Namespace != s.namespace || j.Store != s.store.Kind() || !validSecretID(j.Generation) {
-		return fmt.Errorf("invalid project secret recovery journal; no credentials removed")
+		return fmt.Errorf("journal de reprise des secrets de projet invalide ; aucun identifiant supprimé")
 	}
 	seen := map[string]bool{}
 	for _, ref := range append(append([]string(nil), j.Prepared...), j.Retired...) {
 		if !s.validReference(ref) || seen[ref] {
-			return fmt.Errorf("invalid project secret recovery references; no credentials removed")
+			return fmt.Errorf("références de reprise des secrets de projet invalides ; aucun identifiant supprimé")
 		}
 		seen[ref] = true
 	}
@@ -417,7 +417,7 @@ func (s *ProjectSecretStore) recoverPending(ctx context.Context) error {
 	}
 	for _, ref := range cleanup {
 		if live[ref] {
-			return fmt.Errorf("recovery journal targets a live project secret; no credentials removed")
+			return fmt.Errorf("le journal de reprise cible un secret de projet actif ; aucun identifiant supprimé")
 		}
 	}
 	for _, ref := range cleanup {
@@ -433,7 +433,7 @@ func (s *ProjectSecretStore) recoverPending(ctx context.Context) error {
 func (s *ProjectSecretStore) Preview(ctx context.Context, profile, component string, values map[string]string) (ProjectSecretImportResult, error) {
 	var result ProjectSecretImportResult
 	if !validSecretProfile(profile) || !validSecretComponent(component) {
-		return result, fmt.Errorf("an explicit profile and normalized project-relative component file are required")
+		return result, fmt.Errorf("un profil explicite et un fichier de composant normalisé relatif au projet sont requis")
 	}
 	if err := validateProjectSecretValues(values); err != nil {
 		return result, err
@@ -442,7 +442,7 @@ func (s *ProjectSecretStore) Preview(ctx context.Context, profile, component str
 		return result, err
 	}
 	if _, err := s.fs.Lstat(s.journalPath()); err == nil {
-		return result, fmt.Errorf("a previous project-secret operation needs recovery; retry the import with --apply")
+		return result, fmt.Errorf("une opération précédente sur les secrets de projet doit être reprise ; relancez l'import avec --apply")
 	} else if !os.IsNotExist(err) {
 		return result, err
 	}
@@ -527,14 +527,14 @@ func (s *ProjectSecretStore) Import(ctx context.Context, profile, component stri
 // may change independently without invalidating this consent.
 func (s *ProjectSecretStore) ImportIfRevision(ctx context.Context, profile, component string, values map[string]string, expectedRevision string) (result ProjectSecretImportResult, err error) {
 	if expectedRevision == "" {
-		return result, fmt.Errorf("a preview revision is required before applying project secrets")
+		return result, fmt.Errorf("une révision d'aperçu est requise avant d'appliquer les secrets de projet")
 	}
 	return s.importComponent(ctx, profile, component, values, expectedRevision)
 }
 
 func (s *ProjectSecretStore) importComponent(ctx context.Context, profile, component string, values map[string]string, expectedRevision string) (result ProjectSecretImportResult, err error) {
 	if !validSecretProfile(profile) || !validSecretComponent(component) {
-		return result, fmt.Errorf("an explicit profile and normalized project-relative component file are required")
+		return result, fmt.Errorf("un profil explicite et un fichier de composant normalisé relatif au projet sont requis")
 	}
 	if err := validateProjectSecretValues(values); err != nil {
 		return result, err
@@ -644,7 +644,7 @@ func (s *ProjectSecretStore) importComponent(ctx context.Context, profile, compo
 // global credential lookup or fallback to a different profile or component.
 func (s *ProjectSecretStore) Get(ctx context.Context, profile, component, name string) (string, error) {
 	if !validSecretProfile(profile) || !validSecretComponent(component) || !validSecretIdentifier(name) {
-		return "", fmt.Errorf("invalid project secret identity")
+		return "", fmt.Errorf("identité de secret de projet invalide")
 	}
 	release, err := s.lock()
 	if err != nil {
