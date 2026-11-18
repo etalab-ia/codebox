@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.19.1](https://github.com/etalab-ia/codebox/compare/codebox-v0.19.0...codebox-v0.19.1) (2026-11-18)
+
+
+### Bug Fixes
+
+* clean up full-isolation skill discovery service ([654b0c8](https://github.com/etalab-ia/codebox/commit/654b0c800f3438917908b7e754ad58a26b387b81))
+* query persistent OpenCode service for skill verification ([745cdd6](https://github.com/etalab-ia/codebox/commit/745cdd68f3a1ebf8822af2f144dd8c8081a3cd59))
+* verify skills through persistent OpenCode service ([032d3d2](https://github.com/etalab-ia/codebox/commit/032d3d23608e01fa01b355b81de868b734aaa444))
+
 ## [0.19.0](https://github.com/etalab-ia/codebox/compare/codebox-v0.18.0...codebox-v0.19.0) (2026-11-17)
 
 
