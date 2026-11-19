@@ -2,6 +2,10 @@
 
 Date : 2026-11-09. Issue : [#176](https://github.com/etalab-ia/codebox/issues/176).
 
+## Mise à jour du 19 novembre 2026 (#438)
+
+Le paquet géré devient `@earendil-works/pi-coding-agent@1.5.2`, publié le 10 novembre et vérifié depuis son archive npm et ses schémas. La version 0.73.1 écrivait `pi --version` sur stderr : les scripts de préparation et la sonde acceptent désormais stdout ou stderr, ce qui corrige ce point indépendamment de la montée de version. Dans `models.json`, les identifiants utilisent l'interpolation Pi 1.x (`"$ALBERT_API_KEY"`, etc.) au lieu du nom de variable sans préfixe, que la nouvelle version traiterait comme une clé littérale. Pi 1.5.2 fournit aussi une prise en charge MCP native ; son branchement dans codebox reste un lot séparé de #445.
+
 ## Ce qui a changé depuis le report du 27 octobre
 
 Le 27 octobre 2026, #176 avait été reporté sur deux constats et une dépendance :

@@ -27,9 +27,10 @@ type piModelsFile struct {
 	Providers map[string]piProvider `json:"providers"`
 }
 
-// piProvider is one provider entry. Pi resolves apiKey as a literal, an
-// environment variable name, or a "!command"; codebox always names the
-// environment variable that the guest secret delivery already populates.
+// piProvider is one provider entry. Pi 1.x resolves apiKey through "$NAME"
+// environment interpolation or a "!command"; codebox always uses the
+// environment form that the guest secret delivery already populates. A bare
+// name would be treated as a literal key rather than read from the environment.
 type piProvider struct {
 	BaseURL string    `json:"baseUrl"`
 	API     string    `json:"api"`
@@ -278,7 +279,7 @@ func piProviders(o ManagedOverlay) map[string]piProvider {
 				API:     piAPI,
 				// The guest secret delivery populates this variable; with the
 				// Microsandbox proxy the guest only ever holds the placeholder.
-				APIKey: msbAPISecretEnv,
+				APIKey: "$" + msbAPISecretEnv,
 				Models: models,
 			}
 		}
@@ -315,7 +316,7 @@ func piProviders(o ManagedOverlay) map[string]piProvider {
 		providers[provider.Kind] = piProvider{
 			BaseURL: provider.BaseURL,
 			API:     piAPI,
-			APIKey:  provider.APIKeyEnv,
+			APIKey:  "$" + provider.APIKeyEnv,
 			Models:  models,
 		}
 	}
