@@ -13,7 +13,6 @@ import (
 	"strings"
 	"testing"
 
-	tea "charm.land/bubbletea/v2"
 	"charm.land/huh/v2"
 	"github.com/etalab-ia/codebox/apps/codebox/internal/codebox"
 )
@@ -299,9 +298,14 @@ func TestSetupPlatformStageReasksAMissingCredential(t *testing.T) {
 	}
 }
 
-func TestSetupModelPickerAcceptsDefaultsAndChangesDefaultInOneForm(t *testing.T) {
+// TestSetupModelPickerAcceptsDefaultsAndChangesDefault drives the rebuilt
+// huh screen (#445) end to end: the multi-select keeps the preselected
+// models, and the default single-select moves the default to another chosen
+// model. It runs the real setupModelPickerRun with huhRun stubbed to answer
+// the two forms in order, so the decision logic — not a terminal — is tested.
+func TestSetupModelPickerAcceptsDefaultsAndChangesDefault(t *testing.T) {
 	choices := albertSetupChoices()
-	picker := setupModelPicker{
+	initial := setupModelPicker{
 		choices: choices,
 		selected: map[string]bool{
 			choices[0].Ref(): true,
@@ -310,32 +314,91 @@ func TestSetupModelPickerAcceptsDefaultsAndChangesDefaultInOneForm(t *testing.T)
 		unavailable:  map[string]bool{},
 		defaultModel: choices[0].Ref(),
 	}
-	updated, _ := picker.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
-	accepted := updated.(setupModelPicker)
-	if !accepted.done || accepted.defaultModel != choices[0].Ref() {
-		t.Fatalf("Enter should accept the preselected defaults: %+v", accepted)
+	originalRun := huhRun
+	t.Cleanup(func() { huhRun = originalRun })
+	formIndex := 0
+	huhRun = func(form *huh.Form) error {
+		formIndex++
+		switch formIndex {
+		case 1:
+			// Keep the two preselected models and add a third.
+			return form.WithAccessible(true).
+				WithInput(strings.NewReader("3\n0\n")).
+				WithOutput(io.Discard).Run()
+		case 2:
+			// Default screen: pick the third model (index 3 in the options:
+			// the two kept models come first in choice order, then the new one).
+			return form.WithAccessible(true).
+				WithInput(strings.NewReader("3\n")).
+				WithOutput(io.Discard).Run()
+		default:
+			t.Fatalf("unexpected third form in the model screen")
+			return nil
+		}
 	}
-
-	picker.done = false
-	picker.cursor = 2
-	updated, _ = picker.Update(tea.KeyPressMsg{Code: tea.KeySpace})
-	picker = updated.(setupModelPicker)
-	if !picker.selected[choices[2].Ref()] {
-		t.Fatal("Space should add the highlighted model")
+	picked, err := setupModelPickerRun(initial)
+	if err != nil {
+		t.Fatalf("model screen: %v", err)
 	}
-	updated, _ = picker.Update(tea.KeyPressMsg{Code: tea.KeyRight})
-	picker = updated.(setupModelPicker)
-	if picker.defaultModel != choices[2].Ref() {
-		t.Fatalf("right arrow should mark the cursor model as default: %q", picker.defaultModel)
+	if !picked.done || !picked.selected[choices[2].Ref()] {
+		t.Fatalf("the third model must be selected: %+v", picked)
 	}
-	updated, _ = picker.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
-	accepted = updated.(setupModelPicker)
-	if !accepted.done || accepted.defaultModel != choices[2].Ref() || !accepted.selected[choices[2].Ref()] {
-		t.Fatal("Enter should submit the model set and its default together")
+	if picked.defaultModel != choices[2].Ref() {
+		t.Fatalf("the default must move to the chosen model: %q", picked.defaultModel)
 	}
 }
 
-func TestSetupModelPickerRefusesUnavailableModel(t *testing.T) {
+// TestSetupModelPickerKeepsPreselectedDefaults pins the Enter-through path:
+// confirming the multi-select unchanged and accepting the default screen's
+// preselected value keeps the original selection and default.
+func TestSetupModelPickerKeepsPreselectedDefaults(t *testing.T) {
+	choices := albertSetupChoices()
+	initial := setupModelPicker{
+		choices: choices,
+		selected: map[string]bool{
+			choices[0].Ref(): true,
+			choices[1].Ref(): true,
+		},
+		unavailable:  map[string]bool{},
+		defaultModel: choices[0].Ref(),
+	}
+	originalRun := huhRun
+	t.Cleanup(func() { huhRun = originalRun })
+	formIndex := 0
+	huhRun = func(form *huh.Form) error {
+		formIndex++
+		switch formIndex {
+		case 1:
+			// Confirm the preselected list without toggling anything.
+			return form.WithAccessible(true).
+				WithInput(strings.NewReader("0\n")).
+				WithOutput(io.Discard).Run()
+		case 2:
+			// Accept the preselected default (first option).
+			return form.WithAccessible(true).
+				WithInput(strings.NewReader("1\n")).
+				WithOutput(io.Discard).Run()
+		default:
+			t.Fatalf("unexpected third form in the model screen")
+			return nil
+		}
+	}
+	picked, err := setupModelPickerRun(initial)
+	if err != nil {
+		t.Fatalf("model screen: %v", err)
+	}
+	if !picked.done || picked.selectedCount() != 2 {
+		t.Fatalf("the preselected models must be kept: %+v", picked)
+	}
+	if picked.defaultModel != choices[0].Ref() {
+		t.Fatalf("the preselected default must be kept: %q", picked.defaultModel)
+	}
+}
+
+// TestSetupModelPickerOmitsUnavailableModels pins that an unavailable model
+// is not offered by the rebuilt screen: it cannot be selected because it is
+// absent from the options, replacing the former greyed-out row + refusal.
+func TestSetupModelPickerOmitsUnavailableModels(t *testing.T) {
 	choices := albertSetupChoices()
 	picker := setupModelPicker{
 		choices: choices,
@@ -346,15 +409,22 @@ func TestSetupModelPickerRefusesUnavailableModel(t *testing.T) {
 			choices[1].Ref(): true,
 		},
 		defaultModel: choices[0].Ref(),
-		cursor:       1,
 	}
-	updated, _ := picker.Update(tea.KeyPressMsg{Code: tea.KeySpace})
-	picker = updated.(setupModelPicker)
-	if picker.selected[choices[1].Ref()] {
-		t.Fatal("unavailable model must not be added to the selection")
+	options := setupModelOptions(picker)
+	for _, option := range options {
+		if option.Value == choices[1].Ref() {
+			t.Fatalf("unavailable model must not be offered: %+v", options)
+		}
 	}
-	if picker.errorMessage == "" {
-		t.Fatal("unavailable selection should explain why it cannot be toggled")
+	if len(options) != len(choices)-1 {
+		t.Fatalf("expected %d available options, got %d", len(choices)-1, len(options))
+	}
+	// The default options must also exclude the unavailable model.
+	picker.selected[choices[1].Ref()] = true
+	for _, option := range setupDefaultOptions(picker) {
+		if option.Value == choices[1].Ref() {
+			t.Fatalf("unavailable model must not be a default candidate: %+v", options)
+		}
 	}
 }
 
