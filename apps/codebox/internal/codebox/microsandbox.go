@@ -1059,6 +1059,14 @@ func (m *MicrosandboxRuntime) waitForToolchain(ctx context.Context) error {
 			"lancez 'codebox logs --microsandbox' ou vérifiez %s dans la machine isolée : %w",
 			hardCap, msbGuestLog, cause)
 	}
+	withRemainingTime := func() (context.Context, context.CancelFunc) {
+		now := clock.Now()
+		remaining := inactivity - now.Sub(lastProgress)
+		if hardRemaining := hardDeadline.Sub(now); hardRemaining < remaining {
+			remaining = hardRemaining
+		}
+		return context.WithTimeout(waitCtx, remaining)
+	}
 
 	relaunches := 0
 	for first := true; ; first = false {
@@ -1070,7 +1078,9 @@ func (m *MicrosandboxRuntime) waitForToolchain(ctx context.Context) error {
 			return inactivityError()
 		}
 
-		code, activity, err := m.Client.Exec(waitCtx, m.InstanceName(), msbGuestPrepareProbeFor(m.cfg.EffectiveHarness()))
+		probeCtx, probeCancel := withRemainingTime()
+		code, activity, err := m.Client.Exec(probeCtx, m.InstanceName(), msbGuestPrepareProbeFor(m.cfg.EffectiveHarness()))
+		probeCancel()
 		if err == nil {
 			switch {
 			case code == msbPrepareReady:
@@ -1092,13 +1102,17 @@ func (m *MicrosandboxRuntime) waitForToolchain(ctx context.Context) error {
 				}
 				relaunches++
 				m.say("Rien ne prépare la machine isolée dans %s ; lancement du script de démarrage...", m.InstanceName())
-				if err := m.launchBackend(waitCtx); err != nil {
-					return err
-				}
 				// Relaunching the idempotent installer is itself new activity;
 				// its log may also have been truncated by the redirection.
+				// Bound the launch by the fresh inactivity interval too.
 				lastActivity = ""
 				lastProgress = clock.Now()
+				launchCtx, launchCancel := withRemainingTime()
+				err := m.launchBackend(launchCtx)
+				launchCancel()
+				if err != nil {
+					return err
+				}
 			}
 		}
 		if first {

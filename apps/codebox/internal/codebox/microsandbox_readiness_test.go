@@ -130,6 +130,35 @@ func TestMicrosandboxToolchainWaitResumesInterruptedGuestWithoutRecreate(t *test
 	}
 }
 
+type blockingToolchainProbeClient struct {
+	*fakeMSBClient
+}
+
+func (c *blockingToolchainProbeClient) Exec(ctx context.Context, name, command string) (int, string, error) {
+	if command == msbGuestPrepareProbeFor(HarnessOpenCode) {
+		c.record("exec " + name + " " + command)
+		<-ctx.Done()
+		return 0, "", ctx.Err()
+	}
+	return c.fakeMSBClient.Exec(ctx, name, command)
+}
+
+func TestMicrosandboxToolchainWaitBoundsBlockedProbeByInactivity(t *testing.T) {
+	fake := &fakeMSBClient{exists: true, status: "running", startScript: msbStartScript(IsolationFull)}
+	client := &blockingToolchainProbeClient{fakeMSBClient: fake}
+	m := newTestMicrosandbox(t, fake)
+	m.Client = client
+	m.cfg.Isolation = IsolationFull
+	m.cfg.StartTimeout = 30 * time.Millisecond
+	m.toolchainPollDelay = time.Millisecond
+	m.toolchainHardCap = 200 * time.Millisecond
+
+	err := m.Start(context.Background())
+	if err == nil || !strings.Contains(err.Error(), "sans nouvelle activité") || strings.Contains(err.Error(), "délai maximal") {
+		t.Fatalf("Start error = %v, want the inactivity deadline rather than the hard cap", err)
+	}
+}
+
 func TestMSBPrepareProbeReportsLogActivity(t *testing.T) {
 	for _, harness := range []Harness{HarnessOpenCode, HarnessPi} {
 		probe := msbGuestPrepareProbeFor(harness)
