@@ -58,6 +58,27 @@ func TestParseArgs(t *testing.T) {
 	}
 }
 
+func TestParseArgsLogsFollow(t *testing.T) {
+	for _, args := range [][]string{{"logs", "--follow", "--microsandbox"}, {"--follow", "logs"}} {
+		parsed, err := parseArgs(args)
+		if err != nil {
+			t.Errorf("parseArgs(%v): %v", args, err)
+		} else if parsed.action != "logs" || !parsed.follow {
+			t.Errorf("parseArgs(%v) = %+v, want logs with follow", args, parsed)
+		}
+	}
+	parsed, err := parseArgs([]string{"logs"})
+	if err != nil || parsed.follow {
+		t.Fatalf("logs must terminate by default: %+v, %v", parsed, err)
+	}
+	if _, err := parseArgs([]string{"logs", "--follow", "--follow"}); err == nil {
+		t.Fatal("duplicate --follow must be rejected")
+	}
+	if _, err := parseArgs([]string{"start", "--follow"}); err == nil {
+		t.Fatal("--follow must be rejected outside logs")
+	}
+}
+
 func TestResolveEnabledAlbertModelsKeepsActiveModelAvailable(t *testing.T) {
 	setupTestEnv(t)
 	path, err := codebox.UserSettingsPath()

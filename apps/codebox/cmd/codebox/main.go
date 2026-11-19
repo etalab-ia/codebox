@@ -463,7 +463,7 @@ func run(args []string) (int, error) {
 	case "attach":
 		return attachCmd(d, cfg, rt, instance, projectRoot)
 	case "start", "logs", "shell", "restart", "recreate", "clean", "doctor":
-		return lifecycleCmd(d, rt, parsed.action)
+		return lifecycleCmd(d, rt, parsed.action, parsed.follow)
 	default:
 		return 2, fmt.Errorf("Argument inconnu : %s", parsed.action)
 	}
@@ -617,6 +617,9 @@ type parsedArgs struct {
 	// stopAll records the explicit --all flag: `stop --all` stops every
 	// managed instance, not just the current project's (P06).
 	stopAll bool
+	// follow records the explicit logs --follow flag. Finite output is the
+	// default so pipes and one-shot diagnostics always terminate.
+	follow bool
 	// ackGuestCreds records --acknowledge-guest-credentials (P09): required
 	// to start a Tart or agent-vm runtime, which transports the credential
 	// into the guest in plaintext.
@@ -714,6 +717,11 @@ func parseArgs(args []string) (parsedArgs, error) {
 				return p, fmt.Errorf("--all ne peut être fourni qu'une fois")
 			}
 			p.stopAll = true
+		case a == "--follow":
+			if p.follow {
+				return p, fmt.Errorf("--follow ne peut être fourni qu'une fois")
+			}
+			p.follow = true
 		case a == "--acknowledge-guest-credentials":
 			p.ackGuestCreds = true
 		case a == "config" && !actionSet:
@@ -806,6 +814,9 @@ func parseArgs(args []string) (parsedArgs, error) {
 	}
 	if p.action == "" {
 		p.action = "attach"
+	}
+	if p.follow && p.action != "logs" {
+		return p, fmt.Errorf("--follow est réservé à la commande logs")
 	}
 	return p, nil
 }
@@ -1281,7 +1292,7 @@ func openCodeAttachArgs(endpoint string, resumeArgs []string) []string {
 	return append(args, resumeArgs...)
 }
 
-func lifecycleCmd(d *codebox.Dispatcher, rt codebox.Runtime, action string) (int, error) {
+func lifecycleCmd(d *codebox.Dispatcher, rt codebox.Runtime, action string, follow bool) (int, error) {
 	b, err := d.Backend(rt)
 	if err != nil {
 		return 0, err
@@ -1319,7 +1330,7 @@ func lifecycleCmd(d *codebox.Dispatcher, rt codebox.Runtime, action string) (int
 	case "doctor":
 		err = b.Doctor(ctx)
 	case "logs":
-		err = b.Logs()
+		err = b.Logs(ctx, follow)
 	case "shell":
 		err = b.Shell()
 	default:
@@ -1439,7 +1450,8 @@ Commandes :
   restart    Arrêter puis démarrer l'instance du projet courant (non destructif)
   recreate   Reconstruire de zéro la machine isolée sélectionnée (destructif ;
              demande confirmation)
-  logs       Suivre les journaux du runtime sélectionné
+  logs       Afficher les journaux du runtime sélectionné et quitter
+             (logs --follow pour les suivre)
   shell      Ouvrir un shell dans le runtime sélectionné
   clean      Supprimer la machine isolée sélectionnée et son état local
   doctor     Vérifier l'installation du runtime sélectionné

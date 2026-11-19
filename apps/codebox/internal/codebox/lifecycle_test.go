@@ -282,10 +282,10 @@ func (f *fakeInstanceBackend) Recreate(context.Context) error {
 	f.surface.running[f.instance] = true
 	return nil
 }
-func (f *fakeInstanceBackend) Clean(context.Context) error  { return nil }
-func (f *fakeInstanceBackend) Doctor(context.Context) error { return nil }
-func (f *fakeInstanceBackend) Logs() error                  { return nil }
-func (f *fakeInstanceBackend) Shell() error                 { return nil }
+func (f *fakeInstanceBackend) Clean(context.Context) error      { return nil }
+func (f *fakeInstanceBackend) Doctor(context.Context) error     { return nil }
+func (f *fakeInstanceBackend) Logs(context.Context, bool) error { return nil }
+func (f *fakeInstanceBackend) Shell() error                     { return nil }
 func (f *fakeInstanceBackend) IsRunning(context.Context) (bool, error) {
 	f.surface.mu.Lock()
 	defer f.surface.mu.Unlock()

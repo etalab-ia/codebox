@@ -42,9 +42,10 @@ const (
 	// what launches `opencode serve`.
 	msbGuestEntrypoint = "/.msb/scripts/start"
 
-	// msbGuestLog collects the start script's output inside the guest; it is
-	// the first place to look when the backend never becomes healthy.
-	msbGuestLog = "/var/log/opencode.log"
+	// msbGuestLog collects the OpenCode start script's output inside the guest;
+	// Pi uses msbPiGuestLog so diagnostics name the harness actually in use.
+	msbGuestLog   = "/var/log/opencode.log"
+	msbPiGuestLog = "/var/log/pi.log"
 
 	// msbToolchainMarker is written by guest-prep.sh once the toolchain
 	// install completes. It doubles as the readiness signal for full mode,
@@ -86,21 +87,6 @@ const (
 	// msbToolchainHardCap bounds the total readiness wait even when the guest
 	// log keeps advancing. StartTimeout remains the inactivity limit.
 	msbToolchainHardCap = 30 * time.Minute
-	// msbRelaunchCommand restarts that entrypoint from inside a live VM.
-	// Microsandbox keeps a VM across restarts but runs the entrypoint only at
-	// creation, so a VM that came back from a restart reports `running` with no
-	// backend process listening: "VM up" is not "backend ready".
-	//
-	// The script is invoked through `sh` because the Go SDK stores script
-	// bodies verbatim (no shebang is prepended, unlike the Rust builder and
-	// the CLI), and sandboxes created before the shebang was added to
-	// guest-prep.sh persist a script that cannot be exec'd directly.
-	// The launcher is backgrounded, then checked after one second: a bare
-	// `nohup ... &` would report the exit status of the trailing sleep (0)
-	// even when the script died instantly, so the compound ends with
-	// `kill -0` on the launcher PID to make an immediate death visible.
-	msbRelaunchCommand = "nohup sh " + msbGuestEntrypoint + " >" + msbGuestLog + " 2>&1 & pid=$!; sleep 1; kill -0 \"$pid\" 2>/dev/null"
-
 	// msbLaunchAttempts bounds the retry while the guest agent catches up with
 	// a freshly started VM.
 	msbLaunchAttempts   = 10
@@ -129,6 +115,25 @@ const (
 	// real credential that happens to start that way pass as a placeholder.
 	msbAPISecretPlaceholder = "$MSB_" + msbAPISecretEnv
 )
+
+func msbGuestLogFor(harness Harness) string {
+	if harness == HarnessPi {
+		return msbPiGuestLog
+	}
+	return msbGuestLog
+}
+
+// msbRelaunchCommandFor restarts the entrypoint from inside a live VM.
+// Microsandbox keeps a VM across restarts but runs the entrypoint only at
+// creation, so a restarted VM reports `running` with no prepared harness.
+// Invoke through `sh`: the SDK stores old scripts without a shebang. The
+// background launcher is checked after one second so an immediate death is
+// visible rather than hidden by the trailing sleep's zero status.
+func msbRelaunchCommandFor(harness Harness) string {
+	return "nohup sh " + msbGuestEntrypoint + " >" + msbGuestLogFor(harness) + " 2>&1 & pid=$!; sleep 1; kill -0 \"$pid\" 2>/dev/null"
+}
+
+var msbRelaunchCommand = msbRelaunchCommandFor(HarnessOpenCode)
 
 // toolchainClock isolates the readiness wait's time source for deterministic
 // progress, inactivity, and hard-cap tests.
@@ -386,8 +391,6 @@ type msbClient interface {
 	// An error means the persisted document could not be inspected, treated as a
 	// refusal rather than as an empty reference list.
 	PersistedSecretRefs(ctx context.Context, name string) ([]persistedSecretRef, error)
-	// Logs streams sandbox logs to the terminal until interrupted.
-	Logs(name string) error
 	// Shell opens an interactive shell in the sandbox.
 	Shell(name string) error
 	// AttachInteractive runs a command with args interactively in the sandbox
@@ -1039,6 +1042,7 @@ func (m *MicrosandboxRuntime) waitForToolchain(ctx context.Context) error {
 	if clock == nil {
 		clock = wallToolchainClock{}
 	}
+	logPath := msbGuestLogFor(m.cfg.EffectiveHarness())
 
 	started := clock.Now()
 	hardDeadline := started.Add(hardCap)
@@ -1051,13 +1055,13 @@ func (m *MicrosandboxRuntime) waitForToolchain(ctx context.Context) error {
 		return fmt.Errorf("la chaîne d'outils de la machine isolée est sans nouvelle activité depuis %s ; "+
 			"l'installation peut continuer en arrière-plan ; relancez 'codebox' pour reprendre l'attente sans recréer la machine isolée ; "+
 			"lancez 'codebox logs --microsandbox' ou vérifiez %s dans la machine isolée : %w",
-			inactivity, msbGuestLog, context.DeadlineExceeded)
+			inactivity, logPath, context.DeadlineExceeded)
 	}
 	hardCapError := func(cause error) error {
 		return fmt.Errorf("la chaîne d'outils de la machine isolée n'a pas été prête dans le délai maximal de %s ; "+
 			"l'installation peut continuer en arrière-plan ; relancez 'codebox' pour reprendre l'attente sans recréer la machine isolée ; "+
 			"lancez 'codebox logs --microsandbox' ou vérifiez %s dans la machine isolée : %w",
-			hardCap, msbGuestLog, cause)
+			hardCap, logPath, cause)
 	}
 	withRemainingTime := func() (context.Context, context.CancelFunc) {
 		now := clock.Now()
@@ -1182,10 +1186,18 @@ func msbGuestPrepareProbeFor(harness Harness) string {
 		toolchain = "[ \"$(pi --version 2>/dev/null)\" = \"" + PiVersion + "\" ]"
 		profile = "if [ -f " + msbPiConfigMarker + " ] && [ \"$(cat " + msbPiConfigMarker + " 2>/dev/null)\" = \"$fingerprint\" ]; then exit " + strconv.Itoa(msbPrepareReady) + "; fi; fi; "
 	}
+	logPath := msbGuestLogFor(harness)
+	activityProbe := "activity=$(stat -c '%s:%Y' " + logPath + " 2>/dev/null || printf 'missing'); "
+	if harness == HarnessPi {
+		// Pi guests created before the harness-specific log path still write
+		// opencode.log. Include both fingerprints until that preparation finishes.
+		activityProbe = "activity=$(for candidate in " + msbPiGuestLog + " " + msbGuestLog + "; do " +
+			"[ ! -f \"$candidate\" ] || stat -c '%n:%s:%Y' \"$candidate\" 2>/dev/null; done); "
+	}
 	return "fingerprint=\"${" + fingerprintEnv + ":-}\"; " +
 		"if [ -f " + msbToolchainMarker + " ] && " + toolchain + "; then " +
 		profile +
-		"activity=$(stat -c '%s:%Y' " + msbGuestLog + " 2>/dev/null || printf 'missing'); " +
+		activityProbe +
 		"self=$$; " +
 		"for p in /proc/[0-9]*/cmdline; do " +
 		"[ \"$p\" = \"/proc/$self/cmdline\" ] && continue; " +
@@ -1453,7 +1465,7 @@ func (m *MicrosandboxRuntime) launchBackend(ctx context.Context) error {
 	}
 	var last error
 	for attempt := 1; attempt <= msbLaunchAttempts; attempt++ {
-		code, stderr, err := m.Client.Exec(ctx, m.InstanceName(), msbRelaunchCommand)
+		code, stderr, err := m.Client.Exec(ctx, m.InstanceName(), msbRelaunchCommandFor(m.cfg.EffectiveHarness()))
 		if err == nil && code == 0 {
 			return nil
 		}
@@ -2218,7 +2230,7 @@ func (m *MicrosandboxRuntime) waitForGuestShell(ctx context.Context) error {
 		case <-time.After(delay):
 		case <-ctx.Done():
 			return fmt.Errorf("un shell dans la machine isolée %s n'a pas été joignable dans %s (dernière sonde : %v) ; le script de démarrage a peut-être échoué. Lancez 'codebox logs --microsandbox' ou vérifiez %s dans la machine isolée, puis recréez-la : %w",
-				m.InstanceName(), timeout, err, msbGuestLog, ctx.Err())
+				m.InstanceName(), timeout, err, msbGuestLogFor(m.cfg.EffectiveHarness()), ctx.Err())
 		}
 	}
 }
@@ -2289,8 +2301,48 @@ func (m *MicrosandboxRuntime) Doctor(ctx context.Context) error {
 	return nil
 }
 
-func (m *MicrosandboxRuntime) Logs() error {
-	return m.Client.Logs(m.InstanceName())
+// Logs reads the actual guest prep log. Finite mode works through a pipe and
+// returns at EOF; follow mode attaches tail -f until the user interrupts it.
+func (m *MicrosandboxRuntime) Logs(ctx context.Context, follow bool) error {
+	logPath := msbGuestLogFor(m.cfg.EffectiveHarness())
+	if follow {
+		command := "tail"
+		args := []string{"-f", logPath}
+		if m.cfg.EffectiveHarness() == HarnessPi {
+			command = "sh"
+			args = []string{"-c", "if [ -f " + msbPiGuestLog + " ]; then exec tail -f " + msbPiGuestLog + "; else exec tail -f " + msbGuestLog + "; fi"}
+		}
+		code, err := m.Client.AttachInteractive(ctx, m.InstanceName(), command, args, "/")
+		if err != nil {
+			return err
+		}
+		if code != 0 {
+			return fmt.Errorf("le suivi de %s dans la machine isolée s'est terminé avec le code %d", logPath, code)
+		}
+		return nil
+	}
+	readCommand := "cat " + logPath
+	if m.cfg.EffectiveHarness() == HarnessPi {
+		readCommand = "if [ -f " + msbPiGuestLog + " ]; then cat " + msbPiGuestLog + "; else cat " + msbGuestLog + "; fi"
+	}
+	stdout, stderr, code, err := m.Client.ExecCapture(ctx, m.InstanceName(), readCommand)
+	if stdout != "" {
+		if _, writeErr := fmt.Fprint(os.Stdout, stdout); writeErr != nil {
+			return writeErr
+		}
+	}
+	if stderr != "" {
+		if _, writeErr := fmt.Fprint(os.Stderr, stderr); writeErr != nil {
+			return writeErr
+		}
+	}
+	if err != nil {
+		return err
+	}
+	if code != 0 {
+		return fmt.Errorf("la lecture de %s dans la machine isolée s'est terminée avec le code %d", logPath, code)
+	}
+	return nil
 }
 
 func (m *MicrosandboxRuntime) Shell() error {

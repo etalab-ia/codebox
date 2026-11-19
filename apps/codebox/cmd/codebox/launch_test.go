@@ -66,7 +66,7 @@ func TestLifecycleLaunchWaitsForBackendReadiness(t *testing.T) {
 				d.Launch = &codebox.LaunchUX{Terminal: true}
 				var err error
 				output := captureStderr(t, func() {
-					_, err = lifecycleCmd(d, codebox.RuntimeMicrosandbox, action)
+					_, err = lifecycleCmd(d, codebox.RuntimeMicrosandbox, action, false)
 				})
 				if b.operations != 1 {
 					t.Fatalf("runtime operation count = %d", b.operations)

@@ -9,7 +9,7 @@ Une VM Microsandbox survit à un redémarrage, mais son entrée de conteneur (`/
 Si malgré cela le backend ne répond pas, l'attachement (`codebox` sans commande) attend en affichant l'avancement (300 s par défaut, réglable via `CODEBOX_START_TIMEOUT` en secondes). À l'expiration, l'erreur précise le dernier résultat observé, ce qui distingue les causes :
 
 - `HTTP 401: unauthorized` — le mot de passe attendu par le backend diffère de `OPENCODE_SERVER_PASSWORD`. Un sandbox créé lors d'un run précédent conserve l'ancien mot de passe. Utiliser `codebox recreate --<runtime>` (destructif) ou `codebox stop` puis `codebox --<runtime>`.
-- `connection refused` — le backend n'écoute pas ; `codebox logs --<runtime>` montre la sortie du bootstrap invité.
+- `connection refused` — le backend n'écoute pas ; `codebox logs --<runtime>` affiche la sortie du bootstrap invité puis revient (utiliser `codebox logs --follow --<runtime>` pour la suivre). Pour Microsandbox, la commande lit le journal de préparation du harnais configuré (`/var/log/opencode.log` ou `/var/log/pi.log`).
 - `HTTP 200: ...` sans `healthy` — l'application démarre encore ; attendre quelques secondes.
 
 Le premier démarrage d'un sandbox Microsandbox installe ~384 Mio de paquets dans la microVM et peut dépasser largement une minute ; les démarrages suivants sont rapides (l'installation est marquée dans `/var/lib/codebox/toolchain-ready`). En mode full, codebox attend tant que le journal de l'installation avance, avec `CODEBOX_START_TIMEOUT` comme délai d'inactivité (300 s par défaut) et un plafond total de 30 minutes. Après un dépassement, l'installation peut continuer en arrière-plan : relancez simplement `codebox` pour reprendre l'attente du même sandbox, sans le recréer.

@@ -9,7 +9,6 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
-	"os/signal"
 	"path/filepath"
 	"runtime"
 	"sort"
@@ -1101,35 +1100,6 @@ func (sdkMSBClient) PersistedSecretRefs(ctx context.Context, name string) ([]per
 		return nil, err
 	}
 	return persistedSecretRefsFromHandle(h)
-}
-
-func (sdkMSBClient) Logs(name string) error {
-	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt)
-	defer cancel()
-	h, err := msb.GetSandbox(ctx, name)
-	if err != nil {
-		return err
-	}
-	stream, err := h.LogStream(ctx, msb.LogStreamOptions{Follow: true})
-	if err != nil {
-		return err
-	}
-	defer stream.Close()
-	for {
-		entry, err := stream.Recv(ctx)
-		if ctx.Err() != nil {
-			return nil
-		}
-		if err != nil {
-			return err
-		}
-		if entry == nil {
-			return nil
-		}
-		if _, err := os.Stdout.Write(entry.Data); err != nil {
-			return err
-		}
-	}
 }
 
 func (sdkMSBClient) Shell(name string) (err error) {

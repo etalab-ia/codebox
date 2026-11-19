@@ -721,9 +721,17 @@ func (a *AgentVM) RestartPreflights(ctx context.Context) error {
 	return CheckWorkspaceGate(ctx, a.Config.WorkspaceDir)
 }
 
-// Logs follows the backend log.
-func (a *AgentVM) Logs() error {
-	return RunInteractive("tail", "-f", a.LogPath())
+// Logs writes the current log and returns, or follows it with --follow.
+func (a *AgentVM) Logs(_ context.Context, follow bool) error {
+	args := []string{a.LogPath()}
+	if follow {
+		args = []string{"-f", a.LogPath()}
+	}
+	interactive := a.Interactive
+	if interactive == nil {
+		interactive = RunInteractive
+	}
+	return interactive("tail", args...)
 }
 
 // Shell opens an interactive shell in the VM.
