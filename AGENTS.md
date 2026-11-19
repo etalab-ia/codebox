@@ -88,11 +88,15 @@ Ordinary CI does not prove that a microVM starts on a native hypervisor. Use `do
 
 ## Stacked pull requests
 
-Use GitHub native stacked PRs with `gh stack` for genuinely dependent reviewable layers. Use independent PRs for independent work. Cross-fork stacks are unsupported.
+Use GitHub native stacked PRs with `gh stack` for genuinely dependent reviewable layers. Group by dependency, not provenance: independent QA findings and other independent work use ordinary issues and PRs from `main`. Cross-fork stacks are unsupported.
 
 Use the public [gh-stack skill](https://github.com/github/gh-stack/tree/main/skills/gh-stack) when the agent supports skills; `gh skill install github/gh-stack` and `npx skills add github/gh-stack` are the upstream installation options. The [stacked-PR playbook](docs/engineering-playbook.md#6-stacked-pull-requests-with-gh-stack) remains authoritative when no skill loader is available.
 
-Plan layers before editing, obtain a clean review on each layer before starting the next, fix findings in the owning layer, and propagate with `gh stack rebase --upstack`. Keep stack merges maintainer-controlled.
+- Give every stack one mutation owner. Prefer one person or agent implementing all layers; others review or take a layer through an explicit handoff.
+- Before editing, use an isolated worktree, identify the issue, PR, branch, and intended base, and compare the local HEAD with the GitHub PR head. Local stack catalogs and locks do not coordinate other contributors.
+- Plan layers before editing and obtain a clean review on each layer before starting the next. For an unstable lower-layer contract, wait for its merge instead.
+- Pause upper-layer edits during stack mutation. Fix findings in the owning layer; the mutation owner fetches and inspects every head, runs `gh stack rebase --upstack`, and pushes through the extension. Others fetch the new heads before resuming.
+- Stop on unexpected commits instead of overwriting them. Never use a manual force push. Keep stack merges maintainer-controlled.
 
 ## Documentation routing
 

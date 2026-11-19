@@ -135,9 +135,9 @@ Do not equate green CI with satisfied security, native qualification, visual acc
 
 ### Choose the right topology
 
-Use a native stack for dependent, independently reviewable concerns such as contract, service, CLI integration, and deployment. Put foundational work at the bottom and keep that layer small.
+Use a native stack for dependent, independently reviewable concerns such as contract, service, CLI integration, and deployment. Put foundational work at the bottom and keep that layer small. A multi-PR feature normally has one implementer acting as the stack's mutation owner; other contributors participate through review or explicit layer handoff.
 
-Use independent PRs against the trunk for independent work. Do not create a stack of one, stack unrelated work, or represent links between repositories as a native stack. Native stacks require at least two PRs and branches in the same repository; cross-fork stacks are unsupported.
+Group by dependency, not provenance. Independent QA findings and other independent work use separate issues and ordinary PRs against the trunk, even when one session discovered them. Do not create a stack of one, stack unrelated work, or represent links between repositories as a native stack. Native stacks require at least two PRs and branches in the same repository; cross-fork stacks are unsupported.
 
 Every layer is evaluated against the stack base for required reviews, checks, CODEOWNERS, and trunk workflows. A red or unreviewed lower layer blocks every layer above it. Merges are atomic and bottom-up, which is why merge authorization remains explicit.
 
@@ -153,6 +153,19 @@ npx skills add github/gh-stack
 The public upstream skill lives at `github/gh-stack/skills/gh-stack`. Use `gh stack <command> --help` against the installed extension for exact flags. Agents without skill loading follow this section directly.
 
 For non-interactive agent runs, use explicit subcommands and flags rather than allowing a TUI or prompt to block. When multiple remotes exist, configure `remote.pushDefault` or pass `--remote origin` to commands that accept it.
+
+### Stack ownership and concurrency
+
+A stack is a review dependency, not a shared integration branch. `gh stack` manages topology and local operation locks; it does not coordinate another contributor's clone or provide a distributed editing lock.
+
+1. **Name one mutation owner.** Record that person or agent in the issue or top PR. Only the mutation owner runs stack-wide `submit`, `sync`, `rebase`, and pushes. Prefer one implementer for all layers when practical.
+2. **Claim the layer before editing.** Other contributors review or accept an explicit layer handoff. The claim identifies the issue, PR, branch, intended predecessor, and current owner. Independent work branches from the trunk instead of joining the current stack.
+3. **Verify the workspace and exact head.** Use an isolated worktree. Check the branch, clean status, local HEAD, GitHub PR head, and base before editing. `gh stack view --json` is a catalog, not the authority. Stop when GitHub contains commits the local checkout does not expect.
+4. **Serialize stack mutations.** Upper-layer editing pauses during a lower-layer fix, rebase, or synchronization. The mutation owner fetches and inspects every layer first, fixes the owning layer, propagates with the extension, and pushes through its protected workflow. Never concurrently rebase a stack or use a manual force push.
+5. **Resynchronize before resuming.** After propagation, every contributor fetches and verifies the new head and base of their layer before making another edit. Refresh affected CI and review evidence.
+6. **Keep stacks short-lived.** Obtain a clean review before starting the next layer. When the lower-layer contract is still unstable, wait for that layer to merge instead. Split independent concerns back into ordinary PRs.
+
+Fork-based contributors use ordinary PRs because native cross-fork stacks are unsupported. Do not adopt an external branch into a stack or rewrite a contributor's branch without an explicit coordinated handoff.
 
 ### Plan and publish bottom-up
 
@@ -181,7 +194,7 @@ Verify heads and bases with Git and the GitHub PR API. `gh stack view --json` is
 - Give each layer its own exact-head review, CI evidence, and acceptance record. One verdict does not cover the stack.
 - Describe only the layer's delta in its PR body and identify what must merge first.
 - Check out the layer that owns a finding. Never commit a lower-layer fix on the top branch.
-- After fixing a layer, propagate the change upward:
+- After fixing a layer, pause other edits while the mutation owner propagates the change upward:
 
 ```bash
 gh stack rebase --upstack
@@ -192,7 +205,7 @@ Re-run affected checks and inspect each new head. A red foundational layer block
 
 ### Synchronize and hand off
 
-Use `gh stack sync` to reconcile with GitHub, rebase the chain, push, and refresh PR state. Rebase instead of merging the trunk into a layer; fully linear history between branches is a stack requirement.
+The mutation owner uses `gh stack sync` to reconcile with GitHub, rebase the chain, push, and refresh PR state. Other contributors pause stack edits and fetch and verify their new layer heads afterward. Rebase instead of merging the trunk into a layer; fully linear history between branches is a stack requirement.
 
 A sync can report divergence without changing anything. Read the state instead of retrying blindly. After a conflict, follow the extension's recorded recovery path and preserve concurrent work.
 

@@ -99,7 +99,7 @@ Agents must not merge or close PRs without explicit maintainer instruction. A gr
 
 ## 8. Use stacked PRs for dependent work
 
-Use GitHub native stacked PRs and the `gh stack` CLI when a change splits into genuinely dependent layers. Do not stack unrelated work merely because it was produced in one session.
+Use GitHub native stacked PRs and the `gh stack` CLI when a change splits into genuinely dependent layers. Group by dependency, not provenance. Independent QA findings and other independent work get separate issues and ordinary PRs from `main`, even when one session discovered them.
 
 Install the CLI extension and, for agents that support skills, the public upstream skill:
 
@@ -110,12 +110,18 @@ gh skill install github/gh-stack
 npx skills add github/gh-stack
 ```
 
-Follow the [stacked-PR section](docs/engineering-playbook.md#6-stacked-pull-requests-with-gh-stack) for planning, per-layer review, ownership, synchronization, and handoff. Key constraints:
+Follow the [stacked-PR section](docs/engineering-playbook.md#6-stacked-pull-requests-with-gh-stack) for planning, per-layer review, ownership, synchronization, and handoff.
 
-- Native stacks are same-repository only; cross-fork stacks are unsupported.
+### Stack ownership and concurrency
+
+- Name one mutation owner in the issue or top PR. Only that person or agent runs stack-wide `submit`, `sync`, `rebase`, and pushes. Prefer one implementer for the whole stack.
+- Other contributors participate through review or an explicit layer handoff. A layer owner identifies the issue, PR, branch, and intended base before editing and works in an isolated worktree.
+- Fetch and compare local heads and bases with GitHub before every editing or mutation session. Stop on unexpected commits; local catalogs and locks do not coordinate another contributor's clone.
+- Pause upper-layer edits while the mutation owner rebases or synchronizes the stack. Fetch the new heads before resuming. Never concurrently rebase a stack or use a manual force push.
+- Native stacks are same-repository only; cross-fork stacks are unsupported. Fork contributors use ordinary PR workflows.
 - Every layer is judged against the stack base. A red or unreviewed lower layer blocks the layers above it.
-- Wait for a clean review on the current layer before starting the next.
-- Fix a concern in its owning layer, then propagate with `gh stack rebase --upstack`.
+- Wait for a clean review on the current layer before starting the next. For an unstable lower-layer contract, wait for its merge instead.
+- Fix a concern in its owning layer. The mutation owner then propagates with `gh stack rebase --upstack` and pushes through the extension.
 - Each PR body describes its own delta and dependency position.
 - Stack merges are explicit maintainer actions.
 
