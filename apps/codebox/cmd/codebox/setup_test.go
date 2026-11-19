@@ -395,6 +395,57 @@ func TestSetupModelPickerKeepsPreselectedDefaults(t *testing.T) {
 	}
 }
 
+// TestSetupModelPickerKeepsExternalDefaultOnEnterThrough drives the real
+// runner (not a stub) with an unmanaged default such as anthropic/claude:
+// confirming both screens with Enter must keep that external default, not
+// silently replace it with the first catalogue model. Regression for the
+// Codex finding on #453 — the existing external-default test stubs
+// setupModelPickerRun and so never exercised this path.
+func TestSetupModelPickerKeepsExternalDefaultOnEnterThrough(t *testing.T) {
+	choices := albertSetupChoices()
+	initial := setupModelPicker{
+		choices:         choices,
+		selected:        map[string]bool{choices[0].Ref(): true},
+		unavailable:     map[string]bool{},
+		defaultModel:    "anthropic/claude",
+		externalDefault: true,
+	}
+	originalRun := huhRun
+	t.Cleanup(func() { huhRun = originalRun })
+	formIndex := 0
+	huhRun = func(form *huh.Form) error {
+		formIndex++
+		switch formIndex {
+		case 1:
+			// Keep the preselected catalogue model.
+			return form.WithAccessible(true).
+				WithInput(strings.NewReader("0\n")).
+				WithOutput(io.Discard).Run()
+		case 2:
+			// Default screen: a true Enter-through (empty input) accepts the
+			// preselected value. The fix must preselect the external default;
+			// if it preselected a catalogue model instead, this would silently
+			// change the saved default.
+			return form.WithAccessible(true).
+				WithInput(strings.NewReader("\n")).
+				WithOutput(io.Discard).Run()
+		default:
+			t.Fatalf("unexpected third form in the model screen")
+			return nil
+		}
+	}
+	picked, err := setupModelPickerRun(initial)
+	if err != nil {
+		t.Fatalf("model screen: %v", err)
+	}
+	if picked.defaultModel != "anthropic/claude" {
+		t.Fatalf("Enter-through must keep the external default, got %q", picked.defaultModel)
+	}
+	if !picked.externalDefault {
+		t.Fatal("the external-default flag must survive when the external ref stays the default")
+	}
+}
+
 // TestSetupModelPickerOmitsUnavailableModels pins that an unavailable model
 // is not offered by the rebuilt screen: it cannot be selected because it is
 // absent from the options, replacing the former greyed-out row + refusal.

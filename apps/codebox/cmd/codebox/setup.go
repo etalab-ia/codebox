@@ -1863,11 +1863,13 @@ var setupModelPickerRun = func(initial setupModelPicker) (setupModelPicker, erro
 	if picker.selectedCount() == 0 {
 		return picker, fmt.Errorf("sélectionnez au moins un modèle disponible")
 	}
-	// The default must be one of the chosen models; an external default is
-	// kept only if the user re-selects it on the second screen.
+	// The default must be one of the chosen models, except a valid external
+	// (unmanaged) default: it is intentionally absent from picker.selected and
+	// must stay preselected so confirming both screens with Enter keeps it.
 	defaultOptions := setupDefaultOptions(picker)
 	defaultRef := picker.defaultModel
-	if !picker.selected[defaultRef] || !picker.isAvailable(defaultRef) {
+	keepExternal := picker.externalDefault && defaultRef != ""
+	if !keepExternal && (!picker.selected[defaultRef] || !picker.isAvailable(defaultRef)) {
 		defaultRef = picker.firstSelectedRef()
 	}
 	if len(defaultOptions) > 1 || picker.externalDefault {
