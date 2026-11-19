@@ -299,8 +299,15 @@ func TestPiGuestConfigScriptQuotesTheJSON(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(script, `"$HOME/.pi/agent/models.json"`) || !strings.Contains(script, `"$HOME/.pi/agent/settings.json"`) {
-		t.Fatalf("script does not write both managed files:\n%s", script)
+	if !strings.Contains(script, `"$HOME/.pi/agent/models.json"`) || !strings.Contains(script, `"$HOME/.pi/agent/settings.json"`) || !strings.Contains(script, `"$HOME/.pi/agent/mcp.json"`) {
+		t.Fatalf("script does not write all three managed files:\n%s", script)
+	}
+	mcp, err := ComposePiMCPConfig(overlay.MCPConnectors)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(script, shellQuote(mcp)+` > "$HOME/.pi/agent/mcp.json"`) {
+		t.Fatalf("script does not write the composed MCP document:\n%s", script)
 	}
 	// shellQuote turns ' into '\''; the unescaped form must not survive.
 	if strings.Contains(script, `Qwen's coder`) {

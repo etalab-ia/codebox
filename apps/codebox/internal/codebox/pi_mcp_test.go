@@ -1,6 +1,7 @@
 package codebox
 
 import (
+	"context"
 	"encoding/json"
 	"strings"
 	"testing"
@@ -56,6 +57,44 @@ func TestPiManagedConfigRejectsUnknownMCP(t *testing.T) {
 	m.OpenCodeOverlay.MCPConnectors = []string{"unknown"}
 	if err := m.piManagedConfigError(); err == nil || !strings.Contains(err.Error(), "MCP") {
 		t.Fatalf("Pi managed config error = %v, want the MCP selection failure", err)
+	}
+}
+
+func TestAgentVMPiLaunchWritesMCPConfig(t *testing.T) {
+	runner := &fakeRunner{}
+	backend := newTestAgentVM(t, runner)
+	backend.Config.Harness = HarnessPi
+	backend.OpenCodeOverlay = albertOverlay()
+	backend.OpenCodeOverlay.MCPConnectors = []string{"data-gouv"}
+	backend.Interactive = func(string, ...string) error { return nil }
+
+	if err := backend.RunAgent(context.Background()); err != nil {
+		t.Fatalf("RunAgent: %v", err)
+	}
+	calls := strings.Join(runner.calls, "\n")
+	if !strings.Contains(calls, "/.pi/agent/mcp.json") || !strings.Contains(calls, "https://mcp.data.gouv.fr/mcp") {
+		t.Fatalf("agent-vm Pi launch did not write the selected MCP server: %v", runner.calls)
+	}
+}
+
+func TestPiPrepScriptChangeRequiresGuestMigration(t *testing.T) {
+	m := newTestMicrosandbox(t, &fakeMSBClient{})
+	m.cfg.Harness = HarnessPi
+	m.OpenCodeOverlay = albertOverlay()
+	m.OpenCodeOverlay.MCPConnectors = []string{"data-gouv"}
+	desired := m.desiredState(true, nil, nil)
+	if desired.GuestProfile == "" {
+		t.Fatal("Pi desired state does not identify its persisted prep script")
+	}
+	applied := desired.toState()
+	if creationFixedChanged(&applied, desired) {
+		t.Fatal("a newly prepared Pi guest must not immediately recreate")
+	}
+	// States written before native MCP support carry no Pi prep profile. The
+	// old script publishes the fingerprint verbatim without writing mcp.json.
+	applied.GuestProfile = ""
+	if !creationFixedChanged(&applied, desired) {
+		t.Fatal("an old Pi prep script must require explicit recreation to apply mcp.json")
 	}
 }
 

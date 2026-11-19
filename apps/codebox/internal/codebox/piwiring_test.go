@@ -346,6 +346,7 @@ func TestTartPiLaunchInstallsConfiguresAndSelectsTheModel(t *testing.T) {
 	tt := newTestTart(t, r)
 	tt.Config.Harness = HarnessPi
 	tt.OpenCodeOverlay = albertOverlay()
+	tt.OpenCodeOverlay.MCPConnectors = []string{"data-gouv"}
 	var interactiveArgs []string
 	tt.Interactive = func(name string, args ...string) error {
 		interactiveArgs = append([]string{name}, args...)
@@ -357,7 +358,7 @@ func TestTartPiLaunchInstallsConfiguresAndSelectsTheModel(t *testing.T) {
 
 	// The pinned release is installed, and it is Pi that is installed, not
 	// OpenCode: a Pi guest must not spend a download on a CLI it never runs.
-	var installed, configured bool
+	var installed, configured, mcpConfigured bool
 	for _, call := range r.calls {
 		// shellQuote quotes the package and the version separately, so the
 		// assertion is on the two values and the install verb.
@@ -367,12 +368,18 @@ func TestTartPiLaunchInstallsConfiguresAndSelectsTheModel(t *testing.T) {
 		if strings.Contains(call, "/.pi/agent/models.json") && strings.Contains(call, "deepseek-ai/DeepSeek-V4-Flash-0731") {
 			configured = true
 		}
+		if strings.Contains(call, "/.pi/agent/mcp.json") && strings.Contains(call, "https://mcp.data.gouv.fr/mcp") {
+			mcpConfigured = true
+		}
 	}
 	if !installed {
 		t.Fatalf("the guest was not given the pinned Pi release; calls: %v", r.calls)
 	}
 	if !configured {
 		t.Fatalf("the guest was not given the managed Pi configuration; calls: %v", r.calls)
+	}
+	if !mcpConfigured {
+		t.Fatalf("the guest was not given the selected Pi MCP server; calls: %v", r.calls)
 	}
 	if r.hasCall("opencode session list --standalone --format json") {
 		t.Fatalf("the Pi path probed OpenCode sessions; calls: %v", r.calls)

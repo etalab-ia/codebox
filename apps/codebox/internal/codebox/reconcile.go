@@ -153,9 +153,10 @@ type InstanceState struct {
 	// it must not look like a difference the sandbox was created with.
 	Isolation string `json:"isolation"`
 	Image     string `json:"image"`
-	// GuestProfile identifies creation-fixed browser provisioning details
-	// embedded in the guest start script. A profile change requires explicit
-	// recreation because the runtime cannot replace that persisted script.
+	// GuestProfile identifies creation-fixed provisioning embedded in the guest
+	// start script, currently the browser profile or the Pi prep revision. A
+	// profile change requires explicit recreation because the runtime cannot
+	// replace that persisted script.
 	GuestProfile string `json:"guestProfile,omitempty"`
 	// Harness is the agent harness the guest was created with (#176). It is
 	// creation-fixed for the same reason as the guest profile: the entrypoint
@@ -243,8 +244,8 @@ type DesiredState struct {
 	// next boot by design, not a security state.
 	MCPConnectors []string
 	// PiConfigFingerprint is the digest of the Pi configuration the guest is
-	// sent (models.json and settings.json). It participates for a different
-	// reason than the managed Model is excluded: the Pi launch resolves the
+	// sent (models.json, settings.json and mcp.json). It participates for a
+	// different reason than the managed Model is excluded: the Pi launch resolves the
 	// selection to a model id and passes it on the command line, so a running
 	// guest prepared from an older catalogue cannot serve a model added since.
 	// The digest is hashed, not the selection, so two selections that compose
@@ -627,6 +628,15 @@ func (m *MicrosandboxRuntime) Reconcile(ctx context.Context) error {
 	})
 }
 
+// piGuestPrepRevision identifies the actual persisted Pi start script. A new
+// writer or package-install step changes this profile, so an existing guest
+// takes the explicit creation-fixed migration path instead of merely receiving
+// a new environment fingerprint that the old script cannot apply.
+func piGuestPrepRevision(iso Isolation, mcpIDs []string) string {
+	sum := sha256.Sum256([]byte(msbStartScriptFor(iso, mcpIDs, HarnessPi)))
+	return "pi-prep:" + hex.EncodeToString(sum[:])
+}
+
 // desiredState builds the desired record for an apply. When the binding set
 // could not be resolved, the credential fields are carried over from the
 // applied state rather than computed from an empty set: the bound-entry
@@ -656,7 +666,10 @@ func (m *MicrosandboxRuntime) desiredState(resolved bool, bindings []resolvedBin
 	// environment this run builds; carrying its digest here is how a later
 	// change to it reaches a guest that is still running the previous one.
 	d.PiConfigFingerprint = piConfigFingerprint(m.cfg.EffectiveHarness(), m.OpenCodeOverlay)
-	if len(browserMCPIDs(applicableMCPs)) > 0 {
+	switch {
+	case m.cfg.EffectiveHarness() == HarnessPi:
+		d.GuestProfile = piGuestPrepRevision(m.cfg.Isolation, applicableMCPs)
+	case len(browserMCPIDs(applicableMCPs)) > 0:
 		d.GuestProfile = browserGuestProfileRevision()
 	}
 	if resolved {
