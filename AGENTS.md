@@ -32,6 +32,7 @@ Respect Go module boundaries. Some integration fixtures are separate modules exc
 - Do not add speculative features, unrelated refactors, dependency upgrades, formatting churn, or per-feature specification scaffolding.
 - Preserve user and concurrent contributor work. Never overwrite or revert changes merely to simplify your own task.
 - Add or update tests and documentation with the behavior they cover.
+- Keep user-facing CLI, wizard, installer, usage, warning, and error text in French, including test expectations. GitHub issues, PRs, and review comments remain English; code identifiers and content-agnostic fixtures follow existing conventions.
 - Never weaken a test, skip a hook, hide a failure, or expand scope to obtain a green result.
 
 ## Security invariants
@@ -54,16 +55,9 @@ pre-commit install --install-hooks
 
 Gitleaks scans staged changes at pre-commit. Its CI workflow separately scans full repository history. OSV-Scanner fails PRs on newly introduced vulnerabilities; its scheduled/default-branch scan reports the full inventory to Code Scanning. See `.pre-commit-config.yaml`, `.github/workflows/gitleaks.yml`, and `.github/workflows/osv-scanner.yml`.
 
-For Go changes, use the checks relevant to the affected modules:
+For Go changes, run the affected-module commands in [docs/development.md](docs/development.md). Run the installer, host integration, fixture-contract, server smoke, deployment-reconciliation, and native build checks when their surfaces change. The exact jobs live in `.github/workflows/ci.yml` and the relevant test README.
 
-```bash
-moon run :fmt-check :vet
-go -C apps/codebox test -race ./...
-GOWORK=off go -C packages/secrets test -race ./...
-GOWORK=off go -C apps/codebox-server test -race ./...
-```
-
-Run the installer, host integration, fixture-contract, server smoke, deployment-reconciliation, and native build checks when their surfaces change. The exact jobs live in `.github/workflows/ci.yml`; detailed commands and constraints live in `docs/development.md` and the relevant test README.
+For documentation or QA-note-only changes, follow the [minimum validation path](CONTRIBUTING.md#documentation-and-qa-only-changes). Required PR checks still apply.
 
 Ordinary CI does not prove that a microVM starts on a native hypervisor. Use `docs/qualification-beta.md` and the affected runtime protocol for that evidence. Never relabel an unavailable, unrun, skipped, or environment-blocked check as passed.
 
@@ -79,7 +73,7 @@ Ordinary CI does not prove that a microVM starts on a native hypervisor. Use `do
 ## Git, review, and merge
 
 - Never commit directly on `main`. Use a feature branch or isolated worktree.
-- Use Conventional Commits and the repository's required signed-commit identity. Every commit in a PR must satisfy the signature policy.
+- Use Conventional Commits and configure signing through [CONTRIBUTING.md](CONTRIBUTING.md#configure-commit-signing). Every commit in a PR must be signed and GitHub-verified, not only the head commit.
 - Stage explicit paths and inspect the staged diff for secrets, generated binaries, and unrelated changes.
 - Open a ready PR when the Definition of Done in `CONTRIBUTING.md` is met. Use a draft only for incomplete work needing early feedback.
 - Review and CI evidence must cover the exact current head. Pending, failed-to-run, stale, and unavailable are not success.

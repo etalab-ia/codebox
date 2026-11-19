@@ -7,6 +7,7 @@ This guide defines the shared workflow for human contributors and coding agents.
 Before implementation:
 
 - Find or create a GitHub issue describing the problem, scope, non-goals, acceptance criteria, and relevant execution constraints.
+- Assign yourself to the issue before starting and unassign yourself if you stop. If you cannot self-assign, ask a maintainer to assign it; do not leave an abandoned claim in place.
 - Search existing issues, branches, PRs, and review activity. Resume or adopt existing work instead of creating a duplicate.
 - Identify the evidence each acceptance criterion needs: a test, CI job, screenshot, native qualification, or human decision.
 - Stop and clarify unresolved product choices, unsafe validation paths, or ownership conflicts.
@@ -38,14 +39,7 @@ For credentials, workspace transfer, ACLs, authentication, redirects, CI permiss
 
 ## 4. Validate honestly
 
-Run the checks that cover the changed surface. The common Go checks are:
-
-```bash
-moon run :fmt-check :vet
-go -C apps/codebox test -race ./...
-GOWORK=off go -C packages/secrets test -race ./...
-GOWORK=off go -C apps/codebox-server test -race ./...
-```
+Run the checks that cover the changed surface. The canonical Go module commands are in [docs/development.md](docs/development.md); do not copy them into additional guides.
 
 The full CI surface also includes installer suites, host integration, separate fixture modules, server smoke tests, deployment reconciliation, and native platform builds. Consult `.github/workflows/ci.yml` and `docs/development.md` rather than assuming one command covers everything.
 
@@ -59,6 +53,15 @@ The repository controls are complementary:
 | Dependabot | Not applicable | Propose grouped updates with a seven-day cooldown, subject to documented exceptions |
 | Native qualification | Run only on a suitably provisioned host | Ordinary hosted CI does not prove microVM startup |
 
+### Documentation and QA-only changes
+
+For a PR that changes only documentation, comments, or QA notes:
+
+1. Install the repository hooks, review changed links and command references, and run `git diff --check`.
+2. Redact QA evidence and stage explicit paths. Run `git diff --cached --check` and `pre-commit run gitleaks`.
+3. Local Go builds and tests are not required when no executable, test, or workflow configuration changed. The required PR checks still apply: Gitleaks full history, the OSV PR scan, `check`, `integration-host`, and the applicable native-platform checks. The active `main` ruleset is authoritative.
+4. Report local validation and CI separately. For changes to agent instructions, include the exact prompt diff in the PR body.
+
 Distinguish in the PR between local checks actually run, CI checks still pending, and native or human acceptance evidence. Never claim an unrun, skipped, stale, or environment-blocked check as passed.
 
 ## 5. Commit and push
@@ -67,6 +70,29 @@ Distinguish in the PR between local checks actually run, CI checks still pending
 - Configure the required repository-local signing identity. Every commit in the PR must be signed and GitHub-verified, not only the head commit.
 - Stage explicit paths. Review `git status` and the staged diff for secrets, generated artifacts, and unrelated edits.
 - Keep WIP checkpoints off release-please PR titles when the repository workflow requires final conventional subjects.
+
+### Configure commit signing
+
+Every commit in the PR must have a signature GitHub verifies against the committer identity. Use your own identity and signing key, with an email address verified on your GitHub account. Never share a private key.
+
+SSH signing requires Git 2.34 or later. If needed, create an Ed25519 key and add the **public** key to GitHub as a signing key:
+
+```bash
+ssh-keygen -t ed25519 -C "your-verified-email@example.com"
+gh ssh-key add "$HOME/.ssh/id_ed25519.pub" --type signing
+```
+
+If the key is already registered for authentication, add it again with the `signing` type. Then configure signing locally for this repository:
+
+```bash
+git config --local user.name "Your Name"
+git config --local user.email "your-verified-email@example.com"
+git config --local gpg.format ssh
+git config --local user.signingkey "$HOME/.ssh/id_ed25519.pub"
+git config --local commit.gpgsign true
+```
+
+See GitHub's [SSH key configuration](https://docs.github.com/en/authentication/managing-commit-signature-verification/telling-git-about-your-signing-key#telling-git-about-your-ssh-key), [key registration](https://docs.github.com/en/authentication/connecting-to-github-with-ssh/adding-a-new-ssh-key-to-your-github-account), and [commit signing](https://docs.github.com/en/authentication/managing-commit-signature-verification/signing-commits) guides. GPG and S/MIME are supported alternatives. After pushing, open the PR's Commits tab and confirm that **every** commit shows `Verified`.
 
 Committing and pushing a feature branch does not authorize merging it.
 
@@ -114,16 +140,12 @@ Follow the [stacked-PR section](docs/engineering-playbook.md#6-stacked-pull-requ
 
 ### Stack ownership and concurrency
 
-- Name one mutation owner in the issue or top PR. Only that person or agent runs stack-wide `submit`, `sync`, `rebase`, and pushes. Prefer one implementer for the whole stack.
-- Other contributors participate through review or an explicit layer handoff. A layer owner identifies the issue, PR, branch, and intended base before editing and works in an isolated worktree.
-- Fetch and compare local heads and bases with GitHub before every editing or mutation session. Stop on unexpected commits; local catalogs and locks do not coordinate another contributor's clone.
-- Pause upper-layer edits while the mutation owner rebases or synchronizes the stack. Fetch the new heads before resuming. Never concurrently rebase a stack or use a manual force push.
-- Native stacks are same-repository only; cross-fork stacks are unsupported. Fork contributors use ordinary PR workflows.
-- Every layer is judged against the stack base. A red or unreviewed lower layer blocks the layers above it.
-- Wait for a clean review on the current layer before starting the next. For an unstable lower-layer contract, wait for its merge instead.
-- Fix a concern in its owning layer. The mutation owner then propagates with `gh stack rebase --upstack` and pushes through the extension.
-- Each PR body describes its own delta and dependency position.
-- Stack merges are explicit maintainer actions.
+- Give each stack one named mutation owner. Other contributors participate through review or explicit layer handoff.
+- Work in an isolated worktree and compare the local branch, HEAD, and intended base with GitHub before editing. Stop on unexpected commits.
+- Pause upper-layer edits during stack mutation. The mutation owner fixes the owning layer and propagates with `gh stack rebase --upstack`; everyone fetches the new heads before resuming.
+- Native stacks are same-repository only. Fork contributors use ordinary PRs. Wait for a clean review before starting the next layer, and for the lower layer's merge when its contract remains unstable.
+
+The full conflict, synchronization, and recovery procedure lives in the engineering playbook rather than being duplicated here.
 
 ## 9. Maintain the playbook
 

@@ -40,8 +40,10 @@ Contrats comportementaux reproduits : secrets absents des arguments de processus
 Le SDK embarque une bibliothèque FFI propre à chaque plateforme et nécessite CGO. Les binaires de publication sont donc construits sur des runners natifs pour macOS arm64, Linux amd64/arm64 et Windows amd64/arm64. macOS Intel n'est pas publié : le SDK Microsandbox 0.7.6 ne fournit pas de bibliothèque FFI pour `darwin/amd64`.
 
 ```bash
-moon run codebox:fmt-check codebox:vet codebox:test
-go -C apps/codebox test -race ./...   # vert
+moon run :fmt-check :vet
+go -C apps/codebox test -race ./...
+GOWORK=off go -C packages/secrets test -race ./...
+GOWORK=off go -C apps/codebox-server test -race ./...
 
 # Compilation sur la plateforme cible (CGO activé)
 CGO_ENABLED=1 go -C apps/codebox build -trimpath -ldflags="-s -w" -o ../../codebox ./cmd/codebox

@@ -214,6 +214,7 @@ Hand off layers in bottom-to-top merge order with PR link, exact head, CI state,
 ## 7. Keep documentation useful
 
 - Update documentation when code changes invalidate it. Link canonical sources instead of copying command matrices into several files.
+- Keep validation command lists in `docs/development.md` and detailed stack procedures in this playbook. `AGENTS.md` carries only always-needed invariants and links; `CONTRIBUTING.md` carries the contribution workflow.
 - Use ADRs for durable architecture and trust decisions, not for transient implementation logs.
 - Convert incident lessons into a reusable invariant plus a verification method. Keep the incident narrative in its original issue or PR.
 - Review changes to agent instructions like code. Confirm that Claude Code loads `AGENTS.md` through `CLAUDE.md` and that other agents discover the root file.
