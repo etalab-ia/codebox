@@ -123,7 +123,7 @@ A CLI release remains draft until every required binary and `SHA256SUMS` is uplo
 For every PR or stack layer:
 
 1. Re-read the remote head, base, mergeability, issue comments, review summaries, inline threads, and actual check runs.
-2. Obtain the repository's Codex review or the maintainer-designated substitute for the current head. A running review, an old verdict, or a receipt without a completed result is not clearance.
+2. Obtain the required review evidence for the current head. `@codex review` currently triggers only through the maintainer's authorized GitHub identity; collaborators must not rely on posting it themselves. They document their self-review, use automated review available to them, and request normal human review. A maintainer may request Codex on their behalf. A running review, an old verdict, or a receipt without a completed result is not clearance.
 3. Reproduce findings against source or a discriminating test. Fix valid defects; answer invalid findings with counter-evidence.
 4. Escalate findings that would change a public contract, add an abstraction, alter intended user behavior, or contradict an explicit product decision. Do not comply mechanically for a clean verdict.
 5. Record the reviewed SHA, validation, remaining risk, and any deferred acceptance evidence.

@@ -114,7 +114,8 @@ For a substantial PR body, lead with two to five sentences explaining the purpos
 ## 7. Drive review and CI
 
 - Inspect issue comments, review summaries, inline threads, and checks after every new head.
-- Obtain the required automated review for the exact current head. A running review, an old approval, or green CI alone is not clearance.
+- Obtain the required review evidence for the exact current head. A running review, an old approval, or green CI alone is not clearance.
+- `@codex review` currently triggers only through the maintainer's authorized GitHub identity. Do not ask collaborators to post it or treat a non-response as a completed review. Collaborators document their self-review, use automated review available to them, and request normal human review. A maintainer may request Codex on their behalf when appropriate.
 - Reproduce each finding against source or a discriminating test. Fix valid defects and answer invalid findings with counter-evidence.
 - Bring design choices and public-contract tradeoffs to a maintainer instead of changing them merely to satisfy an automated reviewer.
 - Read failing logs before editing. Classify infrastructure, base, test, platform, and implementation failures accurately.

@@ -77,6 +77,7 @@ Ordinary CI does not prove that a microVM starts on a native hypervisor. Use `do
 - Stage explicit paths and inspect the staged diff for secrets, generated binaries, and unrelated changes.
 - Open a ready PR when the Definition of Done in `CONTRIBUTING.md` is met. Use a draft only for incomplete work needing early feedback.
 - Review and CI evidence must cover the exact current head. Pending, failed-to-run, stale, and unavailable are not success.
+- `@codex review` currently triggers only through the maintainer's authorized GitHub identity. Do not direct collaborators to use it. Collaborators run their own self-review and any automated review available to them, then request normal human review; a maintainer may request Codex when appropriate.
 - Reproduce review findings before changing code. Answer invalid findings with evidence; escalate design choices rather than complying mechanically.
 - Green CI is not review clearance or merge authorization. Agents do not merge or close PRs without explicit maintainer instruction.
 
