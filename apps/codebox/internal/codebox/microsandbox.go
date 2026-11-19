@@ -1212,13 +1212,19 @@ func msbGuestPrepareProbeFor(harness Harness) string {
 // spec carries binding metadata only — values transit exclusively through
 // withHostSecrets.
 // msbApplicableMCPs is the connector selection that actually applies to this
-// guest. Pi has no MCP support, so a Pi project applies none of them: the
-// image, the guest profile, the prep script, the environment and the readiness
-// probe all follow from this one decision, and disagreeing about it is how a
-// Pi guest ends up waiting forever for a browser profile it never installs.
+// guest. Pi applies curated remote servers through its native mcp.json; its
+// existing OpenCode-only browser exclusion stays unchanged. Keeping the image,
+// guest profile, prep script, environment and readiness probe on this one
+// decision prevents a Pi guest from waiting for a browser profile it never installs.
 func (m *MicrosandboxRuntime) msbApplicableMCPs() []string {
 	if m.cfg.EffectiveHarness() == HarnessPi {
-		return nil
+		var remote []string
+		for _, id := range m.OpenCodeOverlay.MCPConnectors {
+			if _, ok := mcpCatalogue[id]; ok {
+				remote = append(remote, id)
+			}
+		}
+		return remote
 	}
 	return m.OpenCodeOverlay.MCPConnectors
 }
@@ -1322,6 +1328,9 @@ func (m *MicrosandboxRuntime) piManagedConfigError() error {
 	if _, err := ComposePiSettingsConfig(); err != nil {
 		return fmt.Errorf("impossible de composer les paramètres Pi gérés : %w", err)
 	}
+	if _, err := ComposePiMCPConfig(m.OpenCodeOverlay.MCPConnectors); err != nil {
+		return fmt.Errorf("impossible de composer la configuration MCP de Pi : %w", err)
+	}
 	return nil
 }
 
@@ -1357,7 +1366,13 @@ func piSandboxEnv(harness Harness, overlay ManagedOverlay) map[string]string {
 	}
 	env[PiModelsEnv] = models
 	env[PiSettingsEnv] = settings
-	env[PiConfigFingerprintEnv] = PiConfigFingerprint(models, settings)
+	mcp, err := ComposePiMCPConfig(overlay.MCPConnectors)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Avertissement : impossible de composer la configuration MCP de Pi : %v\n", err)
+		return env
+	}
+	env[PiMCPEnv] = mcp
+	env[PiConfigFingerprintEnv] = PiConfigFingerprint(models, settings, mcp)
 	return env
 }
 
@@ -1389,7 +1404,11 @@ func piConfigFingerprint(harness Harness, overlay ManagedOverlay) string {
 	if err != nil {
 		return ""
 	}
-	return PiConfigFingerprint(models, settings)
+	mcp, err := ComposePiMCPConfig(overlay.MCPConnectors)
+	if err != nil {
+		return ""
+	}
+	return PiConfigFingerprint(models, settings, mcp)
 }
 
 // msbGitNameEnv and msbGitEmailEnv carry the guest commit identity into the

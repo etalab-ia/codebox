@@ -4,7 +4,7 @@ Date : 2026-11-09. Issue : [#176](https://github.com/etalab-ia/codebox/issues/17
 
 ## Mise à jour du 19 novembre 2026 (#438)
 
-Le paquet géré devient `@earendil-works/pi-coding-agent@1.5.2`, publié le 10 novembre et vérifié depuis son archive npm et ses schémas. La version 0.73.1 écrivait `pi --version` sur stderr : les scripts de préparation et la sonde acceptent désormais stdout ou stderr, ce qui corrige ce point indépendamment de la montée de version. Dans `models.json`, les identifiants utilisent l'interpolation Pi 1.x (`"$ALBERT_API_KEY"`, etc.) au lieu du nom de variable sans préfixe, que la nouvelle version traiterait comme une clé littérale. Pi 1.5.2 fournit aussi une prise en charge MCP native ; son branchement dans codebox reste un lot séparé de #445.
+Le paquet géré devient `@earendil-works/pi-coding-agent@1.5.2`, publié le 10 novembre et vérifié depuis son archive npm et ses schémas. La version 0.73.1 écrivait `pi --version` sur stderr : les scripts de préparation et la sonde acceptent désormais stdout ou stderr, ce qui corrige ce point indépendamment de la montée de version. Dans `models.json`, les identifiants utilisent l'interpolation Pi 1.x (`"$ALBERT_API_KEY"`, etc.) au lieu du nom de variable sans préfixe, que la nouvelle version traiterait comme une clé littérale. Pi 1.5.2 fournit une prise en charge MCP native : les serveurs distants du catalogue (actuellement `data-gouv`) sont écrits dans `~/.pi/agent/mcp.json` et inclus dans l'empreinte de préparation. Le profil navigateur reste propre à OpenCode ; choisir `chrome-devtools` avec Pi ne provisionne pas un navigateur que Pi pourrait appeler.
 
 ## Ce qui a changé depuis le report du 27 octobre
 
@@ -84,9 +84,7 @@ y compris pour l'exécution d'outils.
 
 ## Décisions du 9 novembre 2026
 
-- **MCP : écarté pour Pi** (#346). Pas de pont MCP maison. Un projet Pi ignore
-  les connecteurs sélectionnés ; l'assistant les enregistre sans les
-  transmettre, et ne les utilise pas non plus pour choisir l'image de l'invité.
+- **MCP avant le 19 novembre 2026 : écarté pour Pi** (#346). Cette décision est remplacée pour les serveurs distants du catalogue par la mise à jour ci-dessus ; le profil navigateur reste propre à OpenCode.
 - **`qwen3-coder` : écarté pour Pi** (#347). Le modèle est retiré de la liste
   que Pi reçoit, le repli d'un projet Pi est `deepseek-v4-flash`, et une
   sélection explicite de `qwen3-coder` est refusée avec son motif — à la
@@ -110,8 +108,7 @@ y compris pour l'exécution d'outils.
 
 ## Limites connues, à traiter séparément
 
-- **MCP** : Pi n'en a pas, et aucun pont n'est prévu (#346). Un projet Pi n'a
-  donc pas d'outils MCP.
+- **Profil navigateur MCP** : `chrome-devtools` reste propre à OpenCode. Les serveurs MCP distants du catalogue sont natifs à Pi depuis la mise à jour du 19 novembre.
 - **Qualification invitée** : ce lot est couvert par des tests unitaires ; les
   trois runtimes (Microsandbox, Tart, agent-vm) n'ont pas été rejoués dans un
   invité réel, faute de `/dev/kvm` et de `limactl` utilisable dans le sandbox de

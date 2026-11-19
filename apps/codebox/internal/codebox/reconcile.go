@@ -636,9 +636,9 @@ func (m *MicrosandboxRuntime) Reconcile(ctx context.Context) error {
 // credential-dependent operations in that case (see Reconcile), so carrying
 // the revision cannot leave a stale refresh unperformed.
 func (m *MicrosandboxRuntime) desiredState(resolved bool, bindings []resolvedBinding, applied *InstanceState) DesiredState {
-	// The connectors the guest will actually apply: a Pi guest applies none,
-	// so the image and the guest profile must be derived from that same
-	// selection or the desired state would describe a guest nobody creates.
+	// The connectors the guest will actually apply: a Pi guest applies curated
+	// remote servers but not the OpenCode-only browser profile, so the image and
+	// guest profile must be derived from that same selection.
 	applicableMCPs := m.msbApplicableMCPs()
 	d := DesiredState{
 		Instance:        m.InstanceName(),

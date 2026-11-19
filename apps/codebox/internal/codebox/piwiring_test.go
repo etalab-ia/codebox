@@ -3,6 +3,7 @@ package codebox
 import (
 	"context"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -43,14 +44,17 @@ func TestPiSandboxEnvCarriesVersionAndConfiguration(t *testing.T) {
 	if !strings.Contains(env[PiSettingsEnv], "enableInstallTelemetry") {
 		t.Fatalf("settings.json is missing: %s", env[PiSettingsEnv])
 	}
+	if !strings.Contains(env[PiMCPEnv], "mcpServers") {
+		t.Fatalf("mcp.json is missing: %s", env[PiMCPEnv])
+	}
 	// The provider key must never be a value here: the environment carries the
 	// variable name only, exactly as the OpenCode overlay does.
 	if strings.Contains(env[PiModelsEnv], "ALBERT_API_KEY:") {
 		t.Fatalf("models.json embeds a literal key: %s", env[PiModelsEnv])
 	}
 	// The readiness probe compares the guest's marker against this value, so it
-	// has to describe the two documents actually being sent.
-	if env[PiConfigFingerprintEnv] != PiConfigFingerprint(env[PiModelsEnv], env[PiSettingsEnv]) {
+	// has to describe the three documents actually being sent.
+	if env[PiConfigFingerprintEnv] != PiConfigFingerprint(env[PiModelsEnv], env[PiSettingsEnv], env[PiMCPEnv]) {
 		t.Fatalf("%s = %q does not match the configuration it is sent with",
 			PiConfigFingerprintEnv, env[PiConfigFingerprintEnv])
 	}
@@ -254,6 +258,21 @@ func TestPiGuestAppliesNoBrowserMCPProfile(t *testing.T) {
 	}
 }
 
+func TestPiGuestAppliesRemoteMCPConfiguration(t *testing.T) {
+	pi := newTestMicrosandbox(t, &fakeMSBClient{})
+	pi.cfg.Harness = HarnessPi
+	pi.OpenCodeOverlay = albertOverlay()
+	pi.OpenCodeOverlay.MCPConnectors = []string{"data-gouv", "chrome-devtools"}
+
+	if got := pi.msbApplicableMCPs(); !slices.Equal(got, []string{"data-gouv"}) {
+		t.Fatalf("Pi applicable MCPs = %v, want the curated remote connector only", got)
+	}
+	env := pi.sandboxEnv()
+	if !strings.Contains(env["CODEBOX_PI_MCP_JSON"], "https://mcp.data.gouv.fr/mcp") {
+		t.Fatalf("Pi guest environment lacks the native MCP configuration: %v", env)
+	}
+}
+
 // The prep script and the image are creation-fixed, so a harness change has to
 // be classified as such — hashing it into the revision would only schedule a
 // restart. An instance whose state predates the setting reads as OpenCode, so
@@ -392,22 +411,26 @@ func TestPiPrepPublishesTheConfigurationMarkerLast(t *testing.T) {
 // for: two different configurations must not share one, or a restarted guest
 // reports ready on the previous configuration while the prep rewrites it.
 func TestPiConfigFingerprintTracksTheConfiguration(t *testing.T) {
-	base := PiConfigFingerprint(`{"a":1}`, `{"b":2}`)
+	emptyMCP := `{"mcpServers":{}}`
+	base := PiConfigFingerprint(`{"a":1}`, `{"b":2}`, emptyMCP)
 	if base == "" {
 		t.Fatal("fingerprint is empty")
 	}
-	if base != PiConfigFingerprint(`{"a":1}`, `{"b":2}`) {
+	if base != PiConfigFingerprint(`{"a":1}`, `{"b":2}`, emptyMCP) {
 		t.Fatal("the same configuration produced two fingerprints")
 	}
-	if base == PiConfigFingerprint(`{"a":1}`, `{"b":3}`) {
+	if base == PiConfigFingerprint(`{"a":1}`, `{"b":3}`, emptyMCP) {
 		t.Fatal("a changed setting did not change the fingerprint")
 	}
-	if base == PiConfigFingerprint(`{"a":9}`, `{"b":2}`) {
+	if base == PiConfigFingerprint(`{"a":9}`, `{"b":2}`, emptyMCP) {
 		t.Fatal("a changed model document did not change the fingerprint")
 	}
-	// The two documents must not be able to trade content for one another.
-	if PiConfigFingerprint(`{"a":1}`, `{"b":2}`) == PiConfigFingerprint(`{"a":1}{"b":2}`, ``) {
-		t.Fatal("the fingerprint does not separate the two documents")
+	if base == PiConfigFingerprint(`{"a":1}`, `{"b":2}`, `{"mcpServers":{"data-gouv":{}}}`) {
+		t.Fatal("a changed MCP document did not change the fingerprint")
+	}
+	// The documents must not be able to trade content for one another.
+	if PiConfigFingerprint(`{"a":1}`, `{"b":2}`, emptyMCP) == PiConfigFingerprint(`{"a":1}{"b":2}`, ``, emptyMCP) {
+		t.Fatal("the fingerprint does not separate the documents")
 	}
 }
 

@@ -200,12 +200,12 @@ func TestPlanReconcileRestartsRunningGuestOnMCPChange(t *testing.T) {
 func TestConfigRevisionIncludesPiConfiguration(t *testing.T) {
 	base := DesiredState{Instance: "i", Isolation: IsolationBackend, Image: "img", Username: "u"}
 	configured := base
-	configured.PiConfigFingerprint = PiConfigFingerprint(`{"models":"a"}`, `{"settings":"a"}`)
+	configured.PiConfigFingerprint = PiConfigFingerprint(`{"models":"a"}`, `{"settings":"a"}`, `{"mcpServers":{}}`)
 	if base.ConfigRevision() == configured.ConfigRevision() {
 		t.Fatal("a managed Pi configuration must change the revision")
 	}
 	changed := base
-	changed.PiConfigFingerprint = PiConfigFingerprint(`{"models":"b"}`, `{"settings":"a"}`)
+	changed.PiConfigFingerprint = PiConfigFingerprint(`{"models":"b"}`, `{"settings":"a"}`, `{"mcpServers":{}}`)
 	if configured.ConfigRevision() == changed.ConfigRevision() {
 		t.Fatal("a model added to the composed Pi catalogue must change the revision")
 	}
@@ -233,7 +233,7 @@ func TestPlanReconcileRestartsRunningGuestOnPiConfigurationChange(t *testing.T) 
 	base := DesiredState{Instance: "i", Isolation: IsolationBackend, Image: "img", Username: "u"}
 	applied := base.toState()
 	desired := base
-	desired.PiConfigFingerprint = PiConfigFingerprint(`{"models":"qwen3-coder"}`, `{"settings":"managed"}`)
+	desired.PiConfigFingerprint = PiConfigFingerprint(`{"models":"qwen3-coder"}`, `{"settings":"managed"}`, `{"mcpServers":{}}`)
 	plan := PlanReconcile(&applied, desired, ReconcileFacts{Exists: true, Running: true, Healthy: true})
 	if !sameOps(plan.Ops, []ReconcileOp{OpRefreshCredentials, OpRestartVM}) {
 		t.Fatalf("ops = %v, want refresh-credentials + restart-vm (reason: %s)", plan.Ops, plan.Reason)
