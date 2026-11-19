@@ -95,7 +95,8 @@ type Config struct {
 	// the credential into the guest in plaintext, so starting them requires
 	// this acknowledgement.
 	GuestCredentialsAcknowledged bool
-	// StartTimeout bounds the backend health wait for the attach flow.
+	// StartTimeout bounds the backend health wait for the attach flow and the
+	// inactivity interval for full-mode guest preparation.
 	// StartTimeoutErr records an invalid CODEBOX_START_TIMEOUT so that
 	// commands which never start a runtime (stop, clean, logs, doctor, check)
 	// are not blocked by a typo in a variable they do not read.
