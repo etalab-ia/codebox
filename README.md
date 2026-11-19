@@ -102,9 +102,12 @@ Quatre autres prompts (toolchain polyglotte, édition et revue de diff, continui
 | [Dépannage](docs/troubleshooting.md) | Backend jamais healthy, conteneur Docker hérité |
 | [Choix de conception](docs/design.md) | Décisions structurantes et documents de décision |
 | [Développement](docs/development.md) | Architecture interne, hooks pre-commit, CI et publication |
+| [Playbook d'ingénierie](docs/engineering-playbook.md) | Qualité, tests, sécurité, revues et PR empilées |
 | [Qualification bêta](docs/qualification-beta.md) | Protocole de test manuel de la version bêta |
 
 ## Contribuer
+
+Le [guide de contribution](CONTRIBUTING.md) décrit les tickets, branches, validations, commits, revues et pull requests. Le [playbook d'ingénierie](docs/engineering-playbook.md) détaille les pratiques de qualité, de test et de sécurité, y compris les PR empilées avec `gh stack`. Les instructions communes aux agents de codage sont dans [AGENTS.md](AGENTS.md).
 
 L'architecture du portage Go, les hooks pre-commit (gitleaks) et le pipeline d'intégration continue et de publication (release-please) sont documentés dans [docs/development.md](docs/development.md). La résolution typée de la configuration (sources, précédence, schémas des fichiers gérés, transition depuis `.env`) est documentée dans [docs/config.md](docs/config.md).
 
