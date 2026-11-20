@@ -1,4 +1,5 @@
 import os
+import re
 import subprocess
 import tempfile
 import unittest
@@ -86,10 +87,18 @@ case "$index" in
         self.assertNotIn("visible: darwin-arm64", result.stderr)
     def test_workflows_check_out_before_using_the_guard(self):
         root = Path(__file__).resolve().parents[2]
-        for name in ("ci.yml", "release-please.yml"):
+        for name, job in (("ci.yml", "artifact-handoff"), ("release-please.yml", "publish")):
             text = (root / ".github" / "workflows" / name).read_text(encoding="utf-8")
-            guard = text.index("wait-for-artifacts.sh")
-            self.assertIn("actions/checkout@", text[:guard], name)
+            lines = text.splitlines()
+            start = lines.index(f"  {job}:")
+            is_job = re.compile(r"^  [A-Za-z0-9_-]+:\s*$").match
+            end = next(
+                (index for index in range(start + 1, len(lines)) if is_job(lines[index])),
+                len(lines),
+            )
+            block = "\n".join(lines[start:end])
+            guard = block.index("wait-for-artifacts.sh")
+            self.assertIn("actions/checkout@", block[:guard], f"{name}:{job}")
 
 
 if __name__ == "__main__":
