@@ -1965,7 +1965,7 @@ var catalogueModelFetchFn = codebox.FetchCatalogue
 
 // catalogueModelAPIKeyFn seals the credential dependency when testing the
 // real validator without consulting a host keychain.
-var catalogueModelAPIKeyFn = resolveAlbertKeyForCatalogueAt
+var catalogueModelAPIKeyFn = resolveAlbertProviderKeyForCatalogueAt
 
 func catalogueModelWarningForRoot(projectRoot, model string) (string, error) {
 	apiKey, err := catalogueModelAPIKeyFn(projectRoot)
