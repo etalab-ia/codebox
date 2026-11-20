@@ -297,11 +297,7 @@ func (c *OIDCClient) discover(ctx context.Context) (*oidcDiscovery, error) {
 }
 
 func (c *OIDCClient) verifyIDToken(ctx context.Context, disc *oidcDiscovery, idToken, expectedNonce string) (Identity, error) {
-	keys, err := c.fetchJWKS(ctx, disc.JWKSURL)
-	if err != nil {
-		return Identity{}, err
-	}
-	verified, err := verifyRS256JWT(idToken, keys, c.cfg.Issuer, c.cfg.ClientID, c.now())
+	verified, err := c.verifyToken(ctx, disc.JWKSURL, idToken, true)
 	if err != nil {
 		return Identity{}, err
 	}
@@ -324,7 +320,8 @@ func (c *OIDCClient) verifyIDToken(ctx context.Context, disc *oidcDiscovery, idT
 // document or a signed JWT (`application/jwt`) depending on the algorithm
 // registered for the client, and the Accept header does not change that, so
 // both forms are handled: a signed response is verified against the provider's
-// key set before any claim is trusted.
+// public keys (RS256/ES256) or the client secret (HS256) before any claim is
+// trusted.
 func (c *OIDCClient) userInfo(ctx context.Context, disc *oidcDiscovery, accessToken string) (Identity, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, disc.UserInfoURL, nil)
 	if err != nil {
@@ -346,11 +343,7 @@ func (c *OIDCClient) userInfo(ctx context.Context, disc *oidcDiscovery, accessTo
 	signed := strings.HasPrefix(contentType, "application/jwt") || looksLikeJWS(body)
 	var profile userInfoClaims
 	if signed {
-		keys, err := c.fetchJWKS(ctx, disc.JWKSURL)
-		if err != nil {
-			return Identity{}, err
-		}
-		verified, err := verifyRS256JWTClaims(strings.TrimSpace(string(body)), keys, c.cfg.Issuer, c.cfg.ClientID, c.now())
+		verified, err := c.verifyToken(ctx, disc.JWKSURL, strings.TrimSpace(string(body)), false)
 		if err != nil {
 			return Identity{}, err
 		}

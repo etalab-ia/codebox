@@ -49,8 +49,10 @@ misconfigured deployment fails at boot rather than at the first user request.
 
 1. Create the OIDC application in the ProConnect partner portal (sandbox first).
 2. Declare the redirect URI exactly: `<GATEWAY_PUBLIC_URL>/auth/callback`.
-3. Record the client ID and secret as deployment secrets.
-4. For production, complete the DataPass authorisation and then change only
+3. Select `RS256`, `ES256` or `HS256` for ID-token signing and, when signed
+   UserInfo is enabled, for UserInfo signing as well.
+4. Record the client ID and secret as deployment secrets.
+5. For production, complete the DataPass authorisation and then change only
    `PROCONNECT_ISSUER` and the client pair.
 
 ## Domains and issuers
@@ -65,9 +67,12 @@ and by fetching both discovery documents:
 | Integration (sandbox) | RIE | `https://fca.integ02.agentconnect.rie.gouv.fr/api/v2` |
 | Production | Internet | `https://auth.agentconnect.gouv.fr/api/v2` |
 
-The sandbox discovery document advertises `RS256` for both ID tokens and
-UserInfo. The gateway verifies RS256 for both and also accepts an unsigned JSON
-UserInfo response, so a client registered either way works.
+The sandbox discovery document advertises `HS256`, `ES256` and `RS256` for both
+ID tokens and UserInfo. Select the registered algorithm for both token types:
+RS256 and ES256 are verified with the provider's public JWKS, while HS256 is
+verified only with `PROCONNECT_CLIENT_SECRET`. Public JWKS material is never used
+as an HMAC secret. The gateway also accepts an unsigned JSON UserInfo response
+when no UserInfo signing algorithm is registered.
 
 Note that `test.proconnect.gouv.fr` is the integration test application, not an
 OIDC issuer: pointing `PROCONNECT_ISSUER` at it returns 404 from discovery.

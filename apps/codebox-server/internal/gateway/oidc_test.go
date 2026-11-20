@@ -2,6 +2,8 @@ package gateway
 
 import (
 	"crypto"
+	"crypto/ecdsa"
+	"crypto/hmac"
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/sha256"
@@ -18,11 +20,11 @@ import (
 	"time"
 )
 
-// signIDToken builds a real RS256 ID token so the verification path is
-// exercised against actual cryptography rather than a stub.
-func signIDToken(t *testing.T, key *rsa.PrivateKey, kid string, claims map[string]any) string {
+// signJWT builds a real compact JWS for the registered ProConnect algorithms.
+// Tests exercise actual cryptography rather than stubbing signature checks.
+func signJWT(t *testing.T, alg, kid string, key any, claims map[string]any) string {
 	t.Helper()
-	header, err := json.Marshal(map[string]string{"alg": "RS256", "typ": "JWT", "kid": kid})
+	header, err := json.Marshal(map[string]string{"alg": alg, "typ": "JWT", "kid": kid})
 	if err != nil {
 		t.Fatalf("marshal header: %v", err)
 	}
@@ -32,11 +34,47 @@ func signIDToken(t *testing.T, key *rsa.PrivateKey, kid string, claims map[strin
 	}
 	signingInput := base64.RawURLEncoding.EncodeToString(header) + "." + base64.RawURLEncoding.EncodeToString(payload)
 	digest := sha256.Sum256([]byte(signingInput))
-	sig, err := rsa.SignPKCS1v15(rand.Reader, key, crypto.SHA256, digest[:])
+	var sig []byte
+	switch alg {
+	case "RS256":
+		privateKey, ok := key.(*rsa.PrivateKey)
+		if !ok {
+			t.Fatalf("RS256 key has type %T", key)
+		}
+		sig, err = rsa.SignPKCS1v15(rand.Reader, privateKey, crypto.SHA256, digest[:])
+	case "ES256":
+		privateKey, ok := key.(*ecdsa.PrivateKey)
+		if !ok {
+			t.Fatalf("ES256 key has type %T", key)
+		}
+		var r, s *big.Int
+		r, s, err = ecdsa.Sign(rand.Reader, privateKey, digest[:])
+		if err == nil {
+			sig = make([]byte, 64)
+			r.FillBytes(sig[:32])
+			s.FillBytes(sig[32:])
+		}
+	case "HS256":
+		secret, ok := key.(string)
+		if !ok {
+			t.Fatalf("HS256 key has type %T", key)
+		}
+		mac := hmac.New(sha256.New, []byte(secret))
+		_, _ = mac.Write([]byte(signingInput))
+		sig = mac.Sum(nil)
+	default:
+		// The verifier must reject the algorithm before considering this signature.
+		sig = []byte("unsupported-algorithm")
+	}
 	if err != nil {
 		t.Fatalf("sign: %v", err)
 	}
 	return signingInput + "." + base64.RawURLEncoding.EncodeToString(sig)
+}
+
+func signIDToken(t *testing.T, key *rsa.PrivateKey, kid string, claims map[string]any) string {
+	t.Helper()
+	return signJWT(t, "RS256", kid, key, claims)
 }
 
 // jwksFor publishes the key's public half in JWKS form.
@@ -50,6 +88,30 @@ func jwksFor(t *testing.T, key *rsa.PrivateKey, kid string) []byte {
 			"kid": kid,
 			"n":   base64.RawURLEncoding.EncodeToString(key.N.Bytes()),
 			"e":   base64.RawURLEncoding.EncodeToString(big.NewInt(int64(key.E)).Bytes()),
+		}},
+	}
+	raw, err := json.Marshal(doc)
+	if err != nil {
+		t.Fatalf("marshal jwks: %v", err)
+	}
+	return raw
+}
+
+func jwksForES256(t *testing.T, key *ecdsa.PrivateKey, kid string) []byte {
+	t.Helper()
+	x := make([]byte, 32)
+	y := make([]byte, 32)
+	key.X.FillBytes(x)
+	key.Y.FillBytes(y)
+	doc := map[string]any{
+		"keys": []map[string]string{{
+			"kty": "EC",
+			"use": "sig",
+			"alg": "ES256",
+			"crv": "P-256",
+			"kid": kid,
+			"x":   base64.RawURLEncoding.EncodeToString(x),
+			"y":   base64.RawURLEncoding.EncodeToString(y),
 		}},
 	}
 	raw, err := json.Marshal(doc)
@@ -86,7 +148,7 @@ func TestVerifyRS256JWT(t *testing.T) {
 		t.Fatalf("generate key: %v", err)
 	}
 	now := time.Date(2026, 11, 14, 12, 0, 0, 0, time.UTC)
-	keys := map[string]*rsa.PublicKey{"kid-1": &key.PublicKey}
+	keys := &providerKeys{rsaByKid: map[string]*rsa.PublicKey{"kid-1": &key.PublicKey}}
 	const issuer = "https://test.proconnect.gouv.fr"
 
 	valid := map[string]any{
@@ -100,9 +162,9 @@ func TestVerifyRS256JWT(t *testing.T) {
 		"iat":   now.Add(-time.Minute).Unix(),
 		"exp":   now.Add(time.Hour).Unix(),
 	}
-	verified, err := verifyRS256JWT(signIDToken(t, key, "kid-1", valid), keys, issuer, "client-id", now)
+	verified, err := verifyJWT(signIDToken(t, key, "kid-1", valid), keys, "", issuer, "client-id", now)
 	if err != nil {
-		t.Fatalf("verifyRS256JWT: %v", err)
+		t.Fatalf("verifyJWT: %v", err)
 	}
 	if verified.Email != "dev@beta.gouv.fr" || verified.SIRET != "13002526500013" || verified.ACR != "eidas2" {
 		t.Fatalf("verified claims = %+v", verified)
@@ -124,7 +186,7 @@ func TestVerifyRS256JWT(t *testing.T) {
 			claims[k] = v
 		}
 		tc.mutate(claims)
-		if _, err := verifyRS256JWT(signIDToken(t, key, "kid-1", claims), keys, issuer, "client-id", now); err == nil {
+		if _, err := verifyJWT(signIDToken(t, key, "kid-1", claims), keys, "", issuer, "client-id", now); err == nil {
 			t.Errorf("%s: token verified but should have failed", tc.name)
 		}
 	}
@@ -134,7 +196,7 @@ func TestVerifyRS256JWT(t *testing.T) {
 	if err != nil {
 		t.Fatalf("generate key: %v", err)
 	}
-	if _, err := verifyRS256JWT(signIDToken(t, otherKey, "kid-1", valid), keys, issuer, "client-id", now); err == nil {
+	if _, err := verifyJWT(signIDToken(t, otherKey, "kid-1", valid), keys, "", issuer, "client-id", now); err == nil {
 		t.Fatal("a token signed by an unpublished key verified")
 	}
 
@@ -146,7 +208,7 @@ func TestVerifyRS256JWT(t *testing.T) {
 			claims[k] = v
 		}
 		claims["aud"] = aud
-		if _, err := verifyRS256JWT(signIDToken(t, key, "kid-1", claims), keys, issuer, "client-id", now); err == nil {
+		if _, err := verifyJWT(signIDToken(t, key, "kid-1", claims), keys, "", issuer, "client-id", now); err == nil {
 			t.Errorf("audience %v verified for client-id", aud)
 		}
 	}
@@ -156,7 +218,7 @@ func TestVerifyRS256JWT(t *testing.T) {
 		audArray[k] = v
 	}
 	audArray["aud"] = []string{"other-client", "client-id"}
-	if _, err := verifyRS256JWT(signIDToken(t, key, "kid-1", audArray), keys, issuer, "client-id", now); err != nil {
+	if _, err := verifyJWT(signIDToken(t, key, "kid-1", audArray), keys, "", issuer, "client-id", now); err != nil {
 		t.Errorf("an audience array containing the client was refused: %v", err)
 	}
 	// A missing audience is refused outright.
@@ -167,27 +229,21 @@ func TestVerifyRS256JWT(t *testing.T) {
 		}
 		noAud[k] = v
 	}
-	if _, err := verifyRS256JWT(signIDToken(t, key, "kid-1", noAud), keys, issuer, "client-id", now); err == nil {
+	if _, err := verifyJWT(signIDToken(t, key, "kid-1", noAud), keys, "", issuer, "client-id", now); err == nil {
 		t.Error("a token with no audience verified")
 	}
 
 	// An unknown kid fails rather than falling back to any available key.
-	if _, err := verifyRS256JWT(signIDToken(t, key, "kid-unknown", valid), keys, issuer, "client-id", now); err == nil {
+	if _, err := verifyJWT(signIDToken(t, key, "kid-unknown", valid), keys, "", issuer, "client-id", now); err == nil {
 		t.Fatal("a token with an unknown kid verified")
 	}
 
-	// Non-RS256 algorithms are refused outright (no alg confusion, no HS256).
-	header, err := json.Marshal(map[string]string{"alg": "HS256", "typ": "JWT", "kid": "kid-1"})
-	if err != nil {
-		t.Fatalf("marshal header: %v", err)
-	}
-	payload, err := json.Marshal(valid)
-	if err != nil {
-		t.Fatalf("marshal payload: %v", err)
-	}
-	hs256 := base64.RawURLEncoding.EncodeToString(header) + "." + base64.RawURLEncoding.EncodeToString(payload) + ".x"
-	if _, err := verifyRS256JWT(hs256, keys, issuer, "client-id", now); err == nil {
-		t.Fatal("a non-RS256 token verified")
+	// Algorithms outside the registered set are refused before key use.
+	for _, alg := range []string{"HS384", "none"} {
+		token := signJWT(t, alg, "kid-1", testOIDCClientSecret, valid)
+		if _, err := verifyJWT(token, keys, testOIDCClientSecret, issuer, "client-id", now); err == nil {
+			t.Errorf("unsupported algorithm %s verified", alg)
+		}
 	}
 }
 
@@ -493,7 +549,7 @@ func TestSignedUserInfoWithoutExpiryIsAcceptedButIDTokenIsNot(t *testing.T) {
 		t.Fatalf("generate key: %v", err)
 	}
 	now := time.Date(2026, 11, 14, 12, 0, 0, 0, time.UTC)
-	keys := map[string]*rsa.PublicKey{"kid-1": &key.PublicKey}
+	keys := &providerKeys{rsaByKid: map[string]*rsa.PublicKey{"kid-1": &key.PublicKey}}
 	const issuer = "https://issuer.example/api/v2"
 
 	noExpiry := map[string]any{
@@ -504,11 +560,11 @@ func TestSignedUserInfoWithoutExpiryIsAcceptedButIDTokenIsNot(t *testing.T) {
 	signed := signIDToken(t, key, "kid-1", noExpiry)
 
 	// UserInfo path: accepted.
-	if _, err := verifyRS256JWTClaims(signed, keys, issuer, "client-id", now); err != nil {
+	if _, err := verifyJWTClaims(signed, keys, "", issuer, "client-id", now); err != nil {
 		t.Fatalf("signed UserInfo without exp was rejected: %v", err)
 	}
 	// ID token path: refused.
-	if _, err := verifyRS256JWT(signed, keys, issuer, "client-id", now); err == nil {
+	if _, err := verifyJWT(signed, keys, "", issuer, "client-id", now); err == nil {
 		t.Fatal("an ID token without exp was accepted")
 	}
 	// A present but expired exp is still refused on the UserInfo path.
@@ -517,7 +573,7 @@ func TestSignedUserInfoWithoutExpiryIsAcceptedButIDTokenIsNot(t *testing.T) {
 		expired[k] = v
 	}
 	expired["exp"] = now.Add(-time.Hour).Unix()
-	if _, err := verifyRS256JWTClaims(signIDToken(t, key, "kid-1", expired), keys, issuer, "client-id", now); err == nil {
+	if _, err := verifyJWTClaims(signIDToken(t, key, "kid-1", expired), keys, "", issuer, "client-id", now); err == nil {
 		t.Fatal("an expired signed UserInfo was accepted")
 	}
 }
