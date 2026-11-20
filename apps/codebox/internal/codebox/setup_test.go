@@ -61,6 +61,49 @@ func TestSetupJournalRoundTrip(t *testing.T) {
 	}
 }
 
+func TestHasCompletedSetup(t *testing.T) {
+	dir := t.TempDir()
+	settingsPath := filepath.Join(dir, "settings.json")
+	assertComplete := func(want bool) {
+		t.Helper()
+		got, err := HasCompletedSetup(DefaultFS, dir, settingsPath)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got != want {
+			t.Fatalf("HasCompletedSetup() = %v, want %v", got, want)
+		}
+	}
+
+	assertComplete(false)
+	settings := UserSettings{SchemaVersion: userSettingsSchemaVersion, StatsConsentAsked: true}
+	if err := WriteUserSettings(DefaultFS, settingsPath, settings); err != nil {
+		t.Fatal(err)
+	}
+	assertComplete(false) // A stats-only decision is not a completed setup.
+
+	settings.Providers = []ProviderSettings{{Kind: ProviderAlbert}}
+	if err := WriteUserSettings(DefaultFS, settingsPath, settings); err != nil {
+		t.Fatal(err)
+	}
+	assertComplete(true)
+
+	if err := WriteSetupJournal(DefaultFS, dir, SetupJournal{Stage: StageCredential}); err != nil {
+		t.Fatal(err)
+	}
+	assertComplete(false) // An interrupted reconfiguration must resume.
+	if err := RemoveSetupJournal(DefaultFS, dir); err != nil {
+		t.Fatal(err)
+	}
+
+	settings.Providers = nil
+	settings.CredentialRef = string(CredentialAlbert)
+	if err := WriteUserSettings(DefaultFS, settingsPath, settings); err != nil {
+		t.Fatal(err)
+	}
+	assertComplete(true) // Legacy settings predate the provider list.
+}
+
 func TestLegacySetupJournalCredentialStatusIsUnknown(t *testing.T) {
 	dir := t.TempDir()
 	raw := []byte(`{"schemaVersion":1,"stage":"credential","credentialKinds":["albert","github"]}`)

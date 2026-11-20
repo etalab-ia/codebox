@@ -37,6 +37,7 @@ import (
 func setupCmd(args []string) (int, error) {
 	sub := ""
 	fallback, noColor, jsonOutput := false, false, false
+	checkComplete := false
 	for _, a := range args {
 		switch a {
 		case "doctor":
@@ -47,9 +48,17 @@ func setupCmd(args []string) (int, error) {
 			noColor = true
 		case "--json":
 			jsonOutput = true
+		case "--check-complete":
+			checkComplete = true
 		default:
-			return 2, fmt.Errorf("argument inconnu pour setup : %s (attendu : doctor, --fallback, --no-color ou --json)", a)
+			return 2, fmt.Errorf("argument inconnu pour setup : %s (attendu : doctor, --fallback, --no-color, --json ou --check-complete)", a)
 		}
+	}
+	if checkComplete {
+		if len(args) != 1 {
+			return 2, fmt.Errorf("--check-complete ne prend pas d'autre argument")
+		}
+		return setupCheckComplete()
 	}
 	if jsonOutput && sub != "doctor" {
 		return 2, fmt.Errorf("--json n'est valable qu'avec 'codebox setup doctor'")
@@ -150,6 +159,31 @@ func humanBytes(n int64) string {
 	default:
 		return strconv.FormatInt(n, 10) + " o"
 	}
+}
+
+// setupCompletedFn is the shared machine-completion probe used by the wizard
+// and by installers deciding whether an upgrade should launch setup. It reads
+// only non-secret settings and journal state, never the credential store.
+var setupCompletedFn = func() (bool, error) {
+	settingsPath, err := codebox.UserSettingsPath()
+	if err != nil {
+		return false, err
+	}
+	return codebox.HasCompletedSetup(codebox.DefaultFS, codebox.DefaultStateDir(), settingsPath)
+}
+
+// setupCheckComplete is the installer's quiet, read-only completion probe.
+// Incomplete and unreadable states both refuse the "complete" answer; the
+// installer can then take its existing setup-or-error path.
+func setupCheckComplete() (int, error) {
+	complete, err := setupCompletedFn()
+	if err != nil {
+		return 1, err
+	}
+	if !complete {
+		return 1, nil
+	}
+	return 0, nil
 }
 
 // setupRunCmd runs the interactive wizard. Every prompt reads one line;
@@ -275,10 +309,18 @@ func setupWizardRun(fallback bool, in *bufio.Reader, validate func(context.Conte
 			_ = codebox.WriteSetupJournal(fs, stateDir, j)
 			return 1, fmt.Errorf("installation interrompue : corrigez les points ci-dessus, puis relancez 'codebox setup'")
 		}
-		// Intro before any prompt: on a fresh run the user has just been
-		// dropped into the wizard with no explanation of what it will ask
-		// for. A resumed run skips it (the else branch below).
-		if setupIntroFn() {
+		// A completed installation being reconfigured is not a fresh start and
+		// must not announce a one-time setup. It still runs the same preflight,
+		// then offers the saved settings as defaults.
+		completed, err := setupCompletedFn()
+		if err != nil {
+			return 1, err
+		}
+		if completed {
+			fmt.Println("Configuration existante détectée ; les valeurs enregistrées sont proposées par défaut.")
+		} else if setupIntroFn() {
+			// Intro before any prompt on a genuinely fresh run. A resumed run
+			// skips it (the else branch below).
 			if !printSetupIntro() {
 				recordSetupAbandon(stateDir, "intro")
 				return 1, nil

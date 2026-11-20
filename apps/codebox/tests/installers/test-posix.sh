@@ -72,7 +72,14 @@ chmod +x "$fake_bin/uname" "$fake_bin/curl" "$fake_bin/mv"
 fake_binary="$temp_root/fake codebox"
 cat > "$fake_binary" <<'EOF'
 #!/bin/sh
+if [ "${1:-}" = version ]; then
+	printf 'codebox (Go)\n  version:  9.8.6\n'
+	exit 0
+fi
 [ "${1:-}" = setup ] || exit 7
+if [ "${2:-}" = --check-complete ]; then
+	exit "${FAKE_SETUP_COMPLETE:-1}"
+fi
 printf called > "$FAKE_SETUP_LOG"
 exit "${FAKE_SETUP_EXIT:-0}"
 EOF
@@ -111,6 +118,7 @@ run_installer() {
 	FAKE_MISSING_ASSET=${FAKE_MISSING_ASSET:-0} \
 	FAKE_FAIL_REPLACE=$fail_replace \
 	FAKE_SETUP_EXIT=$setup_exit \
+	FAKE_SETUP_COMPLETE=${FAKE_SETUP_COMPLETE:-1} \
 	FAKE_TARGET="$home_dir/.local/bin/codebox" \
 	CODEBOX_NIXOS_MARKER="${FAKE_NIXOS_MARKER:-$temp_root/absent-nixos-marker}" \
 	CODEBOX_NIX_LD_LOADER="${FAKE_NIX_LD_LOADER:-$temp_root/absent-nix-ld-loader}" \
@@ -142,6 +150,23 @@ grep -F 'Lancement de la configuration' "$success_out" >/dev/null || { printf 's
 install_line=$(grep -n 'Installé dans ~/.local/bin/codebox' "$success_out" | cut -d: -f1)
 launch_line=$(grep -n 'Lancement de la configuration' "$success_out" | cut -d: -f1)
 [ "$install_line" -lt "$launch_line" ] || { printf 'install result did not appear before setup\n' >&2; exit 1; }
+
+# A completed installation upgrading to a new binary reports the transition and
+# keeps its configuration without launching the first-run wizard. The fake
+# binary exposes the same version and completion-probe surface as production.
+completed_home="$temp_root/completed upgrade"
+mkdir -p "$completed_home/.local/bin"
+cp "$fake_binary" "$completed_home/.local/bin/codebox"
+chmod +x "$completed_home/.local/bin/codebox"
+rm -f "$temp_root/setup-called"
+( export FAKE_SETUP_COMPLETE=0; run_installer "$completed_home" "$good_sums" 0 0 0 ) > "$temp_root/completed.out"
+[ ! -e "$temp_root/setup-called" ] || { printf 'completed upgrade unexpectedly invoked setup\n' >&2; exit 1; }
+grep -F 'Mise à niveau de codebox 9.8.6 vers 9.8.7' "$temp_root/completed.out" >/dev/null || { printf 'upgrade transition missing\n' >&2; cat "$temp_root/completed.out" >&2; exit 1; }
+grep -F 'Configuration existante conservée.' "$temp_root/completed.out" >/dev/null || { printf 'completed configuration notice missing\n' >&2; exit 1; }
+if grep -F 'Lancement de la configuration' "$temp_root/completed.out" >/dev/null; then
+	printf 'completed upgrade announced first-run setup\n' >&2
+	exit 1
+fi
 
 mac_home="$temp_root/mac home"
 mkdir -p "$mac_home"
@@ -507,6 +532,9 @@ PY
 	cat > "$temp_root/sig-setup" <<'EOS'
 #!/bin/sh
 [ "${1:-}" = setup ] || exit 0
+if [ "${2:-}" = --check-complete ]; then
+	exit 1
+fi
 printf called > "$FAKE_SETUP_LOG"
 printf 'assistant demarre\n'
 sleep 20
