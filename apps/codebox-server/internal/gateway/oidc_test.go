@@ -11,6 +11,8 @@ import (
 	"math/big"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -55,6 +57,27 @@ func jwksFor(t *testing.T, key *rsa.PrivateKey, kid string) []byte {
 		t.Fatalf("marshal jwks: %v", err)
 	}
 	return raw
+}
+
+func TestMFAACRPolicy(t *testing.T) {
+	for _, tc := range []struct {
+		acr  string
+		want bool
+	}{
+		{acr: "eidas0-mfa", want: true},
+		{acr: "eidas1-mfa", want: true},
+		{acr: "eidas2", want: true},
+		{acr: "eidas3", want: true},
+		{acr: "eidas0", want: false},
+		{acr: "eidas1", want: false},
+		{acr: "", want: false},
+	} {
+		t.Run(tc.acr, func(t *testing.T) {
+			if got := ACRSatisfiesMFA(tc.acr); got != tc.want {
+				t.Fatalf("ACRSatisfiesMFA(%q) = %t, want %t", tc.acr, got, tc.want)
+			}
+		})
+	}
 }
 
 func TestVerifyRS256JWT(t *testing.T) {
@@ -234,6 +257,27 @@ func TestOIDCDiscoveryExchangeAndMFAEnforcement(t *testing.T) {
 			t.Errorf("authorize URL %q is missing %q", authorizeURL, want)
 		}
 	}
+	parsedAuthorize, err := url.Parse(authorizeURL)
+	if err != nil {
+		t.Fatalf("parse authorize URL: %v", err)
+	}
+	var requested struct {
+		IDToken struct {
+			ACR struct {
+				Essential bool     `json:"essential"`
+				Values    []string `json:"values"`
+			} `json:"acr"`
+		} `json:"id_token"`
+	}
+	if err := json.Unmarshal([]byte(parsedAuthorize.Query().Get("claims")), &requested); err != nil {
+		t.Fatalf("decode requested claims: %v", err)
+	}
+	if !requested.IDToken.ACR.Essential {
+		t.Fatal("the requested ACR claim is not essential")
+	}
+	if !slices.Contains(requested.IDToken.ACR.Values, "eidas0-mfa") {
+		t.Fatalf("requested ACR values %v omit eidas0-mfa", requested.IDToken.ACR.Values)
+	}
 
 	tokens["current"] = idToken("eidas2", "nonce-1")
 	identity, err := client.Exchange(t.Context(), "code-1", "verifier-1", "nonce-1")
@@ -244,11 +288,24 @@ func TestOIDCDiscoveryExchangeAndMFAEnforcement(t *testing.T) {
 		t.Fatalf("identity = %+v", identity)
 	}
 
-	// A single-factor assertion is refused.
+	// ProConnect's documented eidas0-mfa assertion satisfies the same MFA policy.
 	fresh := newClient()
-	tokens["current"] = idToken("eidas1", "nonce-2")
-	if _, err := fresh.Exchange(t.Context(), "code-2", "verifier-1", "nonce-2"); !errors.Is(err, ErrMFARequired) {
-		t.Fatalf("single-factor exchange error = %v, want ErrMFARequired", err)
+	tokens["current"] = idToken("eidas0-mfa", "nonce-mfa0")
+	identity, err = fresh.Exchange(t.Context(), "code-mfa0", "verifier-1", "nonce-mfa0")
+	if err != nil {
+		t.Fatalf("Exchange with eidas0-mfa: %v", err)
+	}
+	if identity.ACR != "eidas0-mfa" {
+		t.Fatalf("identity ACR = %q, want eidas0-mfa", identity.ACR)
+	}
+
+	// Both single-factor assurance levels are refused.
+	for _, acr := range []string{"eidas0", "eidas1"} {
+		fresh = newClient()
+		tokens["current"] = idToken(acr, "nonce-single-"+acr)
+		if _, err := fresh.Exchange(t.Context(), "code-single-"+acr, "verifier-1", "nonce-single-"+acr); !errors.Is(err, ErrMFARequired) {
+			t.Fatalf("%s exchange error = %v, want ErrMFARequired", acr, err)
+		}
 	}
 
 	// A nonce mismatch is refused.
