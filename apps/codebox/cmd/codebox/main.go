@@ -273,7 +273,7 @@ func run(args []string) (int, error) {
 	}
 	modelSelection := resolveModelSelection(projectRoot)
 	smallModelSelection := resolveSmallModelSelection(projectRoot)
-	providerSettings, providerErr := resolveProviderSettings()
+	providerSettings, providerErr := resolveProviderSettingsAt(projectRoot)
 	if providerErr != nil {
 		if isLaunchAction(parsed.action) {
 			return 1, fmt.Errorf("impossible de résoudre les plateformes d'inférence : %w", providerErr)
@@ -920,6 +920,38 @@ func resolveProviderSettings() ([]codebox.ProviderSettings, error) {
 		return nil, err
 	}
 	return us.Providers, nil
+}
+
+// resolveProviderSettingsAt applies the project's provider contract when one is
+// recorded, falling back to machine settings for existing projects. The legacy
+// project credentialRef remains an Albert-only default; an explicit per-provider
+// reference takes precedence over it.
+func resolveProviderSettingsAt(projectRoot string) ([]codebox.ProviderSettings, error) {
+	settings, err := resolveProviderSettings()
+	if err != nil {
+		return nil, err
+	}
+	manifest, err := codebox.ReadProjectManifest(codebox.DefaultFS, codebox.ProjectManifestPath(projectRoot))
+	if err != nil {
+		if os.IsNotExist(err) {
+			return settings, nil
+		}
+		return nil, err
+	}
+	if len(manifest.Providers) > 0 {
+		settings = append([]codebox.ProviderSettings(nil), manifest.Providers...)
+	}
+	if ref := strings.TrimSpace(manifest.CredentialRef); ref != "" {
+		if len(settings) == 0 {
+			settings = codebox.DefaultProviderSettings()
+		}
+		for i := range settings {
+			if settings[i].Kind == codebox.ProviderAlbert && strings.TrimSpace(settings[i].CredentialRef) == "" {
+				settings[i].CredentialRef = ref
+			}
+		}
+	}
+	return settings, nil
 }
 
 // resolveProviderOverlays turns the configured platforms into the non-Albert
