@@ -3,6 +3,8 @@ package main
 import (
 	"bufio"
 	"context"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"strings"
 	"testing"
@@ -144,5 +146,34 @@ func TestModelsListUsesProjectProviders(t *testing.T) {
 	}
 	if len(got) != 1 || got[0] != codebox.ProviderMistral {
 		t.Fatalf("models command used machine providers instead of project providers: %v", got)
+	}
+}
+
+func TestModelsListUsesAlbertProviderCredentialRef(t *testing.T) {
+	setupTestEnv(t)
+	var authorization string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		authorization = r.Header.Get("Authorization")
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"data":[]}`))
+	}))
+	defer server.Close()
+	originalKey, originalFetch := modelsProviderKeyFn, catalogueModelFetchFn
+	modelsProviderKeyFn = func(provider codebox.InferenceProvider) (string, error) {
+		if provider.CredentialRef != "project-albert" {
+			t.Fatalf("provider reference was not passed to key resolution: %+v", provider)
+		}
+		return "synthetic-albert-key", nil
+	}
+	catalogueModelFetchFn = func(ctx context.Context, client *http.Client, apiKey, _ string) (codebox.Catalogue, error) {
+		return codebox.FetchCatalogue(ctx, client, apiKey, server.URL)
+	}
+	t.Cleanup(func() { modelsProviderKeyFn, catalogueModelFetchFn = originalKey, originalFetch })
+	provider := codebox.InferenceProvider{Kind: codebox.ProviderAlbert, Name: "Albert API", CredentialRef: "project-albert"}
+	if err := modelsListProvider(context.Background(), provider, codebox.UserSettings{}, ""); err != nil {
+		t.Fatal(err)
+	}
+	if authorization != "Bearer synthetic-albert-key" {
+		t.Fatalf("catalogue request did not use the provider-selected credential: %q", authorization)
 	}
 }
