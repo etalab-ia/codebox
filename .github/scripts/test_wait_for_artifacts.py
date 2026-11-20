@@ -84,6 +84,12 @@ case "$index" in
         )
         self.assertEqual(result.returncode, 1)
         self.assertNotIn("visible: darwin-arm64", result.stderr)
+    def test_workflows_check_out_before_using_the_guard(self):
+        root = Path(__file__).resolve().parents[2]
+        for name in ("ci.yml", "release-please.yml"):
+            text = (root / ".github" / "workflows" / name).read_text(encoding="utf-8")
+            guard = text.index("wait-for-artifacts.sh")
+            self.assertIn("actions/checkout@", text[:guard], name)
 
 
 if __name__ == "__main__":
