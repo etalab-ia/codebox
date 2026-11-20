@@ -506,7 +506,11 @@ func (m *MicrosandboxRuntime) resolveBindings(ctx context.Context) ([]resolvedBi
 	var out []resolvedBinding
 	for _, b := range registered {
 		if b.Provider {
-			v, src, store, entry, err := resolveProviderWith(read, ctx, m.cfg, b.Kind, b.GuestEnv, m.CredentialStore)
+			provider, providerErr := inferenceProviderForBinding(m.cfg.Providers, b)
+			if providerErr != nil {
+				return nil, providerErr
+			}
+			v, src, store, entry, err := resolveProviderWith(read, ctx, m.cfg, provider, m.CredentialStore)
 			if err != nil {
 				return nil, err
 			}
@@ -1982,7 +1986,11 @@ func (m *MicrosandboxRuntime) resolvePersistedBindings(ctx context.Context, refs
 			if err := validatePersistedProviderCompatibility(ref, b, m.cfg.Providers); err != nil {
 				return nil, fmt.Errorf("impossible de récupérer %s : %w : l'enregistrement %s persisté %q ne correspond plus à la plateforme configurée ; recréez la machine isolée pour appliquer le point de terminaison de la nouvelle plateforme", m.InstanceName(), err, b.Kind, hostEnv)
 			}
-			v, src, store, entry, err := resolveProviderWith(read, ctx, m.cfg, b.Kind, b.GuestEnv, m.CredentialStore)
+			provider, providerErr := inferenceProviderForBinding(m.cfg.Providers, b)
+			if providerErr != nil {
+				return nil, providerErr
+			}
+			v, src, store, entry, err := resolveProviderWith(read, ctx, m.cfg, provider, m.CredentialStore)
 			if err != nil {
 				return nil, fmt.Errorf("impossible de résoudre l'identifiant %s persisté de %s : %w (enregistrez-en un avec 'codebox auth add %s', ou recréez la machine isolée)", b.Kind, m.InstanceName(), err, b.Kind)
 			}

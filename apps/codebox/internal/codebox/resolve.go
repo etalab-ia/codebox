@@ -149,10 +149,11 @@ type UserSettings struct {
 }
 
 // userSettingsSchemaVersion is the current settings.json format version.
-const userSettingsSchemaVersion = 1
+// Version 2 adds an optional credentialRef to each provider settings entry.
+const userSettingsSchemaVersion = 2
 
 // maxSupportedSettingsSchema is the highest schemaVersion this build reads.
-const maxSupportedSettingsSchema = 1
+const maxSupportedSettingsSchema = 2
 
 // ProjectManifest is the typed project manifest (.codebox/project.json),
 // intended for version control and therefore secret-free and free of
@@ -188,8 +189,13 @@ type ProjectManifest struct {
 	Ports           []PortMapping `json:"ports,omitempty"`
 	PortsConfigured bool          `json:"portsConfigured,omitempty"`
 
-	// CredentialRef names the project's credential (a P08 reference).
+	// CredentialRef names the project's legacy Albert credential (a P08
+	// reference). Providers carries explicit per-provider references.
 	CredentialRef string `json:"credentialRef,omitempty"`
+	// Providers records the inference providers selected for this project.
+	// Empty preserves the user-level provider set for existing projects.
+	// Values and host approvals never live in this versioned file.
+	Providers []ProviderSettings `json:"providers,omitempty"`
 
 	// Storage recorded where the manifest and lock live. Only the versioned
 	// location has readers today, so nothing writes this; the field is read
@@ -247,13 +253,15 @@ type PortMapping struct {
 // harness: a binary that does not know the field would run OpenCode for a
 // project that asked for something else, which is the silent substitution the
 // version check exists to prevent. #385 adds the optional `secrets` block:
-// a binary that ignores it would silently skip approved remote secrets.
-const projectManifestSchemaVersion = 7
+// a binary that ignores it would silently skip approved remote secrets. #460
+// adds project providers with per-provider credential references: ignoring them
+// could silently select another provider or credential.
+const projectManifestSchemaVersion = 8
 
 // maxSupportedManifestSchema is the highest manifest schemaVersion this build
 // reads. A newer version is a hard error: the file was written by a binary
 // this one cannot interpret.
-const maxSupportedManifestSchema = 7
+const maxSupportedManifestSchema = 8
 
 // Lockfile is the project lock (.codebox/lock.json): resolved revisions of
 // everything the manifest pins (skills, images, connector packages), so a
