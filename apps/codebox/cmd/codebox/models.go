@@ -157,11 +157,35 @@ func providerFallbackModels(refs []string, provider codebox.InferenceProvider) [
 // resolveProviderKeyForCatalogue obtains a key for a platform's catalogue
 // request without exposing it.
 func resolveProviderKeyForCatalogue(provider codebox.InferenceProvider) (string, error) {
+	return resolveProviderKeyForCatalogueAt(resolveProjectRootForAux(), provider)
+}
+
+func resolveProviderKeyForCatalogueAt(projectRoot string, provider codebox.InferenceProvider) (string, error) {
 	cfg := codebox.Config{
-		CredentialRef: resolveCredentialRef(resolveProjectRootForAux()),
+		CredentialRef: resolveCredentialRef(projectRoot),
 		APIKey:        os.Getenv("ALBERT_API_KEY"),
 	}
 	return codebox.ResolveProviderKey(context.Background(), cfg, provider)
+}
+
+// resolveAlbertProviderKeyForCatalogueAt selects Albert from the project's
+// effective providers before resolving its credential. This preserves the
+// provider-level reference when no legacy top-level reference exists.
+func resolveAlbertProviderKeyForCatalogueAt(projectRoot string) (string, error) {
+	settings, err := resolveProviderSettingsAt(projectRoot)
+	if err != nil {
+		return "", err
+	}
+	providers, err := codebox.ResolveProviders(settings)
+	if err != nil {
+		return "", err
+	}
+	for _, provider := range providers {
+		if provider.Kind == codebox.ProviderAlbert {
+			return resolveProviderKeyForCatalogueAt(projectRoot, provider)
+		}
+	}
+	return "", fmt.Errorf("aucune plateforme Albert configurée pour ce projet")
 }
 
 func matchesAlias(selection, alias string) bool {

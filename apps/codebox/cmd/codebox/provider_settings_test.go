@@ -245,3 +245,33 @@ func TestInitSmallModelValidationUsesProjectProviders(t *testing.T) {
 		t.Fatalf("Albert project on a Mistral-default machine rejected a valid small model: %v", err)
 	}
 }
+
+func TestInitCatalogueKeyUsesAlbertProviderReference(t *testing.T) {
+	setupTestEnv(t)
+	t.Setenv("CODEBOX_CREDENTIAL_REF", "")
+	t.Setenv("ALBERT_API_KEY", "")
+	root := t.TempDir()
+	store, err := codebox.ConsentFileStore()
+	if err != nil {
+		t.Fatal(err)
+	}
+	kind := codebox.CredentialKind("project-albert")
+	if err := store.Put(context.Background(), kind, "synthetic-albert-key"); err != nil {
+		t.Fatal(err)
+	}
+	if err := codebox.RecordCredentialStore(codebox.DefaultStateDir(), kind, store.Kind()); err != nil {
+		t.Fatal(err)
+	}
+	if err := codebox.WriteProjectManifest(codebox.DefaultFS, codebox.ProjectManifestPath(root), codebox.ProjectManifest{
+		Providers: []codebox.ProviderSettings{{Kind: codebox.ProviderAlbert, CredentialRef: string(kind)}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	got, err := resolveAlbertProviderKeyForCatalogueAt(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != "synthetic-albert-key" {
+		t.Fatalf("init catalogue validation did not resolve the provider-selected credential")
+	}
+}
