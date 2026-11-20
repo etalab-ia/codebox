@@ -35,6 +35,7 @@ const (
 // self-asserted-2fa variants, so both families are accepted for development
 // access. A plain eidas1/eidas0 (password only) is rejected.
 var MFAEnabledACRValues = []string{
+	"eidas0-mfa",
 	"eidas1-mfa",
 	"eidas2",
 	"eidas3",
@@ -46,6 +47,7 @@ var MFAEnabledACRValues = []string{
 // ProConnect as "essential", so an identity provider must return a
 // two-factor assertion.
 var MFAACRFamilies = []string{
+	"eidas0-mfa",
 	"eidas1-mfa",
 	"eidas2",
 	"eidas3",

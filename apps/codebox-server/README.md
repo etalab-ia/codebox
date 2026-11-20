@@ -74,7 +74,7 @@ OIDC issuer: pointing `PROCONNECT_ISSUER` at it returns 404 from discovery.
 
 ## Two-factor requirement
 
-The gateway requests `acr` values `eidas1-mfa`, `eidas2`, `eidas3` as
+The gateway requests `acr` values `eidas0-mfa`, `eidas1-mfa`, `eidas2`, `eidas3` as
 *essential* and rejects any ID token whose `acr` is not a two-factor value.
 HR-backed identity providers return `eidas2`/`eidas3`; providers without HR
 provisioning return `eidas1-mfa` or a `*-2fa` ProConnect assurance value. A
