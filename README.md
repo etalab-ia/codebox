@@ -95,6 +95,7 @@ Quatre autres prompts (toolchain polyglotte, édition et revue de diff, continui
 | [Statistiques d'usage](docs/stats.md) | Consentement, commandes `stats`, données partagées et jamais collectées, envoi non bloquant |
 | [Sécurité du workspace](docs/workspace-security.md) | Workspace scellé, filtre de transfert, export des changements |
 | [Utilisation](docs/usage.md) | Commandes, instances par projet, niveaux d'isolation, répertoire de travail |
+| [VS Code et ACP](docs/vscode.md) | Configuration du client VS Code, sécurité, export des changements et qualification native |
 | [Runtime Microsandbox](docs/runtime-microsandbox.md) | Téléchargement vérifié, mode manuel (`MSB_PATH`), prérequis plateforme |
 | [Plateformes](docs/plateformes.md) | Plateformes prises en charge, magasins d'identifiants, et ce qui est réellement qualifié |
 | [Runtime Tart](docs/runtime-tart.md) | Réseau et MTU, images et nommage des VM |
