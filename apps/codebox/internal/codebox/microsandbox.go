@@ -1996,7 +1996,9 @@ func (m *MicrosandboxRuntime) resolvePersistedBindings(ctx context.Context, refs
 					provider.Host = ref.AllowedHosts[0]
 				}
 				if applied, readErr := ReadInstanceState(DefaultFS, instanceStatePath(DefaultStateDir(), m.InstanceName())); readErr == nil && applied != nil {
-					provider.CredentialRef = persistedEntryForBinding(applied.BoundCredentials, b.Kind)
+					if entry := persistedEntryForBinding(applied.BoundCredentials, b.Kind); entry != "" && entry != string(b.Kind) {
+						provider.CredentialRef = entry
+					}
 				}
 			}
 			v, src, store, entry, err := resolveProviderWith(read, ctx, m.cfg, provider, m.CredentialStore)
