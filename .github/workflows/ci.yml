@@ -374,6 +374,10 @@ jobs:
           path: dist/codebox-darwin-arm64
           if-no-files-found: error
           retention-days: 1
+      - name: Wait for all staged artifacts to become visible
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: .github/scripts/wait-for-artifacts.sh linux-x64 linux-arm64 darwin-arm64
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           path: downloaded
