@@ -102,6 +102,12 @@ func run(args []string) (int, error) {
 	if err != nil {
 		return 2, err
 	}
+	var acpOutput *os.File
+	if parsed.action == "acp" {
+		acpOutput = os.Stdout
+		os.Stdout = os.Stderr
+		defer func() { os.Stdout = acpOutput }()
+	}
 	if parsed.action == "mcp" {
 		return mcpCommand(parsed.mcpArgs)
 	}
@@ -460,6 +466,8 @@ func run(args []string) (int, error) {
 	}
 
 	switch parsed.action {
+	case "acp":
+		return acpCmd(d, cfg, rt, os.Stdin, acpOutput, os.Stderr)
 	case "attach":
 		return attachCmd(d, cfg, rt, instance, projectRoot)
 	case "start", "logs", "shell", "restart", "recreate", "clean", "doctor":
@@ -661,7 +669,7 @@ type parsedArgs struct {
 var actionNames = map[string]bool{
 	"start": true, "stop": true, "check": true, "logs": true, "shell": true,
 	"restart": true, "recreate": true, "clean": true, "doctor": true,
-	"help": true, "version": true, "config": true,
+	"help": true, "version": true, "config": true, "acp": true,
 	"ports": true,
 	"auth":  true, "bindings": true,
 	"workspace": true,
@@ -1444,6 +1452,7 @@ et attache l'interface du poste.
 
 Commandes :
   start      Démarrer un backend sans attacher l'interface
+  acp        Exposer l'agent invité via Agent Client Protocol (Microsandbox/full)
   stop       Arrêter l'instance du projet courant (stop --all pour toutes les
              instances codebox)
   check      Vérifier le backend actif et le fournisseur Albert
