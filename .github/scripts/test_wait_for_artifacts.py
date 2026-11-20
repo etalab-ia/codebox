@@ -7,7 +7,7 @@ from pathlib import Path
 
 
 class WaitForArtifactsTest(unittest.TestCase):
-    def run_with_listing(self, listings, max_seconds="60"):
+    def run_with_listing(self, listings, max_seconds="60", artifacts=None):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             calls = root / "calls"
@@ -47,8 +47,10 @@ case "$index" in
                 GITHUB_RUN_ID="123",
                 GH_TOKEN="synthetic-test-token",
             )
+            command = [str(script)]
+            command.extend(artifacts or ["linux-x64", "linux-arm64", "darwin-arm64"])
             result = subprocess.run(
-                [str(script), "linux-x64", "linux-arm64", "darwin-arm64"],
+                command,
                 env=env,
                 text=True,
                 capture_output=True,
@@ -56,6 +58,17 @@ case "$index" in
             )
             self.assertEqual(calls.read_text(encoding="utf-8").isdigit(), True)
             return result, int(calls.read_text(encoding="utf-8"))
+
+    def workflow_job(self, name, job):
+        root = Path(__file__).resolve().parents[2]
+        lines = (root / ".github" / "workflows" / name).read_text(encoding="utf-8").splitlines()
+        start = lines.index(f"  {job}:")
+        is_job = re.compile(r"^  [A-Za-z0-9_-]+:\s*$").match
+        end = next(
+            (index for index in range(start + 1, len(lines)) if is_job(lines[index])),
+            len(lines),
+        )
+        return "\n".join(lines[start:end])
 
     def test_delayed_visibility_succeeds(self):
         result, calls = self.run_with_listing(
@@ -86,19 +99,25 @@ case "$index" in
         self.assertEqual(result.returncode, 1)
         self.assertNotIn("visible: darwin-arm64", result.stderr)
     def test_workflows_check_out_before_using_the_guard(self):
-        root = Path(__file__).resolve().parents[2]
         for name, job in (("ci.yml", "artifact-handoff"), ("release-please.yml", "publish")):
-            text = (root / ".github" / "workflows" / name).read_text(encoding="utf-8")
-            lines = text.splitlines()
-            start = lines.index(f"  {job}:")
-            is_job = re.compile(r"^  [A-Za-z0-9_-]+:\s*$").match
-            end = next(
-                (index for index in range(start + 1, len(lines)) if is_job(lines[index])),
-                len(lines),
-            )
-            block = "\n".join(lines[start:end])
+            block = self.workflow_job(name, job)
             guard = block.index("wait-for-artifacts.sh")
             self.assertIn("actions/checkout@", block[:guard], f"{name}:{job}")
+
+    def test_delayed_windows_visibility_succeeds(self):
+        names = ["linux-x64", "linux-arm64", "darwin-arm64", "windows-x64", "windows-arm64"]
+        first = '{"artifacts":[' + ",".join(f'{{"name":"{name}","expired":false}}' for name in names[:3]) + ']}'
+        second = '{"artifacts":[' + ",".join(f'{{"name":"{name}","expired":false}}' for name in names) + ']}'
+        result, calls = self.run_with_listing([first, second], artifacts=names)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(calls, 2)
+        self.assertIn("All 5 artifacts are visible", result.stdout)
+
+    def test_release_guard_includes_windows_artifacts(self):
+        block = self.workflow_job("release-please.yml", "publish")
+        guard = next(line for line in block.splitlines() if "wait-for-artifacts.sh" in line)
+        for name in ("windows-x64", "windows-arm64"):
+            self.assertIn(name, guard)
 
 
 if __name__ == "__main__":
