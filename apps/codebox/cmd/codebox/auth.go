@@ -273,21 +273,39 @@ func authStatusCmd() (int, error) {
 }
 
 // resolveCredentialRefForAuth applies the same precedence as the run path
-// (env > project manifest > user settings), from the discovered project root.
-// auth runs before project resolution in main, so the discovery is done here;
-// a failure means "no reference", never a blocked removal.
+// (environment > effective Albert provider reference > legacy project > legacy
+// user settings), from the discovered project root. Discovery or read failures
+// mean "no reference", preserving auth's existing best-effort behavior.
 func resolveCredentialRefForAuth() string {
 	if v := strings.TrimSpace(os.Getenv("CODEBOX_CREDENTIAL_REF")); v != "" {
 		return v
 	}
+	projectRoot := ""
 	if pc, err := codebox.DiscoverProject("."); err == nil {
-		if pm, err := codebox.ReadProjectManifest(codebox.DefaultFS, codebox.ProjectManifestPath(pc.Root)); err == nil && pm.CredentialRef != "" {
-			return pm.CredentialRef
+		projectRoot = pc.Root
+	}
+	var settings []codebox.ProviderSettings
+	var err error
+	if projectRoot != "" {
+		settings, err = resolveProviderSettingsAt(projectRoot)
+	} else {
+		settings, err = resolveProviderSettings()
+	}
+	if err == nil {
+		for _, provider := range settings {
+			if provider.Kind == codebox.ProviderAlbert && strings.TrimSpace(provider.CredentialRef) != "" {
+				return strings.TrimSpace(provider.CredentialRef)
+			}
+		}
+	}
+	if projectRoot != "" {
+		if pm, readErr := codebox.ReadProjectManifest(codebox.DefaultFS, codebox.ProjectManifestPath(projectRoot)); readErr == nil && strings.TrimSpace(pm.CredentialRef) != "" {
+			return strings.TrimSpace(pm.CredentialRef)
 		}
 	}
 	if path, err := codebox.UserSettingsPath(); err == nil {
-		if us, err := codebox.ReadUserSettings(codebox.DefaultFS, path); err == nil {
-			return us.CredentialRef
+		if us, readErr := codebox.ReadUserSettings(codebox.DefaultFS, path); readErr == nil {
+			return strings.TrimSpace(us.CredentialRef)
 		}
 	}
 	return ""

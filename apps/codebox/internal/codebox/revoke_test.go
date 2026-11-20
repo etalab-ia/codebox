@@ -249,6 +249,19 @@ func TestRevokeHostBoundProviderRefBlockedByPlaintextVM(t *testing.T) {
 	}
 }
 
+func TestRevokeAlbertProviderRefWithoutMSBRecordBlockedByPlaintextVM(t *testing.T) {
+	r := revokerForTest(&fakeMSBClient{}, t.TempDir(), []string{"opencode-cb-project"}, nil)
+	r.Config = Config{CredentialRef: "github"}
+	_, err := r.Revoke(context.Background(), "github")
+	if err == nil {
+		t.Fatal("removing the effective Albert provider reference was allowed while a plaintext VM was running")
+	}
+	var blocked *ErrRevocationBlocked
+	if !errors.As(err, &blocked) {
+		t.Fatalf("error is not ErrRevocationBlocked: %v", err)
+	}
+}
+
 // TestRevokeUnknownEntryTouchesNoSandbox is the other half: an entry that
 // names nothing codebox ever proxied has no guest binding to drop, so
 // deleting it from the store is the whole revocation.
