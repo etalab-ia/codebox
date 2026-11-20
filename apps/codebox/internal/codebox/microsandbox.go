@@ -506,9 +506,12 @@ func (m *MicrosandboxRuntime) resolveBindings(ctx context.Context) ([]resolvedBi
 	var out []resolvedBinding
 	for _, b := range registered {
 		if b.Provider {
-			provider, providerErr := inferenceProviderForBinding(m.cfg.Providers, b)
-			if providerErr != nil {
-				return nil, providerErr
+			provider, ok := providerForKind(b.Kind, m.cfg.Providers)
+			if !ok {
+				// Recovery still owns the persisted binding when that provider is
+				// no longer configured. Use its legacy fixed-entry contract rather
+				// than requiring an unrelated current provider.
+				provider = InferenceProvider{Kind: ProviderKind(b.Kind), CredentialKind: b.Kind, APIKeyEnv: b.GuestEnv}
 			}
 			v, src, store, entry, err := resolveProviderWith(read, ctx, m.cfg, provider, m.CredentialStore)
 			if err != nil {
@@ -1986,9 +1989,12 @@ func (m *MicrosandboxRuntime) resolvePersistedBindings(ctx context.Context, refs
 			if err := validatePersistedProviderCompatibility(ref, b, m.cfg.Providers); err != nil {
 				return nil, fmt.Errorf("impossible de récupérer %s : %w : l'enregistrement %s persisté %q ne correspond plus à la plateforme configurée ; recréez la machine isolée pour appliquer le point de terminaison de la nouvelle plateforme", m.InstanceName(), err, b.Kind, hostEnv)
 			}
-			provider, providerErr := inferenceProviderForBinding(m.cfg.Providers, b)
-			if providerErr != nil {
-				return nil, providerErr
+			provider, ok := providerForKind(b.Kind, m.cfg.Providers)
+			if !ok {
+				// Recovery still owns the persisted binding when that provider is
+				// no longer configured. Use its legacy fixed-entry contract rather
+				// than requiring an unrelated current provider.
+				provider = InferenceProvider{Kind: ProviderKind(b.Kind), CredentialKind: b.Kind, APIKeyEnv: b.GuestEnv}
 			}
 			v, src, store, entry, err := resolveProviderWith(read, ctx, m.cfg, provider, m.CredentialStore)
 			if err != nil {

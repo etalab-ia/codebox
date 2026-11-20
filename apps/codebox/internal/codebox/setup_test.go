@@ -402,7 +402,7 @@ func TestSetupSaveSettingsPersistsProviders(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
 	t.Setenv("XDG_STATE_HOME", filepath.Join(home, ".local", "state"))
 
-	providers, err := ResolveProviders([]ProviderSettings{{Kind: ProviderAlbert}, {Kind: ProviderMistral}})
+	providers, err := ResolveProviders([]ProviderSettings{{Kind: ProviderAlbert}, {Kind: ProviderMistral, CredentialRef: "mistral@api.mistral.ai"}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -419,7 +419,7 @@ func TestSetupSaveSettingsPersistsProviders(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(us.Providers) != 2 || us.Providers[1].Kind != ProviderMistral {
+	if len(us.Providers) != 2 || us.Providers[1].Kind != ProviderMistral || us.Providers[1].CredentialRef != "mistral@api.mistral.ai" {
 		t.Fatalf("providers = %+v", us.Providers)
 	}
 	if us.DefaultModel != "mistral/mistral-large-latest" || len(us.Models) != 2 {

@@ -782,9 +782,18 @@ var setupResumePlatformsFn = confirmResumePlatforms
 func providerSettingsOf(providers []codebox.InferenceProvider) []codebox.ProviderSettings {
 	out := make([]codebox.ProviderSettings, 0, len(providers))
 	for _, p := range providers {
-		out = append(out, codebox.ProviderSettings{Kind: p.Kind, Name: p.Name, BaseURL: p.BaseURL})
+		out = append(out, codebox.ProviderSettings{Kind: p.Kind, Name: p.Name, BaseURL: p.BaseURL, CredentialRef: p.CredentialRef})
 	}
 	return out
+}
+
+// setupProviderStoreKind returns the actual store reference used for this
+// provider. Empty CredentialRef deliberately means the legacy fixed entry.
+func setupProviderStoreKind(provider codebox.InferenceProvider) codebox.CredentialKind {
+	if ref := strings.TrimSpace(provider.CredentialRef); ref != "" {
+		return codebox.CredentialKind(ref)
+	}
+	return provider.CredentialKind
 }
 
 func setupPlatformStage(ctx context.Context, w codebox.SetupWizard, in *bufio.Reader, fallback bool, j *codebox.SetupJournal, fs codebox.FS, stateDir string) ([]codebox.InferenceProvider, error) {
@@ -801,13 +810,14 @@ func setupPlatformStage(ctx context.Context, w codebox.SetupWizard, in *bufio.Re
 					continue
 				}
 				platforms = append(platforms, codebox.SetupPlatform{
-					Kind: string(provider.Kind), Name: provider.Name, BaseURL: provider.BaseURL,
+					Kind: string(provider.Kind), Name: provider.Name, BaseURL: provider.BaseURL, CredentialRef: provider.CredentialRef,
 				})
 				// Only mark a credential as already stored when it actually
 				// exists: a removed key (or an import that never stored one)
 				// must be asked again, not skipped as "already recorded".
-				if setupCredentialPresentFn(ctx, provider.CredentialKind) {
-					j.CredentialKinds = addCredentialKind(j.CredentialKinds, string(provider.CredentialKind))
+				storeKind := setupProviderStoreKind(provider)
+				if setupCredentialPresentFn(ctx, storeKind) {
+					j.CredentialKinds = addCredentialKind(j.CredentialKinds, string(storeKind))
 				}
 			}
 		}
@@ -875,7 +885,7 @@ func setupPlatformStage(ctx context.Context, w codebox.SetupWizard, in *bufio.Re
 
 	for index := range providers {
 		provider := providers[index]
-		stored := codebox.ContainsCredentialKind(j.CredentialKinds, string(provider.CredentialKind))
+		stored := codebox.ContainsCredentialKind(j.CredentialKinds, string(setupProviderStoreKind(provider)))
 		if stored {
 			fmt.Printf("Clé %s déjà enregistrée.\n", provider.Name)
 			continue
@@ -888,13 +898,16 @@ func setupPlatformStage(ctx context.Context, w codebox.SetupWizard, in *bufio.Re
 		// incompatible response; persist the corrected endpoint, not the one
 		// the user started with.
 		provider = updatedProvider
-		providers[index] = updatedProvider
+		if provider.Kind != codebox.ProviderAlbert && strings.TrimSpace(provider.CredentialRef) == "" {
+			provider.CredentialRef = codebox.ProviderCredentialRef(provider)
+		}
+		providers[index] = provider
 		// Revalidate the whole set: a corrected endpoint may collide with
 		// another platform's host, which would make every later launch fail.
 		if _, err := codebox.ResolveProviders(providerSettingsOf(providers)); err != nil {
 			return nil, err
 		}
-		j.CredentialKinds = addCredentialKind(j.CredentialKinds, string(provider.CredentialKind))
+		j.CredentialKinds = addCredentialKind(j.CredentialKinds, string(setupProviderStoreKind(provider)))
 		if provider.Kind == codebox.ProviderAlbert {
 			value := verified
 			j.AlbertVerified = &value
@@ -904,6 +917,7 @@ func setupPlatformStage(ctx context.Context, w codebox.SetupWizard, in *bufio.Re
 			entry.Verified = &value
 			entry.Name = provider.Name
 			entry.BaseURL = provider.BaseURL
+			entry.CredentialRef = provider.CredentialRef
 			for i := range j.Platforms {
 				if j.Platforms[i].Kind == entry.Kind {
 					j.Platforms[i] = entry
@@ -1278,7 +1292,7 @@ func albertEnvKeyStage(ctx context.Context, w codebox.SetupWizard, in *bufio.Rea
 	if !store {
 		return false, false, nil
 	}
-	if err := w.PutCredential(ctx, provider.CredentialKind, key); err != nil {
+	if err := w.PutCredential(ctx, setupProviderStoreKind(provider), key); err != nil {
 		return true, false, err
 	}
 	if verified {
@@ -1364,6 +1378,9 @@ func confirmAlbertEnvKeyStorage(in *bufio.Reader, fallback bool) (bool, error) {
 // explain, re-ask on a refusal, offer retry or continue on an unreachable
 // endpoint. It returns whether the stored key passed validation.
 func providerKeyStage(ctx context.Context, w codebox.SetupWizard, in *bufio.Reader, provider codebox.InferenceProvider, fallback bool, stateDir string) (codebox.InferenceProvider, bool, error) {
+	if provider.Kind != codebox.ProviderAlbert && strings.TrimSpace(provider.CredentialRef) == "" {
+		provider.CredentialRef = codebox.ProviderCredentialRef(provider)
+	}
 	if provider.Kind == codebox.ProviderAlbert {
 		handled, verified, err := albertEnvKeyStage(ctx, w, in, provider, fallback, stateDir)
 		if handled {
@@ -1411,6 +1428,9 @@ func providerKeyStage(ctx context.Context, w codebox.SetupWizard, in *bufio.Read
 					return provider, false, uerr
 				}
 				provider = updated
+				if provider.Kind == codebox.ProviderOpenAICompatible && strings.TrimSpace(provider.CredentialRef) == "" {
+					provider.CredentialRef = codebox.ProviderCredentialRef(provider)
+				}
 				fmt.Println(providerKeyScreenHeader(provider, fallback))
 			}
 			continue
@@ -1427,7 +1447,7 @@ func providerKeyStage(ctx context.Context, w codebox.SetupWizard, in *bufio.Read
 				continue
 			}
 		}
-		if err := w.PutCredential(ctx, provider.CredentialKind, key); err != nil {
+		if err := w.PutCredential(ctx, setupProviderStoreKind(provider), key); err != nil {
 			return provider, false, err
 		}
 		verified := !probe.Unreachable

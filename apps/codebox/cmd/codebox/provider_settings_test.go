@@ -1,6 +1,9 @@
 package main
 
 import (
+	"bufio"
+	"os"
+	"strings"
 	"testing"
 
 	"github.com/etalab-ia/codebox/apps/codebox/internal/codebox"
@@ -58,5 +61,43 @@ func TestResolveProviderSettingsAtProject(t *testing.T) {
 	got, err = resolveProviderSettingsAt(root)
 	if err != nil || got[0].CredentialRef != "explicit-albert" {
 		t.Fatalf("legacy reference overrode the explicit provider reference: %#v, %v", got, err)
+	}
+}
+
+func TestInitPersistsProjectProviderCredentials(t *testing.T) {
+	setupTestEnv(t)
+	root := initTestProject(t)
+	settingsPath, err := codebox.UserSettingsPath()
+	if err != nil {
+		t.Fatal(err)
+	}
+	provider := codebox.ProviderSettings{
+		Kind: codebox.ProviderMistral, CredentialRef: "mistral@api.mistral.ai",
+	}
+	if err := codebox.WriteUserSettings(codebox.DefaultFS, settingsPath, codebox.UserSettings{
+		Providers: []codebox.ProviderSettings{provider},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	code, err := initRun(initOptions{Root: root, Yes: true, Set: map[string]bool{"root": true}}, bufio.NewReader(strings.NewReader("")), false)
+	if code != 0 || err != nil {
+		t.Fatalf("initRun = %d, %v", code, err)
+	}
+	manifest, err := codebox.ReadProjectManifest(codebox.DefaultFS, codebox.ProjectManifestPath(root))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(manifest.Providers) != 1 || manifest.Providers[0].Kind != provider.Kind || manifest.Providers[0].CredentialRef != provider.CredentialRef {
+		t.Fatalf("project provider reference was not persisted: %#v", manifest.Providers)
+	}
+	raw, err := os.ReadFile(codebox.ProjectManifestPath(root))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(raw), "mistral@api.mistral.ai") {
+		t.Fatal("project manifest is missing the non-secret reference")
+	}
+	if strings.Contains(string(raw), "credential-value") {
+		t.Fatal("project manifest contains a credential value")
 	}
 }

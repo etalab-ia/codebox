@@ -62,10 +62,12 @@ func TestResolveProviderKeysUsesExplicitHostBoundReferences(t *testing.T) {
 }
 
 func TestResolveProviderKeysRejectsWrongHostBeforeRead(t *testing.T) {
-	providers, err := ResolveProviders([]ProviderSettings{{Kind: ProviderMistral, CredentialRef: "mistral@evil.example"}})
+	provider, err := ResolveProvider(ProviderSettings{Kind: ProviderMistral})
 	if err != nil {
 		t.Fatal(err)
 	}
+	provider.CredentialRef = "mistral@evil.example"
+	providers := []InferenceProvider{provider}
 	reads := 0
 	read := func(_ context.Context, kind CredentialKind, _ string) (string, string, error) {
 		reads++

@@ -65,10 +65,10 @@ func TestSetupPlatformStageStoresAMistralKeyWithoutAlbert(t *testing.T) {
 	if err != nil {
 		t.Fatalf("platform stage: %v", err)
 	}
-	if len(providers) != 1 || providers[0].Kind != codebox.ProviderMistral {
+	if len(providers) != 1 || providers[0].Kind != codebox.ProviderMistral || providers[0].CredentialRef != "mistral@api.mistral.ai" {
 		t.Fatalf("providers = %+v", providers)
 	}
-	if store.puts[codebox.CredentialMistral] != "m-key" {
+	if store.puts[codebox.CredentialKind("mistral@api.mistral.ai")] != "m-key" {
 		t.Fatalf("the Mistral key was not stored: %+v", store.puts)
 	}
 	if !reflect.DeepEqual(probed, []string{"mistral:m-key"}) {
@@ -78,7 +78,7 @@ func TestSetupPlatformStageStoresAMistralKeyWithoutAlbert(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !codebox.ContainsCredentialKind(after.CredentialKinds, "mistral") {
+	if !codebox.ContainsCredentialKind(after.CredentialKinds, "mistral@api.mistral.ai") {
 		t.Fatalf("journal kinds = %v", after.CredentialKinds)
 	}
 	entry, ok := after.Platform(codebox.ProviderMistral)
@@ -109,7 +109,7 @@ func TestSetupPlatformStageReasksARejectedProviderKey(t *testing.T) {
 	if _, err := setupPlatformStage(context.Background(), w, bufio.NewReader(strings.NewReader("bad\ngood\n")), true, &j, fs, stateDir); err != nil {
 		t.Fatalf("platform stage: %v", err)
 	}
-	if _, stored := store.puts[codebox.CredentialMistral]; !stored || store.puts[codebox.CredentialMistral] != "good" {
+	if _, stored := store.puts[codebox.CredentialKind("mistral@api.mistral.ai")]; !stored || store.puts[codebox.CredentialKind("mistral@api.mistral.ai")] != "good" {
 		t.Fatalf("a rejected key must not be stored and the retry must: %+v", store.puts)
 	}
 }
@@ -143,10 +143,10 @@ func TestSetupPlatformStagePersistsACorrectedEndpoint(t *testing.T) {
 	if err != nil {
 		t.Fatalf("platform stage: %v", err)
 	}
-	if providers[0].BaseURL != "https://new.example.com/v1" || providers[0].Name != "Better" {
+	if providers[0].BaseURL != "https://new.example.com/v1" || providers[0].Name != "Better" || providers[0].CredentialRef != "openai-compatible@new.example.com" {
 		t.Fatalf("corrected provider not persisted: %+v", providers[0])
 	}
-	if store.puts[codebox.CredentialOpenAICompatible] != "k2" {
+	if store.puts[codebox.CredentialKind("openai-compatible@new.example.com")] != "k2" {
 		t.Fatalf("the corrected endpoint's key was not stored: %+v", store.puts)
 	}
 	after, err := codebox.ReadSetupJournal(fs, stateDir)
@@ -154,7 +154,7 @@ func TestSetupPlatformStagePersistsACorrectedEndpoint(t *testing.T) {
 		t.Fatal(err)
 	}
 	entry, ok := after.Platform(codebox.ProviderOpenAICompatible)
-	if !ok || entry.BaseURL != "https://new.example.com/v1" || entry.Name != "Better" {
+	if !ok || entry.BaseURL != "https://new.example.com/v1" || entry.Name != "Better" || entry.CredentialRef != "openai-compatible@new.example.com" {
 		t.Fatalf("journal kept the old endpoint: %+v", after.Platforms)
 	}
 }
@@ -293,7 +293,7 @@ func TestSetupPlatformStageReasksAMissingCredential(t *testing.T) {
 	if _, err := setupPlatformStage(context.Background(), w, bufio.NewReader(strings.NewReader("new-mistral-key\n")), true, &j, fs, stateDir); err != nil {
 		t.Fatalf("platform stage: %v", err)
 	}
-	if store.puts[codebox.CredentialMistral] != "new-mistral-key" {
+	if store.puts[codebox.CredentialKind("mistral@api.mistral.ai")] != "new-mistral-key" {
 		t.Fatalf("a missing credential must be asked again: %+v", store.puts)
 	}
 }
