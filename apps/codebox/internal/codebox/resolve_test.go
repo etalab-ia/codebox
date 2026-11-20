@@ -321,8 +321,8 @@ func TestProjectManifestMCPSelectionBumpsSchemaAndReadsPreviousVersion(t *testin
 	if err := WriteProjectManifest(fs, path, manifest); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(fs.files[path]), `"schemaVersion": 7`) {
-		t.Fatalf("updated manifest did not write schema version 7: %s", fs.files[path])
+	if !strings.Contains(string(fs.files[path]), `"schemaVersion": 8`) {
+		t.Fatalf("updated manifest did not write schema version 8: %s", fs.files[path])
 	}
 	// A schemaVersion 7 manifest with the optional secrets block is readable.
 	fs.files[path] = []byte(`{"schemaVersion":7,"secrets":{"projectId":"22222222-2222-4222-8222-222222222222","bindings":[]}}`)
@@ -330,7 +330,7 @@ func TestProjectManifestMCPSelectionBumpsSchemaAndReadsPreviousVersion(t *testin
 	if err != nil || manifest.Secrets == nil || manifest.Secrets.ProjectID != "22222222-2222-4222-8222-222222222222" {
 		t.Fatalf("schema 7 secrets manifest = %+v, %v", manifest, err)
 	}
-	fs.files[path] = []byte(`{"schemaVersion":8}`)
+	fs.files[path] = []byte(`{"schemaVersion":9}`)
 	if _, err := ReadProjectManifest(fs, path); err == nil || !strings.Contains(err.Error(), "plus récent que ce que cette version prend en charge") {
 		t.Fatalf("unsupported future manifest schema error = %v", err)
 	}

@@ -659,21 +659,6 @@ func resolveAlbert(ctx context.Context, cfg Config, from string) (string, bindin
 	return resolveAlbertWith(readStoredWith, ctx, cfg, from)
 }
 
-// inferenceProviderForBinding returns the full provider contract behind a
-// registry entry, including its explicit credential reference. Matching both
-// legacy kind and guest variable prevents a same-kind lookup from drifting.
-func inferenceProviderForBinding(providers []InferenceProvider, binding msbSecretBinding) (InferenceProvider, error) {
-	if len(providers) == 0 {
-		providers, _ = ResolveProviders(nil)
-	}
-	for _, provider := range providers {
-		if provider.CredentialKind == binding.Kind && provider.APIKeyEnv == binding.GuestEnv {
-			return provider, nil
-		}
-	}
-	return InferenceProvider{}, fmt.Errorf("association de plateforme introuvable pour %s", binding.GuestEnv)
-}
-
 // resolveAlbertWith is resolveAlbert over an injected reader, so tests can
 // exercise the precedence chain and the store scoping without a real
 // credential store. It returns the resolved value, its source, the store it

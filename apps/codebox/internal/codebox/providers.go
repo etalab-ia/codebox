@@ -119,6 +119,9 @@ func ResolveProviders(settings []ProviderSettings) ([]InferenceProvider, error) 
 		if err != nil {
 			return nil, err
 		}
+		if err := ValidateProviderCredentialRef(p, p.CredentialRef); err != nil {
+			return nil, err
+		}
 		if prev, dup := hosts[p.Host]; dup {
 			return nil, fmt.Errorf("les plateformes %s et %s partagent l'hôte %s : un identifiant ne doit avoir qu'une seule destination", prev, p.Kind, p.Host)
 		}

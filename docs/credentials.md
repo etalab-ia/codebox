@@ -62,6 +62,28 @@ approbation par projet (`codebox bindings approve`), enregistrée dans
 l'état local de l'hôte — jamais dans le dépôt.
 
 
+## Références par provider et par projet
+
+Chaque provider peut déclarer une `credentialRef` dans ses métadonnées non
+secrètes. Le manifeste projet peut aussi enregistrer la liste des providers
+choisis, ce qui permet à deux projets d'utiliser des providers différents tout
+en réutilisant une clé déjà stockée sur le poste. La valeur reste toujours dans
+le magasin d'identifiants.
+
+Pour Mistral AI et un provider compatible OpenAI, une nouvelle référence prend
+la forme `<kind>@<host>` : `mistral@api.mistral.ai`, ou par exemple
+`openai-compatible@openrouter.ai`. Le provider et l'hôte doivent correspondre à
+la référence ; sinon la résolution échoue avant de lire le moindre secret. Une
+référence explicite absente du magasin échoue également, sans retomber sur une
+variable d'environnement ou une autre clé. Albert conserve ses références
+personnalisées historiques puisque son hôte est fixe.
+
+Sans référence explicite, le comportement historique est inchangé : variable
+d'environnement du provider, puis entrée fixe du magasin. Aucune migration ne
+copie une clé vers une nouvelle entrée. La décision détaillée et les garanties de
+récupération sont décrites dans
+[Provider et références d'identifiants par projet](decisions/2026-11-20-provider-project-credentials.md).
+
 ## Liaisons d'identifiants (`bindings`)
 
 Sur Microsandbox, les identifiants sont injectés par le proxy de secrets : la valeur brute n'est jamais persistée (ni dans la base du runtime, ni dans l'environnement invité) — la liaison est une référence à une variable d'environnement hôte, re-résolue à chaque application et à chaque démarrage. Chaque plateforme connectée a une liaison obligatoire, limitée à son propre hôte : `ALBERT_API_KEY` vers `albert.api.etalab.gouv.fr`, `MISTRAL_API_KEY` vers `api.mistral.ai`, `OPENAI_COMPATIBLE_API_KEY` vers l'hôte de l'URL de base saisie. Ces hôtes sont disjoints : une clé ne peut jamais être substituée vers la destination d'une autre plateforme. `github` et `context7` restent **optionnelles et approuvées projet par projet** :

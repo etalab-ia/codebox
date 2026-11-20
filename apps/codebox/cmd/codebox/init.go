@@ -361,6 +361,24 @@ func initRun(opts initOptions, in *bufio.Reader, tty bool) (code int, err error)
 			"Chaque question peut être répondue par une option : --runtime, --isolation, --model, --small-model, --cpus, --memory-mb, --credential-ref, --github, --skill, --clear-skills, --mcp, --clear-mcps, --local-only-skills, --versioned-skills, --replace, --yes")
 	}
 	answers = seedInitAnswersFromManifest(opts, answers)
+	if len(answers.Providers) == 0 {
+		settings, err := resolveProviderSettings()
+		if err != nil {
+			return 1, fmt.Errorf("impossible de lire les plateformes configurées : %w", err)
+		}
+		providers, err := codebox.ResolveProviders(settings)
+		if err != nil {
+			return 1, fmt.Errorf("impossible de résoudre les plateformes du projet : %w", err)
+		}
+		answers.Providers = providerSettingsOf(providers)
+	}
+	if ref := strings.TrimSpace(answers.CredentialRef); ref != "" {
+		for i := range answers.Providers {
+			if answers.Providers[i].Kind == codebox.ProviderAlbert && strings.TrimSpace(answers.Providers[i].CredentialRef) == "" {
+				answers.Providers[i].CredentialRef = ref
+			}
+		}
+	}
 
 	// The catalogue check reads the credential reference of the project being
 	// configured, not of whatever directory the caller happens to run from,
@@ -846,6 +864,7 @@ func seedInitAnswersFromManifest(opts initOptions, answers codebox.InitAnswers) 
 	if !opts.Set["credential-ref"] {
 		answers.CredentialRef = manifest.CredentialRef
 	}
+	answers.Providers = append([]codebox.ProviderSettings(nil), manifest.Providers...)
 	if !opts.Set["mcps"] {
 		answers.MCPConnectors = append([]string(nil), manifest.MCPConnectors...)
 	}
