@@ -12,9 +12,7 @@ import (
 	"strconv"
 	"strings"
 
-	tea "charm.land/bubbletea/v2"
 	"charm.land/huh/v2"
-	lipgloss "charm.land/lipgloss/v2"
 	"github.com/etalab-ia/codebox/apps/codebox/internal/codebox"
 	"golang.org/x/term"
 )
@@ -1737,127 +1735,18 @@ var setupProviderCatalogueFn = func(provider codebox.InferenceProvider) ([]codeb
 	return codebox.FetchProviderModels(context.Background(), nil, provider, apiKey)
 }
 
+// setupModelPicker carries the model screen's state across the two huh
+// forms (#445): the multi-select of available models, then the single-select
+// of the default among the chosen ones. It keeps the same fields the former
+// bespoke Bubble Tea program exposed, so promptSetupModels and the test seam
+// are unchanged; only the rendering moved to the shared huh design.
 type setupModelPicker struct {
 	choices         []setupModelChoice
 	selected        map[string]bool
 	unavailable     map[string]bool
-	cursor          int
 	defaultModel    string
 	externalDefault bool
-	errorMessage    string
-	cancelled       bool
 	done            bool
-}
-
-func (m setupModelPicker) Init() tea.Cmd { return nil }
-
-func (m setupModelPicker) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
-	if _, ok := msg.(tea.InterruptMsg); ok {
-		m.cancelled = true
-		return m, tea.Quit
-	}
-	key, ok := msg.(tea.KeyPressMsg)
-	if !ok {
-		return m, nil
-	}
-	if (key.Mod&tea.ModCtrl != 0 && key.Code == 'c') || key.Code == tea.KeyEscape {
-		m.cancelled = true
-		return m, tea.Quit
-	}
-	choice := m.choices[m.cursor]
-	switch key.Code {
-	case tea.KeyUp:
-		m.cursor = (m.cursor + len(m.choices) - 1) % len(m.choices)
-		m.errorMessage = ""
-	case tea.KeyDown:
-		m.cursor = (m.cursor + 1) % len(m.choices)
-		m.errorMessage = ""
-	case tea.KeySpace:
-		if !m.isAvailable(choice.Ref()) {
-			m.errorMessage = "Ce modèle est indisponible dans le catalogue de sa plateforme."
-			break
-		}
-		if m.selected[choice.Ref()] {
-			if m.selectedCount() == 1 {
-				m.errorMessage = "Sélectionnez au moins un modèle."
-				break
-			}
-			delete(m.selected, choice.Ref())
-			if m.defaultModel == choice.Ref() {
-				m.defaultModel = m.firstSelectedRef()
-			}
-		} else {
-			m.selected[choice.Ref()] = true
-		}
-		m.errorMessage = ""
-	case tea.KeyLeft, tea.KeyRight:
-		if !m.selected[choice.Ref()] {
-			m.errorMessage = "Cochez d'abord le modèle choisi par défaut."
-			break
-		}
-		if !m.isAvailable(choice.Ref()) {
-			m.errorMessage = "Ce modèle est indisponible dans le catalogue de sa plateforme."
-			break
-		}
-		m.defaultModel = choice.Ref()
-		m.externalDefault = false
-		m.errorMessage = ""
-	case tea.KeyEnter:
-		if m.selectedCount() == 0 {
-			m.errorMessage = "Sélectionnez au moins un modèle."
-			break
-		}
-		if !m.externalDefault && (m.defaultModel == "" || !m.defaultModelSelected()) {
-			m.defaultModel = m.firstSelectedRef()
-		}
-		m.done = true
-		return m, tea.Quit
-	}
-	return m, nil
-}
-
-func (m setupModelPicker) View() tea.View {
-	var b strings.Builder
-	b.WriteString("[2/3] Sélection des modèles à utiliser\n\n")
-	b.WriteString("Choisissez les modèles que l'agent pourra utiliser.\n")
-	b.WriteString("Vous pourrez passer de l'un à l'autre pendant une session avec /models.\n\n")
-	if m.externalDefault {
-		b.WriteString("Modèle actuel hors catalogue : " + m.defaultModel + " (conservé avec Entrée).\n\n")
-	}
-	lastGroup := ""
-	for index, choice := range m.choices {
-		if choice.Group != "" && choice.Group != lastGroup {
-			if lastGroup != "" {
-				b.WriteString("\n")
-			}
-			b.WriteString(choice.Group + "\n")
-			lastGroup = choice.Group
-		}
-		cursor := "  "
-		if index == m.cursor {
-			cursor = "> "
-		}
-		mark := "[ ]"
-		if m.selected[choice.Ref()] {
-			mark = "[x]"
-		}
-		line := fmt.Sprintf("%s%s %-32s %s", cursor, mark, choice.Name, choice.Description)
-		if m.defaultModel == choice.Ref() {
-			line += " (par défaut)"
-		}
-		if !m.isAvailable(choice.Ref()) {
-			line += " (indisponible)"
-			line = lipgloss.NewStyle().Foreground(lipgloss.Color("8")).Render(line)
-		}
-		b.WriteString(line + "\n")
-	}
-	b.WriteString("\nEspace : cocher ou décocher.  ← → : choisir le modèle par défaut.  Entrée : valider.\n")
-	b.WriteString("Détails : https://guides.ia.numerique.gouv.fr/albert-api/modeles/available-models\n")
-	b.WriteString("Vous pourrez modifier ce choix plus tard avec : codebox setup")
-	if m.errorMessage != "" {
-		b.WriteString("\n\n" + m.errorMessage)
-	}
-	return tea.NewView(b.String())
 }
 
 func (m setupModelPicker) isAvailable(ref string) bool {
@@ -1883,28 +1772,124 @@ func (m setupModelPicker) firstSelectedRef() string {
 	return ""
 }
 
-func (m setupModelPicker) defaultModelSelected() bool {
-	for _, choice := range m.choices {
-		if choice.Ref() == m.defaultModel {
-			return m.selected[choice.Ref()] && m.isAvailable(choice.Ref())
+// setupModelOptions builds the multi-select options: one per available
+// model, labelled with its platform group so the list reads like the former
+// grouped view. Unavailable models are omitted rather than shown greyed —
+// they cannot be chosen, and the catalogue outage path already keeps the
+// prior selection upstream.
+func setupModelOptions(picker setupModelPicker) []huh.Option[string] {
+	options := make([]huh.Option[string], 0, len(picker.choices))
+	for _, choice := range picker.choices {
+		if !picker.isAvailable(choice.Ref()) {
+			continue
 		}
+		label := choice.Name
+		if choice.Group != "" {
+			label = choice.Group + " — " + label
+		}
+		if choice.Description != "" {
+			label += " : " + choice.Description
+		}
+		options = append(options, huh.NewOption(label, choice.Ref()))
 	}
-	return false
+	return options
 }
 
+// setupDefaultOptions builds the default-model single-select from the
+// currently selected refs, in choice order. An external (unmanaged) default
+// is offered first so it can be kept with Enter, matching the former view's
+// "conservé avec Entrée" line.
+func setupDefaultOptions(picker setupModelPicker) []huh.Option[string] {
+	var options []huh.Option[string]
+	if picker.externalDefault && picker.defaultModel != "" {
+		options = append(options, huh.NewOption(picker.defaultModel+" (hors catalogue, conservé)", picker.defaultModel))
+	}
+	for _, choice := range picker.choices {
+		if picker.selected[choice.Ref()] && picker.isAvailable(choice.Ref()) {
+			label := choice.Name
+			if choice.Group != "" {
+				label = choice.Group + " — " + label
+			}
+			options = append(options, huh.NewOption(label, choice.Ref()))
+		}
+	}
+	return options
+}
+
+// setupModelPickerRun renders the model screen through the shared huh design
+// (#445): a multi-select of available models, then a single-select of the
+// default among the chosen ones. It is a var so tests can stub the whole
+// screen, the same seam the former Bubble Tea program exposed.
 var setupModelPickerRun = func(initial setupModelPicker) (setupModelPicker, error) {
-	result, err := tea.NewProgram(initial, tea.WithOutput(os.Stdout)).Run()
+	picker := initial
+	available := setupModelOptions(picker)
+	if len(available) == 0 {
+		return picker, fmt.Errorf("aucun modèle sélectionné n'est disponible dans les catalogues")
+	}
+	selectedRefs := make([]string, 0, len(picker.selected))
+	for _, option := range available {
+		if picker.selected[option.Value] {
+			selectedRefs = append(selectedRefs, option.Value)
+		}
+	}
+	description := "Choisissez les modèles que l'agent pourra utiliser. Vous pourrez passer de l'un à l'autre pendant une session avec /models.\n" +
+		"Espace ou x pour cocher/décocher ; Entrée pour valider la liste.\n" +
+		"Détails : https://guides.ia.numerique.gouv.fr/albert-api/modeles/available-models"
+	if picker.externalDefault && picker.defaultModel != "" {
+		description += "\nModèle actuel hors catalogue : " + picker.defaultModel + " (conservé si vous ne choisissez pas d'autre défaut)."
+	}
+	err := huhRun(huh.NewForm(huh.NewGroup(
+		keepMultiSelectCursorOnResize(huh.NewMultiSelect[string]().
+			Title("[2/3] Sélection des modèles à utiliser").
+			Description(description).
+			Height(len(available) + 10).
+			Filterable(true).
+			Validate(func(values []string) error {
+				if len(values) == 0 {
+					return fmt.Errorf("sélectionnez au moins un modèle")
+				}
+				return nil
+			}).
+			Options(available...).
+			Value(&selectedRefs)),
+	)))
 	if err != nil {
-		return initial, err
+		return picker, err
 	}
-	final, ok := result.(setupModelPicker)
-	if !ok {
-		return initial, fmt.Errorf("le sélecteur de modèles a renvoyé un état inattendu")
+	picker.selected = map[string]bool{}
+	for _, ref := range selectedRefs {
+		picker.selected[ref] = true
 	}
-	if final.cancelled {
-		return final, huh.ErrUserAborted
+	if picker.selectedCount() == 0 {
+		return picker, fmt.Errorf("sélectionnez au moins un modèle disponible")
 	}
-	return final, nil
+	// The default must be one of the chosen models, except a valid external
+	// (unmanaged) default: it is intentionally absent from picker.selected and
+	// must stay preselected so confirming both screens with Enter keeps it.
+	defaultOptions := setupDefaultOptions(picker)
+	defaultRef := picker.defaultModel
+	keepExternal := picker.externalDefault && defaultRef != ""
+	if !keepExternal && (!picker.selected[defaultRef] || !picker.isAvailable(defaultRef)) {
+		defaultRef = picker.firstSelectedRef()
+	}
+	if len(defaultOptions) > 1 || picker.externalDefault {
+		err = huhRun(huh.NewForm(huh.NewGroup(
+			huh.NewSelect[string]().
+				Title("[2/3] Modèle par défaut").
+				Description("Le modèle utilisé au démarrage d'une session. Les autres restent accessibles avec /models.").
+				Options(defaultOptions...).
+				Value(&defaultRef),
+		)))
+		if err != nil {
+			return picker, err
+		}
+	}
+	picker.defaultModel = defaultRef
+	// The external flag survives only while the external ref is the chosen
+	// default; picking a catalogue model clears it, like the former ←/→.
+	picker.externalDefault = picker.externalDefault && defaultRef == initial.defaultModel
+	picker.done = true
+	return picker, nil
 }
 
 func promptSetupModels(providers []codebox.InferenceProvider, current []string, currentDefault string) ([]string, string, bool, error) {
