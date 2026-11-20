@@ -3,6 +3,9 @@ package gateway
 import (
 	"context"
 	"crypto"
+	"crypto/ecdsa"
+	"crypto/elliptic"
+	"crypto/hmac"
 	"crypto/rsa"
 	"crypto/sha256"
 	"encoding/base64"
@@ -24,6 +27,21 @@ type jwk struct {
 	Alg string `json:"alg"`
 	N   string `json:"n"`
 	E   string `json:"e"`
+	Crv string `json:"crv"`
+	X   string `json:"x"`
+	Y   string `json:"y"`
+}
+
+// providerKeys keeps asymmetric algorithms in distinct key namespaces. HMAC
+// never reads these public keys: HS256 uses only the OIDC client secret.
+type providerKeys struct {
+	rsaByKid   map[string]*rsa.PublicKey
+	ecdsaByKid map[string]*ecdsa.PublicKey
+}
+
+type jwtHeader struct {
+	Alg string `json:"alg"`
+	Kid string `json:"kid"`
 }
 
 // verifiedToken is the validated subset of an ID token's claims.
@@ -60,9 +78,10 @@ type jwtPayload struct {
 	ExpiresAt int64           `json:"exp"`
 }
 
-// fetchJWKS retrieves and parses the provider's signing keys. Only RSA keys
-// usable for signatures are admitted: ProConnect issues RS256 ID tokens.
-func (c *OIDCClient) fetchJWKS(ctx context.Context, jwksURL string) (map[string]*rsa.PublicKey, error) {
+// fetchJWKS retrieves and parses the provider's public signing keys. RSA keys
+// are restricted to RS256 and P-256 EC keys to ES256; neither is eligible for
+// HMAC verification.
+func (c *OIDCClient) fetchJWKS(ctx context.Context, jwksURL string) (*providerKeys, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, jwksURL, nil)
 	if err != nil {
 		return nil, err
@@ -86,25 +105,29 @@ func (c *OIDCClient) fetchJWKS(ctx context.Context, jwksURL string) (map[string]
 	if len(doc.Keys) == 0 {
 		return nil, fmt.Errorf("%w : la charge jwks ne contient aucune clé", ErrUpstream)
 	}
-	keys := make(map[string]*rsa.PublicKey, len(doc.Keys))
+	keys := &providerKeys{
+		rsaByKid:   make(map[string]*rsa.PublicKey),
+		ecdsaByKid: make(map[string]*ecdsa.PublicKey),
+	}
 	for _, k := range doc.Keys {
-		if !strings.EqualFold(k.Kty, "RSA") {
-			continue
-		}
 		if k.Use != "" && !strings.EqualFold(k.Use, "sig") {
 			continue
 		}
-		if k.Alg != "" && !strings.EqualFold(k.Alg, "RS256") {
-			continue
+		switch {
+		case strings.EqualFold(k.Kty, "RSA") && (k.Alg == "" || strings.EqualFold(k.Alg, "RS256")):
+			pub, err := rsaPublicKeyFromJWK(k)
+			if err == nil {
+				keys.rsaByKid[k.Kid] = pub
+			}
+		case strings.EqualFold(k.Kty, "EC") && (k.Alg == "" || strings.EqualFold(k.Alg, "ES256")):
+			pub, err := ecdsaPublicKeyFromJWK(k)
+			if err == nil {
+				keys.ecdsaByKid[k.Kid] = pub
+			}
 		}
-		pub, err := rsaPublicKeyFromJWK(k)
-		if err != nil {
-			continue
-		}
-		keys[k.Kid] = pub
 	}
-	if len(keys) == 0 {
-		return nil, fmt.Errorf("%w : la charge jwks ne contient aucune clé de signature RS256 utilisable", ErrUpstream)
+	if len(keys.rsaByKid)+len(keys.ecdsaByKid) == 0 {
+		return nil, fmt.Errorf("%w : la charge jwks ne contient aucune clé de signature RS256 ou ES256 utilisable", ErrUpstream)
 	}
 	return keys, nil
 }
@@ -126,50 +149,79 @@ func rsaPublicKeyFromJWK(k jwk) (*rsa.PublicKey, error) {
 	return &rsa.PublicKey{N: n, E: int(e.Int64())}, nil
 }
 
-// verifyRS256JWT validates an ID token's signature, issuer, audience and
-// lifetime, returning its claims. Only RS256 is accepted: ProConnect's
-// documented ID token algorithms are RS256, ES256 and HS256, and a shared
-// symmetric secret must never be offered to a public client.
-//
-// expectedAudience is the gateway's own client ID. `aud` may be a string or an
-// array per OIDC, and the token is rejected when it does not name this client:
-// otherwise an assertion minted for another service could be replayed here.
-func verifyRS256JWT(token string, keys map[string]*rsa.PublicKey, issuer, expectedAudience string, now time.Time) (verifiedToken, error) {
-	return verifyRS256JWTChecked(token, keys, issuer, expectedAudience, now, true)
+func ecdsaPublicKeyFromJWK(k jwk) (*ecdsa.PublicKey, error) {
+	if k.Crv != "P-256" {
+		return nil, errors.New("courbe non prise en charge")
+	}
+	xBytes, err := base64.RawURLEncoding.DecodeString(k.X)
+	if err != nil || len(xBytes) != 32 {
+		return nil, errors.New("coordonnée x invalide")
+	}
+	yBytes, err := base64.RawURLEncoding.DecodeString(k.Y)
+	if err != nil || len(yBytes) != 32 {
+		return nil, errors.New("coordonnée y invalide")
+	}
+	x := new(big.Int).SetBytes(xBytes)
+	y := new(big.Int).SetBytes(yBytes)
+	if !elliptic.P256().IsOnCurve(x, y) {
+		return nil, errors.New("point hors de la courbe P-256")
+	}
+	return &ecdsa.PublicKey{Curve: elliptic.P256(), X: x, Y: y}, nil
 }
 
-// verifyRS256JWTClaims verifies a signed UserInfo response. OIDC requires such
-// a response to carry sub, iss and aud but NOT an expiry, so an absent `exp` is
-// accepted here — while an expiry that IS present must still be valid.
-func verifyRS256JWTClaims(token string, keys map[string]*rsa.PublicKey, issuer, expectedAudience string, now time.Time) (verifiedToken, error) {
-	return verifyRS256JWTChecked(token, keys, issuer, expectedAudience, now, false)
-}
-
-// verifyRS256JWTChecked is the shared verifier. expiryRequired distinguishes an
-// ID token (expiry mandatory) from a signed UserInfo response (expiry optional).
-func verifyRS256JWTChecked(token string, keys map[string]*rsa.PublicKey, issuer, expectedAudience string, now time.Time, expiryRequired bool) (verifiedToken, error) {
+func parseCompactJWS(token string) ([]string, jwtHeader, error) {
 	parts := strings.Split(token, ".")
 	if len(parts) != 3 {
-		return verifiedToken{}, fmt.Errorf("%w : le jeton d'identité n'est pas un JWS compact", ErrUpstream)
+		return nil, jwtHeader{}, fmt.Errorf("%w : le jeton d'identité n'est pas un JWS compact", ErrUpstream)
 	}
 	rawHeader, err := base64.RawURLEncoding.DecodeString(parts[0])
 	if err != nil {
-		return verifiedToken{}, fmt.Errorf("%w : l'en-tête du jeton d'identité n'est pas du base64url", ErrUpstream)
+		return nil, jwtHeader{}, fmt.Errorf("%w : l'en-tête du jeton d'identité n'est pas du base64url", ErrUpstream)
 	}
-	var header struct {
-		Alg string `json:"alg"`
-		Kid string `json:"kid"`
-		Typ string `json:"typ"`
-	}
+	var header jwtHeader
 	if err := json.Unmarshal(rawHeader, &header); err != nil {
-		return verifiedToken{}, fmt.Errorf("%w : l'en-tête du jeton d'identité n'est pas du JSON", ErrUpstream)
+		return nil, jwtHeader{}, fmt.Errorf("%w : l'en-tête du jeton d'identité n'est pas du JSON", ErrUpstream)
 	}
-	if header.Alg != "RS256" {
-		return verifiedToken{}, fmt.Errorf("%w : algorithme de jeton d'identité non pris en charge %q", ErrUpstream, header.Alg)
+	return parts, header, nil
+}
+
+// verifyToken selects the credential from the registered algorithm before any
+// claim is trusted. Public-key algorithms fetch JWKS; HS256 never does.
+func (c *OIDCClient) verifyToken(ctx context.Context, jwksURL, token string, expiryRequired bool) (verifiedToken, error) {
+	_, header, err := parseCompactJWS(token)
+	if err != nil {
+		return verifiedToken{}, err
 	}
-	key, ok := keys[header.Kid]
-	if !ok {
-		return verifiedToken{}, fmt.Errorf("%w : la clé %q du jeton d'identité est absente du jeu de clés du fournisseur", ErrUpstream, header.Kid)
+	var keys *providerKeys
+	if header.Alg == "RS256" || header.Alg == "ES256" {
+		keys, err = c.fetchJWKS(ctx, jwksURL)
+		if err != nil {
+			return verifiedToken{}, err
+		}
+	}
+	return verifyJWTChecked(token, keys, c.cfg.ClientSecret, c.cfg.Issuer, c.cfg.ClientID, c.now(), expiryRequired)
+}
+
+// verifyJWT validates an ID token's signature, issuer, audience and lifetime.
+// RS256/ES256 use provider public keys; HS256 uses only the client secret.
+// expectedAudience is the gateway's own client ID. `aud` may be a string or an
+// array per OIDC, and the token is rejected when it does not name this client.
+func verifyJWT(token string, keys *providerKeys, clientSecret, issuer, expectedAudience string, now time.Time) (verifiedToken, error) {
+	return verifyJWTChecked(token, keys, clientSecret, issuer, expectedAudience, now, true)
+}
+
+// verifyJWTClaims verifies signed UserInfo. Such a response must carry sub, iss
+// and aud but NOT an expiry; an expiry that is present must still be valid.
+func verifyJWTClaims(token string, keys *providerKeys, clientSecret, issuer, expectedAudience string, now time.Time) (verifiedToken, error) {
+	return verifyJWTChecked(token, keys, clientSecret, issuer, expectedAudience, now, false)
+}
+
+// verifyJWTChecked is the shared verifier. expiryRequired distinguishes an ID
+// token (expiry mandatory) from a signed UserInfo response (expiry optional).
+func verifyJWTChecked(token string, keys *providerKeys, clientSecret, issuer, expectedAudience string, now time.Time, expiryRequired bool) (verifiedToken, error) {
+	parts, header, err := parseCompactJWS(token)
+	if err != nil {
+		return verifiedToken{}, err
 	}
 	signature, err := base64.RawURLEncoding.DecodeString(parts[2])
 	if err != nil {
@@ -177,7 +229,34 @@ func verifyRS256JWTChecked(token string, keys map[string]*rsa.PublicKey, issuer,
 	}
 	signingInput := []byte(parts[0] + "." + parts[1])
 	hash := sha256.Sum256(signingInput)
-	if err := rsa.VerifyPKCS1v15(key, crypto.SHA256, hash[:], signature); err != nil {
+	validSignature := false
+	switch header.Alg {
+	case "RS256":
+		if keys != nil {
+			if key, ok := keys.rsaByKid[header.Kid]; ok {
+				validSignature = rsa.VerifyPKCS1v15(key, crypto.SHA256, hash[:], signature) == nil
+			}
+		}
+	case "ES256":
+		if keys != nil {
+			if key, ok := keys.ecdsaByKid[header.Kid]; ok {
+				if len(signature) == 64 {
+					r := new(big.Int).SetBytes(signature[:32])
+					s := new(big.Int).SetBytes(signature[32:])
+					validSignature = ecdsa.Verify(key, hash[:], r, s)
+				}
+			}
+		}
+	case "HS256":
+		if clientSecret != "" {
+			mac := hmac.New(sha256.New, []byte(clientSecret))
+			_, _ = mac.Write(signingInput)
+			validSignature = hmac.Equal(signature, mac.Sum(nil))
+		}
+	default:
+		return verifiedToken{}, fmt.Errorf("%w : algorithme de jeton d'identité non pris en charge %q", ErrUpstream, header.Alg)
+	}
+	if !validSignature {
 		return verifiedToken{}, fmt.Errorf("%w : la signature du jeton d'identité est invalide", ErrUpstream)
 	}
 

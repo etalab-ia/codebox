@@ -56,8 +56,8 @@ Use this two-run bootstrap sequence:
 
 1. Register the ProConnect application with the temporary callback
    `https://bootstrap.invalid/auth/callback`, leaving logout URLs empty and
-   selecting RS256 where configurable. Leave `CODEBOX_SERVER_URL`
-   unset.
+   selecting RS256, ES256 or HS256 for ID-token and signed-UserInfo signing.
+   Leave `CODEBOX_SERVER_URL` unset.
 2. Open **Actions → Deploy codebox server → Run workflow**, enter a published
    immutable tag such as `codebox-server-vX.Y.Z`, and run from `main`.
 3. The workflow creates or reuses the `codebox-server` namespace and
