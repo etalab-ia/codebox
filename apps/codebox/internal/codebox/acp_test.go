@@ -8,6 +8,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	msb "github.com/superradcompany/microsandbox/sdk/go"
 )
@@ -167,7 +168,7 @@ func TestRunACPStreamsProtocolBytes(t *testing.T) {
 
 	input := "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"initialize\",\"params\":{}}\n"
 	var stdout, stderr bytes.Buffer
-	if err := runtime.RunACP(context.Background(), strings.NewReader(input), &stdout, &stderr); err != nil {
+	if err := runtime.RunACP(context.Background(), io.NopCloser(strings.NewReader(input)), &stdout, &stderr); err != nil {
 		t.Fatalf("RunACP: %v", err)
 	}
 
@@ -200,7 +201,7 @@ func TestRunACPReportsGuestExitCode(t *testing.T) {
 	runtime := NewMicrosandboxRuntime(Config{Harness: HarnessOpenCode, Isolation: IsolationFull})
 	runtime.Client = &fakeACPStreamClient{fakeMSBClient: &fakeMSBClient{}, stream: stream}
 
-	err := runtime.RunACP(context.Background(), strings.NewReader(""), &bytes.Buffer{}, &bytes.Buffer{})
+	err := runtime.RunACP(context.Background(), io.NopCloser(strings.NewReader("")), &bytes.Buffer{}, &bytes.Buffer{})
 	if err == nil || !strings.Contains(err.Error(), "17") {
 		t.Fatalf("RunACP error = %v, want guest exit code 17", err)
 	}
@@ -216,7 +217,7 @@ func TestRunACPCancellationKillsGuest(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)
 	go func() {
-		done <- runtime.RunACP(ctx, strings.NewReader(""), &bytes.Buffer{}, &bytes.Buffer{})
+		done <- runtime.RunACP(ctx, io.NopCloser(strings.NewReader("")), &bytes.Buffer{}, &bytes.Buffer{})
 	}()
 
 	<-stream.recvStarted
@@ -226,6 +227,102 @@ func TestRunACPCancellationKillsGuest(t *testing.T) {
 	}
 	if kills, closes := stream.state(); kills != 1 || closes != 1 {
 		t.Fatalf("stream kills/closes = %d/%d, want 1/1 after cancellation", kills, closes)
+	}
+}
+
+type blockingACPReader struct {
+	closed chan struct{}
+	once   sync.Once
+}
+
+func newBlockingACPReader() *blockingACPReader {
+	return &blockingACPReader{closed: make(chan struct{})}
+}
+
+func (r *blockingACPReader) Read([]byte) (int, error) {
+	<-r.closed
+	return 0, io.EOF
+}
+
+func (r *blockingACPReader) Close() error {
+	r.once.Do(func() { close(r.closed) })
+	return nil
+}
+
+func TestRunACPCancellationClosesAndJoinsInput(t *testing.T) {
+	stream := newFakeACPStream()
+	runtime := NewMicrosandboxRuntime(Config{Harness: HarnessOpenCode, Isolation: IsolationFull})
+	runtime.Client = &fakeACPStreamClient{fakeMSBClient: &fakeMSBClient{}, stream: stream}
+	reader := newBlockingACPReader()
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() {
+		done <- runtime.RunACP(ctx, reader, &bytes.Buffer{}, &bytes.Buffer{})
+	}()
+
+	<-stream.recvStarted
+	cancel()
+	select {
+	case err := <-done:
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("RunACP error = %v, want context.Canceled", err)
+		}
+	case <-time.After(2 * time.Second):
+		_ = reader.Close()
+		t.Fatal("RunACP did not return after cancellation")
+	}
+	select {
+	case <-reader.closed:
+	default:
+		_ = reader.Close()
+		t.Fatal("RunACP returned without closing and joining client input")
+	}
+}
+
+type blockingACPWriter struct {
+	started chan struct{}
+	unblock chan struct{}
+	once    sync.Once
+}
+
+func newBlockingACPWriter() *blockingACPWriter {
+	return &blockingACPWriter{started: make(chan struct{}), unblock: make(chan struct{})}
+}
+
+func (w *blockingACPWriter) Write(p []byte) (int, error) {
+	w.once.Do(func() { close(w.started) })
+	<-w.unblock
+	return len(p), nil
+}
+
+func TestRunACPCancellationInterruptsBlockedOutput(t *testing.T) {
+	stream := newFakeACPStream(acpEvents(
+		&msb.ExecEvent{Kind: msb.ExecEventStdout, Data: []byte("protocol chunk")},
+	)...)
+	runtime := NewMicrosandboxRuntime(Config{Harness: HarnessOpenCode, Isolation: IsolationFull})
+	runtime.Client = &fakeACPStreamClient{fakeMSBClient: &fakeMSBClient{}, stream: stream}
+	writer := newBlockingACPWriter()
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() {
+		done <- runtime.RunACP(ctx, io.NopCloser(strings.NewReader("")), writer, &bytes.Buffer{})
+	}()
+
+	<-writer.started
+	cancel()
+	select {
+	case err := <-done:
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("RunACP error = %v, want context.Canceled", err)
+		}
+	case <-time.After(2 * time.Second):
+		close(writer.unblock)
+		<-done
+		t.Fatal("RunACP remained blocked in client output after cancellation")
+	}
+	close(writer.unblock)
+	if kills, closes := stream.state(); kills != 1 || closes != 1 {
+		t.Fatalf("stream kills/closes = %d/%d, want 1/1 after blocked output cancellation", kills, closes)
 	}
 }
 
@@ -241,7 +338,7 @@ func TestRunACPOutputFailureKillsGuest(t *testing.T) {
 	runtime := NewMicrosandboxRuntime(Config{Harness: HarnessOpenCode, Isolation: IsolationFull})
 	runtime.Client = &fakeACPStreamClient{fakeMSBClient: &fakeMSBClient{}, stream: stream}
 
-	err := runtime.RunACP(context.Background(), strings.NewReader(""), failingACPWriter{err: writeErr}, &bytes.Buffer{})
+	err := runtime.RunACP(context.Background(), io.NopCloser(strings.NewReader("")), failingACPWriter{err: writeErr}, &bytes.Buffer{})
 	if !errors.Is(err, writeErr) {
 		t.Fatalf("RunACP error = %v, want output failure", err)
 	}
@@ -253,6 +350,8 @@ func TestRunACPOutputFailureKillsGuest(t *testing.T) {
 type failingACPReader struct{ err error }
 
 func (r failingACPReader) Read([]byte) (int, error) { return 0, r.err }
+
+func (r failingACPReader) Close() error { return nil }
 
 func TestRunACPInputFailureKillsGuest(t *testing.T) {
 	readErr := errors.New("client input failed")
@@ -276,7 +375,7 @@ func TestRunACPReportsGuestStartFailure(t *testing.T) {
 	runtime := NewMicrosandboxRuntime(Config{Harness: HarnessOpenCode, Isolation: IsolationFull})
 	runtime.Client = &fakeACPStreamClient{fakeMSBClient: &fakeMSBClient{}, stream: stream}
 
-	err := runtime.RunACP(context.Background(), strings.NewReader(""), &bytes.Buffer{}, &bytes.Buffer{})
+	err := runtime.RunACP(context.Background(), io.NopCloser(strings.NewReader("")), &bytes.Buffer{}, &bytes.Buffer{})
 	if err == nil || !strings.Contains(err.Error(), "opencode missing") {
 		t.Fatalf("RunACP error = %v, want structured guest start failure", err)
 	}
@@ -298,7 +397,7 @@ func TestRunACPRejectsUnsupportedHarnessAndIsolation(t *testing.T) {
 			client := &fakeACPStreamClient{fakeMSBClient: &fakeMSBClient{}, stream: newFakeACPStream()}
 			runtime := NewMicrosandboxRuntime(Config{Harness: test.harness, Isolation: test.isolation})
 			runtime.Client = client
-			err := runtime.RunACP(context.Background(), strings.NewReader(""), &bytes.Buffer{}, &bytes.Buffer{})
+			err := runtime.RunACP(context.Background(), io.NopCloser(strings.NewReader("")), &bytes.Buffer{}, &bytes.Buffer{})
 			if err == nil {
 				t.Fatal("RunACP succeeded for an unsupported configuration")
 			}
@@ -312,7 +411,7 @@ func TestRunACPRejectsUnsupportedHarnessAndIsolation(t *testing.T) {
 func TestRunACPRequiresStreamingClient(t *testing.T) {
 	runtime := NewMicrosandboxRuntime(Config{Harness: HarnessOpenCode, Isolation: IsolationFull})
 	runtime.Client = &fakeMSBClient{}
-	if err := runtime.RunACP(context.Background(), strings.NewReader(""), &bytes.Buffer{}, &bytes.Buffer{}); err == nil {
+	if err := runtime.RunACP(context.Background(), io.NopCloser(strings.NewReader("")), &bytes.Buffer{}, &bytes.Buffer{}); err == nil {
 		t.Fatal("RunACP succeeded without the Microsandbox streaming capability")
 	}
 }

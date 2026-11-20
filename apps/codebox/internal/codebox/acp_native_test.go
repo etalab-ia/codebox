@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"io"
 	"os"
 	"strings"
 	"testing"
@@ -73,7 +74,7 @@ func TestACPNativeStreamRoundtrip(t *testing.T) {
 
 	input := "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"initialize\"}\n{\"jsonrpc\":\"2.0\",\"method\":\"notification\"}\n"
 	var stdout, stderr bytes.Buffer
-	if err := relayACP(ctx, stream, strings.NewReader(input), &stdout, &stderr); err != nil {
+	if err := relayACP(ctx, stream, io.NopCloser(strings.NewReader(input)), &stdout, &stderr); err != nil {
 		t.Fatalf("native ACP byte relay: %v", err)
 	}
 	if got := stdout.String(); got != input {

@@ -26,10 +26,12 @@ type msbACPStreamClient interface {
 	ExecStream(ctx context.Context, name, command string, args []string, cwd string) (msbACPStream, error)
 }
 
-// RunACP connects an ACP client to OpenCode inside the prepared guest. It is
-// intentionally internal to the runtime until the policy layer mediates client
-// capabilities and session paths; no CLI command exposes this raw transport.
-func (m *MicrosandboxRuntime) RunACP(ctx context.Context, stdin io.Reader, stdout, stderr io.Writer) error {
+// RunACP connects an ACP client to OpenCode inside the prepared guest. It takes
+// ownership of stdin and closes/joins it during cleanup. Output writers remain
+// caller-owned: after cancellation the caller must unblock or close them to
+// release any write still in progress. No CLI exposes this raw transport before
+// the policy layer mediates client capabilities and session paths.
+func (m *MicrosandboxRuntime) RunACP(ctx context.Context, stdin io.ReadCloser, stdout, stderr io.Writer) error {
 	if m.cfg.EffectiveHarness() != HarnessOpenCode {
 		return fmt.Errorf("ACP nécessite OpenCode ; le harnais %s n'a pas de point d'entrée ACP pris en charge", m.cfg.EffectiveHarness())
 	}
@@ -52,30 +54,40 @@ type acpRecvResult struct {
 	err   error
 }
 
-// relayACP preserves the protocol bytes exactly. Recv and stdin copying each
-// have one goroutine at most, so cancellation and input failure can terminate a
-// guest process even while the other operation is blocked.
-func relayACP(ctx context.Context, stream msbACPStream, stdin io.Reader, stdout, stderr io.Writer) (retErr error) {
+// relayACP preserves the protocol bytes exactly. Recv, input copying and output
+// writes each have at most one active operation, so no two writes can reorder
+// protocol chunks. Client-input closure is joined before the relay returns.
+func relayACP(ctx context.Context, stream msbACPStream, stdin io.ReadCloser, stdout, stderr io.Writer) (retErr error) {
 	defer func() { retErr = errors.Join(retErr, stream.Close()) }()
 
 	sink := stream.TakeStdin()
 	if sink == nil {
 		return fmt.Errorf("le flux ACP invité n'a pas de stdin")
 	}
-	recvCtx, cancelRecv := context.WithCancel(ctx)
-	defer cancelRecv()
+	relayCtx, cancelRelay := context.WithCancel(ctx)
+	defer cancelRelay()
 	defer func() { _ = sink.Close() }()
 
 	inputDone := make(chan error, 1)
 	go func() {
 		_, copyErr := io.Copy(sink, stdin)
-		inputDone <- errors.Join(copyErr, sink.Close())
+		err := errors.Join(copyErr, sink.Close())
+		if err != nil {
+			cancelRelay()
+		}
+		inputDone <- err
+	}()
+	defer func() {
+		_ = stdin.Close()
+		if inputDone != nil {
+			<-inputDone
+		}
 	}()
 
 	recvDone := make(chan acpRecvResult, 1)
 	startRecv := func() {
 		go func() {
-			event, err := stream.Recv(recvCtx)
+			event, err := stream.Recv(relayCtx)
 			recvDone <- acpRecvResult{event: event, err: err}
 		}()
 	}
@@ -104,11 +116,11 @@ func relayACP(ctx context.Context, stream msbACPStream, stdin io.Reader, stdout,
 			case msb.ExecEventStarted:
 				// The guest PID is runtime bookkeeping, not ACP protocol output.
 			case msb.ExecEventStdout:
-				if err := writeACPChunk(stdout, event.Data); err != nil {
+				if err := writeACPChunkContext(relayCtx, stdout, event.Data); err != nil {
 					return terminateACP(stream, fmt.Errorf("écriture de la sortie ACP : %w", err))
 				}
 			case msb.ExecEventStderr:
-				if err := writeACPChunk(stderr, event.Data); err != nil {
+				if err := writeACPChunkContext(relayCtx, stderr, event.Data); err != nil {
 					return terminateACP(stream, fmt.Errorf("écriture des diagnostics ACP : %w", err))
 				}
 			case msb.ExecEventFailed:
@@ -131,6 +143,20 @@ func relayACP(ctx context.Context, stream msbACPStream, stdin io.Reader, stdout,
 			}
 			startRecv()
 		}
+	}
+}
+
+// writeACPChunkContext makes a blocked client writer unable to prevent guest
+// cancellation. The writer remains caller-owned; its goroutine can finish when
+// the caller closes or unblocks it after RunACP returns.
+func writeACPChunkContext(ctx context.Context, writer io.Writer, data []byte) error {
+	done := make(chan error, 1)
+	go func() { done <- writeACPChunk(writer, data) }()
+	select {
+	case err := <-done:
+		return err
+	case <-ctx.Done():
+		return context.Cause(ctx)
 	}
 }
 
