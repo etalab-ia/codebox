@@ -18,6 +18,8 @@ import (
 	"github.com/etalab-ia/codebox/packages/secrets"
 )
 
+const testIDTokenCredential = codebox.CredentialKind("codebox-server-id-token")
+
 type fakeCredentialStore struct {
 	values map[codebox.CredentialKind]string
 }
@@ -99,6 +101,114 @@ func TestSecretsLogoutRemovesSession(t *testing.T) {
 	}
 }
 
+func TestSecretsLogoutStartsProConnectAndRemovesCredentials(t *testing.T) {
+	const endSessionURL = "https://proconnect.example/session/end?id_token_hint=id-token-canary&state=logout-state-12345678901234567890123456789012"
+	for _, terminal := range []bool{false, true} {
+		t.Run(map[bool]string{false: "browser", true: "terminal"}[terminal], func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.Method != http.MethodPost || r.URL.Path != "/auth/logout" {
+					t.Errorf("logout request = %s %s", r.Method, r.URL.Path)
+				}
+				if r.Header.Get("Authorization") != "Bearer token-1" {
+					t.Errorf("Authorization = %q", r.Header.Get("Authorization"))
+				}
+				var req map[string]string
+				if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+					t.Errorf("decode logout request: %v", err)
+				}
+				if req["idToken"] != "id-token-canary" {
+					t.Errorf("logout idToken = %q", req["idToken"])
+				}
+				_ = json.NewEncoder(w).Encode(map[string]string{"url": endSessionURL})
+			}))
+			defer server.Close()
+			store := &fakeCredentialStore{values: map[codebox.CredentialKind]string{
+				codebox.CredentialCodeboxServer: "token-1",
+				testIDTokenCredential:           "id-token-canary",
+			}}
+			buf := withRemoteSeams(t, server.URL, store)
+			opened := ""
+			oldOpenURL := codeboxServerOpenURLFn
+			codeboxServerOpenURLFn = func(raw string) error { opened = raw; return nil }
+			t.Cleanup(func() { codeboxServerOpenURLFn = oldOpenURL })
+			args := []string{}
+			if terminal {
+				args = []string{"--terminal"}
+			}
+			code, err := secretsLogoutCmd(args)
+			if err != nil || code != 0 {
+				t.Fatalf("secretsLogoutCmd = %d, %v", code, err)
+			}
+			for _, kind := range []codebox.CredentialKind{codebox.CredentialCodeboxServer, testIDTokenCredential} {
+				if _, ok := store.values[kind]; ok {
+					t.Errorf("credential %s was not removed", kind)
+				}
+			}
+			if terminal {
+				if opened != "" || !strings.Contains(buf.String(), endSessionURL) {
+					t.Fatalf("terminal logout output = %q, opened = %q", buf.String(), opened)
+				}
+			} else if opened != endSessionURL {
+				t.Fatalf("browser opened %q, want %q", opened, endSessionURL)
+			}
+		})
+	}
+}
+
+func TestSecretsLogoutRemovesLocalCredentialsWhenProConnectFails(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusServiceUnavailable)
+		_, _ = w.Write([]byte(`{"code":"upstream_unavailable","message":"ProConnect injoignable"}`))
+	}))
+	defer server.Close()
+	store := &fakeCredentialStore{values: map[codebox.CredentialKind]string{
+		codebox.CredentialCodeboxServer: "token-1",
+		testIDTokenCredential:           "id-token-canary",
+	}}
+	buf := withRemoteSeams(t, server.URL, store)
+	code, err := secretsLogoutCmd(nil)
+	if err != nil || code != 0 {
+		t.Fatalf("local logout after upstream failure = %d, %v", code, err)
+	}
+	for _, kind := range []codebox.CredentialKind{codebox.CredentialCodeboxServer, testIDTokenCredential} {
+		if _, ok := store.values[kind]; ok {
+			t.Errorf("credential %s survived local logout", kind)
+		}
+	}
+	if !strings.Contains(buf.String(), "ProConnect") || !strings.Contains(buf.String(), "Déconnecté") {
+		t.Fatalf("upstream-failure output = %q", buf.String())
+	}
+}
+
+func TestSecretsTerminalLoginRetainsIDToken(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/auth/device/token" {
+			t.Errorf("token exchange path = %q", r.URL.Path)
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"token": "gateway-session", "idToken": "terminal-id-token",
+			"expiresAt": time.Now().Add(time.Hour).UTC(),
+			"identity":  map[string]any{"email": "dev@beta.gouv.fr"},
+		})
+	}))
+	defer server.Close()
+	store := &fakeCredentialStore{values: map[codebox.CredentialKind]string{}}
+	withRemoteSeams(t, server.URL, store)
+	oldIn := codeboxServerLoginIn
+	codeboxServerLoginIn = strings.NewReader("one-time-ticket\n")
+	t.Cleanup(func() { codeboxServerLoginIn = oldIn })
+	code, err := secretsLoginCmd([]string{"--terminal"})
+	if err != nil || code != 0 {
+		t.Fatalf("secretsLoginCmd = %d, %v", code, err)
+	}
+	if got := store.values[codebox.CredentialCodeboxServer]; got != "gateway-session" {
+		t.Fatalf("stored gateway session = %q", got)
+	}
+	if got := store.values[testIDTokenCredential]; got != "terminal-id-token" {
+		t.Fatalf("stored ID token = %q, want terminal-id-token", got)
+	}
+}
+
 func TestSecretsLoginRejectsUnboundLoopbackCallback(t *testing.T) {
 	store := &fakeCredentialStore{values: map[codebox.CredentialKind]string{}}
 	withRemoteSeams(t, "https://gateway.example", store)
@@ -148,7 +258,7 @@ func TestSecretsLoginRejectsUnboundLoopbackCallback(t *testing.T) {
 	storedAfterWrong, _ := store.Get(context.Background(), codebox.CredentialCodeboxServer)
 
 	if loopbackState != "" {
-		validResp, err := http.Get("http://127.0.0.1:" + port + "/callback?token=legitimate-session&state=" + url.QueryEscape(loopbackState))
+		validResp, err := http.Get("http://127.0.0.1:" + port + "/callback?token=legitimate-session&id_token=browser-id-token&state=" + url.QueryEscape(loopbackState))
 		if err != nil {
 			t.Errorf("legitimate callback: %v", err)
 		} else {
@@ -176,6 +286,9 @@ func TestSecretsLoginRejectsUnboundLoopbackCallback(t *testing.T) {
 		stored, _ := store.Get(context.Background(), codebox.CredentialCodeboxServer)
 		if stored != "legitimate-session" {
 			t.Errorf("legitimate callback stored %q, want the legitimate session", stored)
+		}
+		if got := store.values[testIDTokenCredential]; got != "browser-id-token" {
+			t.Errorf("legitimate callback stored ID token %q, want browser-id-token", got)
 		}
 	}
 }

@@ -183,11 +183,24 @@ type DeviceTokenExchangeRequest struct {
 	Verifier  string `json:"verifier"`
 }
 
-// TokenResponse carries a signed gateway bearer token.
+// TokenResponse carries a signed gateway bearer token and the verified
+// ProConnect ID token needed for a later end-session redirect.
 type TokenResponse struct {
 	Token     string         `json:"token"`
+	IDToken   string         `json:"idToken,omitempty"`
 	ExpiresAt time.Time      `json:"expiresAt"`
 	Identity  WhoAmIResponse `json:"identity"`
+}
+
+// LogoutRequest carries the retained ID token over the authenticated gateway
+// session. It is never written to audit logs.
+type LogoutRequest struct {
+	IDToken string `json:"idToken"`
+}
+
+// LogoutResponse returns the provider URL the user's browser must open.
+type LogoutResponse struct {
+	URL string `json:"url"`
 }
 
 // APIError is the structured error envelope returned by codebox-server.

@@ -106,12 +106,15 @@ func (m *memoryStore) write(store map[string][][]byte, projectID string, baseRev
 
 // fakeProvider is a deterministic IdentityProvider for handler tests.
 type fakeProvider struct {
-	identity      Identity
-	exchangeErr   error
-	createErr     error
-	authorizeErr  error
-	lastState     string
-	lastChallenge string
+	identity          Identity
+	exchangeErr       error
+	createErr         error
+	authorizeErr      error
+	logoutErr         error
+	lastState         string
+	lastChallenge     string
+	lastLogoutState   string
+	lastLogoutIDToken string
 }
 
 func (f *fakeProvider) AuthorizeURL(_ context.Context, state, nonce, codeChallenge string) (string, error) {
@@ -121,6 +124,15 @@ func (f *fakeProvider) AuthorizeURL(_ context.Context, state, nonce, codeChallen
 		return "", f.authorizeErr
 	}
 	return "https://proconnect.example/authorize?state=" + state + "&nonce=" + nonce, nil
+}
+
+func (f *fakeProvider) LogoutURL(_ context.Context, state, idToken string) (string, error) {
+	f.lastLogoutState = state
+	f.lastLogoutIDToken = idToken
+	if f.logoutErr != nil {
+		return "", f.logoutErr
+	}
+	return "https://proconnect.example/session/end?state=" + state + "&id_token_hint=" + idToken, nil
 }
 
 func (f *fakeProvider) Exchange(_ context.Context, code, _, _ string) (Identity, error) {

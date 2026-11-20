@@ -91,6 +91,9 @@ type Identity struct {
 	NameHint  string
 	IssuedAt  time.Time
 	ExpiresAt time.Time
+	// IDToken is the verified raw ProConnect assertion retained for logout.
+	// It must never be written to audit events.
+	IDToken string
 }
 
 // OIDCClient performs the authorization-code exchange and ID token verification.
@@ -109,6 +112,7 @@ type oidcDiscovery struct {
 	TokenURL         string `json:"token_endpoint"`
 	UserInfoURL      string `json:"userinfo_endpoint"`
 	JWKSURL          string `json:"jwks_uri"`
+	EndSessionURL    string `json:"end_session_endpoint"`
 	// UserInfoSigningAlgs lists the algorithms the provider may use for signed
 	// UserInfo responses. ProConnect documents `application/jwt` UserInfo when a
 	// signing algorithm is registered for the client, so the client must be
@@ -165,6 +169,34 @@ func (c *OIDCClient) AuthorizeURL(ctx context.Context, state, nonce, codeChallen
 	q.Set("code_challenge", codeChallenge)
 	q.Set("code_challenge_method", "S256")
 	return disc.AuthorizationURL + "?" + q.Encode(), nil
+}
+
+// LogoutURL builds the documented browser end-session redirect. The return URI
+// is derived from the registered login callback origin and must be registered
+// exactly as `<GATEWAY_PUBLIC_URL>/auth/logout/callback`.
+func (c *OIDCClient) LogoutURL(ctx context.Context, state, idToken string) (string, error) {
+	if len(state) < 32 {
+		return "", errors.New("l'état de déconnexion doit contenir au moins 32 caractères")
+	}
+	if strings.TrimSpace(idToken) == "" {
+		return "", errors.New("le jeton d'identité ProConnect est requis pour la déconnexion")
+	}
+	disc, err := c.discover(ctx)
+	if err != nil {
+		return "", err
+	}
+	if disc.EndSessionURL == "" {
+		return "", fmt.Errorf("%w : discovery omet end_session_endpoint", ErrUpstream)
+	}
+	postLogout := strings.TrimSuffix(c.cfg.RedirectURL, "/auth/callback")
+	if postLogout == c.cfg.RedirectURL {
+		return "", errors.New("l'URL de rappel ProConnect doit se terminer par /auth/callback")
+	}
+	q := url.Values{}
+	q.Set("id_token_hint", idToken)
+	q.Set("state", state)
+	q.Set("post_logout_redirect_uri", postLogout+"/auth/logout/callback")
+	return disc.EndSessionURL + "?" + q.Encode(), nil
 }
 
 // Exchange trades an authorization code for a verified identity.
@@ -248,6 +280,7 @@ func (c *OIDCClient) Exchange(ctx context.Context, code, codeVerifier, expectedN
 	if !ACRSatisfiesMFA(claims.ACR) {
 		return Identity{}, ErrMFARequired
 	}
+	claims.IDToken = token.IDToken
 	return claims, nil
 }
 

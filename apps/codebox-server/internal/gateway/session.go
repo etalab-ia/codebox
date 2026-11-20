@@ -8,9 +8,9 @@ import (
 	"time"
 )
 
-// LoginAttempt is the short-lived state of one authorization-code flow. It is
+// LoginAttempt is the short-lived state of one login or logout flow. It is
 // kept in memory only: the gateway has no database, and losing an in-flight
-// login on restart is acceptable (the user simply retries).
+// flow on restart is acceptable (the user simply retries).
 type LoginAttempt struct {
 	State        string
 	Nonce        string
@@ -21,11 +21,15 @@ type LoginAttempt struct {
 	// LoopbackState is the CLI-generated value that authorizes that callback to
 	// store the token. It is not the OIDC state used between gateway and IdP.
 	LoopbackState string
-	CreatedAt     time.Time
+	// Logout distinguishes end-session callbacks from login callbacks so a state
+	// issued for one flow can never be redeemed by the other.
+	Logout    bool
+	CreatedAt time.Time
 }
 
-// AttemptStore holds in-flight logins with bounded size and TTL. It is a
-// deliberate, small in-memory cache: losing it only aborts logins in progress.
+// AttemptStore holds in-flight login and logout attempts with bounded size and
+// TTL. It is a deliberate, small in-memory cache: losing it only aborts flows in
+// progress.
 type AttemptStore struct {
 	mu       sync.Mutex
 	attempts map[string]*LoginAttempt
@@ -36,7 +40,7 @@ type AttemptStore struct {
 }
 
 // NewAttemptStore builds an attempt store. A 10-minute TTL comfortably exceeds
-// a ProConnect login with a second factor.
+// a ProConnect login with a second factor or a browser logout.
 func NewAttemptStore(ttl time.Duration, maxItems int, now func() time.Time) *AttemptStore {
 	if ttl <= 0 {
 		ttl = 10 * time.Minute

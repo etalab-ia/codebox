@@ -54,18 +54,20 @@ deployment unless an explicit branch exception is configured.
 
 Use this two-run bootstrap sequence:
 
-1. Register the ProConnect application with the temporary callback
-   `https://bootstrap.invalid/auth/callback`, leaving logout URLs empty and
-   selecting RS256, ES256 or HS256 for ID-token and signed-UserInfo signing.
-   Leave `CODEBOX_SERVER_URL` unset.
+1. Register the ProConnect application with the temporary callbacks
+   `https://bootstrap.invalid/auth/callback` and
+   `https://bootstrap.invalid/auth/logout/callback`, selecting RS256, ES256 or
+   HS256 for ID-token and signed-UserInfo signing. Leave `CODEBOX_SERVER_URL`
+   unset.
 2. Open **Actions → Deploy codebox server → Run workflow**, enter a published
    immutable tag such as `codebox-server-vX.Y.Z`, and run from `main`.
 3. The workflow creates or reuses the `codebox-server` namespace and
    container, stores the signing seed in Secret Manager at
    `/gateway/gateway-token-seed`, waits for readiness, and prints the native
    HTTPS endpoint in the run summary. No credential values are printed.
-4. Set `CODEBOX_SERVER_URL` to that native origin and replace the
-   ProConnect temporary callback with `<native-origin>/auth/callback`.
+4. Set `CODEBOX_SERVER_URL` to that native origin and replace the temporary
+   ProConnect callbacks with `<native-origin>/auth/callback` and
+   `<native-origin>/auth/logout/callback` exactly.
 5. Rerun the workflow from the GitHub UI with the same image tag. This updates
    the same container with the final public URL and preserves the signing seed.
    Check `<native-origin>/healthz` before attempting a CLI login.

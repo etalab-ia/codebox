@@ -67,7 +67,7 @@ func secretsRemoteCmd(args []string) (int, error) {
 }
 
 func printSecretsRemoteUsage() {
-	fmt.Println("Usage : codebox secrets login [--terminal] | logout | check | init | push | members <list|add|remove>")
+	fmt.Println("Usage : codebox secrets login [--terminal] | logout [--terminal] | check | init | push | members <list|add|remove>")
 	fmt.Println("Les secrets de développement partagés sont protégés par ProConnect et stockés par le codebox-server.")
 	fmt.Println("Ce flux ne prend en charge aucun secret de production.")
 }
@@ -147,6 +147,11 @@ func secretsLoginCmd(args []string) (int, error) {
 		if err := store.Put(context.Background(), codebox.CredentialCodeboxServer, tokenResp.Token); err != nil {
 			return 1, fmt.Errorf("enregistrement de la session de passerelle : %w", err)
 		}
+		if tokenResp.IDToken != "" {
+			if err := store.Put(context.Background(), codebox.CredentialCodeboxServerIDToken, tokenResp.IDToken); err != nil {
+				return 1, fmt.Errorf("enregistrement du jeton ProConnect pour la déconnexion : %w", err)
+			}
+		}
 		fmt.Fprintf(codeboxServerLoginOut, "Connecté en tant que %s (expire le %s).\n", tokenResp.Identity.Email, tokenResp.ExpiresAt.Format(time.RFC3339))
 		return 0, nil
 	}
@@ -168,8 +173,9 @@ func secretsLoginCmd(args []string) (int, error) {
 	}
 
 	type result struct {
-		token string
-		err   error
+		token   string
+		idToken string
+		err     error
 	}
 	ch := make(chan result, 1)
 	mux := http.NewServeMux()
@@ -188,7 +194,7 @@ func secretsLoginCmd(args []string) (int, error) {
 		}
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		_, _ = w.Write([]byte("<!doctype html><meta charset=\"utf-8\"><title>codebox</title><p>Connexion terminée. Fermez cet onglet et revenez au terminal.</p>"))
-		ch <- result{token: token}
+		ch <- result{token: token, idToken: r.URL.Query().Get("id_token")}
 	})
 	server := &http.Server{Handler: mux, ReadHeaderTimeout: 10 * time.Second}
 	go func() { _ = server.Serve(listener) }()
@@ -206,6 +212,11 @@ func secretsLoginCmd(args []string) (int, error) {
 		if err := store.Put(context.Background(), codebox.CredentialCodeboxServer, res.token); err != nil {
 			return 1, fmt.Errorf("enregistrement de la session de passerelle : %w", err)
 		}
+		if res.idToken != "" {
+			if err := store.Put(context.Background(), codebox.CredentialCodeboxServerIDToken, res.idToken); err != nil {
+				return 1, fmt.Errorf("enregistrement du jeton ProConnect pour la déconnexion : %w", err)
+			}
+		}
 		fmt.Fprintln(codeboxServerLoginOut, "Connecté. La session est enregistrée dans le trousseau du système.")
 		return 0, nil
 	case <-time.After(5 * time.Minute):
@@ -214,18 +225,62 @@ func secretsLoginCmd(args []string) (int, error) {
 }
 
 func secretsLogoutCmd(args []string) (int, error) {
-	if len(args) != 0 {
-		return 2, fmt.Errorf("secrets logout n'accepte aucun argument")
+	terminal := false
+	for _, arg := range args {
+		switch arg {
+		case "--terminal":
+			terminal = true
+		case "--help", "-h":
+			printSecretsRemoteUsage()
+			return 0, nil
+		default:
+			return 2, fmt.Errorf("option inconnue de secrets logout %q", arg)
+		}
 	}
 	store, err := codeboxServerStoreFn()
 	if err != nil {
 		return 1, err
 	}
-	err = store.Remove(context.Background(), codebox.CredentialCodeboxServer)
-	if err != nil && !errors.Is(err, codebox.ErrCredentialNotFound) {
-		return 1, fmt.Errorf("suppression de la session de passerelle : %w", err)
+	ctx := context.Background()
+	session, sessionErr := store.Get(ctx, codebox.CredentialCodeboxServer)
+	idToken, idTokenErr := store.Get(ctx, codebox.CredentialCodeboxServerIDToken)
+	var logoutURL string
+	var upstreamErr error
+	if sessionErr == nil && session != "" && idTokenErr == nil && idToken != "" {
+		client, err := gatewayClient()
+		if err != nil {
+			upstreamErr = err
+		} else {
+			logoutURL, upstreamErr = client.LogoutURL(ctx, idToken)
+		}
 	}
-	fmt.Fprintln(codeboxServerLoginOut, "Déconnecté. La session de passerelle a été supprimée du trousseau du système.")
+
+	// Local logout is never held hostage by discovery, ProConnect availability or
+	// browser behavior. Remove both host credentials before opening the browser.
+	for _, kind := range []codebox.CredentialKind{codebox.CredentialCodeboxServer, codebox.CredentialCodeboxServerIDToken} {
+		if err := store.Remove(ctx, kind); err != nil && !errors.Is(err, codebox.ErrCredentialNotFound) {
+			return 1, fmt.Errorf("suppression de l'identifiant local %s : %w", kind, err)
+		}
+	}
+	fmt.Fprintln(codeboxServerLoginOut, "Déconnecté. Les identifiants de la passerelle ont été supprimés du trousseau du système.")
+	if upstreamErr != nil {
+		fmt.Fprintln(codeboxServerLoginOut, "La déconnexion ProConnect n'a pas pu être démarrée ; la session locale a néanmoins été supprimée.")
+		return 0, nil
+	}
+	if logoutURL == "" {
+		if sessionErr == nil && idTokenErr != nil {
+			fmt.Fprintln(codeboxServerLoginOut, "Cette session antérieure ne contenait aucun jeton ProConnect pour la déconnexion distante.")
+		}
+		return 0, nil
+	}
+	if terminal {
+		fmt.Fprintf(codeboxServerLoginOut, "Ouvrez cette URL pour terminer la déconnexion ProConnect :\n%s\n", logoutURL)
+		return 0, nil
+	}
+	fmt.Fprintln(codeboxServerLoginOut, "Ouverture de la déconnexion ProConnect dans votre navigateur.")
+	if err := codeboxServerOpenURLFn(logoutURL); err != nil {
+		return 1, fmt.Errorf("ouverture d'un navigateur (la session locale est déjà supprimée) : %w", err)
+	}
 	return 0, nil
 }
 

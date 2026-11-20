@@ -48,11 +48,13 @@ misconfigured deployment fails at boot rather than at the first user request.
 ## ProConnect registration
 
 1. Create the OIDC application in the ProConnect partner portal (sandbox first).
-2. Declare the redirect URI exactly: `<GATEWAY_PUBLIC_URL>/auth/callback`.
-3. Select `RS256`, `ES256` or `HS256` for ID-token signing and, when signed
+2. Declare the login redirect URI exactly: `<GATEWAY_PUBLIC_URL>/auth/callback`.
+3. Declare the post-logout redirect URI exactly:
+   `<GATEWAY_PUBLIC_URL>/auth/logout/callback`.
+4. Select `RS256`, `ES256` or `HS256` for ID-token signing and, when signed
    UserInfo is enabled, for UserInfo signing as well.
-4. Record the client ID and secret as deployment secrets.
-5. For production, complete the DataPass authorisation and then change only
+5. Record the client ID and secret as deployment secrets.
+6. For production, complete the DataPass authorisation and then change only
    `PROCONNECT_ISSUER` and the client pair.
 
 ## Domains and issuers
@@ -84,6 +86,17 @@ The gateway requests `acr` values `eidas0-mfa`, `eidas1-mfa`, `eidas2`, `eidas3`
 HR-backed identity providers return `eidas2`/`eidas3`; providers without HR
 provisioning return `eidas1-mfa` or a `*-2fa` ProConnect assurance value. A
 password-only assertion (`eidas1`, `eidas0`) is refused with `mfa_required`.
+
+## Logout
+
+`codebox secrets logout` removes the gateway session and retained ProConnect ID
+token from the OS credential store, then starts the browser end-session flow.
+The gateway discovers `end_session_endpoint`, generates a fresh single-use state,
+and returns a URL containing `id_token_hint`, that state and the exact registered
+`post_logout_redirect_uri`. `codebox secrets logout --terminal` prints the URL
+instead of opening a browser. If discovery or ProConnect is unavailable, local
+credential removal still succeeds and the CLI says that remote logout did not
+start.
 
 ## Audit logging
 
