@@ -52,7 +52,89 @@ var wizardNoColor bool
 // rendering it: which fields a project gets is the testable part, and it
 // needs no terminal.
 var huhRun = func(form *huh.Form) error {
-	return form.WithProgramOptions(tea.WithOutput(os.Stdout)).Run()
+	return form.WithTheme(codeboxTheme{}).WithKeyMap(frenchKeyMap()).
+		WithProgramOptions(tea.WithOutput(os.Stdout)).Run()
+}
+
+// codeboxTheme is the single design shared by every interactive screen
+// (#445): DSFR blue for titles and selectors, green for checked options,
+// and explicit [ ]/[x] checkboxes so a multi-select cannot be mistaken
+// for a plain list. The prefixes are theme-only overrides — huh renders
+// SelectedPrefix.String()/UnselectedPrefix.String() directly, so no fork
+// or custom field is needed.
+type codeboxTheme struct{}
+
+func (codeboxTheme) Theme(isDark bool) *huh.Styles {
+	styles := huh.ThemeCharm(isDark)
+	blue := lipgloss.Color("#6A6AF4")
+	muted := lipgloss.Color("#9C9C9C")
+	green := lipgloss.Color("#00A95F")
+
+	styles.Group.Title = styles.Group.Title.Foreground(blue).Bold(true)
+	styles.Focused.Title = styles.Focused.Title.Foreground(blue).Bold(true)
+	styles.Focused.NoteTitle = styles.Focused.NoteTitle.Foreground(blue).Bold(true)
+	styles.Focused.Description = styles.Focused.Description.Foreground(muted)
+	styles.Focused.SelectSelector = styles.Focused.SelectSelector.Foreground(blue).Bold(true)
+	styles.Focused.MultiSelectSelector = styles.Focused.MultiSelectSelector.Foreground(blue).Bold(true)
+	styles.Focused.SelectedOption = styles.Focused.SelectedOption.Foreground(green)
+	styles.Focused.SelectedPrefix = styles.Focused.SelectedPrefix.Foreground(green).SetString("[x] ")
+	styles.Focused.UnselectedPrefix = styles.Focused.UnselectedPrefix.SetString("[ ] ")
+	styles.Blurred.SelectedPrefix = styles.Blurred.SelectedPrefix.Foreground(green).SetString("[x] ")
+	styles.Blurred.UnselectedPrefix = styles.Blurred.UnselectedPrefix.SetString("[ ] ")
+	styles.Focused.FocusedButton = styles.Focused.FocusedButton.Background(blue).Foreground(lipgloss.Color("#FFFFFF")).Bold(true)
+	styles.Focused.TextInput.Prompt = styles.Focused.TextInput.Prompt.Foreground(blue)
+	return styles
+}
+
+// frenchKeyMap translates the help bar and disables single-select filtering:
+// the wizard's lists are short, and the stock English "/ filter" hint misled
+// testers (#445). Multi-select filtering stays available — the MCP and
+// dotenv lists can grow, and the resize regressions exercise it.
+func frenchKeyMap() *huh.KeyMap {
+	keys := huh.NewDefaultKeyMap()
+	keys.Quit.SetHelp("ctrl+c", "quitter")
+	keys.Select.Up.SetHelp("↑", "haut")
+	keys.Select.Down.SetHelp("↓", "bas")
+	keys.Select.Filter.SetEnabled(false)
+	keys.Select.SetFilter.SetEnabled(false)
+	keys.Select.ClearFilter.SetEnabled(false)
+	keys.Select.Next.SetHelp("entrée", "continuer")
+	keys.Select.Prev.SetHelp("maj+tab", "précédent")
+	keys.Select.Submit.SetHelp("entrée", "continuer")
+	keys.Select.HalfPageUp.SetHelp("ctrl+u", "½ page haut")
+	keys.Select.HalfPageDown.SetHelp("ctrl+d", "½ page bas")
+	keys.Select.GotoTop.SetHelp("g/début", "début")
+	keys.Select.GotoBottom.SetHelp("G/fin", "fin")
+	keys.MultiSelect.Up.SetHelp("↑", "haut")
+	keys.MultiSelect.Down.SetHelp("↓", "bas")
+	keys.MultiSelect.Toggle.SetHelp("espace", "cocher")
+	keys.MultiSelect.Filter.SetHelp("/", "filtrer")
+	keys.MultiSelect.SetFilter.SetHelp("esc", "valider le filtre")
+	keys.MultiSelect.ClearFilter.SetHelp("esc", "effacer le filtre")
+	keys.MultiSelect.Next.SetHelp("entrée", "continuer")
+	keys.MultiSelect.Prev.SetHelp("maj+tab", "précédent")
+	keys.MultiSelect.Submit.SetHelp("entrée", "continuer")
+	keys.MultiSelect.SelectAll.SetHelp("ctrl+a", "tout cocher")
+	keys.MultiSelect.SelectNone.SetHelp("ctrl+a", "tout décocher")
+	keys.MultiSelect.HalfPageUp.SetHelp("ctrl+u", "½ page haut")
+	keys.MultiSelect.HalfPageDown.SetHelp("ctrl+d", "½ page bas")
+	keys.MultiSelect.GotoTop.SetHelp("g/début", "début")
+	keys.MultiSelect.GotoBottom.SetHelp("G/fin", "fin")
+	keys.Input.AcceptSuggestion.SetHelp("ctrl+e", "compléter")
+	keys.Input.Next.SetHelp("entrée", "continuer")
+	keys.Input.Prev.SetHelp("maj+tab", "précédent")
+	keys.Input.Submit.SetHelp("entrée", "continuer")
+	keys.Confirm.Next.SetHelp("entrée", "continuer")
+	keys.Confirm.Prev.SetHelp("maj+tab", "précédent")
+	keys.Confirm.Submit.SetHelp("entrée", "continuer")
+	keys.Confirm.Toggle.SetHelp("←/→", "choisir")
+	// Accept/Reject keep their y/n keys and labels: huh's Confirm view
+	// rewrites their help from the field's Affirmative/Negative strings on
+	// every render, and every codebox confirm already says "Oui"/"Non".
+	keys.Note.Next.SetHelp("entrée", "continuer")
+	keys.Note.Prev.SetHelp("maj+tab", "précédent")
+	keys.Note.Submit.SetHelp("entrée", "continuer")
+	return keys
 }
 
 // The init wizard's MultiSelects carry their selection keys in the
@@ -96,7 +178,7 @@ func (m *resizeCursorMultiSelect) ensureCursorVisible() {
 	cursorLine := -1
 	for i, line := range strings.Split(content, "\n") {
 		line = strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(line), "┃"))
-		if strings.HasPrefix(line, ">") && (strings.Contains(line, "•") || strings.Contains(line, "✓")) {
+		if strings.HasPrefix(line, ">") && (strings.Contains(line, "[ ]") || strings.Contains(line, "[x]")) {
 			cursorLine = i
 			break
 		}
@@ -649,7 +731,7 @@ func validateInitModelInput(root, value string, harness codebox.Harness) (string
 
 // The filter distinguishes Escape (back) from Ctrl+C (cancel init).
 var runInitAdvancedForm = func(form *huh.Form) (back bool, err error) {
-	err = form.WithShowHelp(false).WithProgramOptions(tea.WithOutput(os.Stdout), tea.WithFilter(func(_ tea.Model, msg tea.Msg) tea.Msg {
+	err = form.WithTheme(codeboxTheme{}).WithKeyMap(frenchKeyMap()).WithShowHelp(false).WithProgramOptions(tea.WithOutput(os.Stdout), tea.WithFilter(func(_ tea.Model, msg tea.Msg) tea.Msg {
 		if k, ok := msg.(tea.KeyPressMsg); ok && k.String() == "esc" {
 			back = true
 			return tea.KeyPressMsg{Code: 'c', Mod: tea.ModCtrl}

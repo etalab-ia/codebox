@@ -19,6 +19,13 @@ type multiSelectRenderCase struct {
 	options []string
 }
 
+// newRenderTestForm builds a form with the same design production's huhRun
+// attaches (#445), so the render regressions exercise the themed view the
+// user sees rather than huh's stock theme.
+func newRenderTestForm(groups ...*huh.Group) *huh.Form {
+	return huh.NewForm(groups...).WithTheme(codeboxTheme{}).WithKeyMap(frenchKeyMap())
+}
+
 func multiSelectRenderCases() []multiSelectRenderCase {
 	return []multiSelectRenderCase{
 		{name: "setup platforms", newForm: captureSetupPlatformsForm, options: []string{"Albert API", "Mistral AI", "Compatible OpenAI"}},
@@ -55,7 +62,7 @@ func TestMultiSelectCursorSelectionScrollingAndResize(t *testing.T) {
 		options[i] = huh.NewOption(label, label)
 	}
 	selected := []string{}
-	form := huh.NewForm(huh.NewGroup(newProjectMCPsMultiSelect(options, &selected, codebox.MCPStepTitle)))
+	form := newRenderTestForm(huh.NewGroup(newProjectMCPsMultiSelect(options, &selected, codebox.MCPStepTitle)))
 	form.Init()
 	_, _ = form.Update(tea.WindowSizeMsg{Width: 48, Height: 8})
 	for range len(options) - 1 {
@@ -106,7 +113,7 @@ func TestMultiSelectShrinkPreservesNonFinalCursorAndSelection(t *testing.T) {
 	}
 	selected := []string{}
 	field := newProjectMCPsMultiSelect(options, &selected, codebox.MCPStepTitle).(*resizeCursorMultiSelect)
-	form := huh.NewForm(huh.NewGroup(field))
+	form := newRenderTestForm(huh.NewGroup(field))
 	form.Init()
 	_, _ = form.Update(tea.WindowSizeMsg{Width: 100, Height: 24})
 	for range 4 {
@@ -136,7 +143,7 @@ func TestMultiSelectResizeIgnoresGreaterThanInOptionLabel(t *testing.T) {
 	}
 	selected := []string{}
 	field := newProjectMCPsMultiSelect(options, &selected, codebox.MCPStepTitle).(*resizeCursorMultiSelect)
-	form := huh.NewForm(huh.NewGroup(field))
+	form := newRenderTestForm(huh.NewGroup(field))
 	form.Init()
 	_, _ = form.Update(tea.WindowSizeMsg{Width: 100, Height: 24})
 	for range 11 {
@@ -161,7 +168,7 @@ func TestMultiSelectResizePreservesFirstVisibleRowAfterScrolling(t *testing.T) {
 		options[i] = huh.NewOption(label, label)
 	}
 	selected := []string{}
-	form := huh.NewForm(huh.NewGroup(newProjectMCPsMultiSelect(options, &selected, codebox.MCPStepTitle)))
+	form := newRenderTestForm(huh.NewGroup(newProjectMCPsMultiSelect(options, &selected, codebox.MCPStepTitle)))
 	form.Init()
 	_, _ = form.Update(tea.WindowSizeMsg{Width: 48, Height: 8})
 	for range 6 {
@@ -180,7 +187,7 @@ func TestMultiSelectResizePreservesFirstVisibleRowAfterScrolling(t *testing.T) {
 func TestMultiSelectResizePreservesActiveFilter(t *testing.T) {
 	options := []huh.Option[string]{huh.NewOption("data.gouv.fr", "data-gouv"), huh.NewOption("chrome-devtools", "chrome-devtools")}
 	selected := []string{}
-	form := huh.NewForm(huh.NewGroup(newProjectMCPsMultiSelect(options, &selected, codebox.MCPStepTitle)))
+	form := newRenderTestForm(huh.NewGroup(newProjectMCPsMultiSelect(options, &selected, codebox.MCPStepTitle)))
 	form.Init()
 	_, _ = form.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
 	for _, key := range "/data" {
@@ -199,7 +206,7 @@ func TestMultiSelectResizePreservesActiveFilter(t *testing.T) {
 func TestMultiSelectResizePreservesSecondDuplicateValue(t *testing.T) {
 	options := []huh.Option[string]{huh.NewOption("first", "same"), huh.NewOption("second", "same"), huh.NewOption("third", "other")}
 	selected := []string{}
-	form := huh.NewForm(huh.NewGroup(newProjectMCPsMultiSelect(options, &selected, codebox.MCPStepTitle)))
+	form := newRenderTestForm(huh.NewGroup(newProjectMCPsMultiSelect(options, &selected, codebox.MCPStepTitle)))
 	form.Init()
 	_, _ = form.Update(tea.WindowSizeMsg{Width: 80, Height: 6})
 	_, _ = form.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyDown}))
@@ -213,7 +220,7 @@ func TestMultiSelectResizePreservesSecondDuplicateValue(t *testing.T) {
 func TestMultiSelectResizeWithNoFilterMatchesDoesNotMoveCursor(t *testing.T) {
 	options := []huh.Option[string]{huh.NewOption("data.gouv.fr", "data-gouv"), huh.NewOption("chrome-devtools", "chrome-devtools")}
 	selected := []string{}
-	form := huh.NewForm(huh.NewGroup(newProjectMCPsMultiSelect(options, &selected, codebox.MCPStepTitle)))
+	form := newRenderTestForm(huh.NewGroup(newProjectMCPsMultiSelect(options, &selected, codebox.MCPStepTitle)))
 	form.Init()
 	_, _ = form.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
 	for _, key := range "/zzz" {
@@ -252,7 +259,7 @@ func multiSelectCursorOnOption(view, option string) bool {
 }
 
 func multiSelectSelectionOnOption(view, option string) bool {
-	return multiSelectOptionLineContains(view, option, "✓")
+	return multiSelectOptionLineContains(view, option, "[x]")
 }
 
 func multiSelectOptionLineContains(view, option, marker string) bool {
@@ -282,7 +289,7 @@ func captureSetupPlatformsForm(t *testing.T) *huh.Form {
 
 func captureInitMCPsForm(_ *testing.T) *huh.Form {
 	selected := []string{}
-	return huh.NewForm(huh.NewGroup(newProjectMCPsMultiSelect(
+	return newRenderTestForm(huh.NewGroup(newProjectMCPsMultiSelect(
 		[]huh.Option[string]{huh.NewOption("data.gouv.fr", "data-gouv"), huh.NewOption("chrome-devtools", "chrome-devtools")},
 		&selected,
 		codebox.MCPStepTitle,

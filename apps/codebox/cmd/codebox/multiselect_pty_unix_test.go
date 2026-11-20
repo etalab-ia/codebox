@@ -51,14 +51,14 @@ func TestMultiSelectPTYResizePreservesCursorAndSelection(t *testing.T) {
 	session := newMultiSelectPTYSession(t, "resize", 48, 8)
 	_ = session.waitFor("mcp-00")
 	session.write(strings.Repeat("\x1b[B", 11) + " ")
-	output := session.waitFor("> ✓ mcp-11")
+	output := session.waitFor("> [x] mcp-11")
 	if !multiSelectCursorOnOption(output, "mcp-11") || !multiSelectSelectionOnOption(output, "mcp-11") {
 		t.Fatalf("PTY scrolling or selection lost the last option:\n%s", output)
 	}
 	for _, height := range []int{24, 8} {
 		mark := session.outputPosition()
 		session.resize(48, height)
-		output = session.waitFrom(mark, "> ✓ mcp-11")
+		output = session.waitFrom(mark, "> [x] mcp-11")
 		if !multiSelectCursorOnOption(output, "mcp-11") || !multiSelectSelectionOnOption(output, "mcp-11") {
 			t.Fatalf("PTY resize to %d rows lost the cursor or selection:\n%s", height, output)
 		}
@@ -70,13 +70,13 @@ func TestMultiSelectPTYShrinkPreservesNonFinalCursorAndSelection(t *testing.T) {
 	session := newMultiSelectPTYSession(t, "resize", 100, 24)
 	_ = session.waitFor("mcp-00")
 	session.write(strings.Repeat("\x1b[B", 4) + " ")
-	output := session.waitFor("✓ mcp-04")
+	output := session.waitFor("[x] mcp-04")
 	if !multiSelectSelectionOnOption(output, "mcp-04") {
 		t.Fatalf("PTY setup did not select mcp-04:\n%s", output)
 	}
 	mark := session.outputPosition()
 	session.resize(48, 8)
-	output = session.waitFrom(mark, "> ✓ mcp-04")
+	output = session.waitFrom(mark, "> [x] mcp-04")
 	if !multiSelectCursorOnOption(output, "mcp-04") || !multiSelectSelectionOnOption(output, "mcp-04") {
 		t.Fatalf("PTY shrink moved or hid the cursor:\n%s", output)
 	}
@@ -85,9 +85,9 @@ func TestMultiSelectPTYShrinkPreservesNonFinalCursorAndSelection(t *testing.T) {
 
 func TestMultiSelectPTYWaitAccumulatesFragmentedOutput(t *testing.T) {
 	s := &multiSelectPTYSession{t: t}
-	s.output.WriteString("> ✓ mcp-")
+	s.output.WriteString("> [x] mcp-")
 	matched := make(chan string, 1)
-	go func() { matched <- s.waitFor("> ✓ mcp-11") }()
+	go func() { matched <- s.waitFor("> [x] mcp-11") }()
 	// Force at least one poll with only the prefix present.
 	time.Sleep(50 * time.Millisecond)
 	s.mu.Lock()
@@ -95,7 +95,7 @@ func TestMultiSelectPTYWaitAccumulatesFragmentedOutput(t *testing.T) {
 	s.mu.Unlock()
 	select {
 	case view := <-matched:
-		if !strings.Contains(view, "> ✓ mcp-11") {
+		if !strings.Contains(view, "> [x] mcp-11") {
 			t.Fatalf("fragmented output did not match the complete frame: %q", view)
 		}
 	case <-time.After(time.Second):
@@ -108,10 +108,10 @@ func TestMultiSelectPTYResizePreservesActiveFilter(t *testing.T) {
 	_ = session.waitFor("data.gouv.fr")
 	mark := session.outputPosition()
 	session.write("/data")
-	_ = session.waitFrom(mark, "set filter")
+	_ = session.waitFrom(mark, "valider le filtre")
 	mark = session.outputPosition()
 	session.resize(80, 23)
-	output := session.waitFrom(mark, "> • data.gouv.fr")
+	output := session.waitFrom(mark, "> [ ] data.gouv.fr")
 	if !multiSelectCursorOnOption(output, "data.gouv.fr") || strings.Contains(output, "/dataG") {
 		t.Fatalf("PTY resize lost the active filter's option:\n%s", output)
 	}
@@ -144,7 +144,7 @@ func TestMultiSelectPTYChild(t *testing.T) {
 			options[i] = huh.NewOption(label, label)
 		}
 		selected := []string{}
-		form = huh.NewForm(huh.NewGroup(newProjectMCPsMultiSelect(options, &selected, "MCP (facultatif)")))
+		form = newRenderTestForm(huh.NewGroup(newProjectMCPsMultiSelect(options, &selected, "MCP (facultatif)")))
 	case "filter":
 		form = captureInitMCPsForm(t)
 	default:
