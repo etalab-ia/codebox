@@ -74,6 +74,9 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /healthz", s.handleHealth)
 	mux.HandleFunc("GET /auth/login", s.handleLogin)
 	mux.HandleFunc("GET /auth/callback", s.handleCallback)
+	mux.HandleFunc("POST /auth/logout", s.handleLogout)
+	mux.HandleFunc("GET /auth/logout/redirect", s.handleLogoutRedirect)
+	mux.HandleFunc("GET /auth/logout/callback", s.handleLogoutCallback)
 	mux.HandleFunc("GET /auth/loopback", s.handleLoopback)
 	mux.HandleFunc("POST /auth/device/token", s.handleDeviceToken)
 	mux.Handle("GET /v1/whoami", s.authenticated(s.handleWhoAmI))
@@ -209,7 +212,7 @@ func (s *Server) handleCallback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	attempt, ok := s.attempts.Take(state)
-	if !ok {
+	if !ok || attempt.Logout {
 		writeError(w, http.StatusBadRequest, secrets.ErrCodeInvalidRequest, "connexion inconnue ou expirée ; relancez depuis codebox")
 		return
 	}
@@ -236,7 +239,7 @@ func (s *Server) handleCallback(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusServiceUnavailable, secrets.ErrCodeUpstreamUnavailable, "la connexion ProConnect n'a pas pu être vérifiée ; réessayez bientôt")
 		return
 	}
-	claims := TokenClaims{Subject: identity.Subject, Email: identity.Email, SIRET: identity.SIRET, ACR: identity.ACR}
+	claims := TokenClaims{Subject: identity.Subject, Email: identity.Email, SIRET: identity.SIRET, ACR: identity.ACR, IDToken: identity.IDToken}
 
 	if attempt.LoopbackPort != 0 {
 		token, expires, err := s.tokens.IssueSession(claims)
@@ -251,6 +254,9 @@ func (s *Server) handleCallback(w http.ResponseWriter, r *http.Request) {
 		}
 		q := target.Query()
 		q.Set("token", token)
+		if identity.IDToken != "" {
+			q.Set("id_token", identity.IDToken)
+		}
 		q.Set("state", attempt.LoopbackState)
 		q.Set("expiresAt", expires.UTC().Format(time.RFC3339))
 		target.RawQuery = q.Encode()
@@ -313,11 +319,81 @@ func (s *Server) handleDeviceToken(w http.ResponseWriter, r *http.Request) {
 	s.audit(r, "login.session_issued", slog.String("subject", hashPrefix(claims.Email)))
 	writeJSON(w, http.StatusOK, secrets.TokenResponse{
 		Token:     token,
+		IDToken:   claims.IDToken,
 		ExpiresAt: expires,
 		Identity: secrets.WhoAmIResponse{
 			Sub: claims.Subject, Email: claims.Email, SIRET: claims.SIRET, ACR: claims.ACR, ExpiresAt: expires,
 		},
 	})
+}
+
+// handleLogout starts a browser-based ProConnect end-session flow. Possession
+// of the retained ID token is sufficient; an expired gateway session must not
+// prevent provider logout. The public endpoint is rate-limited and returns only
+// an opaque gateway URL, never the provider URL containing the token.
+func (s *Server) handleLogout(w http.ResponseWriter, r *http.Request) {
+	if ok, retry := s.limiter.Allow("logout:" + ClientIP(r)); !ok {
+		writeError(w, http.StatusTooManyRequests, secrets.ErrCodeRateLimited, "trop de tentatives de déconnexion, réessayez dans "+retry.Round(time.Second).String())
+		return
+	}
+	var req secrets.LogoutRequest
+	if err := decodeStrictJSON(r, &req, 64<<10); err != nil {
+		writeError(w, http.StatusBadRequest, secrets.ErrCodeInvalidRequest, err.Error())
+		return
+	}
+	if strings.TrimSpace(req.IDToken) == "" {
+		writeError(w, http.StatusBadRequest, secrets.ErrCodeInvalidRequest, "le jeton d'identité ProConnect est requis")
+		return
+	}
+	state, err := randomURLToken(32)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "internal_error", "impossible de démarrer une déconnexion")
+		return
+	}
+	logoutURL, err := s.identity.LogoutURL(r.Context(), state, req.IDToken)
+	if err != nil {
+		s.audit(r, "logout.start_failed", slog.String("error_class", upstreamErrorClass(err)))
+		writeError(w, http.StatusServiceUnavailable, secrets.ErrCodeUpstreamUnavailable, "ProConnect est injoignable ; la session locale peut néanmoins être supprimée")
+		return
+	}
+	if err := s.attempts.Put(&LoginAttempt{State: state, Logout: true, LogoutURL: logoutURL}); err != nil {
+		writeError(w, http.StatusTooManyRequests, secrets.ErrCodeRateLimited, "trop de déconnexions en cours ; réessayez bientôt")
+		return
+	}
+	q := url.Values{}
+	q.Set("state", state)
+	opaqueURL := strings.TrimSuffix(s.cfg.PublicURL, "/") + "/auth/logout/redirect?" + q.Encode()
+	s.audit(r, "logout.started")
+	writeJSON(w, http.StatusOK, secrets.LogoutResponse{URL: opaqueURL})
+}
+
+// handleLogoutRedirect keeps the ID-token hint inside the in-memory attempt and
+// exposes only an opaque state URL to browser process arguments or terminal output.
+func (s *Server) handleLogoutRedirect(w http.ResponseWriter, r *http.Request) {
+	state := r.URL.Query().Get("state")
+	attempt, ok := s.attempts.Peek(state)
+	if !ok || !attempt.Logout || attempt.LogoutURL == "" {
+		writeError(w, http.StatusBadRequest, secrets.ErrCodeInvalidRequest, "déconnexion inconnue ou expirée ; relancez depuis codebox")
+		return
+	}
+	s.audit(r, "logout.redirected")
+	http.Redirect(w, r, attempt.LogoutURL, http.StatusFound)
+}
+
+// handleLogoutCallback validates the outstanding state exactly once. Local
+// credentials live in the CLI's OS store and are removed by the CLI even when
+// ProConnect cannot be reached.
+func (s *Server) handleLogoutCallback(w http.ResponseWriter, r *http.Request) {
+	state := r.URL.Query().Get("state")
+	attempt, ok := s.attempts.Take(state)
+	if !ok || !attempt.Logout {
+		writeError(w, http.StatusBadRequest, secrets.ErrCodeInvalidRequest, "déconnexion inconnue ou expirée ; relancez depuis codebox")
+		return
+	}
+	s.audit(r, "logout.completed")
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.Header().Set("Cache-Control", "no-store")
+	_, _ = w.Write([]byte(`<!doctype html><meta charset="utf-8"><title>codebox</title><p>Déconnexion terminée. Fermez cet onglet et revenez au terminal.</p>`))
 }
 
 // handleLoopback serves the desktop callback page: it hands the token to the

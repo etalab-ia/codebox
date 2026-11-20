@@ -30,6 +30,9 @@ type TokenClaims struct {
 	Email   string
 	SIRET   string
 	ACR     string
+	// IDToken is carried only by a short-lived terminal ticket so the CLI can
+	// retain it for ProConnect logout. It is never included in a session token.
+	IDToken string
 	// JTI is a cryptographically random per-token identifier. Two logins by the
 	// same person in the same second are still different tickets: Ed25519 is
 	// deterministic, so this is what makes replay protection distinguish them.
@@ -49,6 +52,7 @@ type tokenPayload struct {
 	Email     string `json:"email"`
 	SIRET     string `json:"siret,omitempty"`
 	ACR       string `json:"acr"`
+	IDToken   string `json:"id_token,omitempty"`
 	IssuedAt  int64  `json:"iat"`
 	ExpiresAt int64  `json:"exp"`
 	Purpose   string `json:"purpose"`
@@ -105,6 +109,7 @@ func NewTokenSeed() (string, error) {
 
 // IssueSession mints a session token for a verified ProConnect identity.
 func (t *TokenIssuer) IssueSession(claims TokenClaims) (string, time.Time, error) {
+	claims.IDToken = ""
 	return t.issue(claims, tokenPurposeSession, t.maxLife)
 }
 
@@ -136,6 +141,7 @@ func (t *TokenIssuer) issue(claims TokenClaims, purpose string, ttl time.Duratio
 		Email:     strings.ToLower(claims.Email),
 		SIRET:     claims.SIRET,
 		ACR:       claims.ACR,
+		IDToken:   claims.IDToken,
 		IssuedAt:  now.Unix(),
 		ExpiresAt: exp.Unix(),
 		Purpose:   purpose,
@@ -203,6 +209,7 @@ func (t *TokenIssuer) Verify(token, purpose string) (TokenClaims, error) {
 		Email:     payload.Email,
 		SIRET:     payload.SIRET,
 		ACR:       payload.ACR,
+		IDToken:   payload.IDToken,
 		JTI:       payload.JTI,
 		IssuedAt:  time.Unix(payload.IssuedAt, 0).UTC(),
 		ExpiresAt: time.Unix(payload.ExpiresAt, 0).UTC(),

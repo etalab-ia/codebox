@@ -46,10 +46,12 @@ func TestCodeboxServerURL(t *testing.T) {
 }
 
 func TestCodeboxServerCredentialKindIsNotGenericAuth(t *testing.T) {
-	if IsKnownCredentialKind(string(CredentialCodeboxServer)) {
-		t.Fatal("the gateway session token must not be writable through generic codebox auth")
-	}
-	if service := credentialService(CredentialCodeboxServer); !strings.Contains(service, string(CredentialCodeboxServer)) {
-		t.Fatalf("credential service = %q, want a dedicated service name", service)
+	for _, kind := range []CredentialKind{CredentialCodeboxServer, CredentialCodeboxServerIDToken} {
+		if IsKnownCredentialKind(string(kind)) {
+			t.Fatalf("%s must not be writable through generic codebox auth", kind)
+		}
+		if service := credentialService(kind); !strings.Contains(service, string(kind)) {
+			t.Fatalf("credential service = %q, want a dedicated service name", service)
+		}
 	}
 }

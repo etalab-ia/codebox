@@ -39,28 +39,30 @@ const (
 	CredentialGithub CredentialKind = "github"
 	// CredentialContext7 is a Context7 API key, bound like github.
 	CredentialContext7 CredentialKind = "context7"
-	// CredentialCodeboxServer stores the ProConnect session token for the
-	// #385 development-secrets server. It is a host credential, never a
-	// project file, and never bound into the guest.
+	// CredentialCodeboxServer stores the gateway session token for the #385
+	// development-secrets server. It is a host credential, never a project file,
+	// and never bound into the guest.
 	CredentialCodeboxServer CredentialKind = "codebox-server"
+	// CredentialCodeboxServerIDToken stores the verified ProConnect ID token
+	// separately so `secrets logout` can use it as the end-session hint.
+	CredentialCodeboxServerIDToken CredentialKind = "codebox-server-id-token"
 )
 
 // KnownCredentialKinds lists the kinds the CLI manages, in display order.
 // The store itself accepts arbitrary service names so a credentialRef can
 // name a non-standard entry (e.g. a second Albert key).
 //
-// CredentialCodeboxServer is deliberately omitted from the `auth` command's
-// managed list: the session token is written and removed by `secrets login`
-// and `secrets logout`, not by a human typing a value into the generic auth
-// command.
+// The two codebox-server credentials are deliberately omitted from the `auth`
+// command's managed list: they are written and removed only by `secrets login`
+// and `secrets logout`, not by a human typing a value into generic auth.
 func KnownCredentialKinds() []CredentialKind {
 	return []CredentialKind{CredentialAlbert, CredentialMistral, CredentialOpenAICompatible, CredentialGithub, CredentialContext7}
 }
 
 // IsKnownCredentialKind reports whether a kind is accepted by `codebox auth`;
-// CredentialCodeboxServer is a valid store entry but not a generic auth kind.
+// codebox-server credentials are valid store entries but not generic auth kinds.
 func IsKnownCredentialKind(kind string) bool {
-	if kind == string(CredentialCodeboxServer) {
+	if kind == string(CredentialCodeboxServer) || kind == string(CredentialCodeboxServerIDToken) {
 		return false
 	}
 	for _, known := range KnownCredentialKinds() {

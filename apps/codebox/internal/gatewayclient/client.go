@@ -164,6 +164,15 @@ func (c *Client) TerminalLoginURLWithBase(base string) string {
 	return u.String()
 }
 
+// LogoutURL returns an opaque short-lived gateway URL for the retained ID token.
+// The request body contains the token; local process arguments and terminal
+// output receive only the opaque URL.
+func (c *Client) LogoutURL(ctx context.Context, idToken string) (string, error) {
+	var out secrets.LogoutResponse
+	err := c.do(ctx, http.MethodPost, "/auth/logout", secrets.LogoutRequest{IDToken: idToken}, &out)
+	return out.URL, err
+}
+
 // ExchangeTicket trades a one-time terminal login code for a session token.
 func ExchangeTicket(ctx context.Context, baseURL, code string, httpClient *http.Client) (secrets.TokenResponse, error) {
 	var out secrets.TokenResponse

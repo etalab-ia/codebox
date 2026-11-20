@@ -10,6 +10,8 @@ type IdentityProvider interface {
 	AuthorizeURL(ctx context.Context, state, nonce, codeChallenge string) (string, error)
 	// Exchange verifies an authorization code and returns the identity.
 	Exchange(ctx context.Context, code, codeVerifier, expectedNonce string) (Identity, error)
+	// LogoutURL builds the provider end-session redirect for a retained ID token.
+	LogoutURL(ctx context.Context, state, idToken string) (string, error)
 	// ValidateProjectCreation applies the creation-time eligibility guard.
 	ValidateProjectCreation(id Identity) error
 }

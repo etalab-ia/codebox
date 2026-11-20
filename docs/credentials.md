@@ -245,7 +245,7 @@ codebox secrets init
 codebox secrets push
 codebox secrets members list
 codebox secrets members add alice.martin@numerique.gouv.fr
-codebox secrets logout
+codebox secrets logout [--terminal]
 ```
 
 `secrets init` écrit dans `.codebox/project.json` un identifiant de projet et
@@ -263,6 +263,19 @@ suivent les modes de livraison existants : proxy avec destinations approuvées,
 ou fichier lisible dans le guest après une approbation distincte. `Recover`
 utilise le même ensemble de valeurs et conserve la règle de compatibilité des
 enregistrements persistés.
+
+Le jeton d'identité ProConnect vérifié est conservé séparément dans le même
+magasin natif pour permettre la déconnexion. Il n'est jamais écrit dans les
+journaux d'audit. `codebox secrets logout` supprime les deux identifiants locaux,
+puis ouvre la déconnexion ProConnect dans le navigateur avec le jeton
+d'identité, un état aléatoire à usage unique et l'URL de retour enregistrée.
+Avec `--terminal`, la commande affiche l'URL à ouvrir au lieu de lancer un
+navigateur. Cette URL passerelle est opaque et temporaire : le jeton d'identité
+n'apparaît ni dans les arguments du navigateur ni dans la sortie du terminal.
+Le retour ProConnect est accepté uniquement si son état correspond
+à une déconnexion encore en cours. Si ProConnect ou la passerelle est
+injoignable, la suppression locale aboutit quand même et la commande signale
+que la déconnexion distante n'a pas démarré.
 
 ## Exposer un secret importé au guest (`secrets bindings`)
 

@@ -100,6 +100,9 @@ func TestOIDCIDTokenSigningAlgorithms(t *testing.T) {
 			if identity.Subject != "sub-"+alg || identity.Email != "user@beta.gouv.fr" || identity.ACR != "eidas0-mfa" {
 				t.Fatalf("identity = %+v", identity)
 			}
+			if identity.IDToken != idToken {
+				t.Fatal("the verified raw ID token was not retained for logout")
+			}
 			if _, err := newClient().Exchange(t.Context(), "wrong-nonce-"+alg, "verifier", "other-nonce"); err == nil {
 				t.Fatal("an ID token with a mismatched nonce was accepted")
 			}
