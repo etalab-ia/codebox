@@ -11,6 +11,7 @@ if [ ! -f "$toolchain_marker" ]; then
     "deb [check-valid-until=no] https://snapshot.debian.org/archive/debian/${CODEBOX_APT_SNAPSHOT} bookworm main" \
     "deb [check-valid-until=no] https://snapshot.debian.org/archive/debian-security/${CODEBOX_APT_SNAPSHOT} bookworm-security main" \
     > /etc/apt/sources.list
+  printf '%s\n' 'codebox : mise à jour des index apt…'
   apt-get -o Acquire::Check-Valid-Until=false update
   case "$(uname -m)" in
     x86_64|amd64)
@@ -26,6 +27,7 @@ if [ ! -f "$toolchain_marker" ]; then
       exit 1
       ;;
   esac
+  printf '%s\n' 'codebox : installation des paquets système et de Chromium avec apt…'
   apt-get install -y --no-install-recommends \
     ca-certificates curl git xz-utils \
     "chromium=${chromium_package_version}" \
@@ -46,6 +48,7 @@ if [ ! -f "$toolchain_marker" ]; then
       ;;
   esac
   node_archive="/tmp/node-v${CODEBOX_NODE_VERSION}-linux-${node_arch}.tar.xz"
+  printf '%s\n' "codebox : téléchargement de Node.js ${CODEBOX_NODE_VERSION}…"
   curl -fsSL "https://nodejs.org/dist/v${CODEBOX_NODE_VERSION}/node-v${CODEBOX_NODE_VERSION}-linux-${node_arch}.tar.xz" -o "$node_archive"
   printf '%s  %s\n' "$node_sha256" "$node_archive" | sha256sum -c -
   tar -xJf "$node_archive" --strip-components=1 -C /usr/local
@@ -53,6 +56,7 @@ if [ ! -f "$toolchain_marker" ]; then
 
   test "$(node --version)" = "v${CODEBOX_NODE_VERSION}"
   test "$(npm --version)" = "$CODEBOX_NODE_NPM_VERSION"
+  printf '%s\n' "codebox : installation d'OpenCode ${CODEBOX_OPENCODE_VERSION} avec npm…"
   npm install --global --prefix /opt/codebox/opencode "@opencode/cli@${CODEBOX_OPENCODE_VERSION}"
   ln -sf /opt/codebox/opencode/bin/opencode /usr/local/bin/opencode
   test "$(opencode --version)" = "opencode v$CODEBOX_OPENCODE_VERSION"
@@ -69,6 +73,7 @@ if [ -f "$browser_marker" ]; then
   current_fingerprint=$(cat "$browser_marker")
 fi
 if [ -n "${CODEBOX_BROWSER_MCP_FINGERPRINT:-}" ] && [ "$current_fingerprint" != "$CODEBOX_BROWSER_MCP_FINGERPRINT" ]; then
+  printf '%s\n' 'codebox : installation des MCP navigateur avec npm…'
   for package in ${CODEBOX_BROWSER_MCP_PACKAGES:-}; do
     npm install --global "$package"
   done

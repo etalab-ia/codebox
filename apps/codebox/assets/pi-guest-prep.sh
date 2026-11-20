@@ -8,6 +8,7 @@
 set -eu
 
 if [ ! -f /var/lib/codebox/toolchain-ready ]; then
+  printf '%s\n' 'codebox : installation des paquets système avec apk…'
   apk add --no-cache bash build-base ca-certificates curl git nodejs npm procps python3 py3-pip
   mkdir -p /var/lib/codebox
   touch /var/lib/codebox/toolchain-ready
@@ -16,6 +17,7 @@ fi
 # A private prefix keeps the managed install separate from anything a user's
 # own template might ship under the default npm prefix.
 if [ "$(pi --version 2>/dev/null || true)" != "${CODEBOX_PI_VERSION}" ]; then
+  printf '%s\n' "codebox : installation de Pi ${CODEBOX_PI_VERSION} avec npm…"
   npm install --global --prefix /opt/codebox/pi "@mariozechner/pi-coding-agent@${CODEBOX_PI_VERSION}"
   ln -sf /opt/codebox/pi/bin/pi /usr/local/bin/pi
 fi
@@ -32,6 +34,7 @@ if [ -z "${CODEBOX_PI_MODELS_JSON:-}" ] || [ -z "${CODEBOX_PI_SETTINGS_JSON:-}" 
   echo "pi-guest-prep : la configuration Pi gérée est absente de l'environnement de l'invité" >&2
   exit 1
 fi
+printf '%s\n' 'codebox : écriture de la configuration Pi…'
 mkdir -p "$HOME/.pi/agent"
 printf '%s\n' "${CODEBOX_PI_MODELS_JSON}" > "$HOME/.pi/agent/models.json"
 printf '%s\n' "${CODEBOX_PI_SETTINGS_JSON}" > "$HOME/.pi/agent/settings.json"

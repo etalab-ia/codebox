@@ -931,9 +931,17 @@ func (t *Tart) RestartPreflights(ctx context.Context) error {
 	return CheckWorkspaceGate(ctx, t.Config.WorkspaceDir)
 }
 
-// Logs follows the backend log, mirroring `just logs --tart`.
-func (t *Tart) Logs() error {
-	return RunInteractive("tail", "-f", t.LogPath())
+// Logs writes the current log and returns, or follows it with --follow.
+func (t *Tart) Logs(_ context.Context, follow bool) error {
+	args := []string{t.LogPath()}
+	if follow {
+		args = []string{"-f", t.LogPath()}
+	}
+	interactive := t.Interactive
+	if interactive == nil {
+		interactive = RunInteractive
+	}
+	return interactive("tail", args...)
 }
 
 // Shell opens an interactive shell in the VM, mirroring `just shell --tart`.

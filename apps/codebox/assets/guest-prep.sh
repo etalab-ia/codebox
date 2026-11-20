@@ -1,6 +1,7 @@
 #!/bin/sh
 set -eu
 if [ ! -f /var/lib/codebox/toolchain-ready ]; then
+  printf '%s\n' 'codebox : installation des paquets système avec apk…'
   apk add --no-cache bash build-base ca-certificates curl git nodejs npm procps python3 py3-pip
   mkdir -p /var/lib/codebox
   touch /var/lib/codebox/toolchain-ready
@@ -8,6 +9,7 @@ fi
 # The base image contains the legacy v1 CLI. Install the managed v2 release
 # before either serving the backend or announcing full-mode readiness.
 if [ "$(opencode --version 2>/dev/null || true)" != "opencode v${CODEBOX_OPENCODE_VERSION}" ]; then
+  printf '%s\n' "codebox : installation d'OpenCode ${CODEBOX_OPENCODE_VERSION} avec npm…"
   # Private prefix avoids the v1 image's unmanaged /usr/local/bin/opencode
   # and npm's EEXIST when two package namespaces expose the same bin.
   npm install --global --prefix /opt/codebox/opencode "@opencode/cli@${CODEBOX_OPENCODE_VERSION}"

@@ -37,7 +37,7 @@ func (f *fakeBackend) Restart(context.Context) error            { return nil }
 func (f *fakeBackend) Recreate(context.Context) error           { return nil }
 func (f *fakeBackend) Clean(context.Context) error              { return nil }
 func (f *fakeBackend) Doctor(context.Context) error             { return nil }
-func (f *fakeBackend) Logs() error                              { return nil }
+func (f *fakeBackend) Logs(context.Context, bool) error         { return nil }
 func (f *fakeBackend) Shell() error                             { return nil }
 func (f *fakeBackend) IsRunning(context.Context) (bool, error)  { return f.running, nil }
 func (f *fakeBackend) Endpoint(context.Context) (string, error) { return "http://localhost:4096", nil }

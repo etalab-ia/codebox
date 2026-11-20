@@ -11,7 +11,8 @@ codebox start --tart           # démarre un backend sans attacher le TUI
 codebox stop                   # arrête l'instance du projet courant
 codebox stop --all             # arrête toutes les instances codebox
 codebox check                  # santé du backend actif + provider Albert + ports forwardés (Microsandbox)
-codebox logs --tart            # logs d'un runtime explicite
+codebox logs --tart            # affiche les journaux puis quitte
+codebox logs --follow --tart   # suit les journaux jusqu'à interruption
 codebox shell --tart           # shell dans un runtime explicite
 codebox restart --tart         # arrête puis relance l'instance existante
 codebox recreate --tart        # recrée le sandbox (destructif, demande confirmation)

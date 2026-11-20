@@ -81,8 +81,9 @@ type Backend interface {
 	Recreate(ctx context.Context) error
 	Clean(ctx context.Context) error
 	Doctor(ctx context.Context) error
-	// Logs and Shell are interactive and run attached to the terminal.
-	Logs() error
+	// Logs writes the current log and returns unless follow is true.
+	Logs(ctx context.Context, follow bool) error
+	// Shell runs attached to the terminal.
 	Shell() error
 	IsRunning(ctx context.Context) (bool, error)
 	// Endpoint returns the host-reachable backend URL when running.

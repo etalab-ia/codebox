@@ -162,7 +162,7 @@ func TestMicrosandboxToolchainWaitBoundsBlockedProbeByInactivity(t *testing.T) {
 func TestMSBPrepareProbeReportsLogActivity(t *testing.T) {
 	for _, harness := range []Harness{HarnessOpenCode, HarnessPi} {
 		probe := msbGuestPrepareProbeFor(harness)
-		for _, expected := range []string{"stat -c", msbGuestLog, ">&2"} {
+		for _, expected := range []string{"stat -c", msbGuestLogFor(harness), ">&2"} {
 			if !strings.Contains(probe, expected) {
 				t.Errorf("%s probe lacks log-activity fragment %q: %s", harness, expected, probe)
 			}

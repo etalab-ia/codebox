@@ -46,7 +46,6 @@ type fakeMSBClient struct {
 	modifyErr              error
 	stopErr                error
 	removeErr              error
-	logsErr                error
 	shellErr               error
 	attachErr              error
 
@@ -701,11 +700,6 @@ func (f *fakeMSBClient) List(_ context.Context) ([]msbSandboxInfo, error) {
 		out = append(out, msbSandboxInfo{Name: name, Status: status})
 	}
 	return out, nil
-}
-
-func (f *fakeMSBClient) Logs(name string) error {
-	f.record("logs " + name)
-	return f.logsErr
 }
 
 func (f *fakeMSBClient) Shell(name string) error {
@@ -1377,16 +1371,13 @@ func TestMicrosandboxStopAndClean(t *testing.T) {
 	}
 }
 
-func TestMicrosandboxDelegatesInteractiveCommands(t *testing.T) {
+func TestMicrosandboxDelegatesShell(t *testing.T) {
 	client := &fakeMSBClient{}
 	m := newTestMicrosandbox(t, client)
-	if err := m.Logs(); err != nil {
-		t.Fatalf("Logs: %v", err)
-	}
 	if err := m.Shell(); err != nil {
 		t.Fatalf("Shell: %v", err)
 	}
-	if !hasCall(client, "logs "+msbSandbox) || !hasCall(client, "shell "+msbSandbox) {
+	if !hasCall(client, "shell "+msbSandbox) {
 		t.Fatalf("interactive calls = %v", client.calls)
 	}
 }
