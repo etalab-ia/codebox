@@ -12,9 +12,9 @@ Si malgré cela le backend ne répond pas, l'attachement (`codebox` sans command
 - `connection refused` — le backend n'écoute pas ; `codebox logs --<runtime>` montre la sortie du bootstrap invité.
 - `HTTP 200: ...` sans `healthy` — l'application démarre encore ; attendre quelques secondes.
 
-Le premier démarrage d'un sandbox Microsandbox installe ~384 Mio de paquets dans la microVM et peut dépasser largement une minute ; les démarrages suivants sont rapides (l'installation est marquée dans `/var/lib/codebox/toolchain-ready`).
+Le premier démarrage d'un sandbox Microsandbox installe ~384 Mio de paquets dans la microVM et peut dépasser largement une minute ; les démarrages suivants sont rapides (l'installation est marquée dans `/var/lib/codebox/toolchain-ready`). En mode full, codebox attend tant que le journal de l'installation avance, avec `CODEBOX_START_TIMEOUT` comme délai d'inactivité (300 s par défaut) et un plafond total de 30 minutes. Après un dépassement, l'installation peut continuer en arrière-plan : relancez simplement `codebox` pour reprendre l'attente du même sandbox, sans le recréer.
 
-Le réflexe le plus simple reste `codebox stop` suivi d'un relancement de `codebox --<runtime>`.
+Le réflexe le plus simple pour un backend qui ne répond plus reste `codebox stop` suivi d'un relancement de `codebox --<runtime>`.
 
 ## Conteneur Docker d'une version précédente
 

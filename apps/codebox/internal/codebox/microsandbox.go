@@ -83,6 +83,9 @@ const (
 	// where nothing is preparing, so a start script that dies repeatedly
 	// cannot spin.
 	msbToolchainRelaunchLimit = 3
+	// msbToolchainHardCap bounds the total readiness wait even when the guest
+	// log keeps advancing. StartTimeout remains the inactivity limit.
+	msbToolchainHardCap = 30 * time.Minute
 	// msbRelaunchCommand restarts that entrypoint from inside a live VM.
 	// Microsandbox keeps a VM across restarts but runs the entrypoint only at
 	// creation, so a VM that came back from a restart reports `running` with no
@@ -127,6 +130,18 @@ const (
 	msbAPISecretPlaceholder = "$MSB_" + msbAPISecretEnv
 )
 
+// toolchainClock isolates the readiness wait's time source for deterministic
+// progress, inactivity, and hard-cap tests.
+type toolchainClock interface {
+	Now() time.Time
+	After(time.Duration) <-chan time.Time
+}
+
+type wallToolchainClock struct{}
+
+func (wallToolchainClock) Now() time.Time                             { return time.Now() }
+func (wallToolchainClock) After(delay time.Duration) <-chan time.Time { return time.After(delay) }
+
 // MicrosandboxRuntime runs the OpenCode backend in a named Microsandbox
 // microVM through the embedded Microsandbox Go SDK. No `msb` CLI install is
 // required: the runtime downloads to ~/.microsandbox/ on first use. The real
@@ -149,6 +164,10 @@ type MicrosandboxRuntime struct {
 	launchRetryDelay time.Duration
 	// toolchainPollDelay paces the full-mode readiness wait; configurable for tests.
 	toolchainPollDelay time.Duration
+	// toolchainClock and toolchainHardCap make the readiness wait deterministic
+	// in tests. Nil or zero values select the wall clock and production cap.
+	toolchainClock   toolchainClock
+	toolchainHardCap time.Duration
 	// StateDir is the host state dir the binding approvals are read from;
 	// empty means the default (~/.local/state/codebox).
 	StateDir string
@@ -997,33 +1016,85 @@ func (m *MicrosandboxRuntime) startInstanceWithBackendPreflight(ctx context.Cont
 }
 
 // waitForToolchain blocks until the guest prep script signals completion by
-// writing its marker, bounded by the configured start timeout. A guest where
-// nothing is preparing is relaunched rather than polled: an idle VM left by
-// the pre-#61 creation path, or a start script whose launch retries were
-// exhausted, would otherwise wait out the whole timeout on every attempt and
-// only be recoverable by destructive recreation.
+// writing its marker. Log activity resets the configured inactivity limit,
+// while a separate hard cap bounds the total wait. A guest where nothing is
+// preparing is relaunched rather than polled: an idle VM left by the pre-#61
+// creation path, or a start script whose launch retries were exhausted, would
+// otherwise wait out the whole timeout on every attempt and only be recoverable
+// by destructive recreation.
 func (m *MicrosandboxRuntime) waitForToolchain(ctx context.Context) error {
-	timeout := m.cfg.StartTimeout
-	if timeout <= 0 {
-		timeout = DefaultStartTimeout
+	inactivity := m.cfg.StartTimeout
+	if inactivity <= 0 {
+		inactivity = DefaultStartTimeout
+	}
+	hardCap := m.toolchainHardCap
+	if hardCap <= 0 {
+		hardCap = msbToolchainHardCap
 	}
 	delay := m.toolchainPollDelay
 	if delay <= 0 {
 		delay = msbLaunchRetryDelay
 	}
-	ctx, cancel := context.WithTimeout(ctx, timeout)
+	clock := m.toolchainClock
+	if clock == nil {
+		clock = wallToolchainClock{}
+	}
+
+	started := clock.Now()
+	hardDeadline := started.Add(hardCap)
+	lastProgress := started
+	lastActivity := ""
+	waitCtx, cancel := context.WithTimeout(ctx, hardCap)
 	defer cancel()
+
+	inactivityError := func() error {
+		return fmt.Errorf("la chaîne d'outils de la machine isolée est sans nouvelle activité depuis %s ; "+
+			"l'installation peut continuer en arrière-plan ; relancez 'codebox' pour reprendre l'attente sans recréer la machine isolée ; "+
+			"lancez 'codebox logs --microsandbox' ou vérifiez %s dans la machine isolée : %w",
+			inactivity, msbGuestLog, context.DeadlineExceeded)
+	}
+	hardCapError := func(cause error) error {
+		return fmt.Errorf("la chaîne d'outils de la machine isolée n'a pas été prête dans le délai maximal de %s ; "+
+			"l'installation peut continuer en arrière-plan ; relancez 'codebox' pour reprendre l'attente sans recréer la machine isolée ; "+
+			"lancez 'codebox logs --microsandbox' ou vérifiez %s dans la machine isolée : %w",
+			hardCap, msbGuestLog, cause)
+	}
+	withRemainingTime := func() (context.Context, context.CancelFunc) {
+		now := clock.Now()
+		remaining := inactivity - now.Sub(lastProgress)
+		if hardRemaining := hardDeadline.Sub(now); hardRemaining < remaining {
+			remaining = hardRemaining
+		}
+		return context.WithTimeout(waitCtx, remaining)
+	}
+
 	relaunches := 0
 	for first := true; ; first = false {
-		code, _, err := m.Client.Exec(ctx, m.InstanceName(), msbGuestPrepareProbeFor(m.cfg.EffectiveHarness()))
+		now := clock.Now()
+		if !now.Before(hardDeadline) {
+			return hardCapError(context.DeadlineExceeded)
+		}
+		if now.Sub(lastProgress) >= inactivity {
+			return inactivityError()
+		}
+
+		probeCtx, probeCancel := withRemainingTime()
+		code, activity, err := m.Client.Exec(probeCtx, m.InstanceName(), msbGuestPrepareProbeFor(m.cfg.EffectiveHarness()))
+		probeCancel()
 		if err == nil {
 			switch {
 			case code == msbPrepareReady:
 				return nil
 			case code == msbPrepareProgress:
-				// The installer is alive; keep waiting.
+				// The process scan proves that the installer is alive; a changed
+				// log fingerprint proves that it is still making progress.
 				if !m.Launch.IsFirstStart() {
 					m.Launch.AnnounceFirstStart()
+				}
+				activity = strings.TrimSpace(activity)
+				if activity != "" && activity != lastActivity {
+					lastActivity = activity
+					lastProgress = clock.Now()
 				}
 			case code == msbPrepareIdle && relaunches < msbToolchainRelaunchLimit:
 				if !m.Launch.IsFirstStart() {
@@ -1031,7 +1102,15 @@ func (m *MicrosandboxRuntime) waitForToolchain(ctx context.Context) error {
 				}
 				relaunches++
 				m.say("Rien ne prépare la machine isolée dans %s ; lancement du script de démarrage...", m.InstanceName())
-				if err := m.launchBackend(ctx); err != nil {
+				// Relaunching the idempotent installer is itself new activity;
+				// its log may also have been truncated by the redirection.
+				// Bound the launch by the fresh inactivity interval too.
+				lastActivity = ""
+				lastProgress = clock.Now()
+				launchCtx, launchCancel := withRemainingTime()
+				err := m.launchBackend(launchCtx)
+				launchCancel()
+				if err != nil {
 					return err
 				}
 			}
@@ -1041,12 +1120,25 @@ func (m *MicrosandboxRuntime) waitForToolchain(ctx context.Context) error {
 			// message only makes sense when there is something to wait for.
 			m.say("En attente de la fin de l'installation de la chaîne d'outils dans la machine isolée...")
 		}
+
+		now = clock.Now()
+		wait := delay
+		if remaining := inactivity - now.Sub(lastProgress); remaining < wait {
+			wait = remaining
+		}
+		if remaining := hardDeadline.Sub(now); remaining < wait {
+			wait = remaining
+		}
+		if wait <= 0 {
+			continue
+		}
 		select {
-		case <-time.After(delay):
-		case <-ctx.Done():
-			return fmt.Errorf("la chaîne d'outils de la machine isolée n'a pas été prête dans %s (le script de démarrage a peut-être échoué) ; "+
-				"lancez 'codebox logs --microsandbox' ou vérifiez %s dans la machine isolée : %w",
-				timeout, msbGuestLog, ctx.Err())
+		case <-clock.After(wait):
+		case <-waitCtx.Done():
+			if ctx.Err() != nil {
+				return fmt.Errorf("l'attente de la préparation de la machine isolée a été interrompue ; l'installation peut continuer en arrière-plan ; relancez 'codebox' pour reprendre sans recréer la machine isolée : %w", ctx.Err())
+			}
+			return hardCapError(waitCtx.Err())
 		}
 	}
 }
@@ -1058,11 +1150,13 @@ var msbGuestPrepareProbe = msbGuestPrepareProbeFor(HarnessOpenCode)
 
 // msbGuestPrepareProbeFor reports the guest's preparation state through its
 // exit code (Exec surfaces stderr only): ready, preparing, or idle with
-// nothing running. The process scan reads /proc rather than using pgrep,
-// which guest-prep only installs partway through — during a first install
-// pgrep is absent exactly when "is something preparing?" matters. The probe
-// skips its own PID: its command line necessarily contains the entrypoint path
-// it greps for.
+// nothing running. While preparing, stderr carries an opaque fingerprint of
+// the prep log's size and modification time; the host uses a change in that
+// fingerprint as progress. The process scan reads /proc rather than using
+// pgrep, which guest-prep only installs partway through — during a first
+// install pgrep is absent exactly when "is something preparing?" matters.
+// The probe skips its own PID: its command line necessarily contains the
+// entrypoint path it greps for.
 //
 // Readiness means the guest provides the harness's own CLI at the pinned
 // version: the prep script installs a different toolchain for Pi than for
@@ -1091,10 +1185,11 @@ func msbGuestPrepareProbeFor(harness Harness) string {
 	return "fingerprint=\"${" + fingerprintEnv + ":-}\"; " +
 		"if [ -f " + msbToolchainMarker + " ] && " + toolchain + "; then " +
 		profile +
+		"activity=$(stat -c '%s:%Y' " + msbGuestLog + " 2>/dev/null || printf 'missing'); " +
 		"self=$$; " +
 		"for p in /proc/[0-9]*/cmdline; do " +
 		"[ \"$p\" = \"/proc/$self/cmdline\" ] && continue; " +
-		"tr '\\0' ' ' < \"$p\" 2>/dev/null | grep -q '" + msbGuestEntrypoint + "' && exit " + strconv.Itoa(msbPrepareProgress) + "; " +
+		"tr '\\0' ' ' < \"$p\" 2>/dev/null | grep -q '" + msbGuestEntrypoint + "' && { printf '%s\\n' \"$activity\" >&2; exit " + strconv.Itoa(msbPrepareProgress) + "; }; " +
 		"done; exit " + strconv.Itoa(msbPrepareIdle)
 }
 
