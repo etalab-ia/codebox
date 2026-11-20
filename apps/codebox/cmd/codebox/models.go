@@ -34,18 +34,26 @@ func modelsListCmd() (int, error) {
 	if !ok {
 		settings = codebox.UserSettings{SchemaVersion: 1}
 	}
-	providers, err := codebox.ResolveProviders(settings.Providers)
+	providerSettings, err := resolveProviderSettingsAt(resolveProjectRootForAux())
+	if err != nil {
+		return 1, err
+	}
+	providers, err := codebox.ResolveProviders(providerSettings)
 	if err != nil {
 		return 1, err
 	}
 	selection := resolveModelSelection(".")
 	for _, provider := range providers {
-		if err := modelsListProvider(ctx, provider, settings, selection); err != nil {
+		if err := modelsListProviderFn(ctx, provider, settings, selection); err != nil {
 			return 1, err
 		}
 	}
 	return 0, nil
 }
+
+// modelsListProviderFn is the display seam used by project-provider tests;
+// production uses the real catalogue path.
+var modelsListProviderFn = modelsListProvider
 
 // modelsListProvider lists one platform's usable models and marks the checked
 // ones. Albert keeps the last-known-good cache; the other platforms are read

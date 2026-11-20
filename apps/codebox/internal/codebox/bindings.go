@@ -659,6 +659,24 @@ func resolveAlbert(ctx context.Context, cfg Config, from string) (string, bindin
 	return resolveAlbertWith(readStoredWith, ctx, cfg, from)
 }
 
+// persistedEntryForBinding returns the unique store entry recorded for a
+// guest binding. Ambiguous or legacy incomplete records deliberately return
+// empty, allowing the caller to retain its legacy fixed-entry behavior.
+func persistedEntryForBinding(records []string, binding CredentialKind) string {
+	found := ""
+	for _, record := range records {
+		parsed, form := parseBoundStoreEntry(record)
+		if form != boundRecordFull || parsed.Binding != binding {
+			continue
+		}
+		if found != "" && found != parsed.Entry {
+			return ""
+		}
+		found = parsed.Entry
+	}
+	return found
+}
+
 // resolveAlbertWith is resolveAlbert over an injected reader, so tests can
 // exercise the precedence chain and the store scoping without a real
 // credential store. It returns the resolved value, its source, the store it

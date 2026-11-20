@@ -40,7 +40,7 @@ La résolution des clés au démarrage est détaillée dans
 entrée fixe legacy. Pour Mistral AI et une plateforme compatible OpenAI, la
 variable legacy lue sans référence explicite est respectivement
 `MISTRAL_API_KEY` et `OPENAI_COMPATIBLE_API_KEY`. Les références non-Albert sont
-liées au provider et à l'hôte (`<kind>@<host>`) : une référence destinée à un
+liées au provider et à l'hôte (`<kind>:<host>`) : une référence destinée à un
 autre provider ou hôte est refusée avant toute lecture du magasin.
 
 ## Fichiers gérés

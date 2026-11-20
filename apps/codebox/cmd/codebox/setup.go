@@ -1028,6 +1028,7 @@ func chooseSetupPlatforms(current []codebox.SetupPlatform, in *bufio.Reader) ([]
 				if old.Kind == string(kind) {
 					entry.Name = old.Name
 					entry.BaseURL = old.BaseURL
+					entry.CredentialRef = old.CredentialRef
 					entry.Verified = old.Verified
 				}
 			}

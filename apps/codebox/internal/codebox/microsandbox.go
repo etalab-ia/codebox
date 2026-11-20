@@ -508,10 +508,7 @@ func (m *MicrosandboxRuntime) resolveBindings(ctx context.Context) ([]resolvedBi
 		if b.Provider {
 			provider, ok := providerForKind(b.Kind, m.cfg.Providers)
 			if !ok {
-				// Recovery still owns the persisted binding when that provider is
-				// no longer configured. Use its legacy fixed-entry contract rather
-				// than requiring an unrelated current provider.
-				provider = InferenceProvider{Kind: ProviderKind(b.Kind), CredentialKind: b.Kind, APIKeyEnv: b.GuestEnv}
+				return nil, fmt.Errorf("association de plateforme introuvable pour %s", b.GuestEnv)
 			}
 			v, src, store, entry, err := resolveProviderWith(read, ctx, m.cfg, provider, m.CredentialStore)
 			if err != nil {
@@ -1992,9 +1989,15 @@ func (m *MicrosandboxRuntime) resolvePersistedBindings(ctx context.Context, refs
 			provider, ok := providerForKind(b.Kind, m.cfg.Providers)
 			if !ok {
 				// Recovery still owns the persisted binding when that provider is
-				// no longer configured. Use its legacy fixed-entry contract rather
-				// than requiring an unrelated current provider.
+				// no longer configured. Restore its recorded store entry when one
+				// exists; otherwise retain the legacy fixed-entry contract.
 				provider = InferenceProvider{Kind: ProviderKind(b.Kind), CredentialKind: b.Kind, APIKeyEnv: b.GuestEnv}
+				if len(ref.AllowedHosts) == 1 {
+					provider.Host = ref.AllowedHosts[0]
+				}
+				if applied, readErr := ReadInstanceState(DefaultFS, instanceStatePath(DefaultStateDir(), m.InstanceName())); readErr == nil && applied != nil {
+					provider.CredentialRef = persistedEntryForBinding(applied.BoundCredentials, b.Kind)
+				}
 			}
 			v, src, store, entry, err := resolveProviderWith(read, ctx, m.cfg, provider, m.CredentialStore)
 			if err != nil {

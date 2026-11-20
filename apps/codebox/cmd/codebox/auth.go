@@ -44,8 +44,9 @@ func authCmd(args []string) (int, error) {
 // parseAuthArgs returns the credential kind, the --stdin flag and the
 // --fallback flag. The kind defaults to albert; the known optional kinds
 // (github, context7) are accepted, and unknown kinds are rejected so a typo
-// does not store a credential nothing will ever read. A credentialRef may
-// still name an arbitrary store entry — the CLI manages the known kinds.
+// does not store a credential nothing will ever read. Host-bound provider
+// references (<kind>:<host>) are accepted so setup-created keys can be rotated
+// and revoked through the same auth commands.
 func parseAuthArgs(args []string) (codebox.CredentialKind, bool, bool, error) {
 	kind := codebox.CredentialAlbert
 	stdin, fallback := false, false
@@ -59,8 +60,8 @@ func parseAuthArgs(args []string) (codebox.CredentialKind, bool, bool, error) {
 			if strings.HasPrefix(a, "-") {
 				return kind, stdin, fallback, fmt.Errorf("type d'identifiant ou option inconnu : %s (attendu : albert, mistral, openai-compatible, github, context7, --stdin ou --fallback)", a)
 			}
-			if !codebox.IsKnownCredentialKind(a) {
-				return kind, stdin, fallback, fmt.Errorf("type d'identifiant inconnu : %s (attendu : albert, mistral, openai-compatible, github ou context7)", a)
+			if !codebox.IsKnownCredentialKind(a) && !codebox.IsProviderCredentialRef(a) {
+				return kind, stdin, fallback, fmt.Errorf("type d'identifiant inconnu : %s (attendu : albert, mistral, openai-compatible, github, context7 ou une référence <kind>:<host>)", a)
 			}
 			kind = codebox.CredentialKind(a)
 		}

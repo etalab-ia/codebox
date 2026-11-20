@@ -9,8 +9,8 @@ import (
 func TestProviderCredentialRefsBindDestination(t *testing.T) {
 	providers, err := ResolveProviders([]ProviderSettings{
 		{Kind: ProviderAlbert, CredentialRef: "legacy-albert"},
-		{Kind: ProviderMistral, CredentialRef: "mistral@api.mistral.ai"},
-		{Kind: ProviderOpenAICompatible, Name: "OpenRouter", BaseURL: "https://openrouter.ai/api/v1", CredentialRef: "openai-compatible@openrouter.ai"},
+		{Kind: ProviderMistral, CredentialRef: "mistral:api.mistral.ai"},
+		{Kind: ProviderOpenAICompatible, Name: "OpenRouter", BaseURL: "https://openrouter.ai/api/v1", CredentialRef: "openai-compatible:openrouter.ai"},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -27,17 +27,30 @@ func TestProviderCredentialRefsBindDestination(t *testing.T) {
 		}
 	}
 	mistral := providers[1]
-	for _, ref := range []string{"albert", "mistral@evil.example", "openai-compatible@openrouter.ai"} {
+	for _, ref := range []string{"albert", "mistral:evil.example", "openai-compatible:openrouter.ai"} {
 		if err := ValidateProviderCredentialRef(mistral, ref); err == nil {
 			t.Fatalf("Mistral accepted wrong-provider or wrong-host reference %q", ref)
 		}
 	}
 }
 
+func TestProviderCredentialRefRoundTripsBoundStoreEntry(t *testing.T) {
+	provider, err := ResolveProvider(ProviderSettings{Kind: ProviderMistral})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ref := ProviderCredentialRef(provider)
+	record := formatBoundStoreEntry(boundStoreEntry{Entry: ref, Store: "native", Binding: provider.CredentialKind})
+	parsed, form := parseBoundStoreEntry(record)
+	if form != boundRecordFull || parsed.Entry != ref || parsed.Store != "native" || parsed.Binding != provider.CredentialKind {
+		t.Fatalf("bound credential record did not round-trip %q: %+v, form=%v", record, parsed, form)
+	}
+}
+
 func TestResolveProviderKeysUsesExplicitHostBoundReferences(t *testing.T) {
 	providers, err := ResolveProviders([]ProviderSettings{
-		{Kind: ProviderMistral, CredentialRef: "mistral@api.mistral.ai"},
-		{Kind: ProviderOpenAICompatible, Name: "OpenRouter", BaseURL: "https://openrouter.ai/api/v1", CredentialRef: "openai-compatible@openrouter.ai"},
+		{Kind: ProviderMistral, CredentialRef: "mistral:api.mistral.ai"},
+		{Kind: ProviderOpenAICompatible, Name: "OpenRouter", BaseURL: "https://openrouter.ai/api/v1", CredentialRef: "openai-compatible:openrouter.ai"},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -53,10 +66,10 @@ func TestResolveProviderKeysUsesExplicitHostBoundReferences(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got[MistralAPIKeyEnv] != "stored-mistral@api.mistral.ai" || got[OpenAICompatibleAPIKeyEnv] != "stored-openai-compatible@openrouter.ai" {
+	if got[MistralAPIKeyEnv] != "stored-mistral:api.mistral.ai" || got[OpenAICompatibleAPIKeyEnv] != "stored-openai-compatible:openrouter.ai" {
 		t.Fatalf("explicit references did not win: %#v", got)
 	}
-	if len(reads) != 2 || reads[0] != CredentialKind("mistral@api.mistral.ai") || reads[1] != CredentialKind("openai-compatible@openrouter.ai") {
+	if len(reads) != 2 || reads[0] != CredentialKind("mistral:api.mistral.ai") || reads[1] != CredentialKind("openai-compatible:openrouter.ai") {
 		t.Fatalf("unexpected store reads: %v", reads)
 	}
 }
@@ -66,7 +79,7 @@ func TestResolveProviderKeysRejectsWrongHostBeforeRead(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	provider.CredentialRef = "mistral@evil.example"
+	provider.CredentialRef = "mistral:evil.example"
 	providers := []InferenceProvider{provider}
 	reads := 0
 	read := func(_ context.Context, kind CredentialKind, _ string) (string, string, error) {

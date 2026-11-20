@@ -71,8 +71,11 @@ en réutilisant une clé déjà stockée sur le poste. La valeur reste toujours 
 le magasin d'identifiants.
 
 Pour Mistral AI et un provider compatible OpenAI, une nouvelle référence prend
-la forme `<kind>@<host>` : `mistral@api.mistral.ai`, ou par exemple
-`openai-compatible@openrouter.ai`. Le provider et l'hôte doivent correspondre à
+la forme `<kind>:<host>` : `mistral:api.mistral.ai`, ou par exemple
+`openai-compatible:openrouter.ai`. Ces références sont acceptées par
+`codebox auth add` et `codebox auth remove` pour faire tourner ou révoquer la clé
+réellement utilisée, avec la même révocation avant suppression que les entrées
+fixes. Le provider et l'hôte doivent correspondre à
 la référence ; sinon la résolution échoue avant de lire le moindre secret. Une
 référence explicite absente du magasin échoue également, sans retomber sur une
 variable d'environnement ou une autre clé. Albert conserve ses références
