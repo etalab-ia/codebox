@@ -37,7 +37,7 @@ func TestSetupPlatformStageUnreachableRetryThenContinue(t *testing.T) {
 	if _, err := setupPlatformStage(context.Background(), w, bufio.NewReader(strings.NewReader("k1\nr\nk2\n")), true, &j, fs, stateDir); err != nil {
 		t.Fatalf("stage: %v", err)
 	}
-	if store.puts[codebox.CredentialKind("mistral@api.mistral.ai")] != "k2" || calls != 2 {
+	if store.puts[codebox.CredentialKind("mistral:api.mistral.ai")] != "k2" || calls != 2 {
 		t.Fatalf("retry path: puts=%+v calls=%d", store.puts, calls)
 	}
 }
@@ -84,11 +84,11 @@ func TestChooseSetupPlatformsTextMultiSelectAndEOF(t *testing.T) {
 
 func TestChooseSetupPlatformsTextCanRemoveAlbert(t *testing.T) {
 	forceNonTTY(t)
-	chosen, err := chooseSetupPlatforms([]codebox.SetupPlatform{{Kind: string(codebox.ProviderAlbert)}, {Kind: string(codebox.ProviderMistral)}}, bufio.NewReader(strings.NewReader("2\n")))
+	chosen, err := chooseSetupPlatforms([]codebox.SetupPlatform{{Kind: string(codebox.ProviderAlbert)}, {Kind: string(codebox.ProviderMistral), CredentialRef: "mistral:api.mistral.ai"}}, bufio.NewReader(strings.NewReader("2\n")))
 	if err != nil {
 		t.Fatalf("choose platforms: %v", err)
 	}
-	if len(chosen) != 1 || chosen[0].Kind != string(codebox.ProviderMistral) {
+	if len(chosen) != 1 || chosen[0].Kind != string(codebox.ProviderMistral) || chosen[0].CredentialRef != "mistral:api.mistral.ai" {
 		t.Fatalf("Albert was not removed: %+v", chosen)
 	}
 	if _, err := chooseSetupPlatforms([]codebox.SetupPlatform{{Kind: string(codebox.ProviderAlbert)}}, bufio.NewReader(strings.NewReader("\n"))); err != nil {
@@ -294,7 +294,7 @@ func TestSetupPlatformStageResumePipedMistral(t *testing.T) {
 	if _, err := setupPlatformStage(context.Background(), w, bufio.NewReader(strings.NewReader("mistral-key\n")), true, &j, codebox.DefaultFS, stateDir); err != nil {
 		t.Fatalf("stage: %v", err)
 	}
-	if store.puts[codebox.CredentialKind("mistral@api.mistral.ai")] != "mistral-key" {
+	if store.puts[codebox.CredentialKind("mistral:api.mistral.ai")] != "mistral-key" {
 		t.Fatalf("puts = %+v", store.puts)
 	}
 }
@@ -373,7 +373,7 @@ func TestSetupPlatformStageResumeOpenAICompatible(t *testing.T) {
 		if _, err := setupPlatformStage(context.Background(), w, bufio.NewReader(strings.NewReader("scaleway-key\n")), true, &j, codebox.DefaultFS, stateDir); err != nil {
 			t.Fatalf("stage: %v", err)
 		}
-		if store.puts[codebox.CredentialKind("openai-compatible@api.scaleway.ai")] != "scaleway-key" {
+		if store.puts[codebox.CredentialKind("openai-compatible:api.scaleway.ai")] != "scaleway-key" {
 			t.Fatalf("puts = %+v", store.puts)
 		}
 	})

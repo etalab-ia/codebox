@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"context"
 	"os"
 	"strings"
 	"testing"
@@ -29,7 +30,7 @@ func TestResolveProviderSettingsAtProject(t *testing.T) {
 
 	projectProvider := codebox.ProviderSettings{
 		Kind: codebox.ProviderOpenAICompatible, Name: "OpenRouter", BaseURL: "https://openrouter.ai/api/v1",
-		CredentialRef: "openai-compatible@openrouter.ai",
+		CredentialRef: "openai-compatible:openrouter.ai",
 	}
 	if err := codebox.WriteProjectManifest(codebox.DefaultFS, codebox.ProjectManifestPath(root), codebox.ProjectManifest{
 		Providers: []codebox.ProviderSettings{projectProvider},
@@ -72,7 +73,7 @@ func TestInitPersistsProjectProviderCredentials(t *testing.T) {
 		t.Fatal(err)
 	}
 	provider := codebox.ProviderSettings{
-		Kind: codebox.ProviderMistral, CredentialRef: "mistral@api.mistral.ai",
+		Kind: codebox.ProviderMistral, CredentialRef: "mistral:api.mistral.ai",
 	}
 	if err := codebox.WriteUserSettings(codebox.DefaultFS, settingsPath, codebox.UserSettings{
 		Providers: []codebox.ProviderSettings{provider},
@@ -94,10 +95,54 @@ func TestInitPersistsProjectProviderCredentials(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(raw), "mistral@api.mistral.ai") {
+	if !strings.Contains(string(raw), "mistral:api.mistral.ai") {
 		t.Fatal("project manifest is missing the non-secret reference")
 	}
 	if strings.Contains(string(raw), "credential-value") {
 		t.Fatal("project manifest contains a credential value")
+	}
+}
+
+func TestInitExplicitCredentialRefReplacesProviderReference(t *testing.T) {
+	setupTestEnv(t)
+	root := initTestProject(t)
+	first := initOptions{Root: root, Yes: true, CredentialRef: "old-albert", Set: map[string]bool{"root": true, "credential-ref": true}}
+	if code, err := initRun(first, bufio.NewReader(strings.NewReader("")), false); code != 0 || err != nil {
+		t.Fatalf("initial initRun = %d, %v", code, err)
+	}
+	second := initOptions{Root: root, Yes: true, Replace: true, CredentialRef: "new-albert", Set: map[string]bool{"root": true, "credential-ref": true}}
+	if code, err := initRun(second, bufio.NewReader(strings.NewReader("")), false); code != 0 || err != nil {
+		t.Fatalf("replacement initRun = %d, %v", code, err)
+	}
+	manifest, err := codebox.ReadProjectManifest(codebox.DefaultFS, codebox.ProjectManifestPath(root))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(manifest.Providers) != 1 || manifest.Providers[0].CredentialRef != "new-albert" {
+		t.Fatalf("explicit credential-ref did not replace provider reference: %#v", manifest.Providers)
+	}
+}
+
+func TestModelsListUsesProjectProviders(t *testing.T) {
+	setupTestEnv(t)
+	root := t.TempDir()
+	t.Chdir(root)
+	if err := codebox.WriteProjectManifest(codebox.DefaultFS, codebox.ProjectManifestPath(root), codebox.ProjectManifest{
+		Providers: []codebox.ProviderSettings{{Kind: codebox.ProviderMistral, CredentialRef: "mistral:api.mistral.ai"}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	original := modelsListProviderFn
+	var got []codebox.ProviderKind
+	modelsListProviderFn = func(_ context.Context, provider codebox.InferenceProvider, _ codebox.UserSettings, _ string) error {
+		got = append(got, provider.Kind)
+		return nil
+	}
+	t.Cleanup(func() { modelsListProviderFn = original })
+	if code, err := modelsListCmd(); code != 0 || err != nil {
+		t.Fatalf("modelsListCmd = %d, %v", code, err)
+	}
+	if len(got) != 1 || got[0] != codebox.ProviderMistral {
+		t.Fatalf("models command used machine providers instead of project providers: %v", got)
 	}
 }

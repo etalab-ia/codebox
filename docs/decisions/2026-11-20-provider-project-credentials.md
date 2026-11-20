@@ -16,7 +16,9 @@ aurait pu associer une clé au mauvais hôte.
   doivent refuser le fichier plutôt que choisir silencieusement un autre provider.
 - Albert conserve ses références personnalisées historiques : son hôte est fixe et
   connu du code. Pour les autres providers, la référence nouvellement enregistrée
-  est dérivée du provider et de l'hôte canonique : `<kind>@<host>`. Une référence
+  est dérivée du provider et de l'hôte canonique : `<kind>:<host>`. Le `:` évite
+  toute collision avec le format persistant `entrée@magasin#association` utilisé
+  pour la rotation et la révocation. Une référence
   qui nomme un autre provider ou hôte est refusée avant toute lecture du magasin.
 - Une référence explicite est prioritaire sur la variable d'environnement et
   l'entrée fixe legacy. Une référence absente du magasin est une erreur, pas une

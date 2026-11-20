@@ -372,11 +372,17 @@ func initRun(opts initOptions, in *bufio.Reader, tty bool) (code int, err error)
 		}
 		answers.Providers = providerSettingsOf(providers)
 	}
-	if ref := strings.TrimSpace(answers.CredentialRef); ref != "" {
-		for i := range answers.Providers {
-			if answers.Providers[i].Kind == codebox.ProviderAlbert && strings.TrimSpace(answers.Providers[i].CredentialRef) == "" {
-				answers.Providers[i].CredentialRef = ref
-			}
+	legacyRef := strings.TrimSpace(answers.CredentialRef)
+	for i := range answers.Providers {
+		if answers.Providers[i].Kind != codebox.ProviderAlbert {
+			continue
+		}
+		if opts.Set["credential-ref"] {
+			// An explicit flag replaces (or deliberately clears) the provider
+			// reference too; otherwise the provider field would win at launch.
+			answers.Providers[i].CredentialRef = legacyRef
+		} else if legacyRef != "" && strings.TrimSpace(answers.Providers[i].CredentialRef) == "" {
+			answers.Providers[i].CredentialRef = legacyRef
 		}
 	}
 

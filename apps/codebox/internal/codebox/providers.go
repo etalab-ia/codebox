@@ -254,7 +254,7 @@ func ProviderCredentialRef(provider InferenceProvider) string {
 	if provider.Kind == ProviderAlbert {
 		return string(CredentialAlbert)
 	}
-	return string(provider.CredentialKind) + "@" + provider.Host
+	return string(provider.CredentialKind) + ":" + provider.Host
 }
 
 // ValidateProviderCredentialRef rejects a reference whose provider or host
@@ -270,6 +270,22 @@ func ValidateProviderCredentialRef(provider InferenceProvider, ref string) error
 		return fmt.Errorf("credentialRef %q n'appartient pas à la plateforme %s et à l'hôte %s ; référence attendue : %s", ref, provider.Kind, provider.Host, expected)
 	}
 	return nil
+}
+
+// IsProviderCredentialRef reports whether ref is the canonical non-Albert
+// <kind>:<host> form accepted by auth add/remove for rotation and revocation.
+// It validates syntax only; runtime delivery still validates the destination
+// against the resolved provider.
+func IsProviderCredentialRef(ref string) bool {
+	kind, host, found := strings.Cut(strings.TrimSpace(ref), ":")
+	if !found || (kind != string(ProviderMistral) && kind != string(ProviderOpenAICompatible)) {
+		return false
+	}
+	if host == "" || host != strings.ToLower(host) || strings.ContainsAny(host, "/:@#?") {
+		return false
+	}
+	canonical, err := providerHost("https://" + host)
+	return err == nil && canonical == host
 }
 
 // ProviderForKind resolves a single platform kind with built-in defaults.
