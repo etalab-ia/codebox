@@ -29,8 +29,10 @@ aurait pu associer une clé au mauvais hôte.
   lors de la migration. Les anciens projets et les anciennes installations
   continuent donc à résoudre leurs identifiants actuels.
 - La récupération d'une microVM conserve ses associations persistées. Si le
-  provider persisté n'est plus configuré, la récupération utilise l'entrée fixe
-  legacy de ce provider ; elle n'exige pas un provider sans rapport avec la VM.
+  provider persisté n'est plus configuré, elle restaure l'entrée enregistrée :
+  une référence host-bound reste explicite, tandis qu'une entrée fixe comme
+  `mistral` conserve la chaîne legacy. Elle n'exige jamais un provider sans
+  rapport avec la VM.
 - Le parcours combiné de #461 consomme ce contrat. Le changement ne crée ni un
   second magasin ni un registre de destinations séparé de la configuration du
   provider.
