@@ -45,6 +45,10 @@ aurait pu associer une clé au mauvais hôte.
   avec un provider différent.
 - Les tests de setup vérifient qu'une correction d'endpoint recompute la
   référence pour le nouvel hôte et que la clé n'est jamais écrite sous l'ancien.
+- `auth remove` reconnaît les références canoniques et conserve le refus de
+  suppression pendant qu'un runtime Tart ou agent-vm détient la clé en clair,
+  même sans enregistrement Microsandbox. Une mutation de ce prédicat fait échouer
+  les deux tests de runtime.
 - La qualification native vérifie ensuite le démarrage réel avec au moins deux
   projets qui réutilisent la même clé à hôte identique et avec une référence
   volontairement incorrecte qui doit être refusée.

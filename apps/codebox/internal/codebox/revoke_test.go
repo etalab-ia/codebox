@@ -224,6 +224,31 @@ func TestRevokeCredentialRefEntryDropsItsGuestBinding(t *testing.T) {
 	}
 }
 
+func TestRevokeHostBoundProviderRefBlockedByPlaintextVM(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		tartVMs  []string
+		agentVMs []string
+	}{
+		{name: "Tart", tartVMs: []string{"opencode-cb-project"}},
+		{name: "agent-vm", agentVMs: []string{"opencode-cb-project"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			// No Microsandbox record compensates for the predicate: this is the
+			// exact plaintext-runtime case from the review.
+			r := revokerForTest(&fakeMSBClient{}, t.TempDir(), tc.tartVMs, tc.agentVMs)
+			_, err := r.Revoke(context.Background(), "mistral:api.mistral.ai")
+			if err == nil {
+				t.Fatal("removing a host-bound inference credential was allowed while a plaintext VM was running")
+			}
+			var blocked *ErrRevocationBlocked
+			if !errors.As(err, &blocked) {
+				t.Fatalf("error is not ErrRevocationBlocked: %v", err)
+			}
+		})
+	}
+}
+
 // TestRevokeUnknownEntryTouchesNoSandbox is the other half: an entry that
 // names nothing codebox ever proxied has no guest binding to drop, so
 // deleting it from the store is the whole revocation.

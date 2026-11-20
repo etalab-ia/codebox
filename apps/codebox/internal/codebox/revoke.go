@@ -298,6 +298,12 @@ func (r Revoker) entryFeedsInference(entry string, removals []pendingRemoval) bo
 	if b, ok := bindingForEntry(CredentialKind(entry)); ok && b.Provider {
 		return true
 	}
+	// Host-bound provider references carry inference keys even when no
+	// Microsandbox record exists. This activates the blanket plaintext-runtime
+	// guard for Tart and agent-vm before the store entry can be deleted.
+	if IsProviderCredentialRef(entry) {
+		return true
+	}
 	// The project's own credentialRef naming this entry is direct evidence
 	// that the entry feeds the Albert binding, even before any instance
 	// records it.
