@@ -387,6 +387,42 @@ func ComposePiSettingsConfig() (string, error) {
 	return string(data) + "\n", nil
 }
 
+// piMCPFile is Pi 1.x's native ~/.pi/agent/mcp.json document. Curated remote
+// servers are anonymous and carry no headers or credential references. The
+// OpenCode-only browser profile is deliberately not rendered here: selecting it
+// does not install Chrome in a Pi guest.
+type piMCPFile struct {
+	MCPServers map[string]piMCPServer `json:"mcpServers"`
+}
+
+type piMCPServer struct {
+	URL     string `json:"url"`
+	Enabled bool   `json:"enabled"`
+}
+
+// ComposePiMCPConfig renders the curated remote MCP selection in Pi's native
+// format. Removed and browser-only ids follow the same inactive-selection rule
+// as the existing managed OpenCode overlay.
+func ComposePiMCPConfig(ids []string) (string, error) {
+	valid, err := ValidateMCPConnectorIDs(ids)
+	if err != nil {
+		return "", err
+	}
+	servers := make(map[string]piMCPServer)
+	for _, id := range valid {
+		connector, ok := mcpCatalogue[id]
+		if !ok {
+			continue
+		}
+		servers[connector.Name] = piMCPServer{URL: connector.Endpoint, Enabled: true}
+	}
+	data, err := json.MarshalIndent(piMCPFile{MCPServers: servers}, "", "  ")
+	if err != nil {
+		return "", err
+	}
+	return string(data) + "\n", nil
+}
+
 // PiModelRef resolves the overlay's model selection to the "provider/id" form
 // Pi expects on --model. The overlay carries curated aliases
 // ("albert/deepseek-v4-flash"); Pi has to be given the API id, so the curated
@@ -433,7 +469,7 @@ func PiModelRef(o ManagedOverlay) string {
 // fingerprint the host is currently sending: matching means the guest holds the
 // configuration this launch wants, and a mismatch means preparation still has
 // to run, even when an older marker and the installed binary already exist.
-func PiConfigFingerprint(models, settings string) string {
-	sum := sha256.Sum256([]byte(models + "\x00" + settings))
+func PiConfigFingerprint(models, settings, mcp string) string {
+	sum := sha256.Sum256([]byte(models + "\x00" + settings + "\x00" + mcp))
 	return hex.EncodeToString(sum[:])
 }

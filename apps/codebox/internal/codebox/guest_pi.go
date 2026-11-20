@@ -56,12 +56,17 @@ func piGuestConfigScript(overlay ManagedOverlay) (string, error) {
 	if err != nil {
 		return "", err
 	}
+	mcp, err := ComposePiMCPConfig(overlay.MCPConnectors)
+	if err != nil {
+		return "", err
+	}
 	return strings.Join([]string{
 		`if [ -z "$HOME" ]; then echo "HOME n'est pas défini dans la machine isolée" >&2; exit 1; fi`,
 		`mkdir -p "$HOME/.pi/agent"`,
 		`printf '%s\n' ` + shellQuote(models) + ` > "$HOME/.pi/agent/models.json"`,
 		`printf '%s\n' ` + shellQuote(settings) + ` > "$HOME/.pi/agent/settings.json"`,
-		`chmod 600 "$HOME/.pi/agent/models.json" "$HOME/.pi/agent/settings.json"`,
+		`printf '%s\n' ` + shellQuote(mcp) + ` > "$HOME/.pi/agent/mcp.json"`,
+		`chmod 600 "$HOME/.pi/agent/models.json" "$HOME/.pi/agent/settings.json" "$HOME/.pi/agent/mcp.json"`,
 	}, " && "), nil
 }
 

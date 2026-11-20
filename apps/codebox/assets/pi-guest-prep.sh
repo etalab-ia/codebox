@@ -30,7 +30,7 @@ if [ -z "${HOME:-}" ]; then
   echo "pi-guest-prep : la variable HOME n'est pas définie dans l'invité" >&2
   exit 1
 fi
-if [ -z "${CODEBOX_PI_MODELS_JSON:-}" ] || [ -z "${CODEBOX_PI_SETTINGS_JSON:-}" ]; then
+if [ -z "${CODEBOX_PI_MODELS_JSON:-}" ] || [ -z "${CODEBOX_PI_SETTINGS_JSON:-}" ] || [ -z "${CODEBOX_PI_MCP_JSON:-}" ]; then
   echo "pi-guest-prep : la configuration Pi gérée est absente de l'environnement de l'invité" >&2
   exit 1
 fi
@@ -38,12 +38,14 @@ printf '%s\n' 'codebox : écriture de la configuration Pi…'
 mkdir -p "$HOME/.pi/agent"
 printf '%s\n' "${CODEBOX_PI_MODELS_JSON}" > "$HOME/.pi/agent/models.json"
 printf '%s\n' "${CODEBOX_PI_SETTINGS_JSON}" > "$HOME/.pi/agent/settings.json"
-chmod 600 "$HOME/.pi/agent/models.json" "$HOME/.pi/agent/settings.json"
+printf '%s\n' "${CODEBOX_PI_MCP_JSON}" > "$HOME/.pi/agent/mcp.json"
+chmod 600 "$HOME/.pi/agent/models.json" "$HOME/.pi/agent/settings.json" "$HOME/.pi/agent/mcp.json"
 
-# The readiness marker is written last, and only once the configuration is on
-# disk: the probe requires it, so a guest whose configuration is still being
-# written is never reported ready. Its content is the fingerprint of what was
-# written, which is compared against the configuration the host is sending.
+# The readiness marker is written last, and only once the configuration files
+# (models, settings and MCP) are on disk: the probe requires it, so a guest
+# whose configuration is still being written is never reported ready. Its
+# content is the fingerprint of what was written, which is compared against the
+# configuration the host is sending.
 if [ -z "${CODEBOX_PI_CONFIG_FINGERPRINT:-}" ]; then
   echo "pi-guest-prep : l'empreinte de la configuration Pi gérée est absente de l'environnement de l'invité" >&2
   exit 1

@@ -462,9 +462,11 @@ relit ; `CODEBOX_HARNESS` reste prioritaire pour un essai ponctuel.
 Pi n'a pas de mode serveur : il exige l'isolation complète, où l'agent, sa
 configuration et ses sessions restent dans la machine isolée. L'assistant refuse
 la combinaison Pi et isolation partielle, et le lancement la refuse aussi. Sa
-configuration (`models.json`, `settings.json`) est écrite dans `~/.pi/agent` de
-l'invité à partir des mêmes plateformes d'inférence que celles décrites
-ci-dessus, et ses skills de projet sont installés dans `~/.pi/agent/skills`.
+configuration (`models.json`, `settings.json`, `mcp.json`) est écrite dans
+`~/.pi/agent` de l'invité à partir des mêmes plateformes d'inférence et des
+serveurs MCP distants sélectionnés (actuellement `data-gouv`). Le profil
+navigateur `chrome-devtools` reste propre à OpenCode. Les skills de projet sont
+installés dans `~/.pi/agent/skills`.
 
 Le script de préparation d'un invité est figé à sa création, comme son image :
 changer de harnais recrée donc la machine isolée, ce qui détruit les sessions et
