@@ -64,8 +64,8 @@ func relayACP(ctx context.Context, stream msbACPStream, stdin io.ReadCloser, std
 	if sink == nil {
 		return fmt.Errorf("le flux ACP invité n'a pas de stdin")
 	}
-	relayCtx, cancelRelay := context.WithCancel(ctx)
-	defer cancelRelay()
+	relayCtx, cancelRelay := context.WithCancelCause(ctx)
+	defer cancelRelay(nil)
 	defer func() { _ = sink.Close() }()
 
 	inputDone := make(chan error, 1)
@@ -73,7 +73,7 @@ func relayACP(ctx context.Context, stream msbACPStream, stdin io.ReadCloser, std
 		_, copyErr := io.Copy(sink, stdin)
 		err := errors.Join(copyErr, sink.Close())
 		if err != nil {
-			cancelRelay()
+			cancelRelay(err)
 		}
 		inputDone <- err
 	}()
@@ -106,6 +106,9 @@ func relayACP(ctx context.Context, stream msbACPStream, stdin io.ReadCloser, std
 			}
 		case result := <-recvDone:
 			if result.err != nil {
+				if cause := context.Cause(relayCtx); cause != nil {
+					return terminateACP(stream, fmt.Errorf("annulation du flux ACP : %w", cause))
+				}
 				return terminateACP(stream, fmt.Errorf("réception du flux ACP invité : %w", result.err))
 			}
 			if result.event == nil {
