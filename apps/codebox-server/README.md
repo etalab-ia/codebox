@@ -92,11 +92,13 @@ password-only assertion (`eidas1`, `eidas0`) is refused with `mfa_required`.
 `codebox secrets logout` removes the gateway session and retained ProConnect ID
 token from the OS credential store, then starts the browser end-session flow.
 The gateway discovers `end_session_endpoint`, generates a fresh single-use state,
-and returns a URL containing `id_token_hint`, that state and the exact registered
-`post_logout_redirect_uri`. `codebox secrets logout --terminal` prints the URL
-instead of opening a browser. If discovery or ProConnect is unavailable, local
-credential removal still succeeds and the CLI says that remote logout did not
-start.
+and returns an opaque, short-lived gateway URL. Its redirect handler sends the
+browser to the provider with `id_token_hint`, that state and the exact registered
+`post_logout_redirect_uri`; the raw ID token never reaches browser process
+arguments or terminal output. `codebox secrets logout --terminal` prints the
+opaque URL instead of opening a browser. If discovery or ProConnect is
+unavailable, local credential removal still succeeds and the CLI says that remote
+logout did not start.
 
 ## Audit logging
 

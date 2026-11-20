@@ -23,7 +23,11 @@ type LoginAttempt struct {
 	LoopbackState string
 	// Logout distinguishes end-session callbacks from login callbacks so a state
 	// issued for one flow can never be redeemed by the other.
-	Logout    bool
+	Logout bool
+	// LogoutURL is the provider URL held only in memory until the browser
+	// redirect. It contains the ID-token hint and must never be logged or returned
+	// to the CLI.
+	LogoutURL string
 	CreatedAt time.Time
 }
 
@@ -83,6 +87,16 @@ func (a *AttemptStore) Take(state string) (*LoginAttempt, bool) {
 	}
 	delete(a.attempts, state)
 	return attempt, true
+}
+
+// Peek returns an outstanding attempt without consuming it. The opaque browser
+// redirect uses this before the final callback consumes the state with Take.
+func (a *AttemptStore) Peek(state string) (*LoginAttempt, bool) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.evictExpiredLocked()
+	attempt, ok := a.attempts[state]
+	return attempt, ok
 }
 
 // ConsumeOnce records that key has been redeemed, returning false when it was

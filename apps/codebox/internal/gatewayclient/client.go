@@ -164,9 +164,9 @@ func (c *Client) TerminalLoginURLWithBase(base string) string {
 	return u.String()
 }
 
-// LogoutURL returns the ProConnect end-session URL for the retained ID token.
-// The request uses the authenticated gateway session and contains no secret in
-// its URL; the provider URL is intended for the user's browser.
+// LogoutURL returns an opaque short-lived gateway URL for the retained ID token.
+// The request body contains the token; local process arguments and terminal
+// output receive only the opaque URL.
 func (c *Client) LogoutURL(ctx context.Context, idToken string) (string, error) {
 	var out secrets.LogoutResponse
 	err := c.do(ctx, http.MethodPost, "/auth/logout", secrets.LogoutRequest{IDToken: idToken}, &out)

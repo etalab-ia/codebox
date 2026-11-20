@@ -198,7 +198,8 @@ type LogoutRequest struct {
 	IDToken string `json:"idToken"`
 }
 
-// LogoutResponse returns the provider URL the user's browser must open.
+// LogoutResponse returns an opaque, short-lived gateway URL that redirects the
+// user's browser to the provider without exposing the ID token to local output.
 type LogoutResponse struct {
 	URL string `json:"url"`
 }

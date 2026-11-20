@@ -102,7 +102,7 @@ func TestSecretsLogoutRemovesSession(t *testing.T) {
 }
 
 func TestSecretsLogoutStartsProConnectAndRemovesCredentials(t *testing.T) {
-	const endSessionURL = "https://proconnect.example/session/end?id_token_hint=id-token-canary&state=logout-state-12345678901234567890123456789012"
+	const endSessionURL = "https://gateway.example/auth/logout/redirect?state=logout-state-12345678901234567890123456789012"
 	for _, terminal := range []bool{false, true} {
 		t.Run(map[bool]string{false: "browser", true: "terminal"}[terminal], func(t *testing.T) {
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -143,6 +143,9 @@ func TestSecretsLogoutStartsProConnectAndRemovesCredentials(t *testing.T) {
 				if _, ok := store.values[kind]; ok {
 					t.Errorf("credential %s was not removed", kind)
 				}
+			}
+			if strings.Contains(buf.String()+opened, "id-token-canary") {
+				t.Fatal("CLI output or browser arguments exposed the retained ID token")
 			}
 			if terminal {
 				if opened != "" || !strings.Contains(buf.String(), endSessionURL) {

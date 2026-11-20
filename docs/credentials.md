@@ -270,7 +270,9 @@ journaux d'audit. `codebox secrets logout` supprime les deux identifiants locaux
 puis ouvre la déconnexion ProConnect dans le navigateur avec le jeton
 d'identité, un état aléatoire à usage unique et l'URL de retour enregistrée.
 Avec `--terminal`, la commande affiche l'URL à ouvrir au lieu de lancer un
-navigateur. Le retour ProConnect est accepté uniquement si son état correspond
+navigateur. Cette URL passerelle est opaque et temporaire : le jeton d'identité
+n'apparaît ni dans les arguments du navigateur ni dans la sortie du terminal.
+Le retour ProConnect est accepté uniquement si son état correspond
 à une déconnexion encore en cours. Si ProConnect ou la passerelle est
 injoignable, la suppression locale aboutit quand même et la commande signale
 que la déconnexion distante n'a pas démarré.

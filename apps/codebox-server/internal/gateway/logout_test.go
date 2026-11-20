@@ -49,6 +49,19 @@ func TestLogoutCallbackStateIsOutstandingAndSingleUse(t *testing.T) {
 	if ts.provider.lastLogoutIDToken != idToken {
 		t.Fatal("the retained ID token was not passed to the provider logout flow")
 	}
+	wantOpaqueURL := "https://gateway.test/auth/logout/redirect?state=" + url.QueryEscape(state)
+	if response.URL != wantOpaqueURL || strings.Contains(response.URL, idToken) {
+		t.Fatalf("logout start returned a non-opaque URL %q, want %q", response.URL, wantOpaqueURL)
+	}
+	redirect := httptest.NewRecorder()
+	ts.server.Handler().ServeHTTP(redirect, httptest.NewRequest(http.MethodGet, "/auth/logout/redirect?state="+url.QueryEscape(state), nil))
+	if redirect.Code != http.StatusFound {
+		t.Fatalf("opaque redirect status = %d (body %s)", redirect.Code, redirect.Body.String())
+	}
+	providerLocation := redirect.Header().Get("Location")
+	if !strings.Contains(providerLocation, "id_token_hint="+idToken) || !strings.Contains(providerLocation, "state="+state) {
+		t.Fatalf("provider redirect lacks the documented parameters: %q", providerLocation)
+	}
 
 	callback := func(state string) *httptest.ResponseRecorder {
 		req := httptest.NewRequest(http.MethodGet, "/auth/logout/callback?state="+state, nil)
@@ -85,6 +98,23 @@ func TestLogoutCallbackRejectsExpiredState(t *testing.T) {
 	}
 }
 
+func TestLogoutStartAllowsExpiredGatewaySession(t *testing.T) {
+	ts := newTestServer(t, Identity{Subject: "sub-1", Email: "dev@beta.gouv.fr"})
+	now := time.Date(2026, 11, 20, 12, 0, 0, 0, time.UTC)
+	tokens, err := NewTokenIssuer(testSeed, "https://gateway.test", time.Hour, func() time.Time { return now })
+	if err != nil {
+		t.Fatalf("NewTokenIssuer: %v", err)
+	}
+	ts.tokens = tokens
+	ts.server.tokens = tokens
+	session := ts.sessionToken(t, TokenClaims{Subject: "sub-1", Email: "dev@beta.gouv.fr", ACR: "eidas2"})
+	now = now.Add(2 * time.Hour)
+	rec := startTestLogout(t, ts, session, "id-token")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("logout with expired gateway session status = %d (body %s)", rec.Code, rec.Body.String())
+	}
+}
+
 func TestLogoutStartFailureDoesNotLeaveUsableState(t *testing.T) {
 	ts := newTestServer(t, Identity{Subject: "sub-1", Email: "dev@beta.gouv.fr"})
 	ts.provider.logoutErr = errors.New("discovery unavailable")
@@ -111,6 +141,11 @@ func TestLogoutAuditLogsRedactTokens(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("logout start status = %d", rec.Code)
 	}
+	redirect := httptest.NewRecorder()
+	ts.server.Handler().ServeHTTP(redirect, httptest.NewRequest(http.MethodGet, "/auth/logout/redirect?state="+url.QueryEscape(ts.provider.lastLogoutState), nil))
+	if redirect.Code != http.StatusFound {
+		t.Fatalf("opaque redirect status = %d", redirect.Code)
+	}
 	req := httptest.NewRequest(http.MethodGet, "/auth/logout/callback?state="+ts.provider.lastLogoutState, nil)
 	callback := httptest.NewRecorder()
 	ts.server.Handler().ServeHTTP(callback, req)
@@ -118,7 +153,7 @@ func TestLogoutAuditLogsRedactTokens(t *testing.T) {
 		t.Fatalf("logout callback status = %d", callback.Code)
 	}
 	logged := logs.String()
-	if !strings.Contains(logged, "logout.started") || !strings.Contains(logged, "logout.completed") {
+	if !strings.Contains(logged, "logout.started") || !strings.Contains(logged, "logout.redirected") || !strings.Contains(logged, "logout.completed") {
 		t.Fatalf("logout audit events are absent: %q", logged)
 	}
 	for _, forbidden := range []string{idToken, session} {
