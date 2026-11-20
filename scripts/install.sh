@@ -93,6 +93,12 @@ fi
 if [ -e "$backup" ] && [ ! -f "$backup" ]; then
 	die "$backup n'est pas un fichier ordinaire ; retour arrière refusé, déplacez-le d'abord."
 fi
+had_target=0
+previous_version=''
+if [ -f "$target" ]; then
+	had_target=1
+	previous_version=$("$target" version 2>/dev/null | awk '$1 == "version:" { print $2; exit }') || previous_version=''
+fi
 
 command -v curl >/dev/null 2>&1 || die 'curl est nécessaire pour télécharger les fichiers de la release.'
 release_url=$(curl --fail --silent --show-error --location --output /dev/null --write-out '%{url_effective}' "$RELEASE_PAGE") || die 'résolution de la dernière release stable GitHub impossible'
@@ -166,7 +172,15 @@ if [ -e "$target" ]; then
 	mv -f "$tmp_dir/codebox.previous" "$backup" || die 'impossible d'"'"'enregistrer le binaire de retour arrière ; installation inchangée'
 fi
 mv -f "$tmp_dir/$asset" "$target" || die "impossible de remplacer $target ; le binaire précédent reste disponible"
-printf '  ✓ Installé dans ~/.local/bin/codebox\n\n'
+printf '  ✓ Installé dans ~/.local/bin/codebox\n'
+if [ "$had_target" -eq 1 ]; then
+	if [ -n "$previous_version" ] && [ "$previous_version" != "$version" ]; then
+		printf '  ✓ Mise à niveau de codebox %s vers %s\n' "$previous_version" "$version"
+	else
+		printf '  ✓ Installation existante remplacée par codebox %s\n' "$version"
+	fi
+fi
+printf '\n'
 
 # PATH avant le setup : sinon le message de fin de l'assistant renvoie vers une
 # commande introuvable dans un nouveau terminal.
@@ -299,6 +313,15 @@ case ":${PATH:-}:" in
 		fi
 		;;
 esac
+
+setup_complete=0
+if "$target" setup --check-complete; then
+	setup_complete=1
+fi
+if [ "$setup_complete" -eq 1 ]; then
+	printf 'Configuration existante conservée. Lancez "codebox setup" pour la modifier.\n'
+	exit 0
+fi
 
 printf 'Lancement de la configuration…\n\n'
 setup_status=0

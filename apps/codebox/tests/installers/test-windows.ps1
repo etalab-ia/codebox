@@ -16,6 +16,7 @@ $global:InstallerTestSums = ''
 $global:InstallerTestUris = @()
 $global:InstallerSetupInvoked = $false
 $global:InstallerSetupExitCode = 0
+$global:InstallerSetupComplete = $false
 $global:InstallerFailDownload = $false
 $global:InstallerMissingAsset = $false
 $global:InstallerReleaseCalls = 0
@@ -51,6 +52,11 @@ function Invoke-CodeboxSetup {
 	param([string]$Path)
 	$global:InstallerSetupInvoked = $true
 	$global:InstallerSetupExitCode
+}
+
+function Test-CodeboxSetupComplete {
+	param([string]$Path)
+	$global:InstallerSetupComplete
 }
 
 function Set-InstallerTestChecksum {
@@ -90,6 +96,16 @@ try {
 	Assert-InstallerTest ([System.IO.File]::ReadAllText((Join-Path $freshDirectory 'codebox.exe')) -eq 'verified test binary') 'fresh install did not create the executable'
 	Assert-InstallerTest (-not (Test-Path -LiteralPath (Join-Path $freshDirectory 'codebox.previous.exe'))) 'fresh install created a rollback binary when none existed'
 	Assert-InstallerTest $global:InstallerSetupInvoked 'fresh install did not invoke setup'
+
+	$completedDirectory = Join-Path $tempRoot 'completed upgrade'
+	$null = New-Item -ItemType Directory -Path $completedDirectory
+	[System.IO.File]::WriteAllText((Join-Path $completedDirectory 'codebox.exe'), 'old binary')
+	$global:InstallerSetupComplete = $true
+	$global:InstallerSetupInvoked = $false
+	Install-Codebox -InstallDirectory $completedDirectory -Architecture AMD64
+	Assert-InstallerTest (-not $global:InstallerSetupInvoked) 'completed upgrade unexpectedly invoked setup'
+	Assert-InstallerTest ([System.IO.File]::ReadAllText((Join-Path $completedDirectory 'codebox.exe')) -eq 'verified test binary') 'completed upgrade did not install the verified binary'
+	$global:InstallerSetupComplete = $false
 
 	[System.IO.File]::WriteAllText($target, 'must remain')
 	Set-InstallerTestChecksum -Hash ('0' * 64)

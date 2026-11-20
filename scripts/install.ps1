@@ -75,6 +75,13 @@ function Invoke-CodeboxSetup {
 	$LASTEXITCODE
 }
 
+function Test-CodeboxSetupComplete {
+	param([Parameter(Mandatory = $true)][string]$Path)
+
+	& $Path setup --check-complete | Out-Null
+	$LASTEXITCODE -eq 0
+}
+
 function Replace-CodeboxBinary {
 	param(
 		[Parameter(Mandatory = $true)][string]$StagedPath,
@@ -174,16 +181,24 @@ function Install-Codebox {
 			throw "somme de contrôle non concordante pour $asset ; l'installation existante est inchangée."
 		}
 
+		$upgrading = Test-Path -LiteralPath $target -PathType Leaf
 		Replace-CodeboxBinary -StagedPath $binaryPath -TargetPath $target -BackupPath $backup
+		if ($upgrading) {
+			Write-Host "Mise à niveau vers codebox $tag"
+		}
 
-		$setupExitCode = Invoke-CodeboxSetup -Path $target
-		if ($setupExitCode -ne 0) {
-			$recovery = if (Test-Path -LiteralPath $backup) {
-				' Le binaire précédent est conservé dans codebox.previous.exe pour le retour arrière.'
-			} else {
-				''
+		if (Test-CodeboxSetupComplete -Path $target) {
+			Write-Host 'Configuration existante conservée. Lancez "codebox setup" pour la modifier.'
+		} else {
+			$setupExitCode = Invoke-CodeboxSetup -Path $target
+			if ($setupExitCode -ne 0) {
+				$recovery = if (Test-Path -LiteralPath $backup) {
+					' Le binaire précédent est conservé dans codebox.previous.exe pour le retour arrière.'
+				} else {
+					''
+				}
+				throw "codebox est installé, mais la configuration s'est arrêtée avec le code de sortie $setupExitCode.$recovery"
 			}
-			throw "codebox est installé, mais la configuration s'est arrêtée avec le code de sortie $setupExitCode.$recovery"
 		}
 
 		Write-Host "Installé $asset depuis la release $tag dans $target"

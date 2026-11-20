@@ -988,6 +988,63 @@ func TestSetupWizardShowsIntroBeforeAnyPrompt(t *testing.T) {
 	}
 }
 
+func TestSetupWizardReconfigurationSkipsFirstRunIntro(t *testing.T) {
+	setupTestEnv(t)
+	forceNonTTY(t)
+	forceIntro(t, true)
+	forcePreflightPass(t)
+	settingsPath, err := codebox.UserSettingsPath()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := codebox.WriteUserSettings(codebox.DefaultFS, settingsPath, codebox.UserSettings{
+		SchemaVersion: 1,
+		Providers:     []codebox.ProviderSettings{{Kind: codebox.ProviderAlbert}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	in := bufio.NewReader(strings.NewReader("test-key\n\nn\nTest User\ntest@example.test\ny\n"))
+	forceEnter(t, in)
+	out := captureStdout(t, func() {
+		code, err := setupWizardRun(true, in,
+			func(context.Context, string) error { return nil },
+			func(context.Context) error { return nil },
+			func(string) string { return "" })
+		if code != 0 || err != nil {
+			t.Errorf("reconfiguration run: code=%d err=%v", code, err)
+		}
+	})
+	if strings.Contains(out, "3 étapes :") || strings.Contains(out, "Cette configuration se fait une seule fois") {
+		t.Fatalf("a completed installation must not see the first-run intro; output:\n%s", out)
+	}
+	if !strings.Contains(out, "Configuration existante détectée") {
+		t.Fatalf("reconfiguration notice missing; output:\n%s", out)
+	}
+}
+
+func TestSetupCheckComplete(t *testing.T) {
+	setupTestEnv(t)
+	orig := setupCompletedFn
+	t.Cleanup(func() { setupCompletedFn = orig })
+	for _, test := range []struct {
+		name     string
+		complete bool
+		wantCode int
+	}{
+		{name: "incomplete", complete: false, wantCode: 1},
+		{name: "complete", complete: true, wantCode: 0},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			setupCompletedFn = func() (bool, error) { return test.complete, nil }
+			code, err := setupCheckComplete()
+			if err != nil || code != test.wantCode {
+				t.Fatalf("setupCheckComplete() = (%d, %v), want (%d, nil)", code, err, test.wantCode)
+			}
+		})
+	}
+}
+
 // TestSetupWizardResumeSkipsIntro pins that only a first launch shows the
 // intro: a resumed run (journal already past preflight) goes straight to the
 // resume notice and the first prompt.

@@ -203,6 +203,27 @@ func RemoveSetupJournal(fs FS, stateDir string) error {
 	return err
 }
 
+// HasCompletedSetup reports whether the host already has a completed machine
+// configuration. Successful setup has durable settings and no resume journal;
+// any journal means an interrupted run must resume, even when older settings
+// also exist. The content check recognizes completed installations from before
+// the provider list was introduced without treating a stats-only settings file
+// as a completed setup.
+func HasCompletedSetup(fs FS, stateDir, settingsPath string) (bool, error) {
+	if _, err := fs.ReadFile(setupJournalPath(stateDir)); err == nil {
+		return false, nil
+	} else if !os.IsNotExist(err) {
+		return false, err
+	}
+	us, err := ReadUserSettings(fs, settingsPath)
+	if err != nil {
+		return false, err
+	}
+	return len(us.Providers) > 0 || us.DefaultRuntime != "" || us.DefaultIsolation != "" ||
+		us.DefaultModel != "" || len(us.Models) > 0 || us.GitName != "" || us.GitEmail != "" ||
+		us.CredentialRef != "", nil
+}
+
 // ContainsCredentialKind reports whether the journal has stored the kind.
 func ContainsCredentialKind(kinds []string, kind string) bool {
 	for _, k := range kinds {
