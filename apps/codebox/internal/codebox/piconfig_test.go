@@ -35,10 +35,10 @@ func TestComposePiModelsConfigUsesAPIIDs(t *testing.T) {
 	if albert.BaseURL != albertBaseURL {
 		t.Fatalf("baseUrl = %q, want %q", albert.BaseURL, albertBaseURL)
 	}
-	// The key is named, never written: the guest holds the value (or, under the
-	// Microsandbox proxy, only its placeholder).
-	if albert.APIKey != msbAPISecretEnv {
-		t.Fatalf("apiKey = %q, want the environment variable name %q", albert.APIKey, msbAPISecretEnv)
+	// The key is interpolated from the environment, never written: the guest
+	// holds the value (or, under the Microsandbox proxy, only its placeholder).
+	if albert.APIKey != "$"+msbAPISecretEnv {
+		t.Fatalf("apiKey = %q, want environment interpolation %q", albert.APIKey, "$"+msbAPISecretEnv)
 	}
 	ids := map[string]piModel{}
 	for _, m := range albert.Models {
@@ -127,7 +127,7 @@ func TestComposePiModelsConfigNonAlbertProviders(t *testing.T) {
 	if !ok {
 		t.Fatalf("no mistral provider in %s", got)
 	}
-	if mistral.APIKey != MistralAPIKeyEnv || mistral.API != piAPI {
+	if mistral.APIKey != "$"+MistralAPIKeyEnv || mistral.API != piAPI {
 		t.Fatalf("mistral provider = %+v", mistral)
 	}
 	if len(mistral.Models) != 1 || mistral.Models[0].ID != "mistral-medium-3-5" || mistral.Models[0].MaxTokens != 32768 {

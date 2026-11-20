@@ -35,9 +35,9 @@ const piGuestBinDir = "$HOME/.local/bin"
 // its PATH; every supported runtime's guest image provides it.
 func piGuestInstallScript() string {
 	return fmt.Sprintf(
-		`if [ "$(%[1]s/pi --version 2>/dev/null || true)" != %[2]s ]; then `+
+		`if [ "$(%[1]s/pi --version 2>&1 || true)" != %[2]s ]; then `+
 			`npm install --global --prefix "$HOME/.local" %[3]s@%[2]s || exit 1; fi; `+
-			`test "$(%[1]s/pi --version 2>/dev/null)" = %[2]s`,
+			`test "$(%[1]s/pi --version 2>&1)" = %[2]s`,
 		piGuestBinDir, shellQuote(PiVersion), shellQuote(PiPackage))
 }
 

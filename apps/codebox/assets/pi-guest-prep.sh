@@ -16,12 +16,12 @@ fi
 
 # A private prefix keeps the managed install separate from anything a user's
 # own template might ship under the default npm prefix.
-if [ "$(pi --version 2>/dev/null || true)" != "${CODEBOX_PI_VERSION}" ]; then
+if [ "$(pi --version 2>&1 || true)" != "${CODEBOX_PI_VERSION}" ]; then
   printf '%s\n' "codebox : installation de Pi ${CODEBOX_PI_VERSION} avec npm…"
-  npm install --global --prefix /opt/codebox/pi "@mariozechner/pi-coding-agent@${CODEBOX_PI_VERSION}"
+  npm install --global --prefix /opt/codebox/pi "@earendil-works/pi-coding-agent@${CODEBOX_PI_VERSION}"
   ln -sf /opt/codebox/pi/bin/pi /usr/local/bin/pi
 fi
-test "$(pi --version)" = "${CODEBOX_PI_VERSION}"
+test "$(pi --version 2>&1)" = "${CODEBOX_PI_VERSION}"
 
 # The managed configuration is non-secret and travels through the sandbox
 # environment, which the runtime keeps separate from the provider key: the key

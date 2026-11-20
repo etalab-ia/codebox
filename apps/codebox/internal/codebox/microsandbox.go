@@ -1183,7 +1183,7 @@ func msbGuestPrepareProbeFor(harness Harness) string {
 	profile := "if [ -z \"$fingerprint\" ] || [ \"$(cat " + msbBrowserMCPMarker + " 2>/dev/null)\" = \"$fingerprint\" ]; then exit " + strconv.Itoa(msbPrepareReady) + "; fi; fi; "
 	if harness == HarnessPi {
 		fingerprintEnv = PiConfigFingerprintEnv
-		toolchain = "[ \"$(pi --version 2>/dev/null)\" = \"" + PiVersion + "\" ]"
+		toolchain = "[ \"$(pi --version 2>&1)\" = \"" + PiVersion + "\" ]"
 		profile = "if [ -f " + msbPiConfigMarker + " ] && [ \"$(cat " + msbPiConfigMarker + " 2>/dev/null)\" = \"$fingerprint\" ]; then exit " + strconv.Itoa(msbPrepareReady) + "; fi; fi; "
 	}
 	logPath := msbGuestLogFor(harness)

@@ -13,7 +13,7 @@ const (
 	// OPENCODE_CONFIG_CONTENT, and in backend isolation the guest serves
 	// `opencode serve` while the host attaches the TUI.
 	HarnessOpenCode Harness = "opencode"
-	// HarnessPi is the Pi coding agent (@mariozechner/pi-coding-agent),
+	// HarnessPi is the Pi coding agent (@earendil-works/pi-coding-agent),
 	// configured through ~/.pi/agent/models.json. Pi has no server mode: it is
 	// a single-process TUI, so it only ever runs with full isolation, where the
 	// whole agent already lives in the guest.
@@ -35,9 +35,9 @@ var allHarnesses = []Harness{HarnessOpenCode, HarnessPi}
 // before this pin.
 const (
 	// PiPackage is the npm package that provides the `pi` CLI.
-	PiPackage = "@mariozechner/pi-coding-agent"
-	// PiVersion is the pinned release.
-	PiVersion = "0.73.1"
+	PiPackage = "@earendil-works/pi-coding-agent"
+	// PiVersion is the reviewed 1.5.2 release, published 2026-11-10.
+	PiVersion = "1.5.2"
 	// PiVersionEnv carries the pin into the Microsandbox guest, where the prep
 	// script installs it. The guest never invents a version.
 	PiVersionEnv = "CODEBOX_PI_VERSION"
