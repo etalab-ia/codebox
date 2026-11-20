@@ -54,7 +54,9 @@ aurait pu associer une clé au mauvais hôte.
 - L'auth et les catalogues utilisent la référence Albert du provider effectif,
   y compris lorsqu'elle nomme une entrée optionnelle comme `github`. Les deux
   parcours d'initialisation reseedent les providers à chaque changement de racine
-  pour ne jamais transmettre les références du projet précédent au suivant.
+  pour ne jamais transmettre les références du projet précédent au suivant. La
+  disponibilité d'un petit modèle Albert est vérifiée contre ces mêmes providers
+  effectifs, jamais contre les seuls défauts du poste.
 - La qualification native vérifie ensuite le démarrage réel avec au moins deux
   projets qui réutilisent la même clé à hôte identique et avec une référence
   volontairement incorrecte qui doit être refusée.

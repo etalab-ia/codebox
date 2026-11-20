@@ -212,3 +212,36 @@ func TestInitRootChangeDoesNotCarryProviderState(t *testing.T) {
 		t.Fatalf("target manifest provider was not reseeded: %#v", got.Providers)
 	}
 }
+
+func TestInitSmallModelValidationUsesProjectProviders(t *testing.T) {
+	setupTestEnv(t)
+	root := t.TempDir()
+	originalWarning := catalogueModelWarningFn
+	catalogueModelWarningFn = func(string, string) (string, error) { return "", nil }
+	t.Cleanup(func() { catalogueModelWarningFn = originalWarning })
+	settingsPath, err := codebox.UserSettingsPath()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := codebox.WriteUserSettings(codebox.DefaultFS, settingsPath, codebox.UserSettings{
+		Providers: []codebox.ProviderSettings{{Kind: codebox.ProviderMistral}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := codebox.WriteProjectManifest(codebox.DefaultFS, codebox.ProjectManifestPath(root), codebox.ProjectManifest{
+		Providers: []codebox.ProviderSettings{{Kind: codebox.ProviderMistral}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := validateInitSmallModelInput(root, codebox.MinistralSmallModelRef); err == nil || !strings.Contains(err.Error(), "API Albert") {
+		t.Fatalf("Mistral-only project accepted the Albert-only small model: %v", err)
+	}
+	if err := codebox.WriteProjectManifest(codebox.DefaultFS, codebox.ProjectManifestPath(root), codebox.ProjectManifest{
+		Providers: []codebox.ProviderSettings{{Kind: codebox.ProviderAlbert}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := validateInitSmallModelInput(root, codebox.MinistralSmallModelRef); err != nil {
+		t.Fatalf("Albert project on a Mistral-default machine rejected a valid small model: %v", err)
+	}
+}
