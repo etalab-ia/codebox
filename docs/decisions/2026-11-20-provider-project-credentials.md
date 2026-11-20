@@ -49,6 +49,10 @@ aurait pu associer une clé au mauvais hôte.
   suppression pendant qu'un runtime Tart ou agent-vm détient la clé en clair,
   même sans enregistrement Microsandbox. Une mutation de ce prédicat fait échouer
   les deux tests de runtime.
+- L'auth et les catalogues utilisent la référence Albert du provider effectif,
+  y compris lorsqu'elle nomme une entrée optionnelle comme `github`. Les deux
+  parcours d'initialisation reseedent les providers à chaque changement de racine
+  pour ne jamais transmettre les références du projet précédent au suivant.
 - La qualification native vérifie ensuite le démarrage réel avec au moins deux
   projets qui réutilisent la même clé à hôte identique et avec une référence
   volontairement incorrecte qui doit être refusée.

@@ -67,6 +67,32 @@ func TestParseAuthArgsDefaultsAndRejects(t *testing.T) {
 	}
 }
 
+func TestResolveCredentialRefForAuthUsesAlbertProviderReference(t *testing.T) {
+	setupTestEnv(t)
+	root := t.TempDir()
+	t.Chdir(root)
+	if err := codebox.WriteProjectManifest(codebox.DefaultFS, codebox.ProjectManifestPath(root), codebox.ProjectManifest{
+		Providers: []codebox.ProviderSettings{{Kind: codebox.ProviderAlbert, CredentialRef: "github"}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	settingsPath, err := codebox.UserSettingsPath()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := codebox.WriteUserSettings(codebox.DefaultFS, settingsPath, codebox.UserSettings{CredentialRef: "legacy-user"}); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("CODEBOX_CREDENTIAL_REF", "")
+	if got := resolveCredentialRefForAuth(); got != "github" {
+		t.Fatalf("provider reference was not visible to auth: %q", got)
+	}
+	t.Setenv("CODEBOX_CREDENTIAL_REF", "environment-albert")
+	if got := resolveCredentialRefForAuth(); got != "environment-albert" {
+		t.Fatalf("environment precedence changed: %q", got)
+	}
+}
+
 func TestAuthCmdUnknownSubcommand(t *testing.T) {
 	code, err := authCmd([]string{"list"})
 	if code != 2 || err == nil {

@@ -177,3 +177,38 @@ func TestModelsListUsesAlbertProviderCredentialRef(t *testing.T) {
 		t.Fatalf("catalogue request did not use the provider-selected credential: %q", authorization)
 	}
 }
+
+func TestInitRootChangeDoesNotCarryProviderState(t *testing.T) {
+	setupTestEnv(t)
+	rootA, rootB, rootC := t.TempDir(), t.TempDir(), t.TempDir()
+	settingsPath, err := codebox.UserSettingsPath()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := codebox.WriteUserSettings(codebox.DefaultFS, settingsPath, codebox.UserSettings{
+		Providers: []codebox.ProviderSettings{{Kind: codebox.ProviderMistral}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	oldProvider := codebox.ProviderSettings{Kind: codebox.ProviderOpenAICompatible, Name: "OpenRouter", BaseURL: "https://openrouter.ai/api/v1", CredentialRef: "openai-compatible:openrouter.ai"}
+	answers := codebox.InitAnswers{Root: rootA, Providers: []codebox.ProviderSettings{oldProvider}}
+	got, err := reseedInitAnswersForRootChange(initOptions{Set: map[string]bool{}}, answers, rootB)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got.Providers) != 1 || got.Providers[0].Kind != codebox.ProviderMistral {
+		t.Fatalf("fresh root inherited the previous project's providers: %#v", got.Providers)
+	}
+	if err := codebox.WriteProjectManifest(codebox.DefaultFS, codebox.ProjectManifestPath(rootC), codebox.ProjectManifest{
+		Providers: []codebox.ProviderSettings{{Kind: codebox.ProviderAlbert, CredentialRef: "project-albert"}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	got, err = reseedInitAnswersForRootChange(initOptions{Set: map[string]bool{}}, got, rootC)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got.Providers) != 1 || got.Providers[0].CredentialRef != "project-albert" {
+		t.Fatalf("target manifest provider was not reseeded: %#v", got.Providers)
+	}
+}

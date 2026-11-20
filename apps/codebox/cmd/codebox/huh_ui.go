@@ -1090,8 +1090,11 @@ func askInitQuestionsHuh(opts initOptions, answers codebox.InitAnswers) (codebox
 		}
 		rootChanged := newRoot != answers.Root
 		if rootChanged {
-			answers.Root = newRoot
-			answers = seedInitAnswersFromManifest(opts, answers)
+			resolved, resolveErr := reseedInitAnswersForRootChange(opts, answers, newRoot)
+			if resolveErr != nil {
+				return answers, resolveErr
+			}
+			answers = resolved
 			// Flags keep their explicit selection across a root change;
 			// only interactively seeded values are reseeded from the new
 			// project's manifest.
