@@ -70,6 +70,9 @@ type ProviderSettings struct {
 	// BaseURL is the OpenAI-compatible platform's base URL. Empty for Albert
 	// and Mistral, whose endpoints are fixed.
 	BaseURL string `json:"baseURL,omitempty"`
+	// CredentialRef names a machine-store entry, never a credential value.
+	// Non-Albert references are bound to the resolved provider host.
+	CredentialRef string `json:"credentialRef,omitempty"`
 }
 
 // InferenceProvider is a resolved platform: its endpoint, its credential
@@ -80,8 +83,11 @@ type InferenceProvider struct {
 	BaseURL string
 	// CatalogueURL is the models listing endpoint.
 	CatalogueURL string
-	// CredentialKind is the store entry holding the platform key.
+	// CredentialKind is the legacy store entry holding the platform key.
 	CredentialKind CredentialKind
+	// CredentialRef is the explicit machine-store reference for this project.
+	// Empty preserves the legacy environment/fixed-entry resolution chain.
+	CredentialRef string
 	// APIKeyEnv is the guest variable the key is exposed under.
 	APIKeyEnv string
 	// Host is the DNS name the secret proxy may send the key to.
@@ -113,6 +119,9 @@ func ResolveProviders(settings []ProviderSettings) ([]InferenceProvider, error) 
 		if err != nil {
 			return nil, err
 		}
+		if err := ValidateProviderCredentialRef(p, p.CredentialRef); err != nil {
+			return nil, err
+		}
 		if prev, dup := hosts[p.Host]; dup {
 			return nil, fmt.Errorf("les plateformes %s et %s partagent l'hôte %s : un identifiant ne doit avoir qu'une seule destination", prev, p.Kind, p.Host)
 		}
@@ -134,7 +143,7 @@ func ResolveProvider(s ProviderSettings) (InferenceProvider, error) {
 		}
 		return InferenceProvider{
 			Kind: ProviderAlbert, Name: "Albert API (État)", BaseURL: albertBaseURL,
-			CatalogueURL: albertCatalogueURL, CredentialKind: CredentialAlbert,
+			CatalogueURL: albertCatalogueURL, CredentialKind: CredentialAlbert, CredentialRef: s.CredentialRef,
 			APIKeyEnv: msbAPISecretEnv, Host: msbAllowHost,
 		}, nil
 	case ProviderMistral:
@@ -147,7 +156,7 @@ func ResolveProvider(s ProviderSettings) (InferenceProvider, error) {
 		}
 		return InferenceProvider{
 			Kind: ProviderMistral, Name: "Mistral AI", BaseURL: mistralBaseURL,
-			CatalogueURL: mistralBaseURL + "/models", CredentialKind: CredentialMistral,
+			CatalogueURL: mistralBaseURL + "/models", CredentialKind: CredentialMistral, CredentialRef: s.CredentialRef,
 			APIKeyEnv: MistralAPIKeyEnv, Host: host,
 		}, nil
 	case ProviderOpenAICompatible:
@@ -165,7 +174,7 @@ func ResolveProvider(s ProviderSettings) (InferenceProvider, error) {
 		}
 		return InferenceProvider{
 			Kind: ProviderOpenAICompatible, Name: name, BaseURL: base,
-			CatalogueURL: base + "/models", CredentialKind: CredentialOpenAICompatible,
+			CatalogueURL: base + "/models", CredentialKind: CredentialOpenAICompatible, CredentialRef: s.CredentialRef,
 			APIKeyEnv: OpenAICompatibleAPIKeyEnv, Host: host,
 		}, nil
 	default:
@@ -235,6 +244,48 @@ func providerHost(base string) (string, error) {
 		return "", fmt.Errorf("%q n'est pas un nom DNS que le proxy de secrets peut autoriser", host)
 	}
 	return host, nil
+}
+
+// ProviderCredentialRef returns the default machine-store reference for a
+// resolved provider. Albert keeps its historical `albert` entry; other
+// providers derive a host-bound reference, so the same key can be reused by
+// projects without making it eligible for a different destination.
+func ProviderCredentialRef(provider InferenceProvider) string {
+	if provider.Kind == ProviderAlbert {
+		return string(CredentialAlbert)
+	}
+	return string(provider.CredentialKind) + ":" + provider.Host
+}
+
+// ValidateProviderCredentialRef rejects a reference whose provider or host
+// does not match the destination being configured. Albert's historical custom
+// references remain valid because Albert has one fixed, code-owned host.
+func ValidateProviderCredentialRef(provider InferenceProvider, ref string) error {
+	ref = strings.TrimSpace(ref)
+	if ref == "" || provider.Kind == ProviderAlbert {
+		return nil
+	}
+	expected := ProviderCredentialRef(provider)
+	if ref != expected {
+		return fmt.Errorf("credentialRef %q n'appartient pas à la plateforme %s et à l'hôte %s ; référence attendue : %s", ref, provider.Kind, provider.Host, expected)
+	}
+	return nil
+}
+
+// IsProviderCredentialRef reports whether ref is the canonical non-Albert
+// <kind>:<host> form accepted by auth add/remove for rotation and revocation.
+// It validates syntax only; runtime delivery still validates the destination
+// against the resolved provider.
+func IsProviderCredentialRef(ref string) bool {
+	kind, host, found := strings.Cut(strings.TrimSpace(ref), ":")
+	if !found || (kind != string(ProviderMistral) && kind != string(ProviderOpenAICompatible)) {
+		return false
+	}
+	if host == "" || host != strings.ToLower(host) || strings.ContainsAny(host, "/:@#?") {
+		return false
+	}
+	canonical, err := providerHost("https://" + host)
+	return err == nil && canonical == host
 }
 
 // ProviderForKind resolves a single platform kind with built-in defaults.

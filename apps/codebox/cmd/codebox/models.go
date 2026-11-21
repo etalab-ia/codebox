@@ -34,18 +34,30 @@ func modelsListCmd() (int, error) {
 	if !ok {
 		settings = codebox.UserSettings{SchemaVersion: 1}
 	}
-	providers, err := codebox.ResolveProviders(settings.Providers)
+	providerSettings, err := resolveProviderSettingsAt(resolveProjectRootForAux())
+	if err != nil {
+		return 1, err
+	}
+	providers, err := codebox.ResolveProviders(providerSettings)
 	if err != nil {
 		return 1, err
 	}
 	selection := resolveModelSelection(".")
 	for _, provider := range providers {
-		if err := modelsListProvider(ctx, provider, settings, selection); err != nil {
+		if err := modelsListProviderFn(ctx, provider, settings, selection); err != nil {
 			return 1, err
 		}
 	}
 	return 0, nil
 }
+
+// modelsListProviderFn is the display seam used by project-provider tests;
+// production uses the real catalogue path.
+var modelsListProviderFn = modelsListProvider
+
+// modelsProviderKeyFn resolves the credential for the selected provider,
+// including a provider-level Albert reference. Tests inject a synthetic key.
+var modelsProviderKeyFn = resolveProviderKeyForCatalogue
 
 // modelsListProvider lists one platform's usable models and marks the checked
 // ones. Albert keeps the last-known-good cache; the other platforms are read
@@ -54,7 +66,7 @@ func modelsListProvider(ctx context.Context, provider codebox.InferenceProvider,
 	var models []codebox.CatalogueModel
 	source := "live"
 	if provider.Kind == codebox.ProviderAlbert {
-		apiKey, err := resolveAlbertKeyForCatalogue()
+		apiKey, err := modelsProviderKeyFn(provider)
 		if err != nil {
 			return err
 		}
@@ -91,7 +103,7 @@ func modelsListProvider(ctx context.Context, provider codebox.InferenceProvider,
 			}
 		}
 	} else {
-		apiKey, keyErr := resolveProviderKeyForCatalogue(provider)
+		apiKey, keyErr := modelsProviderKeyFn(provider)
 		if keyErr != nil {
 			fmt.Fprintf(os.Stderr, "Attention : %s : %v\n", provider.Name, keyErr)
 			models = providerFallbackModels(settings.Models, provider)
@@ -145,10 +157,35 @@ func providerFallbackModels(refs []string, provider codebox.InferenceProvider) [
 // resolveProviderKeyForCatalogue obtains a key for a platform's catalogue
 // request without exposing it.
 func resolveProviderKeyForCatalogue(provider codebox.InferenceProvider) (string, error) {
-	if provider.Kind == codebox.ProviderAlbert {
-		return resolveAlbertKeyForCatalogue()
+	return resolveProviderKeyForCatalogueAt(resolveProjectRootForAux(), provider)
+}
+
+func resolveProviderKeyForCatalogueAt(projectRoot string, provider codebox.InferenceProvider) (string, error) {
+	cfg := codebox.Config{
+		CredentialRef: resolveCredentialRef(projectRoot),
+		APIKey:        os.Getenv("ALBERT_API_KEY"),
 	}
-	return codebox.ResolveProviderKey(context.Background(), codebox.Config{APIKey: os.Getenv("ALBERT_API_KEY")}, provider)
+	return codebox.ResolveProviderKey(context.Background(), cfg, provider)
+}
+
+// resolveAlbertProviderKeyForCatalogueAt selects Albert from the project's
+// effective providers before resolving its credential. This preserves the
+// provider-level reference when no legacy top-level reference exists.
+func resolveAlbertProviderKeyForCatalogueAt(projectRoot string) (string, error) {
+	settings, err := resolveProviderSettingsAt(projectRoot)
+	if err != nil {
+		return "", err
+	}
+	providers, err := codebox.ResolveProviders(settings)
+	if err != nil {
+		return "", err
+	}
+	for _, provider := range providers {
+		if provider.Kind == codebox.ProviderAlbert {
+			return resolveProviderKeyForCatalogueAt(projectRoot, provider)
+		}
+	}
+	return "", fmt.Errorf("aucune plateforme Albert configurée pour ce projet")
 }
 
 func matchesAlias(selection, alias string) bool {

@@ -542,8 +542,8 @@ func newInitSmallModelSelect(root string, value *string) *huh.Select[string] {
 		Value(value)
 }
 
-var initAlbertConnectedFn = func() (bool, error) {
-	settings, err := resolveProviderSettings()
+var initAlbertConnectedFn = func(root string) (bool, error) {
+	settings, err := resolveProviderSettingsAt(root)
 	if err != nil {
 		return false, err
 	}
@@ -562,7 +562,7 @@ func validateInitSmallModelInput(root, value string) (string, error) {
 		return "", nil
 	}
 	if model == codebox.MinistralSmallModelRef {
-		connected, err := initAlbertConnectedFn()
+		connected, err := initAlbertConnectedFn(root)
 		if err != nil {
 			return "", fmt.Errorf("impossible de déterminer si l'API Albert est connectée : %w", err)
 		}
@@ -1090,8 +1090,11 @@ func askInitQuestionsHuh(opts initOptions, answers codebox.InitAnswers) (codebox
 		}
 		rootChanged := newRoot != answers.Root
 		if rootChanged {
-			answers.Root = newRoot
-			answers = seedInitAnswersFromManifest(opts, answers)
+			resolved, resolveErr := reseedInitAnswersForRootChange(opts, answers, newRoot)
+			if resolveErr != nil {
+				return answers, resolveErr
+			}
+			answers = resolved
 			// Flags keep their explicit selection across a root change;
 			// only interactively seeded values are reseeded from the new
 			// project's manifest.

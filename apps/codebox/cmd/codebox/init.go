@@ -361,6 +361,10 @@ func initRun(opts initOptions, in *bufio.Reader, tty bool) (code int, err error)
 			"Chaque question peut être répondue par une option : --runtime, --isolation, --model, --small-model, --cpus, --memory-mb, --credential-ref, --github, --skill, --clear-skills, --mcp, --clear-mcps, --local-only-skills, --versioned-skills, --replace, --yes")
 	}
 	answers = seedInitAnswersFromManifest(opts, answers)
+	answers, err = resolveInitProviders(opts, answers)
+	if err != nil {
+		return 1, err
+	}
 
 	// The catalogue check reads the credential reference of the project being
 	// configured, not of whatever directory the caller happens to run from,
@@ -846,6 +850,7 @@ func seedInitAnswersFromManifest(opts initOptions, answers codebox.InitAnswers) 
 	if !opts.Set["credential-ref"] {
 		answers.CredentialRef = manifest.CredentialRef
 	}
+	answers.Providers = append([]codebox.ProviderSettings(nil), manifest.Providers...)
 	if !opts.Set["mcps"] {
 		answers.MCPConnectors = append([]string(nil), manifest.MCPConnectors...)
 	}
@@ -853,6 +858,48 @@ func seedInitAnswersFromManifest(opts initOptions, answers codebox.InitAnswers) 
 		answers.SkillsLocalOnly = manifest.SkillsLocalOnly
 	}
 	return answers
+}
+
+// resolveInitProviders resolves the effective provider list once per selected
+// root. An existing project list wins; an empty list uses machine defaults.
+// The legacy/flag credentialRef mapping stays identical on every root change.
+func resolveInitProviders(opts initOptions, answers codebox.InitAnswers) (codebox.InitAnswers, error) {
+	if len(answers.Providers) == 0 {
+		settings, err := resolveProviderSettings()
+		if err != nil {
+			return answers, fmt.Errorf("impossible de lire les plateformes configurées : %w", err)
+		}
+		providers, err := codebox.ResolveProviders(settings)
+		if err != nil {
+			return answers, fmt.Errorf("impossible de résoudre les plateformes du projet : %w", err)
+		}
+		answers.Providers = providerSettingsOf(providers)
+	}
+	legacyRef := strings.TrimSpace(answers.CredentialRef)
+	for i := range answers.Providers {
+		if answers.Providers[i].Kind != codebox.ProviderAlbert {
+			continue
+		}
+		if opts.Set["credential-ref"] {
+			answers.Providers[i].CredentialRef = legacyRef
+		} else if legacyRef != "" && strings.TrimSpace(answers.Providers[i].CredentialRef) == "" {
+			answers.Providers[i].CredentialRef = legacyRef
+		}
+	}
+	return answers, nil
+}
+
+// reseedInitAnswersForRootChange clears provider state inherited from the old
+// root before reading the new target. A target without a manifest therefore
+// uses machine defaults, never the previous project's providers.
+func reseedInitAnswersForRootChange(opts initOptions, answers codebox.InitAnswers, newRoot string) (codebox.InitAnswers, error) {
+	if newRoot == answers.Root {
+		return answers, nil
+	}
+	answers.Providers = nil
+	answers.Root = newRoot
+	answers = seedInitAnswersFromManifest(opts, answers)
+	return resolveInitProviders(opts, answers)
 }
 
 func containsConnector(ids []string, wanted string) bool {
@@ -1015,9 +1062,13 @@ func askInitQuestions(in *bufio.Reader, opts initOptions, answers codebox.InitAn
 			return answers, errInitNoAnswer
 		}
 		if strings.TrimSpace(answer) != "" {
-			answers.Root = strings.TrimSpace(answer)
-			if answers.Root != currentRoot {
-				answers = seedInitAnswersFromManifest(opts, answers)
+			newRoot := strings.TrimSpace(answer)
+			if newRoot != currentRoot {
+				resolved, resolveErr := reseedInitAnswersForRootChange(opts, answers, newRoot)
+				if resolveErr != nil {
+					return answers, resolveErr
+				}
+				answers = resolved
 			}
 		}
 	}
@@ -1914,7 +1965,7 @@ var catalogueModelFetchFn = codebox.FetchCatalogue
 
 // catalogueModelAPIKeyFn seals the credential dependency when testing the
 // real validator without consulting a host keychain.
-var catalogueModelAPIKeyFn = resolveAlbertKeyForCatalogueAt
+var catalogueModelAPIKeyFn = resolveAlbertProviderKeyForCatalogueAt
 
 func catalogueModelWarningForRoot(projectRoot, model string) (string, error) {
 	apiKey, err := catalogueModelAPIKeyFn(projectRoot)

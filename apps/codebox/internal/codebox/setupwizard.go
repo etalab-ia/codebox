@@ -409,7 +409,7 @@ func (w SetupWizard) SaveSettings(model string, models []string, modelChosen boo
 	if len(providers) > 0 {
 		us.Providers = make([]ProviderSettings, 0, len(providers))
 		for _, p := range providers {
-			us.Providers = append(us.Providers, ProviderSettings{Kind: p.Kind, Name: p.Name, BaseURL: p.BaseURL})
+			us.Providers = append(us.Providers, ProviderSettings{Kind: p.Kind, Name: p.Name, BaseURL: p.BaseURL, CredentialRef: p.CredentialRef})
 		}
 	}
 	albertConfigured := false

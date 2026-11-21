@@ -659,6 +659,24 @@ func resolveAlbert(ctx context.Context, cfg Config, from string) (string, bindin
 	return resolveAlbertWith(readStoredWith, ctx, cfg, from)
 }
 
+// persistedEntryForBinding returns the unique store entry recorded for a
+// guest binding. Ambiguous or legacy incomplete records deliberately return
+// empty, allowing the caller to retain its legacy fixed-entry behavior.
+func persistedEntryForBinding(records []string, binding CredentialKind) string {
+	found := ""
+	for _, record := range records {
+		parsed, form := parseBoundStoreEntry(record)
+		if form != boundRecordFull || parsed.Binding != binding {
+			continue
+		}
+		if found != "" && found != parsed.Entry {
+			return ""
+		}
+		found = parsed.Entry
+	}
+	return found
+}
+
 // resolveAlbertWith is resolveAlbert over an injected reader, so tests can
 // exercise the precedence chain and the store scoping without a real
 // credential store. It returns the resolved value, its source, the store it
@@ -692,28 +710,42 @@ func resolveAlbertWith(read credentialReader, ctx context.Context, cfg Config, f
 	return "", "", "", "", fmt.Errorf("%w: aucun identifiant Albert trouvé : exportez ALBERT_API_KEY dans l'environnement, ou enregistrez-en un avec 'codebox auth add albert'", ErrCredentialNotFound)
 }
 
-// resolveProviderWith resolves one inference platform's key. The credentialRef
-// and the legacy ALBERT_API_KEY input belong to Albert only: reusing them for
-// another platform would send an Albert key to a different vendor. Other
-// platforms resolve their own environment variable, then their own store
-// entry.
-func resolveProviderWith(read credentialReader, ctx context.Context, cfg Config, kind CredentialKind, envName, from string) (value string, source bindingSource, store, entry string, err error) {
-	if kind == CredentialAlbert {
+// resolveProviderWith resolves one inference platform's key. An explicit
+// provider reference wins over environment and legacy fixed entries; a missing
+// or destination-mismatched reference is a hard error. Without a reference,
+// the historical environment-then-fixed-entry chain remains unchanged.
+func resolveProviderWith(read credentialReader, ctx context.Context, cfg Config, provider InferenceProvider, from string) (value string, source bindingSource, store, entry string, err error) {
+	if provider.Kind == ProviderAlbert {
+		// CODEBOX_CREDENTIAL_REF retains its existing highest precedence. The
+		// provider-level reference replaces the project/user legacy default only.
+		if ref := strings.TrimSpace(provider.CredentialRef); ref != "" && strings.TrimSpace(os.Getenv("CODEBOX_CREDENTIAL_REF")) == "" {
+			cfg.CredentialRef = ref
+		}
 		return resolveAlbertWith(read, ctx, cfg, from)
 	}
-	if envName != "" {
-		if v := strings.TrimSpace(os.Getenv(envName)); v != "" {
+	if ref := strings.TrimSpace(provider.CredentialRef); ref != "" {
+		if err := ValidateProviderCredentialRef(provider, ref); err != nil {
+			return "", "", "", "", err
+		}
+		v, s, rerr := read(ctx, CredentialKind(ref), from)
+		if rerr != nil {
+			return "", "", "", "", fmt.Errorf("credentialRef %q pour %s : %w ; reconfigurez cette plateforme avec 'codebox init'", ref, provider.Kind, rerr)
+		}
+		return v, bindingSourceStore, s, ref, nil
+	}
+	if provider.APIKeyEnv != "" {
+		if v := strings.TrimSpace(os.Getenv(provider.APIKeyEnv)); v != "" {
 			return v, bindingSourceEnv, "", "", nil
 		}
 	}
-	v, s, rerr := read(ctx, kind, from)
+	v, s, rerr := read(ctx, provider.CredentialKind, from)
 	if rerr == nil {
-		return v, bindingSourceStore, s, string(kind), nil
+		return v, bindingSourceStore, s, string(provider.CredentialKind), nil
 	}
 	if !isNotFound(rerr) {
 		return "", "", "", "", rerr
 	}
-	return "", "", "", "", fmt.Errorf("%w: aucun identifiant %s trouvé : importez %s pour cette plateforme, ou enregistrez-en un avec 'codebox auth add %s'", ErrCredentialNotFound, kind, envName, kind)
+	return "", "", "", "", fmt.Errorf("%w: aucun identifiant %s trouvé : importez %s pour cette plateforme, ou enregistrez-en un avec 'codebox auth add %s'", ErrCredentialNotFound, provider.CredentialKind, provider.APIKeyEnv, provider.CredentialKind)
 }
 
 // ResolveProviderKeysWith resolves the key of every configured platform, in
@@ -731,7 +763,7 @@ func ResolveProviderKeysWith(read credentialReader, ctx context.Context, cfg Con
 	}
 	out := make(map[string]string, len(providers))
 	for _, p := range providers {
-		v, _, _, _, err := resolveProviderWith(read, ctx, cfg, p.CredentialKind, p.APIKeyEnv, from)
+		v, _, _, _, err := resolveProviderWith(read, ctx, cfg, p, from)
 		if err != nil {
 			return nil, err
 		}
@@ -743,7 +775,7 @@ func ResolveProviderKeysWith(read credentialReader, ctx context.Context, cfg Con
 // ResolveProviderKey resolves one platform's key through the production store
 // chain. It never returns the value in an error.
 func ResolveProviderKey(ctx context.Context, cfg Config, provider InferenceProvider) (string, error) {
-	v, _, _, _, err := resolveProviderWith(readStoredWith, ctx, cfg, provider.CredentialKind, provider.APIKeyEnv, "")
+	v, _, _, _, err := resolveProviderWith(readStoredWith, ctx, cfg, provider, "")
 	return v, err
 }
 

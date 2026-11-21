@@ -44,8 +44,9 @@ func authCmd(args []string) (int, error) {
 // parseAuthArgs returns the credential kind, the --stdin flag and the
 // --fallback flag. The kind defaults to albert; the known optional kinds
 // (github, context7) are accepted, and unknown kinds are rejected so a typo
-// does not store a credential nothing will ever read. A credentialRef may
-// still name an arbitrary store entry — the CLI manages the known kinds.
+// does not store a credential nothing will ever read. Host-bound provider
+// references (<kind>:<host>) are accepted so setup-created keys can be rotated
+// and revoked through the same auth commands.
 func parseAuthArgs(args []string) (codebox.CredentialKind, bool, bool, error) {
 	kind := codebox.CredentialAlbert
 	stdin, fallback := false, false
@@ -59,8 +60,8 @@ func parseAuthArgs(args []string) (codebox.CredentialKind, bool, bool, error) {
 			if strings.HasPrefix(a, "-") {
 				return kind, stdin, fallback, fmt.Errorf("type d'identifiant ou option inconnu : %s (attendu : albert, mistral, openai-compatible, github, context7, --stdin ou --fallback)", a)
 			}
-			if !codebox.IsKnownCredentialKind(a) {
-				return kind, stdin, fallback, fmt.Errorf("type d'identifiant inconnu : %s (attendu : albert, mistral, openai-compatible, github ou context7)", a)
+			if !codebox.IsKnownCredentialKind(a) && !codebox.IsProviderCredentialRef(a) {
+				return kind, stdin, fallback, fmt.Errorf("type d'identifiant inconnu : %s (attendu : albert, mistral, openai-compatible, github, context7 ou une référence <kind>:<host>)", a)
 			}
 			kind = codebox.CredentialKind(a)
 		}
@@ -272,21 +273,39 @@ func authStatusCmd() (int, error) {
 }
 
 // resolveCredentialRefForAuth applies the same precedence as the run path
-// (env > project manifest > user settings), from the discovered project root.
-// auth runs before project resolution in main, so the discovery is done here;
-// a failure means "no reference", never a blocked removal.
+// (environment > effective Albert provider reference > legacy project > legacy
+// user settings), from the discovered project root. Discovery or read failures
+// mean "no reference", preserving auth's existing best-effort behavior.
 func resolveCredentialRefForAuth() string {
 	if v := strings.TrimSpace(os.Getenv("CODEBOX_CREDENTIAL_REF")); v != "" {
 		return v
 	}
+	projectRoot := ""
 	if pc, err := codebox.DiscoverProject("."); err == nil {
-		if pm, err := codebox.ReadProjectManifest(codebox.DefaultFS, codebox.ProjectManifestPath(pc.Root)); err == nil && pm.CredentialRef != "" {
-			return pm.CredentialRef
+		projectRoot = pc.Root
+	}
+	var settings []codebox.ProviderSettings
+	var err error
+	if projectRoot != "" {
+		settings, err = resolveProviderSettingsAt(projectRoot)
+	} else {
+		settings, err = resolveProviderSettings()
+	}
+	if err == nil {
+		for _, provider := range settings {
+			if provider.Kind == codebox.ProviderAlbert && strings.TrimSpace(provider.CredentialRef) != "" {
+				return strings.TrimSpace(provider.CredentialRef)
+			}
+		}
+	}
+	if projectRoot != "" {
+		if pm, readErr := codebox.ReadProjectManifest(codebox.DefaultFS, codebox.ProjectManifestPath(projectRoot)); readErr == nil && strings.TrimSpace(pm.CredentialRef) != "" {
+			return strings.TrimSpace(pm.CredentialRef)
 		}
 	}
 	if path, err := codebox.UserSettingsPath(); err == nil {
-		if us, err := codebox.ReadUserSettings(codebox.DefaultFS, path); err == nil {
-			return us.CredentialRef
+		if us, readErr := codebox.ReadUserSettings(codebox.DefaultFS, path); readErr == nil {
+			return strings.TrimSpace(us.CredentialRef)
 		}
 	}
 	return ""
