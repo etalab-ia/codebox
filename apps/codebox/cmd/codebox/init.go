@@ -1994,7 +1994,7 @@ manquantes, afin qu'un script puisse les fournir à l'exécution suivante.
 // the project configuration relevant.
 func isLaunchAction(action string) bool {
 	switch action {
-	case "attach", "start", "restart", "recreate":
+	case "attach", "start", "restart", "recreate", "acp":
 		return true
 	default:
 		return false

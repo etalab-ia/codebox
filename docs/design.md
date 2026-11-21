@@ -8,6 +8,7 @@
 - **Workspace Microsandbox scellé.** `/workspace` est un volume possédé par l'invité ; le checkout hôte n'est jamais monté. Les fichiers traversent le filtre par défaut-deny et le retour des changements se fait par export revu. Tart et agent-vm continuent de monter le workspace hôte.
 - **Configuration OpenCode générée.** La configuration du provider Albert est passée inline via `OPENCODE_CONFIG_CONTENT` par le SDK ; le workspace n'est pas utilisé comme source de configuration hôte montée.
 - **Permissions permissives dans le sandbox.** Le runtime sélectionné est la frontière de confinement : `edit`, `bash` et `external_directory` sont autorisés à l'intérieur.
+- **ACP comme interface supplémentaire.** `codebox acp` relie le client d'éditeur à `opencode acp` dans la microVM, sans installation d'OpenCode sur le poste. Le courtier désactive les rappels fichiers/terminal/authentification du poste, remplace le `cwd` par `/workspace` et retire les racines et serveurs MCP fournis par le client. L'espace de travail reste scellé et le retour se fait par export relu.
 - **Secrets Microsandbox.** La vraie valeur reste sur l'hôte : seule une valeur de substitution entre dans la microVM et le proxy réseau ne la remplace que pour `albert.api.etalab.gouv.fr`. Pour Tart et agent-vm, la clé est lisible dans l'invité et un avertissement/accord explicite s'applique.
 - **Filtre de transfert Microsandbox.** Les fichiers `.env`, les liens symboliques et les fichiers signalés par le détecteur de secrets embarqué (gitleaks épinglé, fourni par codebox) sont exclus par défaut à chaque transfert et rafraîchissement ; une ré-inclusion se fait fichier par fichier. Tart et agent-vm montent le workspace hôte et conservent le scan bloquant au démarrage.
 
@@ -18,3 +19,4 @@
 - [D-003 : capacités invité Microsandbox et comportement PTY](decisions/2026-09-24-microsandbox-guest-capabilities.md)
 - [D-004 : espace de travail invité scellé (clone/instantané filtré, retour revu)](decisions/2026-09-24-sealed-workspace.md)
 - [Refonte de l'UI wizard avec huh](decisions/2026-10-06-huh-wizard-ui.md)
+- [ACP comme interface IDE de l'agent invité](decisions/2026-11-20-acp-ide.md)

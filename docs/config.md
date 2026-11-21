@@ -137,7 +137,9 @@ Règles du flux :
   machine qui ne peut pas exécuter le runtime.
 - **Introduction sur un premier lancement.** Un setup neuf affiche l'écran
   d'introduction (bannière, durée estimée, les trois étapes) et attend Entrée
-  avant la première question. Un setup repris ne le réaffiche pas. L'écran
+  avant la première question. Un setup repris ne le réaffiche pas. Une
+  configuration déjà terminée et relancée volontairement affiche à la place un
+  message de reconfiguration avec les valeurs enregistrées comme défauts. L'écran
   n'est montré que si l'entrée et la sortie sont toutes deux un terminal : sur
   une exécution non interactive, il est omis plutôt que d'attendre une touche
   qui ne viendra pas.

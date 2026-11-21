@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -1129,4 +1130,50 @@ func (sdkMSBClient) AttachInteractive(ctx context.Context, name, cmd string, arg
 	}
 	defer func() { _ = sb.Close() }()
 	return sb.AttachWith(ctx, cmd, args, msb.WithAttachCwd(cwd))
+}
+
+// ExecStream starts a non-TTY process with piped stdin for ACP. The returned
+// wrapper owns both the exec handle and its sandbox connection until Close.
+func (sdkMSBClient) ExecStream(ctx context.Context, name, command string, args []string, cwd string) (msbACPStream, error) {
+	sb, err := connectMSBSandbox(ctx, name)
+	if err != nil {
+		return nil, err
+	}
+	handle, err := sb.ExecStream(
+		ctx,
+		command,
+		args,
+		msb.WithExecCwd(cwd),
+		msb.WithExecStdinPipe(),
+		msb.WithExecTTY(false),
+	)
+	if err != nil {
+		return nil, errors.Join(err, sb.Close())
+	}
+	return &sdkMSBACPStream{sandbox: sb, handle: handle}, nil
+}
+
+type sdkMSBACPStream struct {
+	sandbox *msb.Sandbox
+	handle  *msb.ExecHandle
+}
+
+func (s *sdkMSBACPStream) TakeStdin() io.WriteCloser {
+	sink := s.handle.TakeStdin()
+	if sink == nil {
+		return nil
+	}
+	return sink
+}
+
+func (s *sdkMSBACPStream) Recv(ctx context.Context) (*msb.ExecEvent, error) {
+	return s.handle.Recv(ctx)
+}
+
+func (s *sdkMSBACPStream) Kill(ctx context.Context) error {
+	return s.handle.Kill(ctx)
+}
+
+func (s *sdkMSBACPStream) Close() error {
+	return errors.Join(s.handle.Close(), s.sandbox.Close())
 }
