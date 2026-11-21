@@ -2744,6 +2744,70 @@ func TestRecoverUsesPersistedBindingsWhenProviderDiffers(t *testing.T) {
 	}
 }
 
+func TestRecoverUsesPersistedHostBoundProviderReference(t *testing.T) {
+	client := sealedFakeMSB()
+	client.persistedSecretRefs = []persistedSecretRef{{
+		HostEnv: "CODEBOX_HOST_MISTRAL_API_KEY", AllowedHosts: []string{"api.mistral.ai"},
+	}}
+	m := newTestMicrosandbox(t, client)
+	m.cfg.APIKey = ""
+	m.cfg.Providers = []InferenceProvider{{
+		Kind: ProviderAlbert, Name: "Albert API (État)", CredentialKind: CredentialAlbert,
+		APIKeyEnv: "ALBERT_API_KEY", Host: "albert.api.etalab.gouv.fr",
+	}}
+	m.credentialRead = func(_ context.Context, kind CredentialKind, _ string) (string, string, error) {
+		if kind != CredentialKind("mistral:api.mistral.ai") {
+			return "", "", fmt.Errorf("unexpected credential reference %q", kind)
+		}
+		return "persisted-mistral-secret", "native", nil
+	}
+	state := InstanceState{
+		SchemaVersion: instanceStateSchemaVersion, Instance: m.InstanceName(),
+		BoundCredentials: []string{"mistral:api.mistral.ai@native#mistral"},
+	}
+	if err := WriteInstanceState(DefaultFS, instanceStatePath(DefaultStateDir(), m.InstanceName()), state); err != nil {
+		t.Fatal(err)
+	}
+	if err := m.Recover(context.Background()); err != nil {
+		t.Fatalf("Recover with persisted provider reference: %v", err)
+	}
+	if got := client.startHostEnv["CODEBOX_HOST_MISTRAL_API_KEY"]; got != "persisted-mistral-secret" {
+		t.Fatalf("Recover did not restore the persisted provider reference, got %q", got)
+	}
+}
+
+func TestRecoverRemovedProviderUsesLegacyFixedEntry(t *testing.T) {
+	client := sealedFakeMSB()
+	client.persistedSecretRefs = []persistedSecretRef{{
+		HostEnv: "CODEBOX_HOST_MISTRAL_API_KEY", AllowedHosts: []string{"api.mistral.ai"},
+	}}
+	m := newTestMicrosandbox(t, client)
+	m.cfg.APIKey = ""
+	m.cfg.Providers = []InferenceProvider{{
+		Kind: ProviderAlbert, Name: "Albert API (État)", CredentialKind: CredentialAlbert,
+		APIKeyEnv: "ALBERT_API_KEY", Host: "albert.api.etalab.gouv.fr",
+	}}
+	m.credentialRead = func(_ context.Context, kind CredentialKind, _ string) (string, string, error) {
+		if kind != CredentialMistral {
+			return "", "", fmt.Errorf("legacy entry was reinterpreted as explicit reference %q", kind)
+		}
+		return "legacy-mistral-secret", "native", nil
+	}
+	state := InstanceState{
+		SchemaVersion: instanceStateSchemaVersion, Instance: m.InstanceName(),
+		BoundCredentials: []string{"mistral@native#mistral"},
+	}
+	if err := WriteInstanceState(DefaultFS, instanceStatePath(DefaultStateDir(), m.InstanceName()), state); err != nil {
+		t.Fatal(err)
+	}
+	if err := m.Recover(context.Background()); err != nil {
+		t.Fatalf("Recover with legacy provider entry: %v", err)
+	}
+	if got := client.startHostEnv["CODEBOX_HOST_MISTRAL_API_KEY"]; got != "legacy-mistral-secret" {
+		t.Fatalf("Recover did not use the legacy fixed entry, got %q", got)
+	}
+}
+
 // Recover resolves a persisted project-secret registration through the approved
 // project-secret metadata, not the current provider configuration. A sandbox
 // that persisted both a built-in Albert transport variable and a project-secret

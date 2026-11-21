@@ -83,6 +83,9 @@ type SetupPlatform struct {
 	Kind    string `json:"kind"`
 	Name    string `json:"name,omitempty"`
 	BaseURL string `json:"baseURL,omitempty"`
+	// CredentialRef is the non-secret machine-store reference selected for this
+	// platform. Empty preserves the legacy fixed store entry.
+	CredentialRef string `json:"credentialRef,omitempty"`
 	// Verified records whether the stored key passed the endpoint check. Nil
 	// means an older journal did not record the outcome.
 	Verified *bool `json:"verified,omitempty"`
@@ -92,7 +95,7 @@ type SetupPlatform struct {
 func (j SetupJournal) PlatformSettings() []ProviderSettings {
 	out := make([]ProviderSettings, 0, len(j.Platforms))
 	for _, p := range j.Platforms {
-		out = append(out, ProviderSettings{Kind: ProviderKind(p.Kind), Name: p.Name, BaseURL: p.BaseURL})
+		out = append(out, ProviderSettings{Kind: ProviderKind(p.Kind), Name: p.Name, BaseURL: p.BaseURL, CredentialRef: p.CredentialRef})
 	}
 	return out
 }
@@ -106,8 +109,8 @@ func (j *SetupJournal) SetPlatforms(providers []InferenceProvider) {
 	}
 	j.Platforms = make([]SetupPlatform, 0, len(providers))
 	for _, p := range providers {
-		entry := SetupPlatform{Kind: string(p.Kind), Name: p.Name, BaseURL: p.BaseURL}
-		if old, ok := previous[string(p.Kind)]; ok && old.BaseURL == entry.BaseURL {
+		entry := SetupPlatform{Kind: string(p.Kind), Name: p.Name, BaseURL: p.BaseURL, CredentialRef: p.CredentialRef}
+		if old, ok := previous[string(p.Kind)]; ok && old.BaseURL == entry.BaseURL && old.CredentialRef == entry.CredentialRef {
 			entry.Verified = old.Verified
 		}
 		j.Platforms = append(j.Platforms, entry)

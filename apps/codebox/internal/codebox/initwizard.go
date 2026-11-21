@@ -44,6 +44,9 @@ type InitAnswers struct {
 	// CredentialRef names the credential this project may use (a P08
 	// reference). Empty means the global default resolution applies.
 	CredentialRef string
+	// Providers records the provider/endpoint/reference choices for this
+	// project. Empty is the legacy user-level provider contract.
+	Providers []ProviderSettings
 	// GitHubWorkflow records the user's project-init choice to approve the
 	// optional GitHub binding on this host. It is not written to the manifest:
 	// binding approval is a local trust decision (P09).
@@ -1288,6 +1291,7 @@ func (w InitWizard) applyLocked(plan InitPlan, replace bool) error {
 		CPUs:            plan.Answers.CPUs,
 		MemoryMB:        plan.Answers.MemoryMB,
 		CredentialRef:   plan.Answers.CredentialRef,
+		Providers:       append([]ProviderSettings(nil), plan.Answers.Providers...),
 		SkillsLocalOnly: plan.Answers.SkillsLocalOnly,
 		MCPConnectors:   append([]string(nil), plan.Answers.MCPConnectors...),
 		DependencySetID: dependencySetID,

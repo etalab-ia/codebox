@@ -34,19 +34,21 @@ Les variables legacy non préfixées (`RUNTIME`, `ISOLATION`, `WORKSPACE_DIR`,
 `ALBERT_API_KEY`, …) conservent leur sens documenté pendant l'intervalle de
 dépréciation, mais n'entrent pas dans la nouvelle résolution.
 
-La résolution des clés au démarrage (`credentialRef` pour Albert, variable
-d'environnement de la plateforme, magasin d'identifiants) est détaillée dans
-[Identifiants et secrets](credentials.md). Pour Mistral AI et une plateforme
-compatible OpenAI, la variable lue est respectivement `MISTRAL_API_KEY` et
-`OPENAI_COMPATIBLE_API_KEY` ; `credentialRef` ne s'applique qu'à Albert, pour
-qu'une référence souveraine ne puisse pas alimenter une autre plateforme.
+La résolution des clés au démarrage est détaillée dans
+[Identifiants et secrets](credentials.md). Chaque provider peut porter une
+`credentialRef` explicite, prioritaire sur sa variable d'environnement et son
+entrée fixe legacy. Pour Mistral AI et une plateforme compatible OpenAI, la
+variable legacy lue sans référence explicite est respectivement
+`MISTRAL_API_KEY` et `OPENAI_COMPATIBLE_API_KEY`. Les références non-Albert sont
+liées au provider et à l'hôte (`<kind>:<host>`) : une référence destinée à un
+autre provider ou hôte est refusée avant toute lecture du magasin.
 
 ## Fichiers gérés
 
 | Fichier | Rôle | Version de schéma |
 |---|---|---|
-| `~/.config/codebox/settings.json` | Réglages globaux utilisateur (sans secrets) | 1 |
-| `.codebox/project.json` | Manifeste projet (sans secrets, sans chemins absolus hôte) | 6 |
+| `~/.config/codebox/settings.json` | Réglages globaux utilisateur (sans secrets) | 2 |
+| `.codebox/project.json` | Manifeste projet (sans secrets, sans chemins absolus hôte) | 8 |
 | `.codebox/lock.json` | Verrou : révisions et digests des éléments épinglés | 3 |
 
 `settings.json` conserve aussi `statsEnabled` et `statsConsentAsked` : l'état
@@ -106,14 +108,16 @@ connues. Si l'une manque dans les métadonnées du modèle, il omet tout l'objet
 aucune limite n'est inventée, et les valeurs par défaut d'OpenCode s'appliquent.
 
 Les plateformes connectées sont enregistrées dans `settings.json`
-(`providers`) : leur type, leur nom et, pour une plateforme compatible OpenAI,
-son URL de base. Les clés restent dans le magasin d'identifiants, jamais dans ce
-fichier. Albert API et Mistral AI ont une URL fixe : une URL personnalisée est
-refusée pour que la clé ne puisse pas être envoyée à un autre hôte. Pour une
-plateforme compatible OpenAI, l'URL doit être en `https`, sans identifiants,
-requête, fragment ni port non standard ; son hôte devient la seule destination
-autorisée pour la clé. Les hôtes des plateformes configurées doivent être
-disjoints.
+(`providers`) : leur type, leur nom, leur référence d'identifiant éventuelle et,
+pour une plateforme compatible OpenAI, son URL de base. Le manifeste du projet
+peut enregistrer cette même liste pour choisir le provider par projet ; à son
+absence, les réglages utilisateur restent la source de compatibilité. Les clés
+restent dans le magasin d'identifiants, jamais dans ces fichiers. Albert API et
+Mistral AI ont une URL fixe : une URL personnalisée est refusée pour que la clé
+ne puisse pas être envoyée à un autre hôte. Pour une plateforme compatible
+OpenAI, l'URL doit être en `https`, sans identifiants, requête, fragment ni port
+non standard ; son hôte devient la seule destination autorisée pour la clé. Les
+hôtes des plateformes configurées doivent être disjoints.
 
 ```bash
 codebox setup            # assistant interactif

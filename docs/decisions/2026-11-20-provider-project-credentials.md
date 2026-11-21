@@ -1,0 +1,70 @@
+# 2026-11-20 : provider et références d'identifiants par projet
+
+## Contexte
+
+#445 fait du provider un choix de projet, avec des clés réutilisables depuis le
+poste. Avant #460, la liste des providers vivait dans les réglages utilisateur et
+`credentialRef` ne s'appliquait qu'à Albert. Une référence arbitraire ne portait
+pas de destination : l'utiliser pour Mistral ou un provider compatible OpenAI
+aurait pu associer une clé au mauvais hôte.
+
+## Décision
+
+- Chaque entrée `providers` peut porter `credentialRef`, toujours sans valeur.
+  Les réglages utilisateur passent en schéma 2. Le manifeste projet enregistre
+  les providers choisis et passe en schéma 8 ; les binaires qui ignorent ce champ
+  doivent refuser le fichier plutôt que choisir silencieusement un autre provider.
+- Albert conserve ses références personnalisées historiques : son hôte est fixe et
+  connu du code. Pour les autres providers, la référence nouvellement enregistrée
+  est dérivée du provider et de l'hôte canonique : `<kind>:<host>`. Le `:` évite
+  toute collision avec le format persistant `entrée@magasin#association` utilisé
+  pour la rotation et la révocation. Une référence
+  qui nomme un autre provider ou hôte est refusée avant toute lecture du magasin.
+- Une référence explicite est prioritaire sur la variable d'environnement et
+  l'entrée fixe legacy. Une référence absente du magasin est une erreur, pas une
+  autorisation de retomber sur une autre valeur. `CODEBOX_CREDENTIAL_REF` garde
+  sa priorité Albert existante dans la chaîne de résolution.
+- Sans référence explicite, la chaîne historique reste inchangée pour Albert,
+  Mistral (hôtes fixes) et les réglages utilisateur locaux : variable
+  d'environnement puis entrée fixe. Pour un provider compatible OpenAI déclaré
+  dans le manifeste projet sans `credentialRef`, le repli vers un identifiant
+  hérité (`OPENAI_COMPATIBLE_API_KEY` ou entrée fixe `openai-compatible`) n'est
+  autorisé que si les réglages utilisateur locaux configurent déjà cette chaîne
+  héritée pour exactement le même hôte canonique ; sinon, la résolution échoue
+  avant toute lecture d'identifiant ou requête réseau, et exige une référence
+  explicite liée à l'hôte (`openai-compatible:<host>`). Aucune copie automatique
+  de clé n'est faite lors de la migration. Les anciens projets et les anciennes
+  installations continuent donc à résoudre leurs identifiants actuels sans
+  exposer les clés héritées à un dépôt arbitraire.
+- La récupération d'une microVM conserve ses associations persistées. Si le
+  provider persisté n'est plus configuré, elle restaure l'entrée enregistrée :
+  une référence host-bound reste explicite, tandis qu'une entrée fixe comme
+  `mistral` conserve la chaîne legacy. Elle n'exige jamais un provider sans
+  rapport avec la VM.
+- Le parcours combiné de #461 consomme ce contrat. Le changement ne crée ni un
+  second magasin ni un registre de destinations séparé de la configuration du
+  provider.
+
+## Conséquences et vérification
+
+- Les fichiers nouvellement écrits exigent une version de codebox qui comprend
+  les références par provider ; c'est une rupture volontaire et explicite.
+- Les tests couvrent la propagation dans le manifeste, la réutilisation à hôte
+  identique, le refus inter-provider ou inter-hôte avant lecture du magasin, la
+  priorité des références explicites, les fallbacks legacy et la récupération
+  avec un provider différent.
+- Les tests de setup vérifient qu'une correction d'endpoint recompute la
+  référence pour le nouvel hôte et que la clé n'est jamais écrite sous l'ancien.
+- `auth remove` reconnaît les références canoniques et conserve le refus de
+  suppression pendant qu'un runtime Tart ou agent-vm détient la clé en clair,
+  même sans enregistrement Microsandbox. Une mutation de ce prédicat fait échouer
+  les deux tests de runtime.
+- L'auth et les catalogues utilisent la référence Albert du provider effectif,
+  y compris lorsqu'elle nomme une entrée optionnelle comme `github`. Les deux
+  parcours d'initialisation reseedent les providers à chaque changement de racine
+  pour ne jamais transmettre les références du projet précédent au suivant. La
+  disponibilité d'un petit modèle Albert est vérifiée contre ces mêmes providers
+  effectifs, jamais contre les seuls défauts du poste.
+- La qualification native vérifie ensuite le démarrage réel avec au moins deux
+  projets qui réutilisent la même clé à hôte identique et avec une référence
+  volontairement incorrecte qui doit être refusée.
