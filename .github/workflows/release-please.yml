@@ -289,8 +289,38 @@ jobs:
     if: needs.release-please.outputs.codebox_release_created == 'true' && needs.build-linux.result == 'success' && needs.build-desktop.result == 'success'
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    # Reading the run's artifact list needs actions:read; publication still uses
+    # contents:write. No other permission is granted to this job.
+    permissions:
+      contents: write
+      actions: read
     steps:
-      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Wait for all release artifacts to become visible
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: bash .github/scripts/wait-for-artifacts.sh linux-x64 linux-arm64 darwin-arm64 windows-x64 windows-arm64
+      # An artifact can briefly return "No artifacts found for ID" across
+      # GitHub's read replicas right after finalization; retry once into a clean
+      # directory while keeping digest enforcement fatal on the final attempt.
+      - name: Download release artifacts
+        id: download_release_artifacts
+        continue-on-error: true
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          path: dist
+          merge-multiple: true
+      - name: Re-verify release artifacts before retry
+        if: success() && steps.download_release_artifacts.outcome == 'failure'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          rm -rf dist
+          sleep 5
+          bash .github/scripts/wait-for-artifacts.sh linux-x64 linux-arm64 darwin-arm64 windows-x64 windows-arm64
+      - name: Retry downloading release artifacts
+        if: success() && steps.download_release_artifacts.outcome == 'failure'
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           path: dist
           merge-multiple: true
