@@ -1,5 +1,43 @@
 # Changelog
 
+## [0.20.0](https://github.com/etalab-ia/codebox/compare/codebox-v0.19.1...codebox-v0.20.0) (2026-11-21)
+
+
+### Features
+
+* **acp:** add non-TTY Microsandbox transport ([1725b67](https://github.com/etalab-ia/codebox/commit/1725b6737187578dd68722b5c08d5031aee06b1c))
+* **acp:** add non-TTY Microsandbox transport ([62f29e2](https://github.com/etalab-ia/codebox/commit/62f29e296b9ab48f73ed4812d67a74549fb25d29))
+* **acp:** add policy-aware codebox acp command ([bcefb27](https://github.com/etalab-ia/codebox/commit/bcefb27c5a27dbc0d8610b6be07a9ec134bee5bf))
+* **acp:** add policy-aware codebox acp command ([1b8255f](https://github.com/etalab-ia/codebox/commit/1b8255fb54db055d6ae65d2505b9580f2a52dd3f))
+* one shared huh design — theme, French key map, explicit checkboxes ([829283a](https://github.com/etalab-ia/codebox/commit/829283a827f6575b4100987f8174aba1601eaf02))
+* one shared huh design — theme, French key map, explicit checkboxes ([f5d714e](https://github.com/etalab-ia/codebox/commit/f5d714e1047ef1361b23bab2999253bee197b16c))
+* **pi:** configure curated remote MCP servers ([780f29e](https://github.com/etalab-ia/codebox/commit/780f29e25366bb4aa5245d516986c36fac63ec8c))
+* **pi:** configure curated remote MCP servers ([29c8830](https://github.com/etalab-ia/codebox/commit/29c8830e8b112d570738b4099e9b2aa9c67e7733))
+* rebuild the setup model picker as a huh form ([53832fe](https://github.com/etalab-ia/codebox/commit/53832fe18a352a017f07cc69d69d24c786ee096b))
+* rebuild the setup model picker as a huh form ([c004357](https://github.com/etalab-ia/codebox/commit/c0043575feff0c0eedb51ac3066f18e59114be26))
+* **secrets:** implement ProConnect end-session logout ([def281a](https://github.com/etalab-ia/codebox/commit/def281a15a50b8498b5680a45b5442e65726f9f5))
+* **secrets:** implement ProConnect end-session logout ([61dfb85](https://github.com/etalab-ia/codebox/commit/61dfb852417e41ce59cb7777d4ca800407717c6d))
+* **startup:** expose actionable guest preparation diagnostics ([5688e2d](https://github.com/etalab-ia/codebox/commit/5688e2d81b93343b408e5311721495a343008063))
+* **startup:** expose actionable guest preparation diagnostics ([b5bd09f](https://github.com/etalab-ia/codebox/commit/b5bd09f49eb0cc0faa134e23fdc806306e54f060))
+
+
+### Bug Fixes
+
+* **acp:** interrupt blocked client I/O ([2e04d13](https://github.com/etalab-ia/codebox/commit/2e04d1388b9cae4bca5b490d235db4b85e64a6d1))
+* **acp:** preserve input failure on cancellation ([9ff3d65](https://github.com/etalab-ia/codebox/commit/9ff3d65956fc490ec5aecadc58c55c591aab9013))
+* keep the external default preselected on the model screen ([792446e](https://github.com/etalab-ia/codebox/commit/792446eb7771f3c9079fd4392f49fa9b503f8b0d))
+* **microsandbox:** bound readiness probes by inactivity ([9b84efa](https://github.com/etalab-ia/codebox/commit/9b84efa4e79cb1b8a4bb6c67269d575647aca70c))
+* **microsandbox:** wait for toolchain progress on slow networks ([3200c70](https://github.com/etalab-ia/codebox/commit/3200c70c65ffbedb6751f27c98dc5ecdac8c0ff8))
+* **microsandbox:** wait for toolchain progress on slow networks ([c133b13](https://github.com/etalab-ia/codebox/commit/c133b1371ef96541cdeaed30664cec8ea2b1ca18))
+* **pi:** migrate guests to native MCP configuration ([1f6fc5b](https://github.com/etalab-ia/codebox/commit/1f6fc5b2efc249d2966ae37270a52c00292522db))
+* **pi:** restore guest readiness and pin Pi 1.5.2 ([5935eb3](https://github.com/etalab-ia/codebox/commit/5935eb38c06007ff74162652498a9d034aa88bc9))
+* **pi:** restore guest readiness and pin Pi 1.5.2 ([8dfeb4d](https://github.com/etalab-ia/codebox/commit/8dfeb4d64d781a1742c2c5ddb055e4601a2003d9))
+* recognize completed setup during installer upgrades ([77d32ad](https://github.com/etalab-ia/codebox/commit/77d32ad26138e03ddc1d16cbf4d3dabf59f5d83a))
+* recognize completed setup during installer upgrades ([9408822](https://github.com/etalab-ia/codebox/commit/9408822c176a2c4b5ca3730167f502f52cf5d50d))
+* **secrets:** harden ProConnect logout redirects ([3dff30a](https://github.com/etalab-ia/codebox/commit/3dff30a7573d2c8f4b43fde128694b8b04c5ffcb))
+* translate remaining user-facing messages into French ([13228c0](https://github.com/etalab-ia/codebox/commit/13228c04c1b55f1e77364bbca437ed85af2c75f4))
+* translate remaining user-facing messages into French ([3150643](https://github.com/etalab-ia/codebox/commit/3150643277444375fd618b917b801c59f9bbea97))
+
 ## [0.19.1](https://github.com/etalab-ia/codebox/compare/codebox-v0.19.0...codebox-v0.19.1) (2026-11-18)
 
 
