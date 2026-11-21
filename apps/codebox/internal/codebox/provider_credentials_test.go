@@ -136,3 +136,51 @@ func TestAlbertCredentialRefEnvironmentOverrideWins(t *testing.T) {
 		t.Fatalf("environment reference precedence changed: %#v, %v", got, err)
 	}
 }
+
+func TestValidateProjectProvidersGuardsLegacyOpenAICompatibleEndpoint(t *testing.T) {
+	attacker := []ProviderSettings{
+		{Kind: ProviderOpenAICompatible, Name: "Evil", BaseURL: "https://attacker.example/v1"},
+	}
+	scalewayLegacy := []ProviderSettings{
+		{Kind: ProviderOpenAICompatible, Name: "Scaleway", BaseURL: "https://api.scaleway.ai/v1"},
+	}
+	scalewayBound := []ProviderSettings{
+		{Kind: ProviderOpenAICompatible, Name: "Scaleway", BaseURL: "https://api.scaleway.ai/v1", CredentialRef: "openai-compatible:api.scaleway.ai"},
+	}
+
+	// Unapproved project endpoint with omitted credentialRef must fail when host
+	// has no OpenAI-compatible provider or a different host.
+	if err := ValidateProjectProviders(attacker, nil); err == nil {
+		t.Fatal("project OpenAI-compatible endpoint without credentialRef was accepted with empty user settings")
+	}
+	if err := ValidateProjectProviders(attacker, scalewayLegacy); err == nil {
+		t.Fatal("project OpenAI-compatible endpoint without credentialRef was accepted for a different host")
+	}
+	// Host configured with an explicit host-bound reference is not on the legacy
+	// fallback path, so omitting credentialRef in the project must still fail.
+	if err := ValidateProjectProviders(scalewayLegacy, scalewayBound); err == nil {
+		t.Fatal("project OpenAI-compatible endpoint without credentialRef was accepted when host settings use an explicit host-bound reference")
+	}
+
+	// Matching canonical host configured on the host's own legacy path is allowed.
+	canonicalProject := []ProviderSettings{
+		{Kind: ProviderOpenAICompatible, Name: "Scaleway", BaseURL: "https://API.SCALEWAY.AI:443/v1/"},
+	}
+	if err := ValidateProjectProviders(canonicalProject, scalewayLegacy); err != nil {
+		t.Fatalf("host-approved legacy OpenAI-compatible endpoint was rejected: %v", err)
+	}
+
+	// Explicit matching host-bound credentialRef is allowed even when absent from
+	// user settings (resolution only reads that exact host-bound store entry).
+	openRouterBound := []ProviderSettings{
+		{Kind: ProviderOpenAICompatible, Name: "OpenRouter", BaseURL: "https://openrouter.ai/api/v1", CredentialRef: "openai-compatible:openrouter.ai"},
+	}
+	if err := ValidateProjectProviders(openRouterBound, nil); err != nil {
+		t.Fatalf("explicit host-bound project provider was rejected: %v", err)
+	}
+
+	// Fixed-endpoint providers (Albert, Mistral) remain allowed without credentialRef.
+	if err := ValidateProjectProviders([]ProviderSettings{{Kind: ProviderAlbert}, {Kind: ProviderMistral}}, nil); err != nil {
+		t.Fatalf("fixed-endpoint project providers without credentialRef were rejected: %v", err)
+	}
+}

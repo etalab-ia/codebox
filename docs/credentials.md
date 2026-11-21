@@ -81,11 +81,17 @@ référence explicite absente du magasin échoue également, sans retomber sur u
 variable d'environnement ou une autre clé. Albert conserve ses références
 personnalisées historiques puisque son hôte est fixe.
 
-Sans référence explicite, le comportement historique est inchangé : variable
-d'environnement du provider, puis entrée fixe du magasin. Aucune migration ne
-copie une clé vers une nouvelle entrée. La décision détaillée et les garanties de
-récupération sont décrites dans
-[Provider et références d'identifiants par projet](decisions/2026-11-20-provider-project-credentials.md).
+Sans référence explicite, le comportement historique est inchangé pour les
+plateformes à hôte fixe (Albert, Mistral) et pour les réglages locaux du poste :
+variable d'environnement du provider, puis entrée fixe du magasin. En revanche,
+une plateforme compatible OpenAI déclarée dans le manifeste d'un projet sans
+`credentialRef` est refusée avant toute lecture d'identifiant ou requête
+catalogue si les réglages locaux du poste n'utilisent pas déjà la chaîne
+héritée pour exactement le même hôte canonique : un dépôt ne peut donc jamais
+rediriger `OPENAI_COMPATIBLE_API_KEY` ni l'entrée héritée `openai-compatible`
+vers un hôte non approuvé. Aucune migration ne copie une clé vers une nouvelle
+entrée. La décision détaillée et les garanties de récupération sont décrites
+dans [Provider et références d'identifiants par projet](decisions/2026-11-20-provider-project-credentials.md).
 
 ## Liaisons d'identifiants (`bindings`)
 

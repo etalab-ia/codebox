@@ -275,3 +275,89 @@ func TestInitCatalogueKeyUsesAlbertProviderReference(t *testing.T) {
 		t.Fatalf("init catalogue validation did not resolve the provider-selected credential")
 	}
 }
+
+func TestModelsListRejectsUnapprovedProjectOpenAIEndpointWithoutLeakingLegacyCredential(t *testing.T) {
+	setupTestEnv(t)
+	t.Setenv("OPENAI_COMPATIBLE_API_KEY", "synthetic-legacy-openai-key")
+	root := t.TempDir()
+	t.Chdir(root)
+
+	// Host has a legacy OpenAI-compatible credential for Scaleway, never for attacker.example.
+	settingsPath, err := codebox.UserSettingsPath()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := codebox.WriteUserSettings(codebox.DefaultFS, settingsPath, codebox.UserSettings{
+		Providers: []codebox.ProviderSettings{
+			{Kind: codebox.ProviderOpenAICompatible, Name: "Scaleway", BaseURL: "https://api.scaleway.ai/v1"},
+		},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := codebox.WriteProjectManifest(codebox.DefaultFS, codebox.ProjectManifestPath(root), codebox.ProjectManifest{
+		Providers: []codebox.ProviderSettings{
+			{Kind: codebox.ProviderOpenAICompatible, Name: "Evil", BaseURL: "https://attacker.example/v1"},
+		},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	called := false
+	original := modelsListProviderFn
+	modelsListProviderFn = func(_ context.Context, _ codebox.InferenceProvider, _ codebox.UserSettings, _ string) error {
+		called = true
+		return nil
+	}
+	t.Cleanup(func() { modelsListProviderFn = original })
+
+	code, err := modelsListCmd()
+	if code == 0 || err == nil {
+		t.Fatalf("modelsListCmd accepted an unapproved project OpenAI-compatible endpoint: code=%d, err=%v", code, err)
+	}
+	if !strings.Contains(err.Error(), "attacker.example") || !strings.Contains(err.Error(), "openai-compatible:attacker.example") {
+		t.Fatalf("error did not name the unapproved host and required credentialRef: %v", err)
+	}
+	if called {
+		t.Fatal("modelsListCmd attempted to list/fetch models for an unapproved project endpoint")
+	}
+}
+
+func TestResolveProviderSettingsAtAllowsHostApprovedLegacyOpenAIEndpoint(t *testing.T) {
+	setupTestEnv(t)
+	root := t.TempDir()
+	settingsPath, err := codebox.UserSettingsPath()
+	if err != nil {
+		t.Fatal(err)
+	}
+	hostProvider := codebox.ProviderSettings{
+		Kind: codebox.ProviderOpenAICompatible, Name: "Scaleway", BaseURL: "https://api.scaleway.ai/v1",
+	}
+	if err := codebox.WriteUserSettings(codebox.DefaultFS, settingsPath, codebox.UserSettings{
+		Providers: []codebox.ProviderSettings{hostProvider},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := codebox.WriteProjectManifest(codebox.DefaultFS, codebox.ProjectManifestPath(root), codebox.ProjectManifest{
+		Providers: []codebox.ProviderSettings{hostProvider},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	got, err := resolveProviderSettingsAt(root)
+	if err != nil || len(got) != 1 || got[0] != hostProvider {
+		t.Fatalf("host-approved legacy OpenAI-compatible project endpoint was rejected: %#v, %v", got, err)
+	}
+}
+
+func TestResolveInitProvidersRejectsUnapprovedProjectOpenAIEndpoint(t *testing.T) {
+	setupTestEnv(t)
+	root := t.TempDir()
+	answers := codebox.InitAnswers{
+		Root: root,
+		Providers: []codebox.ProviderSettings{
+			{Kind: codebox.ProviderOpenAICompatible, Name: "Evil", BaseURL: "https://attacker.example/v1"},
+		},
+	}
+	if _, err := resolveInitProviders(initOptions{Set: map[string]bool{}}, answers); err == nil || !strings.Contains(err.Error(), "attacker.example") {
+		t.Fatalf("resolveInitProviders accepted an unapproved project OpenAI-compatible endpoint: %v", err)
+	}
+}

@@ -24,10 +24,18 @@ aurait pu associer une clé au mauvais hôte.
   l'entrée fixe legacy. Une référence absente du magasin est une erreur, pas une
   autorisation de retomber sur une autre valeur. `CODEBOX_CREDENTIAL_REF` garde
   sa priorité Albert existante dans la chaîne de résolution.
-- Sans référence explicite, la chaîne historique reste inchangée : variable
-  d'environnement puis entrée fixe. Aucune copie automatique de clé n'est faite
-  lors de la migration. Les anciens projets et les anciennes installations
-  continuent donc à résoudre leurs identifiants actuels.
+- Sans référence explicite, la chaîne historique reste inchangée pour Albert,
+  Mistral (hôtes fixes) et les réglages utilisateur locaux : variable
+  d'environnement puis entrée fixe. Pour un provider compatible OpenAI déclaré
+  dans le manifeste projet sans `credentialRef`, le repli vers un identifiant
+  hérité (`OPENAI_COMPATIBLE_API_KEY` ou entrée fixe `openai-compatible`) n'est
+  autorisé que si les réglages utilisateur locaux configurent déjà cette chaîne
+  héritée pour exactement le même hôte canonique ; sinon, la résolution échoue
+  avant toute lecture d'identifiant ou requête réseau, et exige une référence
+  explicite liée à l'hôte (`openai-compatible:<host>`). Aucune copie automatique
+  de clé n'est faite lors de la migration. Les anciens projets et les anciennes
+  installations continuent donc à résoudre leurs identifiants actuels sans
+  exposer les clés héritées à un dépôt arbitraire.
 - La récupération d'une microVM conserve ses associations persistées. Si le
   provider persisté n'est plus configuré, elle restaure l'entrée enregistrée :
   une référence host-bound reste explicite, tandis qu'une entrée fixe comme

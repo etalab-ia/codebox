@@ -272,6 +272,49 @@ func ValidateProviderCredentialRef(provider InferenceProvider, ref string) error
 	return nil
 }
 
+// ValidateProjectProviders ensures a repository-controlled project manifest
+// cannot redirect a host-owned legacy OpenAI-compatible credential
+// (OPENAI_COMPATIBLE_API_KEY or the fixed "openai-compatible" store entry) to
+// an endpoint the host never configured.
+//
+// Albert and Mistral have fixed, code-owned hosts. A project OpenAI-compatible
+// provider with an explicit host-bound credentialRef resolves only the store
+// entry bound to that exact host. Without a credentialRef, a project-defined
+// OpenAI-compatible provider is accepted only when the host's own user
+// settings already configure the legacy credential path for the same canonical
+// host.
+func ValidateProjectProviders(projectProviders, userProviders []ProviderSettings) error {
+	if len(projectProviders) == 0 {
+		return nil
+	}
+	resolvedProject, err := ResolveProviders(projectProviders)
+	if err != nil {
+		return err
+	}
+	legacyUserHosts := map[string]bool{}
+	for _, us := range userProviders {
+		if us.Kind != ProviderOpenAICompatible || strings.TrimSpace(us.CredentialRef) != "" {
+			continue
+		}
+		if p, rerr := ResolveProvider(us); rerr == nil {
+			legacyUserHosts[p.Host] = true
+		}
+	}
+	for _, p := range resolvedProject {
+		if p.Kind != ProviderOpenAICompatible || strings.TrimSpace(p.CredentialRef) != "" {
+			continue
+		}
+		if !legacyUserHosts[p.Host] {
+			ref := ProviderCredentialRef(p)
+			return fmt.Errorf(
+				"la plateforme compatible OpenAI du projet (%s) n'indique pas de credentialRef et son hôte n'est pas approuvé dans vos réglages locaux pour un identifiant hérité ; ajoutez credentialRef %q dans le manifeste du projet et enregistrez la clé avec 'codebox auth add %s'",
+				p.Host, ref, ref,
+			)
+		}
+	}
+	return nil
+}
+
 // IsProviderCredentialRef reports whether ref is the canonical non-Albert
 // <kind>:<host> form accepted by auth add/remove for rotation and revocation.
 // It validates syntax only; runtime delivery still validates the destination

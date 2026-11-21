@@ -947,6 +947,9 @@ func resolveProviderSettingsAt(projectRoot string) ([]codebox.ProviderSettings, 
 		return nil, err
 	}
 	if len(manifest.Providers) > 0 {
+		if err := codebox.ValidateProjectProviders(manifest.Providers, settings); err != nil {
+			return nil, err
+		}
 		settings = append([]codebox.ProviderSettings(nil), manifest.Providers...)
 	}
 	if ref := strings.TrimSpace(manifest.CredentialRef); ref != "" {

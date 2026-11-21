@@ -864,16 +864,18 @@ func seedInitAnswersFromManifest(opts initOptions, answers codebox.InitAnswers) 
 // root. An existing project list wins; an empty list uses machine defaults.
 // The legacy/flag credentialRef mapping stays identical on every root change.
 func resolveInitProviders(opts initOptions, answers codebox.InitAnswers) (codebox.InitAnswers, error) {
+	userSettings, err := resolveProviderSettings()
+	if err != nil {
+		return answers, fmt.Errorf("impossible de lire les plateformes configurées : %w", err)
+	}
 	if len(answers.Providers) == 0 {
-		settings, err := resolveProviderSettings()
-		if err != nil {
-			return answers, fmt.Errorf("impossible de lire les plateformes configurées : %w", err)
-		}
-		providers, err := codebox.ResolveProviders(settings)
+		providers, err := codebox.ResolveProviders(userSettings)
 		if err != nil {
 			return answers, fmt.Errorf("impossible de résoudre les plateformes du projet : %w", err)
 		}
 		answers.Providers = providerSettingsOf(providers)
+	} else if err := codebox.ValidateProjectProviders(answers.Providers, userSettings); err != nil {
+		return answers, fmt.Errorf("impossible de résoudre les plateformes du projet : %w", err)
 	}
 	legacyRef := strings.TrimSpace(answers.CredentialRef)
 	for i := range answers.Providers {
