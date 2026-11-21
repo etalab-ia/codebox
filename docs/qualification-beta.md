@@ -325,6 +325,22 @@ cibles Windows 10/11 ; il est consigné séparément. Reporter le résultat
 réel dans `docs/plateformes.md` et joindre les sorties (sans valeur) au
 ticket de qualification.
 
+## Qualification ACP et VS Code
+
+Sur chaque hôte Microsandbox explicitement visé par la prise en charge ACP :
+
+1. Exécuter le test natif opt-in du transport non-TTY :
+   `CODEBOX_ACP_NATIVE=1 go -C apps/codebox test -race ./internal/codebox -run '^TestACPNativeStreamRoundtrip$' -count=1 -v`.
+   Vérifier la conservation exacte des octets et la suppression de la microVM jetable.
+2. Avec un client JSON-RPC qui attend la réponse `initialize` avant d'envoyer
+   `session/new`, lancer `codebox acp` sur un projet jetable. Vérifier ACP v1,
+   la réception d'un `sessionId`, la sortie avec uniquement des lignes JSON-RPC
+   et la sortie avec le code 0. Arrêter et supprimer la microVM ensuite.
+3. Pour la qualification VS Code, suivre intégralement [VS Code et ACP](vscode.md) :
+   réponse en flux, annulation, reprise de session, modification limitée à
+   `/workspace`, export relu et nettoyage. Une réussite du handshake ne vaut
+   pas qualification de l'interface graphique.
+
 ## Interprétation
 
 - CI verte prouve les cas exécutés par ses jobs, pas la disponibilité d'un
