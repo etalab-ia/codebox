@@ -898,32 +898,43 @@ func resolveInitProviders(opts initOptions, answers codebox.InitAnswers) (codebo
 	if err != nil {
 		return answers, fmt.Errorf("impossible de lire les plateformes configurées : %w", err)
 	}
-	if len(answers.Providers) == 0 {
-		providers, err := codebox.ResolveProviders(userSettings)
-		if err != nil {
-			return answers, fmt.Errorf("impossible de résoudre les plateformes du projet : %w", err)
-		}
-		answers.Providers = providerSettingsOf(providers)
-	} else if err := codebox.ValidateProjectProviders(answers.Providers, userSettings); err != nil {
-		return answers, fmt.Errorf("impossible de résoudre les plateformes du projet : %w", err)
-	}
+	var explicitLocal *codebox.ProviderSettings
+	effectiveUserSettings := append([]codebox.ProviderSettings(nil), userSettings...)
 	if opts.Set["local-server"] {
 		localPS, err := resolveInitLocalServer(context.Background(), opts.LocalServer)
 		if err != nil {
 			return answers, err
 		}
-		filtered := make([]codebox.ProviderSettings, 0, len(answers.Providers)+1)
-		for _, p := range answers.Providers {
+		explicitLocal = &localPS
+		filteredUser := make([]codebox.ProviderSettings, 0, len(effectiveUserSettings)+1)
+		for _, p := range effectiveUserSettings {
 			if p.Kind == codebox.ProviderLocal {
 				continue
 			}
-			filtered = append(filtered, p)
+			filteredUser = append(filteredUser, p)
 		}
-		filtered = append(filtered, localPS)
-		if _, err := codebox.ResolveProviders(filtered); err != nil {
+		effectiveUserSettings = append(filteredUser, localPS)
+	}
+	if len(answers.Providers) == 0 {
+		providers, err := codebox.ResolveProviders(effectiveUserSettings)
+		if err != nil {
 			return answers, fmt.Errorf("impossible de résoudre les plateformes du projet : %w", err)
 		}
-		answers.Providers = filtered
+		answers.Providers = providerSettingsOf(providers)
+	} else {
+		if explicitLocal != nil {
+			filtered := make([]codebox.ProviderSettings, 0, len(answers.Providers)+1)
+			for _, p := range answers.Providers {
+				if p.Kind == codebox.ProviderLocal {
+					continue
+				}
+				filtered = append(filtered, p)
+			}
+			answers.Providers = append(filtered, *explicitLocal)
+		}
+		if err := codebox.ValidateProjectProviders(answers.Providers, effectiveUserSettings); err != nil {
+			return answers, fmt.Errorf("impossible de résoudre les plateformes du projet : %w", err)
+		}
 	}
 	legacyRef := strings.TrimSpace(answers.CredentialRef)
 	for i := range answers.Providers {

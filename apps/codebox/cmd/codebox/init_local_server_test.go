@@ -121,3 +121,47 @@ func TestInitYesWithLocalServerPersistsProjectAndHostApproval(t *testing.T) {
 		t.Fatalf("project local provider must be approved in host user settings: %v", err)
 	}
 }
+
+func TestInitReplaceExplicitLocalServerReplacesUnapprovedInheritedPort(t *testing.T) {
+	setupTestEnv(t)
+	root := t.TempDir()
+	// Pre-populate a cloned manifest with an unapproved local port (2375).
+	if err := codebox.WriteProjectManifest(codebox.DefaultFS, codebox.ProjectManifestPath(root), codebox.ProjectManifest{
+		SchemaVersion: 8,
+		Project:       "cloned",
+		Providers: []codebox.ProviderSettings{
+			{Kind: codebox.ProviderAlbert},
+			{Kind: codebox.ProviderLocal, Name: "Inherited", BaseURL: "http://localhost:2375/v1"},
+		},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	// Explicit --replace --local-server 11434 must succeed and replace port 2375.
+	code, err := initCmd([]string{
+		"--root", root,
+		"--replace",
+		"--local-server", "11434",
+		"--small-model", "local/qwen2.5:3b",
+		"--yes",
+	})
+	if code != 0 || err != nil {
+		t.Fatalf("init --replace --local-server 11434: code=%d err=%v", code, err)
+	}
+	manifest, err := codebox.ReadProjectManifest(codebox.DefaultFS, codebox.ProjectManifestPath(root))
+	if err != nil {
+		t.Fatal(err)
+	}
+	found11434 := false
+	for _, p := range manifest.Providers {
+		if p.Kind == codebox.ProviderLocal {
+			if p.BaseURL != "http://localhost:11434/v1" {
+				t.Fatalf("expected inherited port 2375 replaced with 11434, got %+v", p)
+			}
+			found11434 = true
+		}
+	}
+	if !found11434 {
+		t.Fatalf("missing local provider in updated manifest: %+v", manifest.Providers)
+	}
+}
