@@ -162,6 +162,29 @@ func TestBrowserSelectionUsesPinnedGuestProfileAndLoopbackDevTools(t *testing.T)
 	}
 }
 
+func TestBrowserGuestTrustsMicrosandboxProxyCAWithoutBypass(t *testing.T) {
+	m := newTestMicrosandbox(t, &fakeMSBClient{})
+	m.OpenCodeOverlay.MCPConnectors = []string{"chrome-devtools"}
+	spec := m.sandboxSpec(nil)
+
+	if !strings.Contains(spec.StartScript, "libnss3-tools") {
+		t.Fatal("browser guest prep must install libnss3-tools (certutil) for Chromium NSS trust")
+	}
+	for _, want := range []string{"/.msb/tls/ca.pem", "/.msb/tls/host-cas.pem", ".pki/nssdb", "certutil -d \"sql:$nssdb\" -A -t \"C,,\""} {
+		if !strings.Contains(spec.StartScript, want) {
+			t.Fatalf("browser start script missing NSS CA trust step %q", want)
+		}
+	}
+	if strings.Contains(spec.StartScript, "--ignore-certificate-errors") {
+		t.Fatal("guest Chromium must never disable certificate verification")
+	}
+	nssIdx := strings.Index(spec.StartScript, "/.msb/tls/ca.pem")
+	chromiumIdx := strings.Index(spec.StartScript, "chromium --headless")
+	if nssIdx < 0 || chromiumIdx < 0 || nssIdx > chromiumIdx {
+		t.Fatalf("NSS CA import (%d) must run before launching Chromium (%d)", nssIdx, chromiumIdx)
+	}
+}
+
 func TestBrowserGuestProfileChangeRequiresExplicitRecreation(t *testing.T) {
 	m := newTestMicrosandbox(t, &fakeMSBClient{exists: true, status: "running"})
 	if m.Probe == nil {

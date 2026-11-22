@@ -29,7 +29,7 @@ if [ ! -f "$toolchain_marker" ]; then
   esac
   printf '%s\n' 'codebox : installation des paquets système et de Chromium avec apt…'
   apt-get install -y --no-install-recommends \
-    ca-certificates curl git xz-utils \
+    ca-certificates curl git libnss3-tools xz-utils \
     "chromium=${chromium_package_version}" \
     "fonts-liberation=${CODEBOX_FONTS_LIBERATION_VERSION}"
 
