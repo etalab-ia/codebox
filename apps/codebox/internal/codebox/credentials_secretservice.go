@@ -4,6 +4,9 @@ package codebox
 
 import (
 	"context"
+	"errors"
+	"fmt"
+	"os/exec"
 	"strings"
 )
 
@@ -39,6 +42,18 @@ func secretServiceLocked(stderr string) bool {
 		(strings.Contains(l, "locked") || strings.Contains(l, "unlock"))
 }
 
+func secretServiceExecError(op, kind string, res ExecResult, err error) *StoreError {
+	if errors.Is(err, exec.ErrNotFound) {
+		return &StoreError{
+			Op:    op,
+			Kind:  kind,
+			State: "unavailable",
+			Err:   fmt.Errorf("%w (installez le paquet libsecret-tools sous Debian/Ubuntu ou libsecret sous Fedora/Arch, ou utilisez --fallback)", err),
+		}
+	}
+	return classifyExecError(op, kind, res, err)
+}
+
 // Put stores the credential, replacing any existing entry of the same
 // kind. secret-tool store replaces an existing matching collection item,
 // so rotation is one operation.
@@ -48,7 +63,7 @@ func (s *SecretServiceStore) Put(ctx context.Context, kind CredentialKind, value
 	res, err := s.runner().RunStdin(ctx, strings.NewReader(value), "secret-tool", "store",
 		"--label", credentialService(kind), "service", credentialService(kind))
 	if err != nil {
-		return classifyExecError("add", s.Kind(), res, err)
+		return secretServiceExecError("add", s.Kind(), res, err)
 	}
 	if res.ExitCode != 0 {
 		if secretServiceLocked(res.Stderr) {
@@ -64,7 +79,7 @@ func (s *SecretServiceStore) Put(ctx context.Context, kind CredentialKind, value
 func (s *SecretServiceStore) Get(ctx context.Context, kind CredentialKind) (string, error) {
 	res, err := s.runner().Run(ctx, "secret-tool", "lookup", "service", credentialService(kind))
 	if err != nil {
-		return "", classifyExecError("get", s.Kind(), res, err)
+		return "", secretServiceExecError("get", s.Kind(), res, err)
 	}
 	if res.ExitCode != 0 {
 		// secret-tool exits 1 both for a missing item and for a locked
@@ -90,7 +105,7 @@ func (s *SecretServiceStore) Get(ctx context.Context, kind CredentialKind) (stri
 func (s *SecretServiceStore) Remove(ctx context.Context, kind CredentialKind) error {
 	res, err := s.runner().Run(ctx, "secret-tool", "clear", "service", credentialService(kind))
 	if err != nil {
-		return classifyExecError("remove", s.Kind(), res, err)
+		return secretServiceExecError("remove", s.Kind(), res, err)
 	}
 	if res.ExitCode != 0 {
 		if strings.TrimSpace(res.Stderr) == "" {
@@ -111,7 +126,7 @@ func (s *SecretServiceStore) Verify(ctx context.Context) error {
 	res, err := s.runner().Run(ctx, "secret-tool", "lookup", "service", credentialService("__verify__"))
 	if err != nil {
 		// exec.Command not found: the libsecret CLI is not installed.
-		return classifyExecError("verify", s.Kind(), res, err)
+		return secretServiceExecError("verify", s.Kind(), res, err)
 	}
 	if res.ExitCode != 0 {
 		if strings.TrimSpace(res.Stderr) == "" {

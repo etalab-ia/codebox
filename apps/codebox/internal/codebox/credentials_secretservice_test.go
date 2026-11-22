@@ -5,6 +5,7 @@ package codebox
 import (
 	"context"
 	"errors"
+	"os/exec"
 	"strings"
 	"testing"
 )
@@ -86,6 +87,24 @@ func TestSecretServiceMissingToolReportsUnavailable(t *testing.T) {
 	var se *StoreError
 	if !errors.As(err, &se) || se.State != "unavailable" {
 		t.Fatalf("Get error = %v, want unavailable StoreError", err)
+	}
+}
+
+func TestSecretServiceMissingToolIncludesPackageHint(t *testing.T) {
+	f := &fakeStoreRunner{onRun: func(name string, args []string) (ExecResult, error) {
+		return ExecResult{}, &exec.Error{Name: "secret-tool", Err: exec.ErrNotFound}
+	}}
+	s := &SecretServiceStore{Runner: f}
+	err := s.Verify(context.Background())
+	var se *StoreError
+	if !errors.As(err, &se) || se.State != "unavailable" {
+		t.Fatalf("Verify error = %v, want unavailable StoreError", err)
+	}
+	if !errors.Is(err, exec.ErrNotFound) {
+		t.Fatalf("Verify error = %v, want wrapped exec.ErrNotFound", err)
+	}
+	if !strings.Contains(err.Error(), "libsecret-tools") {
+		t.Fatalf("Verify error = %q, want libsecret-tools install hint", err.Error())
 	}
 }
 
