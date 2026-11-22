@@ -425,6 +425,10 @@ type msbSandboxSpec struct {
 	MemoryMB        int
 	Ports           []PortMapping
 	PortsConfigured bool
+	// LocalModelPort is the optional host loopback port of a local model
+	// server (ProviderLocal, #447); non-zero adds one narrow egress rule for
+	// host.microsandbox.internal:<port>.
+	LocalModelPort int
 	// SealedWorkspace selects the P22 sealed model: /workspace is an owned
 	// volume inside the sandbox and the host checkout is NOT mounted. The
 	// zero value is refused rather than falling back to a bind mount.
@@ -1246,9 +1250,19 @@ func (m *MicrosandboxRuntime) sandboxSpec(bindings []resolvedBinding) msbSandbox
 		MemoryMB:        m.cfg.MemoryMB,
 		Ports:           append([]PortMapping(nil), m.cfg.Ports...),
 		PortsConfigured: m.cfg.PortsConfigured,
+		LocalModelPort:  localModelPortFor(m.cfg.Providers),
 		Bindings:        bindingsMetadata(bindings),
 		StartScript:     msbStartScriptFor(m.cfg.Isolation, mcpIDs, harness),
 	}
+}
+
+func localModelPortFor(providers []InferenceProvider) int {
+	for _, p := range providers {
+		if p.Kind == ProviderLocal && p.LocalPort > 0 {
+			return p.LocalPort
+		}
+	}
+	return 0
 }
 
 // nextStartEnv builds the guest env persisted for the next boot of an

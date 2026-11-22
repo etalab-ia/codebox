@@ -154,7 +154,9 @@ func FetchCatalogue(ctx context.Context, client *http.Client, apiKey, url string
 	if err != nil {
 		return Catalogue{}, err
 	}
-	req.Header.Set("Authorization", "Bearer "+apiKey)
+	if apiKey != "" {
+		req.Header.Set("Authorization", "Bearer "+apiKey)
+	}
 	resp, err := client.Do(req)
 	if err != nil {
 		return Catalogue{}, err

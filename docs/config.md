@@ -615,3 +615,21 @@ ont changé** : `RUNTIME` vaut `microsandbox` (au lieu d'aucun défaut), et
 valeur par défaut dans le fichier : le lancement utilise la racine du projet
 découverte quand rien n'est configuré, et un `WORKSPACE_DIR` explicite est
 honoré tel quel (`Config.WorkspaceDirSet` enregistre cette provenance).
+
+## Serveur de modèles local (`small_model`, Microsandbox uniquement)
+
+Un serveur compatible OpenAI tournant sur le poste (`http://localhost:<port>/v1`,
+sans clé d'API) peut être déclaré avec le type de fournisseur `local` pour
+alimenter le **petit modèle** (`small_model` : titres de session, résumés), le
+modèle principal restant sur une plateforme distante (Albert, Mistral ou
+compatible OpenAI).
+
+Ports détectés par défaut : `11434` (Ollama), `1234` (LM Studio), `8080`
+(`llama-server` / llama.cpp). Dans la microVM Microsandbox, `localhost` est
+réécrit vers `http://host.microsandbox.internal:<port>/v1` et la politique
+réseau n'ouvre que cet hôte et ce port TCP précis (jamais l'ensemble du groupe
+`host`). Tart et agent-vm ne sont pas pris en charge.
+
+**Cible de qualification : Ollama + Microsandbox** (qualification native en
+attente). LM Studio et llama.cpp exposent la même API et devraient fonctionner,
+sans garantie.
