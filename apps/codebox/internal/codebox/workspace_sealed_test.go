@@ -34,8 +34,12 @@ func TestProvisionGuestWorkspaceWritesFilteredPayload(t *testing.T) {
 	if err := m.ProvisionGuestWorkspace(context.Background(), SyncOptions{Print: func(s string) { printed.WriteString(s) }}); err != nil {
 		t.Fatalf("ProvisionGuestWorkspace: %v", err)
 	}
-	if !strings.Contains(printed.String(), "depuis "+m.cfg.WorkspaceDir) {
-		t.Fatalf("transfer headline must name the source directory %q, got:\n%s", m.cfg.WorkspaceDir, printed.String())
+	wantRoot := m.cfg.WorkspaceDir
+	if resolved, err := filepath.EvalSymlinks(wantRoot); err == nil {
+		wantRoot = resolved
+	}
+	if !strings.Contains(printed.String(), "depuis "+wantRoot) {
+		t.Fatalf("transfer headline must name the source directory %q, got:\n%s", wantRoot, printed.String())
 	}
 	if len(client.written) != 1 {
 		t.Fatalf("the transfer must write exactly one payload, got %d", len(client.written))
