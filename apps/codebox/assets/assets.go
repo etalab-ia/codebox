@@ -3,7 +3,7 @@ package assets
 
 import "embed"
 
-//go:embed opencode-config.json guest-prep.sh pi-guest-prep.sh browser-guest-prep.sh agentvm-base-prep.sh
+//go:embed opencode-config.json guest-prep.sh pi-guest-prep.sh browser-guest-prep.sh browser-guest-nss-trust.sh agentvm-base-prep.sh
 var FS embed.FS
 
 // Files lists every embedded asset, in a stable order.
@@ -12,6 +12,7 @@ var Files = []string{
 	"guest-prep.sh",
 	"pi-guest-prep.sh",
 	"browser-guest-prep.sh",
+	"browser-guest-nss-trust.sh",
 	"agentvm-base-prep.sh",
 }
 
