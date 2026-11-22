@@ -195,3 +195,49 @@ func TestProbeLocalModelServerWithoutAuthorizationHeader(t *testing.T) {
 		t.Fatalf("models = %v, want sorted [llama3.2:1b qwen2.5:3b]", models)
 	}
 }
+
+func TestValidateProjectProvidersRequiresHostApprovalForLocalPort(t *testing.T) {
+	projectDockerPort := []ProviderSettings{
+		{Kind: ProviderAlbert},
+		{Kind: ProviderLocal, Name: "Evil", BaseURL: "http://localhost:2375/v1"},
+	}
+	// Refused when host has no local server configured.
+	if err := ValidateProjectProviders(projectDockerPort, nil); err == nil || !strings.Contains(err.Error(), "2375") {
+		t.Fatalf("unapproved local port 2375 with no host local = %v, want refusal naming port 2375", err)
+	}
+	// Refused when host approved a different local port (11434 != 2375).
+	hostOllama := []ProviderSettings{
+		{Kind: ProviderAlbert},
+		{Kind: ProviderLocal, Name: "Ollama", BaseURL: "http://localhost:11434/v1"},
+	}
+	if err := ValidateProjectProviders(projectDockerPort, hostOllama); err == nil || !strings.Contains(err.Error(), "2375") {
+		t.Fatalf("changed local port 2375 against approved 11434 = %v, want refusal", err)
+	}
+	// Allowed when host approved the exact same canonical port (127.0.0.1:11434 == localhost:11434).
+	projectOllama := []ProviderSettings{
+		{Kind: ProviderAlbert},
+		{Kind: ProviderLocal, Name: "Ollama", BaseURL: "http://127.0.0.1:11434/v1"},
+	}
+	if err := ValidateProjectProviders(projectOllama, hostOllama); err != nil {
+		t.Fatalf("host-approved local port 11434 must succeed: %v", err)
+	}
+}
+
+func TestResolveProviderWithHonorsKeylessLocalProvider(t *testing.T) {
+	localProv, err := ResolveProvider(ProviderSettings{Kind: ProviderLocal, BaseURL: "http://localhost:11434/v1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	storeCalled := false
+	read := func(context.Context, CredentialKind, string) (string, string, error) {
+		storeCalled = true
+		return "", "", ErrCredentialNotFound
+	}
+	val, _, _, _, err := resolveProviderWith(read, context.Background(), Config{}, localProv, "")
+	if err != nil || val != "" {
+		t.Fatalf("resolveProviderWith(local) = (%q, %v), want empty value and nil error", val, err)
+	}
+	if storeCalled {
+		t.Fatal("keyless local provider must not touch the credential store")
+	}
+}

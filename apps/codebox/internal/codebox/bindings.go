@@ -718,6 +718,9 @@ func resolveAlbertWith(read credentialReader, ctx context.Context, cfg Config, f
 // or destination-mismatched reference is a hard error. Without a reference,
 // the historical environment-then-fixed-entry chain remains unchanged.
 func resolveProviderWith(read credentialReader, ctx context.Context, cfg Config, provider InferenceProvider, from string) (value string, source bindingSource, store, entry string, err error) {
+	if provider.NoKey {
+		return "", "", "", "", nil
+	}
 	if provider.Kind == ProviderAlbert {
 		// CODEBOX_CREDENTIAL_REF retains its existing highest precedence. The
 		// provider-level reference replaces the project/user legacy default only.

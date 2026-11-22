@@ -397,7 +397,14 @@ func ValidateProjectProviders(projectProviders, userProviders []ProviderSettings
 		return err
 	}
 	legacyUserHosts := map[string]bool{}
+	approvedLocalPorts := map[int]bool{}
 	for _, us := range userProviders {
+		if us.Kind == ProviderLocal {
+			if p, rerr := ResolveProvider(us); rerr == nil && p.LocalPort > 0 {
+				approvedLocalPorts[p.LocalPort] = true
+			}
+			continue
+		}
 		if us.Kind != ProviderOpenAICompatible || strings.TrimSpace(us.CredentialRef) != "" {
 			continue
 		}
@@ -406,6 +413,15 @@ func ValidateProjectProviders(projectProviders, userProviders []ProviderSettings
 		}
 	}
 	for _, p := range resolvedProject {
+		if p.Kind == ProviderLocal {
+			if !approvedLocalPorts[p.LocalPort] {
+				return fmt.Errorf(
+					"le serveur local du projet (port %d) n'est pas approuvé dans vos réglages locaux ; un dépôt ne peut pas ouvrir un port loopback du poste sans approbation hôte",
+					p.LocalPort,
+				)
+			}
+			continue
+		}
 		if p.Kind != ProviderOpenAICompatible || strings.TrimSpace(p.CredentialRef) != "" {
 			continue
 		}
