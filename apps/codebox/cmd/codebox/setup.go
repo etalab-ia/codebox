@@ -613,37 +613,14 @@ func setupWizardRun(fallback bool, in *bufio.Reader, validate func(context.Conte
 		}
 	}
 
-	// Consent is asked once, at the end, and covers the later `init` runs.
-	// It is asked before the apply so the recap can state the answer, and
-	// its default is No.
+	// Statistics are opt-in via `codebox stats on` (#462). Preserve any
+	// existing explicit choice (durable or journaled) without prompting during
+	// setup; new or undecided installations remain off by default.
 	statsEnabled, statsAsked := codebox.ReadStatsConsent(fs, userSettingsPathOrEmpty())
 	if j.StatsConsentAsked {
-		// A run interrupted after answering but before applying keeps its
-		// decision in the journal. Both `stats on` and `stats off` synchronize
-		// that journal, so its decision is always the freshest one: restore it.
 		statsEnabled, statsAsked = j.StatsEnabled, true
 	}
-	// Snapshot the durable decision here: only a CHANGE after this point
-	// is an external `stats on`/`stats off`, never an answer the user just
-	// gave inside this wizard.
 	consentDurableEnabled, consentDurableAsked := statsEnabled, statsAsked
-	if !statsAsked {
-		answer, answered, err := setupStatsConsent(in)
-		if err != nil {
-			return 1, err
-		}
-		if answered {
-			// Only an actual answer changes the decision: a skipped question
-			// (piped input) must not undo an explicit `stats on`.
-			statsEnabled = answer
-			statsAsked = true
-			j.StatsConsentAsked = true
-			j.StatsEnabled = answer
-			if err := codebox.WriteSetupJournal(fs, stateDir, j); err != nil {
-				return 1, err
-			}
-		}
-	}
 	j.StatsEnabled = statsEnabled
 	if j.GitHubReplacePending {
 		fmt.Println("Remplacement GitHub annulé ; le jeton existant sera conservé.")
@@ -736,9 +713,9 @@ func setupWizardRun(fallback bool, in *bufio.Reader, validate func(context.Conte
 		fmt.Println("  Modèles             DeepSeek V4 Flash (par défaut)")
 	}
 	if statsEnabled {
-		fmt.Println("  Statistiques d'usage : partagées")
+		fmt.Println("  Statistiques d'usage : partagées (désactiver avec 'codebox stats off')")
 	} else {
-		fmt.Println("  Statistiques d'usage : non partagées")
+		fmt.Println("  Statistiques d'usage : désactivées (activer avec 'codebox stats on')")
 	}
 	fmt.Println()
 	fmt.Println(setupRuntimeSummary(j.Preflight))
@@ -1463,40 +1440,6 @@ func providerKeyStage(ctx context.Context, w codebox.SetupWizard, in *bufio.Read
 
 func setupCompletionMessage() string {
 	return "Configuration terminée.\n\nÉtape suivante, dans le dossier d'un projet :\n  cd mon-projet\n  codebox\n\nVérifier l'installation à tout moment : codebox setup doctor"
-}
-
-// statsConsentText is the single consent question, asked once at the end of
-// setup (#181). Its default is No.
-const statsConsentText = `À des fins d'analyse du produit, acceptez-vous de partager avec l'équipe codebox
-des informations non nominatives sur votre configuration (les choix faits dans
-cet assistant) ? Jamais votre code, vos fichiers ni vos échanges avec l'agent.
-Modifiable à tout moment : codebox stats off`
-
-// setupStatsConsent asks the question. Only an explicit yes enables sending;
-// an empty answer, EOF or anything else keeps the default No. The bool is the
-// answer, the second bool reports whether the user actually answered.
-func setupStatsConsent(in *bufio.Reader) (enabled bool, answered bool, err error) {
-	if !wizardHuhFn() {
-		// A piped run cannot answer a consent question meaningfully: its
-		// next line belongs to another prompt. Keep the default No and leave
-		// the question unasked; `codebox stats on` is the non-interactive
-		// opt-in.
-		return false, false, nil
-	}
-	value := false
-	if ferr := huhRun(huh.NewForm(huh.NewGroup(
-		huh.NewConfirm().
-			Title(statsConsentText).
-			Affirmative("Oui").
-			Negative("Non").
-			Value(&value),
-	))); ferr != nil {
-		if errors.Is(ferr, huh.ErrUserAborted) {
-			return false, false, errSetupCancelled
-		}
-		return false, false, ferr
-	}
-	return value, true, nil
 }
 
 // userSettingsPathOrEmpty is the settings path, or "" when it cannot be

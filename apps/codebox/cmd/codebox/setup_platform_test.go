@@ -596,17 +596,3 @@ func TestSetupWizardResumeDroppingAlbertRepairsModels(t *testing.T) {
 		t.Fatalf("providers = %+v", settings.Providers)
 	}
 }
-
-func TestSetupStatsConsentHuhAbortCancelsInFrench(t *testing.T) {
-	originalHuh, originalRun := wizardHuhFn, huhRun
-	wizardHuhFn = func() bool { return true }
-	huhRun = func(*huh.Form) error { return huh.ErrUserAborted }
-	t.Cleanup(func() { wizardHuhFn, huhRun = originalHuh, originalRun })
-	_, _, err := setupStatsConsent(bufio.NewReader(strings.NewReader("")))
-	if !errors.Is(err, errSetupCancelled) {
-		t.Fatalf("abort error = %v", err)
-	}
-	if !strings.Contains(err.Error(), "setup annulé") || strings.Contains(err.Error(), "setup cancelled") {
-		t.Fatalf("cancellation must be French: %v", err)
-	}
-}

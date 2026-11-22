@@ -18,12 +18,12 @@ codebox restart --tart         # arrête puis relance l'instance existante
 codebox recreate --tart        # recrée le sandbox (destructif, demande confirmation)
 codebox clean --tart            # supprime le sandbox et son état local
 codebox doctor --tart           # vérifie l'installation du runtime
+codebox stats show              # état des statistiques d'usage optionnelles (on, off, show)
 codebox version                # identifie le binaire (version, commit, plateforme)
-codebox ports list             # liste les previews configurées du projet
-codebox ports add 8080:80       # publie le port invité 80 sur localhost:8080
-codebox ports remove 8080       # retire cette redirection
 codebox help                   # liste les commandes
 ```
+
+Les commandes avancées ou de compatibilité (`codebox secrets`, `codebox ports`, `codebox models`, `codebox import`, `codebox config import-env`) ne figurent plus dans l'aide par défaut afin de garder le parcours principal lisible, mais restent pleinement fonctionnelles en invocation directe (voir [Configuration](config.md) et [Identifiants et secrets](credentials.md)).
 
 Lancer `codebox` sans commande utilise Microsandbox/full par défaut et lance le TUI OpenCode dans l'invité. S'il existe déjà une session dans le projet, le TUI la reprend automatiquement (`opencode --continue`) ; au premier lancement, il s'ouvre normalement. `/new` démarre une nouvelle conversation. Si codebox ne peut pas vérifier l'existence de la session ou si le CLI OpenCode installé n'annonce pas `--continue`, il avertit et ouvre le TUI sans reprise plutôt que d'échouer. En mode backend explicite, le serveur invité écoute sur 4096 et le TUI hôte s'y attache ; ce port n'est pas transféré en mode full. Les previews Microsandbox utilisent par défaut 3000-3010 sur `127.0.0.1` ; la liste se configure par projet avec `codebox ports` (voir [Configuration](config.md)). Les commandes et les flags de runtime peuvent être donnés dans n'importe quel ordre (`codebox --microsandbox start` et `codebox start --microsandbox` sont équivalents). La commande `code` n'existe pas : la taper renvoie une erreur explicite.
 
