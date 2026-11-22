@@ -41,6 +41,10 @@ met à jour le décision record. Les transcripts macOS sont conservés dans
 - **T7/T8** : la capture d'écran est vérifiée non vide en poids, pas en
   contenu pixel-par-pixel ; la session P02 a produit une capture relue
   visuellement (`example.com`, `Example Domain`).
+- **T7c** : `browser-proxy-ca.sh` exécute le helper NSS de production avec
+  deux CA et deux serveurs HTTPS synthétiques. Chromium doit afficher la page
+  signée par le CA importé et rejeter celle du CA inconnu avec
+  `ERR_CERT_AUTHORITY_INVALID`. Le test ne désactive pas la vérification TLS.
 - **T8/T10** : le navigateur Playwright MCP utilise le chromium système via
   `--executable-path` ; le navigateur auto-téléchargé de Playwright
   (`chrome-for-testing`) n'est pas utilisé (l'installation n'est pas

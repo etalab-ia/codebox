@@ -129,9 +129,9 @@ check "T6a Node invité" "v22.14.0" "$NODE_VER"
 OC_VER="$("$MSB" exec "$SB_PREFIX-debian" -- sh -c 'opencode --version' 2>/dev/null)"
 check "T6b OpenCode invité" "opencode v2.2.5" "$OC_VER"
 
-# T7: navigateur réel — navigation + DOM + capture d'écran.
+# T7: navigateur réel — navigation + DOM + capture d'écran + confiance CA.
 "$MSB" exec "$SB_PREFIX-debian" -- sh -c '
-  apt-get install -y --no-install-recommends chromium fonts-liberation >/dev/null 2>&1
+  apt-get install -y --no-install-recommends chromium fonts-liberation libnss3-tools openssl >/dev/null 2>&1
 ' >/dev/null 2>&1
 DOM_TITLE="$("$MSB" exec "$SB_PREFIX-debian" -- sh -c \
   'chromium --headless --no-sandbox --disable-gpu --dump-dom https://example.com 2>/dev/null | grep -c "Example Domain"' 2>/dev/null || true)"
@@ -141,6 +141,17 @@ check "T7a navigation + DOM (title)" "1" "$DOM_TITLE"
   >/dev/null 2>&1
 SHOT_OK="$("$MSB" exec "$SB_PREFIX-debian" -- sh -c 'test -s /tmp/p03.png && echo shot-ok' 2>/dev/null)"
 check "T7b capture d'écran non vide" "shot-ok" "$SHOT_OK"
+
+# Exécute le helper NSS de production avec deux CA synthétiques : Chromium
+# doit accepter le CA importé et refuser le CA inconnu, sans contourner TLS.
+TRUST_SCRIPT_B64="$(base64 < "$HERE/../../../assets/browser-guest-nss-trust.sh" | tr -d '\n')"
+CA_TEST_B64="$(base64 < "$HERE/browser-proxy-ca.sh" | tr -d '\n')"
+if "$MSB" exec "$SB_PREFIX-debian" -- sh -c \
+  "printf '%s' '$TRUST_SCRIPT_B64' | base64 -d > /tmp/browser-guest-nss-trust.sh && printf '%s' '$CA_TEST_B64' | base64 -d > /tmp/browser-proxy-ca.sh && sh /tmp/browser-proxy-ca.sh /tmp/browser-guest-nss-trust.sh"; then
+  ok "T7c Chromium accepte le CA importé et refuse un CA inconnu"
+else
+  fail "T7c confiance CA Chromium avec certificats synthétiques"
+fi
 
 # T8: Playwright MCP (chromium système via --executable-path), version épinglée.
 PW_MCP_VERSION="$(node -e "console.log(require('$HERE/pin.json').playwright_mcp_version)")"

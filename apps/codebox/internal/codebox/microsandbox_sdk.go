@@ -23,10 +23,11 @@ import (
 
 // Guest assets are read directly from the binary, without writing host files.
 var (
-	guestPrepScript        = mustAsset("guest-prep.sh")
-	piGuestPrepScript      = mustAsset("pi-guest-prep.sh")
-	browserGuestPrepScript = mustAsset("browser-guest-prep.sh")
-	opencodeConfigContent  = mustAsset("opencode-config.json")
+	guestPrepScript            = mustAsset("guest-prep.sh")
+	piGuestPrepScript          = mustAsset("pi-guest-prep.sh")
+	browserGuestPrepScript     = mustAsset("browser-guest-prep.sh")
+	browserGuestNSSTrustScript = mustAsset("browser-guest-nss-trust.sh")
+	opencodeConfigContent      = mustAsset("opencode-config.json")
 )
 
 // msbStartScript composes the guest start script: the shared prep (toolchain,
@@ -140,32 +141,13 @@ func browserDevToolsStartScript() string {
 	// rather than /etc/ssl/certs/ca-certificates.crt (#440). Import the
 	// Microsandbox interception CA (and optional host CA bundle) into NSS
 	// before starting Chromium so HTTPS works without bypassing certificate
-	// verification.
+	// verification. The shared helper is exercised with real Chromium and
+	// synthetic CAs by the guest-capability integration harness.
 	return "case \",${" + msbBrowserMCPIDsEnv + ":-},\" in\n" +
 		"  *,chrome-devtools,*)\n" +
 		"    mkdir -p /var/log/codebox\n" +
-		"    if command -v certutil >/dev/null 2>&1 && { [ -f /.msb/tls/ca.pem ] || [ -f /.msb/tls/host-cas.pem ]; }; then\n" +
-		"      nssdb=\"${HOME:-/root}/.pki/nssdb\"\n" +
-		"      mkdir -p \"$nssdb\"\n" +
-		"      if [ ! -f \"$nssdb/cert9.db\" ]; then\n" +
-		"        certutil -d \"sql:$nssdb\" -N --empty-password\n" +
-		"      fi\n" +
-		"      if [ -f /.msb/tls/ca.pem ]; then\n" +
-		"        certutil -d \"sql:$nssdb\" -D -n microsandbox-ca >/dev/null 2>&1 || true\n" +
-		"        certutil -d \"sql:$nssdb\" -A -t \"C,,\" -n microsandbox-ca -i /.msb/tls/ca.pem\n" +
-		"      fi\n" +
-		"      if [ -f /.msb/tls/host-cas.pem ]; then\n" +
-		"        ca_tmp=$(mktemp -d)\n" +
-		"        awk -v dir=\"$ca_tmp\" '/-----BEGIN CERTIFICATE-----/{n++; f=dir \"/ca-\" n \".pem\"} f{print > f} /-----END CERTIFICATE-----/{close(f); f=\"\"}' /.msb/tls/host-cas.pem\n" +
-		"        for ca_file in \"$ca_tmp\"/ca-*.pem; do\n" +
-		"          [ -f \"$ca_file\" ] || continue\n" +
-		"          ca_nick=\"microsandbox-host-$(basename \"$ca_file\" .pem)\"\n" +
-		"          certutil -d \"sql:$nssdb\" -D -n \"$ca_nick\" >/dev/null 2>&1 || true\n" +
-		"          certutil -d \"sql:$nssdb\" -A -t \"C,,\" -n \"$ca_nick\" -i \"$ca_file\"\n" +
-		"        done\n" +
-		"        rm -rf \"$ca_tmp\"\n" +
-		"      fi\n" +
-		"    fi\n" +
+		browserGuestNSSTrustScript +
+		"    codebox_import_browser_cas /.msb/tls/ca.pem /.msb/tls/host-cas.pem \"${HOME:-/root}/.pki/nssdb\"\n" +
 		"    if ! curl -fsS http://127.0.0.1:9222/json/version >/dev/null 2>&1; then\n" +
 		"      chromium --headless --no-sandbox --disable-gpu --disable-dev-shm-usage --no-first-run --no-default-browser-check --remote-debugging-address=127.0.0.1 --remote-debugging-port=9222 --user-data-dir=/var/lib/codebox/chromium-profile >/var/log/codebox/chromium.log 2>&1 &\n" +
 		"    fi\n" +
