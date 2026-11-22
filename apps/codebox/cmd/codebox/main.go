@@ -1040,10 +1040,14 @@ func resolveProviderOverlays(providers []codebox.InferenceProvider, activeModels
 			}
 			models = append(models, config)
 		}
+		baseURL := provider.BaseURL
+		if provider.Kind == codebox.ProviderLocal {
+			baseURL = codebox.LocalGuestBaseURL(provider.LocalPort)
+		}
 		out = append(out, codebox.ProviderOverlay{
 			Kind:      string(provider.Kind),
 			Name:      provider.Name,
-			BaseURL:   provider.BaseURL,
+			BaseURL:   baseURL,
 			APIKeyEnv: provider.APIKeyEnv,
 			Models:    models,
 		})

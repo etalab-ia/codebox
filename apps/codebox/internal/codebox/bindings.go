@@ -94,6 +94,9 @@ func msbSecretBindingsFor(providers []InferenceProvider) []msbSecretBinding {
 	}
 	out := make([]msbSecretBinding, 0, len(resolved)+2)
 	for _, p := range resolved {
+		if p.NoKey {
+			continue
+		}
 		out = append(out, msbSecretBinding{
 			Kind:       p.CredentialKind,
 			GuestEnv:   p.APIKeyEnv,
@@ -715,6 +718,9 @@ func resolveAlbertWith(read credentialReader, ctx context.Context, cfg Config, f
 // or destination-mismatched reference is a hard error. Without a reference,
 // the historical environment-then-fixed-entry chain remains unchanged.
 func resolveProviderWith(read credentialReader, ctx context.Context, cfg Config, provider InferenceProvider, from string) (value string, source bindingSource, store, entry string, err error) {
+	if provider.NoKey {
+		return "", "", "", "", nil
+	}
 	if provider.Kind == ProviderAlbert {
 		// CODEBOX_CREDENTIAL_REF retains its existing highest precedence. The
 		// provider-level reference replaces the project/user legacy default only.
@@ -763,6 +769,9 @@ func ResolveProviderKeysWith(read credentialReader, ctx context.Context, cfg Con
 	}
 	out := make(map[string]string, len(providers))
 	for _, p := range providers {
+		if p.Kind == ProviderLocal {
+			return nil, fmt.Errorf("un serveur de modèles local n'est pris en charge qu'avec Microsandbox")
+		}
 		v, _, _, _, err := resolveProviderWith(read, ctx, cfg, p, from)
 		if err != nil {
 			return nil, err

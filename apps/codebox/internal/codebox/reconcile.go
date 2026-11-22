@@ -171,6 +171,7 @@ type InstanceState struct {
 	MemoryMB        int           `json:"memoryMB,omitempty"`
 	PortsConfigured bool          `json:"portsConfigured,omitempty"`
 	Ports           []PortMapping `json:"ports,omitempty"`
+	LocalModelPort  int           `json:"localModelPort,omitempty"`
 	// ConfigRevision is the hash of the non-secret desired config that was
 	// applied. Identical revision + healthy guest = no-op.
 	ConfigRevision string `json:"configRevision"`
@@ -216,6 +217,7 @@ type DesiredState struct {
 	MemoryMB        int
 	PortsConfigured bool
 	Ports           []PortMapping
+	LocalModelPort  int
 	// CredentialRev is the hash of the desired binding-set descriptor (P09).
 	CredentialRev string
 	// CredentialGeneration is the non-secret rotation marker of the stored
@@ -660,6 +662,7 @@ func (m *MicrosandboxRuntime) desiredState(resolved bool, bindings []resolvedBin
 		MemoryMB:        m.cfg.MemoryMB,
 		Ports:           append([]PortMapping(nil), m.cfg.Ports...),
 		PortsConfigured: m.cfg.PortsConfigured,
+		LocalModelPort:  localModelPortFor(m.cfg.Providers),
 		MCPConnectors:   append([]string(nil), m.OpenCodeOverlay.MCPConnectors...),
 	}
 	// The composed Pi configuration is prepared into the guest once, from the
@@ -712,6 +715,7 @@ func (d DesiredState) toState() InstanceState {
 		MemoryMB:         d.MemoryMB,
 		PortsConfigured:  d.PortsConfigured,
 		Ports:            append([]PortMapping(nil), d.Ports...),
+		LocalModelPort:   d.LocalModelPort,
 		ConfigRevision:   d.ConfigRevision(),
 		GitHubOrigin:     d.GitHubOrigin,
 		CredentialRev:    d.CredentialRev,
@@ -752,6 +756,7 @@ func creationFixedChanged(applied *InstanceState, desired DesiredState) bool {
 		applied.Image != desired.Image ||
 		applied.GuestProfile != desired.GuestProfile ||
 		appliedHarness(applied.Harness) != desired.Harness ||
+		applied.LocalModelPort != desired.LocalModelPort ||
 		resourcesChanged ||
 		portMappingsChanged(applied.PortsConfigured, applied.Ports, desired.Ports, desired.PortsConfigured)
 }

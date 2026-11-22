@@ -11,7 +11,9 @@ import (
 	"net/url"
 	"os"
 	"sort"
+	"strconv"
 	"strings"
+	"time"
 )
 
 // This file implements the inference-platform model introduced by issue #180:
@@ -35,6 +37,9 @@ const (
 	ProviderMistral ProviderKind = "mistral"
 	// ProviderOpenAICompatible is a user-named OpenAI-compatible platform.
 	ProviderOpenAICompatible ProviderKind = "openai-compatible"
+	// ProviderLocal is a host-local OpenAI-compatible model server (Ollama,
+	// LM Studio, llama.cpp) used as a small model on Microsandbox only (#447).
+	ProviderLocal ProviderKind = "local"
 )
 
 const (
@@ -43,7 +48,29 @@ const (
 	albertBaseURL = "https://albert.api.etalab.gouv.fr/v1"
 	// mistralBaseURL is Mistral AI's API base URL, fixed for the same reason.
 	mistralBaseURL = "https://api.mistral.ai/v1"
+	// LocalModelHost is the guest-side hostname Microsandbox routes to the
+	// host loopback interface (#447).
+	LocalModelHost = "host.microsandbox.internal"
 )
+
+// LocalServerCandidate describes a detected host-local OpenAI-compatible server.
+type LocalServerCandidate struct {
+	Name    string
+	Port    int
+	BaseURL string
+	Models  []string
+}
+
+// DefaultLocalServerPorts lists the standard local model server ports probed
+// during discovery (#447).
+var DefaultLocalServerPorts = []struct {
+	Port int
+	Name string
+}{
+	{Port: 11434, Name: "Ollama"},
+	{Port: 1234, Name: "LM Studio"},
+	{Port: 8080, Name: "llama.cpp"},
+}
 
 const (
 	// MistralAPIKeyEnv is the guest variable holding the Mistral key.
@@ -67,8 +94,8 @@ type ProviderSettings struct {
 	// Name is the display name. Required for an OpenAI-compatible platform
 	// (the user names it); the built-in names apply to the other kinds.
 	Name string `json:"name,omitempty"`
-	// BaseURL is the OpenAI-compatible platform's base URL. Empty for Albert
-	// and Mistral, whose endpoints are fixed.
+	// BaseURL is the OpenAI-compatible or local platform's base URL. Empty for
+	// Albert and Mistral, whose endpoints are fixed.
 	BaseURL string `json:"baseURL,omitempty"`
 	// CredentialRef names a machine-store entry, never a credential value.
 	// Non-Albert references are bound to the resolved provider host.
@@ -90,8 +117,14 @@ type InferenceProvider struct {
 	CredentialRef string
 	// APIKeyEnv is the guest variable the key is exposed under.
 	APIKeyEnv string
-	// Host is the DNS name the secret proxy may send the key to.
+	// Host is the DNS name the secret proxy may send the key to (or
+	// LocalModelHost for ProviderLocal).
 	Host string
+	// LocalPort is the host loopback TCP port for ProviderLocal (0 for remote
+	// providers).
+	LocalPort int
+	// NoKey is true for providers that require no API key (ProviderLocal).
+	NoKey bool
 }
 
 // DefaultProviderSettings is the historical single-platform configuration:
@@ -102,13 +135,14 @@ func DefaultProviderSettings() []ProviderSettings {
 }
 
 // ResolveProviders validates the configured platforms and applies their
-// built-in defaults. At least one platform is required.
+// built-in defaults. At least one remote platform is required.
 func ResolveProviders(settings []ProviderSettings) ([]InferenceProvider, error) {
 	if len(settings) == 0 {
 		settings = DefaultProviderSettings()
 	}
 	seen := map[ProviderKind]bool{}
 	hosts := map[string]ProviderKind{}
+	remoteCount := 0
 	out := make([]InferenceProvider, 0, len(settings))
 	for _, s := range settings {
 		if seen[s.Kind] {
@@ -122,14 +156,20 @@ func ResolveProviders(settings []ProviderSettings) ([]InferenceProvider, error) 
 		if err := ValidateProviderCredentialRef(p, p.CredentialRef); err != nil {
 			return nil, err
 		}
-		if prev, dup := hosts[p.Host]; dup {
-			return nil, fmt.Errorf("les plateformes %s et %s partagent l'hôte %s : un identifiant ne doit avoir qu'une seule destination", prev, p.Kind, p.Host)
+		if !p.NoKey {
+			remoteCount++
+			if prev, dup := hosts[p.Host]; dup {
+				return nil, fmt.Errorf("les plateformes %s et %s partagent l'hôte %s : un identifiant ne doit avoir qu'une seule destination", prev, p.Kind, p.Host)
+			}
+			hosts[p.Host] = p.Kind
 		}
-		hosts[p.Host] = p.Kind
 		out = append(out, p)
 	}
 	if len(out) == 0 {
 		return nil, fmt.Errorf("au moins une plateforme d'inférence est requise")
+	}
+	if remoteCount == 0 {
+		return nil, fmt.Errorf("un serveur local ne peut pas être la seule plateforme : choisissez au moins une plateforme distante pour le modèle principal")
 	}
 	return out, nil
 }
@@ -177,9 +217,68 @@ func ResolveProvider(s ProviderSettings) (InferenceProvider, error) {
 			CatalogueURL: base + "/models", CredentialKind: CredentialOpenAICompatible, CredentialRef: s.CredentialRef,
 			APIKeyEnv: OpenAICompatibleAPIKeyEnv, Host: host,
 		}, nil
+	case ProviderLocal:
+		name := strings.TrimSpace(s.Name)
+		if name == "" {
+			name = "Serveur local"
+		}
+		base, port, err := normalizeLocalBaseURL(s.BaseURL)
+		if err != nil {
+			return InferenceProvider{}, err
+		}
+		return InferenceProvider{
+			Kind: ProviderLocal, Name: name, BaseURL: base,
+			CatalogueURL: base + "/models", CredentialRef: s.CredentialRef,
+			Host: LocalModelHost, LocalPort: port, NoKey: true,
+		}, nil
 	default:
 		return InferenceProvider{}, fmt.Errorf("type de plateforme d'inférence inconnu %q", s.Kind)
 	}
+}
+
+// LocalGuestBaseURL returns the guest-side base URL used inside Microsandbox
+// to reach a host-local OpenAI-compatible server on port (#447).
+func LocalGuestBaseURL(port int) string {
+	return fmt.Sprintf("http://%s:%d/v1", LocalModelHost, port)
+}
+
+// normalizeLocalBaseURL validates a host-local OpenAI-compatible server URL
+// (http://localhost:<port>/v1 or http://127.0.0.1:<port>/v1) and returns its
+// canonical form and port.
+func normalizeLocalBaseURL(raw string) (string, int, error) {
+	base := normalizeBaseURL(raw)
+	if base == "" {
+		return "", 0, fmt.Errorf("une URL de base locale (http://localhost:<port>/v1) est requise pour un serveur local")
+	}
+	u, err := url.Parse(base)
+	if err != nil {
+		return "", 0, fmt.Errorf("URL de base locale invalide : %w", err)
+	}
+	if u.Scheme != "http" {
+		return "", 0, fmt.Errorf("un serveur local doit utiliser http://localhost:<port>/v1")
+	}
+	if u.User != nil {
+		return "", 0, fmt.Errorf("l'URL de base locale ne doit pas contenir d'identifiants")
+	}
+	if u.RawQuery != "" || u.Fragment != "" {
+		return "", 0, fmt.Errorf("l'URL de base locale ne doit pas contenir de chaîne de requête ni de fragment")
+	}
+	host := strings.ToLower(u.Hostname())
+	if host != "localhost" && host != "127.0.0.1" {
+		return "", 0, fmt.Errorf("un serveur local doit cibler localhost ou 127.0.0.1, pas %q", host)
+	}
+	portStr := u.Port()
+	if portStr == "" {
+		return "", 0, fmt.Errorf("l'URL de base locale doit préciser un port (par exemple http://localhost:11434/v1)")
+	}
+	port, err := strconv.Atoi(portStr)
+	if err != nil || port < 1 || port > 65535 {
+		return "", 0, fmt.Errorf("port local invalide %q", portStr)
+	}
+	if u.Path != "/v1" {
+		return "", 0, fmt.Errorf("l'URL de base locale doit se terminer par /v1")
+	}
+	return fmt.Sprintf("http://localhost:%d/v1", port), port, nil
 }
 
 // normalizeBaseURL trims a trailing slash so comparisons and catalogue URLs
@@ -262,6 +361,12 @@ func ProviderCredentialRef(provider InferenceProvider) string {
 // references remain valid because Albert has one fixed, code-owned host.
 func ValidateProviderCredentialRef(provider InferenceProvider, ref string) error {
 	ref = strings.TrimSpace(ref)
+	if provider.Kind == ProviderLocal {
+		if ref != "" {
+			return fmt.Errorf("un serveur local n'utilise pas de clé d'API ; supprimez credentialRef %q", ref)
+		}
+		return nil
+	}
 	if ref == "" || provider.Kind == ProviderAlbert {
 		return nil
 	}
@@ -292,7 +397,14 @@ func ValidateProjectProviders(projectProviders, userProviders []ProviderSettings
 		return err
 	}
 	legacyUserHosts := map[string]bool{}
+	approvedLocalPorts := map[int]bool{}
 	for _, us := range userProviders {
+		if us.Kind == ProviderLocal {
+			if p, rerr := ResolveProvider(us); rerr == nil && p.LocalPort > 0 {
+				approvedLocalPorts[p.LocalPort] = true
+			}
+			continue
+		}
 		if us.Kind != ProviderOpenAICompatible || strings.TrimSpace(us.CredentialRef) != "" {
 			continue
 		}
@@ -301,6 +413,15 @@ func ValidateProjectProviders(projectProviders, userProviders []ProviderSettings
 		}
 	}
 	for _, p := range resolvedProject {
+		if p.Kind == ProviderLocal {
+			if !approvedLocalPorts[p.LocalPort] {
+				return fmt.Errorf(
+					"le serveur local du projet (port %d) n'est pas approuvé dans vos réglages locaux ; un dépôt ne peut pas ouvrir un port loopback du poste sans approbation hôte",
+					p.LocalPort,
+				)
+			}
+			continue
+		}
 		if p.Kind != ProviderOpenAICompatible || strings.TrimSpace(p.CredentialRef) != "" {
 			continue
 		}
@@ -359,7 +480,7 @@ func SplitModelRef(ref string) (ProviderKind, string) {
 func ModelRefProvider(ref string) ProviderKind {
 	kind, _ := SplitModelRef(ref)
 	switch kind {
-	case ProviderAlbert, ProviderMistral, ProviderOpenAICompatible:
+	case ProviderAlbert, ProviderMistral, ProviderOpenAICompatible, ProviderLocal:
 		return kind
 	}
 	return ProviderAlbert
@@ -393,7 +514,7 @@ func hasKnownProviderPrefix(ref string) bool {
 		return false
 	}
 	switch ProviderKind(ref[:i]) {
-	case ProviderAlbert, ProviderMistral, ProviderOpenAICompatible:
+	case ProviderAlbert, ProviderMistral, ProviderOpenAICompatible, ProviderLocal:
 		return true
 	}
 	return false
@@ -499,4 +620,51 @@ func FetchProviderModels(ctx context.Context, client *http.Client, p InferencePr
 	}
 	sort.Slice(models, func(i, j int) bool { return models[i].ID < models[j].ID })
 	return models, nil
+}
+
+// ProbeLocalModelServer queries a host-local OpenAI-compatible server's
+// /v1/models endpoint without credentials and returns its sorted model IDs.
+func ProbeLocalModelServer(ctx context.Context, client *http.Client, baseURL string) ([]string, error) {
+	base, _, err := normalizeLocalBaseURL(baseURL)
+	if err != nil {
+		return nil, err
+	}
+	probeCtx, cancel := context.WithTimeout(ctx, 1500*time.Millisecond)
+	defer cancel()
+	catalogue, err := FetchCatalogue(probeCtx, client, "", base+"/models")
+	if err != nil {
+		return nil, err
+	}
+	seen := map[string]bool{}
+	ids := make([]string, 0, len(catalogue.Models))
+	for _, m := range catalogue.Models {
+		if m.ID == "" || seen[m.ID] {
+			continue
+		}
+		seen[m.ID] = true
+		ids = append(ids, m.ID)
+	}
+	sort.Strings(ids)
+	return ids, nil
+}
+
+// DetectLocalModelServers probes the standard local model server ports
+// (11434 Ollama, 1234 LM Studio, 8080 llama.cpp) and returns each reachable
+// server with its exposed model IDs.
+func DetectLocalModelServers(ctx context.Context, client *http.Client) []LocalServerCandidate {
+	var found []LocalServerCandidate
+	for _, entry := range DefaultLocalServerPorts {
+		baseURL := fmt.Sprintf("http://localhost:%d/v1", entry.Port)
+		models, err := ProbeLocalModelServer(ctx, client, baseURL)
+		if err != nil {
+			continue
+		}
+		found = append(found, LocalServerCandidate{
+			Name:    entry.Name,
+			Port:    entry.Port,
+			BaseURL: baseURL,
+			Models:  models,
+		})
+	}
+	return found
 }
