@@ -27,7 +27,7 @@ func TestParseAndValidateInitLocalServerOptions(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if err := validateInitOptions(badRT); err == nil || !strings.Contains(err.Error(), "Microsandbox") {
+		if err := validateInitOptions(badRT); err == nil || !strings.Contains(strings.ToLower(err.Error()), "microsandbox") {
 			t.Fatalf("--runtime %s with --local-server = %v, want Microsandbox error", rt, err)
 		}
 	}
