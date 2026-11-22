@@ -104,10 +104,23 @@ func ensureInitSetup(in *bufio.Reader) (bool, int, error) {
 	if err != nil || !needed {
 		return true, 0, err
 	}
-	answer, ok := promptLine(in, "La configuration initiale n'a pas été faite. Lancer 'codebox setup' d'abord ? [Y/n]: ")
-	if !ok || strings.EqualFold(strings.TrimSpace(answer), "n") {
-		fmt.Println("Vous pourrez lancer 'codebox setup' avant de configurer ce projet.")
-		return false, 0, nil
+	if wizardHuhFn() {
+		proceed, herr := huhConfirm("Lancer 'codebox setup' d'abord ?", "La configuration initiale du poste n'a pas encore été faite.", true)
+		if herr != nil || !proceed {
+			fmt.Println("Vous pourrez lancer 'codebox setup' avant de configurer ce projet.")
+			return false, 0, nil
+		}
+	} else {
+		answer, ok := promptLine(in, "La configuration initiale n'a pas été faite. Lancer 'codebox setup' d'abord ? [O/n] : ")
+		switch strings.ToLower(strings.TrimSpace(answer)) {
+		case "n", "non", "no":
+			fmt.Println("Vous pourrez lancer 'codebox setup' avant de configurer ce projet.")
+			return false, 0, nil
+		}
+		if !ok {
+			fmt.Println("Vous pourrez lancer 'codebox setup' avant de configurer ce projet.")
+			return false, 0, nil
+		}
 	}
 	code, err := runInitSetupFn(false)
 	if err != nil || code != 0 {
