@@ -561,6 +561,9 @@ func validateInitSmallModelInput(root, value string) (string, error) {
 	if model == "" {
 		return "", nil
 	}
+	if codebox.ModelRefProvider(model) == codebox.ProviderLocal {
+		return "", nil
+	}
 	if model == codebox.MinistralSmallModelRef {
 		connected, err := initAlbertConnectedFn(root)
 		if err != nil {
