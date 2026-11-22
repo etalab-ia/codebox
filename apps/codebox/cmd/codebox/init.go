@@ -164,6 +164,7 @@ type initOptions struct {
 	Harness         string
 	Model           string
 	SmallModel      string
+	LocalServer     string
 	CPUs            int
 	MemoryMB        int
 	CredentialRef   string
@@ -291,6 +292,12 @@ func parseInitArgs(args []string) (initOptions, error) {
 				return opts, err
 			}
 			opts.SmallModel, opts.Set["small-model"] = v, true
+		case a == "--local-server":
+			v, err := value()
+			if err != nil {
+				return opts, err
+			}
+			opts.LocalServer, opts.Set["local-server"] = v, true
 		case a == "--credential-ref":
 			v, err := value()
 			if err != nil {
@@ -620,11 +627,34 @@ func initRun(opts initOptions, in *bufio.Reader, tty bool) (code int, err error)
 			}
 		}
 	}
+	hasLocalProvider := false
+	for _, p := range plan.Answers.Providers {
+		if p.Kind == codebox.ProviderLocal {
+			hasLocalProvider = true
+			break
+		}
+	}
+	if hasLocalProvider && plan.Answers.Runtime != "" && plan.Answers.Runtime != codebox.RuntimeMicrosandbox {
+		return 1, fmt.Errorf("un serveur de modèles local n'est pris en charge qu'avec Microsandbox")
+	}
+	if plan.Answers.SmallModel != "" && codebox.ModelRefProvider(plan.Answers.SmallModel) == codebox.ProviderLocal && !hasLocalProvider {
+		return 1, fmt.Errorf("le petit modèle %q exige un serveur local (--local-server)", plan.Answers.SmallModel)
+	}
 	if err := wizard.Apply(plan, opts.Replace); err != nil {
 		if revokeContext7 {
 			return 1, fmt.Errorf("la configuration du projet n'a pas été écrite ; l'autorisation Context7 a été révoquée : %w", err)
 		}
 		return 1, err
+	}
+	if opts.Set["local-server"] {
+		for _, p := range plan.Answers.Providers {
+			if p.Kind == codebox.ProviderLocal {
+				if err := approveLocalServerInUserSettings(p); err != nil {
+					return 1, fmt.Errorf("la configuration du projet a été écrite, mais l'approbation locale du serveur local n'a pas pu être enregistrée : %w", err)
+				}
+				break
+			}
+		}
 	}
 	if revokeContext7 {
 		if context7Revoked && context7Live {
@@ -877,6 +907,24 @@ func resolveInitProviders(opts initOptions, answers codebox.InitAnswers) (codebo
 	} else if err := codebox.ValidateProjectProviders(answers.Providers, userSettings); err != nil {
 		return answers, fmt.Errorf("impossible de résoudre les plateformes du projet : %w", err)
 	}
+	if opts.Set["local-server"] {
+		localPS, err := resolveInitLocalServer(context.Background(), opts.LocalServer)
+		if err != nil {
+			return answers, err
+		}
+		filtered := make([]codebox.ProviderSettings, 0, len(answers.Providers)+1)
+		for _, p := range answers.Providers {
+			if p.Kind == codebox.ProviderLocal {
+				continue
+			}
+			filtered = append(filtered, p)
+		}
+		filtered = append(filtered, localPS)
+		if _, err := codebox.ResolveProviders(filtered); err != nil {
+			return answers, fmt.Errorf("impossible de résoudre les plateformes du projet : %w", err)
+		}
+		answers.Providers = filtered
+	}
 	legacyRef := strings.TrimSpace(answers.CredentialRef)
 	for i := range answers.Providers {
 		if answers.Providers[i].Kind != codebox.ProviderAlbert {
@@ -889,6 +937,79 @@ func resolveInitProviders(opts initOptions, answers codebox.InitAnswers) (codebo
 		}
 	}
 	return answers, nil
+}
+
+// detectLocalModelServersFn is the probe seam for `--local-server auto`.
+var detectLocalModelServersFn = codebox.DetectLocalModelServers
+
+func resolveInitLocalServer(ctx context.Context, raw string) (codebox.ProviderSettings, error) {
+	v := strings.TrimSpace(raw)
+	if v == "" {
+		return codebox.ProviderSettings{}, fmt.Errorf("--local-server exige 'auto', un port (ex. 11434) ou une URL http://localhost:<port>/v1")
+	}
+	if strings.EqualFold(v, "auto") {
+		found := detectLocalModelServersFn(ctx, nil)
+		if len(found) == 0 {
+			return codebox.ProviderSettings{}, fmt.Errorf("aucun serveur local détecté (ports 11434, 1234, 8080)")
+		}
+		return codebox.ProviderSettings{
+			Kind:    codebox.ProviderLocal,
+			Name:    found[0].Name,
+			BaseURL: found[0].BaseURL,
+		}, nil
+	}
+	name := "Serveur local"
+	baseURL := v
+	if port, err := strconv.Atoi(v); err == nil {
+		baseURL = fmt.Sprintf("http://localhost:%d/v1", port)
+		for _, known := range codebox.DefaultLocalServerPorts {
+			if known.Port == port {
+				name = known.Name
+				break
+			}
+		}
+	}
+	resolved, err := codebox.ResolveProvider(codebox.ProviderSettings{
+		Kind:    codebox.ProviderLocal,
+		Name:    name,
+		BaseURL: baseURL,
+	})
+	if err != nil {
+		return codebox.ProviderSettings{}, fmt.Errorf("--local-server : %w", err)
+	}
+	return codebox.ProviderSettings{
+		Kind:    codebox.ProviderLocal,
+		Name:    resolved.Name,
+		BaseURL: resolved.BaseURL,
+	}, nil
+}
+
+func approveLocalServerInUserSettings(localPS codebox.ProviderSettings) error {
+	path, err := codebox.UserSettingsPath()
+	if err != nil {
+		return err
+	}
+	us, err := codebox.ReadUserSettings(codebox.DefaultFS, path)
+	if err != nil {
+		if !os.IsNotExist(err) {
+			return err
+		}
+		us = codebox.UserSettings{SchemaVersion: 2}
+	}
+	base := us.Providers
+	if len(base) == 0 {
+		base = codebox.DefaultProviderSettings()
+	}
+	updated := make([]codebox.ProviderSettings, 0, len(base)+1)
+	for _, p := range base {
+		if p.Kind == codebox.ProviderLocal {
+			continue
+		}
+		updated = append(updated, p)
+	}
+	updated = append(updated, localPS)
+	us.Providers = updated
+	return codebox.WriteUserSettings(codebox.DefaultFS, path, us)
 }
 
 // reseedInitAnswersForRootChange clears provider state inherited from the old
@@ -951,6 +1072,9 @@ func currentProjectSkillSelection(root string) ([]string, error) {
 // engine validates everything again; this is only about failing early with the
 // message a command-line user expects.
 func validateInitOptions(opts initOptions) error {
+	if opts.Set["model"] && codebox.ModelRefProvider(normalizeInitModelInput(opts.Model)) == codebox.ProviderLocal {
+		return fmt.Errorf("--model : un modèle local ne peut servir que de petit modèle (--small-model), pas de modèle principal")
+	}
 	if opts.Set["small-model"] {
 		if _, err := validateInitSmallModelInput(opts.Root, opts.SmallModel); err != nil {
 			return fmt.Errorf("--small-model: %w", err)
@@ -962,7 +1086,16 @@ func validateInitOptions(opts initOptions) error {
 		}
 	}
 	if opts.Set["runtime"] {
-		if _, err := codebox.ResolveRuntime(opts.Runtime, ""); err != nil {
+		rt, err := codebox.ResolveRuntime(opts.Runtime, "")
+		if err != nil {
+			return err
+		}
+		if opts.Set["local-server"] && rt != codebox.RuntimeMicrosandbox {
+			return fmt.Errorf("--local-server n'est pris en charge qu'avec Microsandbox")
+		}
+	}
+	if opts.Set["local-server"] && !strings.EqualFold(strings.TrimSpace(opts.LocalServer), "auto") {
+		if _, err := resolveInitLocalServer(context.Background(), opts.LocalServer); err != nil {
 			return err
 		}
 	}
@@ -2023,8 +2156,10 @@ Options :
   --harness <name>        opencode (par défaut) ou pi ; pi exige l'isolation complète
   --model <id>            modèle OpenCode ; vide conserve le défaut intégré
   --small-model <id>      modèle léger pour les titres OpenCode (par exemple
-                          ministral-3-8b-instruct-2512) ; vide ou 'default'
-                          suit le modèle principal
+                          ministral-3-8b-instruct-2512 ou local/<modèle>) ;
+                          vide ou 'default' suit le modèle principal
+  --local-server <val>    serveur local OpenAI-compatible (Microsandbox uniquement) :
+                          'auto' (ports 11434, 1234, 8080), un port ou http://localhost:<port>/v1
   --cpus <n>              processeurs de la machine isolée (maximum : la capacité détectée du poste)
   --memory-mb <size>      mémoire de la machine isolée en MiB ou GiB (ex. 4096, 4G, 2.5G ; maximum : la RAM détectée du poste)
   --credential-ref <ref>  référence d'identifiant du projet (par défaut : la référence globale)
