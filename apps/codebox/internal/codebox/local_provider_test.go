@@ -241,3 +241,35 @@ func TestResolveProviderWithHonorsKeylessLocalProvider(t *testing.T) {
 		t.Fatal("keyless local provider must not touch the credential store")
 	}
 }
+
+func TestComposeConfigContentSkipsLocalForDefaultMainModel(t *testing.T) {
+	// Even when local appears before a remote provider and Model is empty,
+	// EffectiveOverlay must never select a local model as the main agent model.
+	content, err := ComposeConfigContent(ManagedOverlay{
+		Providers: []ProviderOverlay{
+			{
+				Kind:    string(ProviderLocal),
+				Name:    "Ollama",
+				BaseURL: LocalGuestBaseURL(11434),
+				Models:  []ProviderModelConfig{{ID: "qwen2.5:3b", Name: "qwen2.5:3b"}},
+			},
+			{
+				Kind:      string(ProviderMistral),
+				Name:      "Mistral AI",
+				BaseURL:   "https://api.mistral.ai/v1",
+				APIKeyEnv: MistralAPIKeyEnv,
+				Models:    []ProviderModelConfig{{ID: "mistral-large-latest", Name: "mistral-large-latest"}},
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("ComposeConfigContent: %v", err)
+	}
+	var parsed map[string]any
+	if err := json.Unmarshal([]byte(content), &parsed); err != nil {
+		t.Fatal(err)
+	}
+	if parsed["model"] != "mistral/mistral-large-latest" {
+		t.Fatalf("default main model = %v, want mistral/mistral-large-latest (must skip local)", parsed["model"])
+	}
+}
