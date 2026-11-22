@@ -1327,10 +1327,7 @@ func confirmAlbertEnvKeyStorage(in *bufio.Reader, fallback bool) (bool, error) {
 		question = "Enregistrer cette clé dans un fichier de ce poste, lisible par votre seul compte ?"
 	}
 	if wizardHuhFn() {
-		store := true
-		err := huhRun(huh.NewForm(huh.NewGroup(
-			huh.NewConfirm().Title(question).Affirmative("Oui").Negative("Non").Value(&store),
-		)))
+		store, err := huhConfirm(question, "", true)
 		if errors.Is(err, huh.ErrUserAborted) {
 			return false, nil
 		}

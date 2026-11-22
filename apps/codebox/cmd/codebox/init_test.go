@@ -144,8 +144,8 @@ func TestInitSetupOfferRunsSetupBeforeContinuing(t *testing.T) {
 	if !setupCalled {
 		t.Fatal("missing global configuration must run setup before the project wizard")
 	}
-	if !strings.Contains(out, "Lancer 'codebox setup' d'abord ?") {
-		t.Fatalf("setup offer missing from output: %q", out)
+	if !strings.Contains(out, "Lancer 'codebox setup' d'abord ? [O/n]") || strings.Contains(out, "[Y/n]") {
+		t.Fatalf("setup offer must use French [O/n] prompt, got: %q", out)
 	}
 }
 
