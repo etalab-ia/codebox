@@ -37,6 +37,9 @@ type Config struct {
 	// WorkspaceDirSet records that WORKSPACE_DIR or PROJECT_DIR was explicitly
 	// configured, so the launch path knows not to substitute the project root.
 	WorkspaceDirSet bool
+	// WorkspaceDirEnv records which environment variable set WorkspaceDir
+	// ("WORKSPACE_DIR" or "PROJECT_DIR") so override warnings name the source.
+	WorkspaceDirEnv string
 	// CPUs and MemoryMB size the Microsandbox guest. They were fixed
 	// constants until P12b, which made the project's resource choice a
 	// question the setup asks and the manifest records — a recorded setting
@@ -369,8 +372,10 @@ func LoadConfig(lookup EnvLookup) Config {
 	// be an empty directory nothing ever fills.
 	if v, ok := lookup("WORKSPACE_DIR"); ok && strings.TrimSpace(v) != "" {
 		cfg.WorkspaceDirSet = true
+		cfg.WorkspaceDirEnv = "WORKSPACE_DIR"
 	} else if v, ok := lookup("PROJECT_DIR"); ok && strings.TrimSpace(v) != "" {
 		cfg.WorkspaceDirSet = true
+		cfg.WorkspaceDirEnv = "PROJECT_DIR"
 	}
 	cfg.TartVM = VMName(cfg.TartImage)
 	return cfg
