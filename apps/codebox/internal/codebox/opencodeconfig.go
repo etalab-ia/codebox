@@ -135,6 +135,9 @@ const defaultOpencodeModel = "albert/deepseek-v4-flash"
 // reliance on OpenCode parsing multiple concatenated documents) while the
 // project and user configs still merge underneath at load time.
 func ComposeConfigContent(o ManagedOverlay) (string, error) {
+	if o.Model != "" && ModelRefProvider(o.Model) == ProviderLocal {
+		return "", fmt.Errorf("un modèle local (%s) ne peut servir que de petit modèle (small_model), pas de modèle principal", o.Model)
+	}
 	var base map[string]any
 	if err := json.Unmarshal([]byte(opencodeConfigContent), &base); err != nil {
 		return "", fmt.Errorf("analyse de la configuration OpenCode embarquée : %w", err)
@@ -273,14 +276,17 @@ func renderOverlayJSON(o ManagedOverlay) (string, error) {
 			if len(models) == 0 {
 				continue
 			}
+			settings := map[string]any{
+				"baseURL": provider.BaseURL,
+			}
+			if provider.APIKeyEnv != "" {
+				settings["apiKey"] = "{env:" + provider.APIKeyEnv + "}"
+			}
 			providers[provider.Kind] = map[string]any{
-				"package": "@ai-sdk/openai-compatible",
-				"name":    provider.Name,
-				"settings": map[string]any{
-					"baseURL": provider.BaseURL,
-					"apiKey":  "{env:" + provider.APIKeyEnv + "}",
-				},
-				"models": models,
+				"package":  "@ai-sdk/openai-compatible",
+				"name":     provider.Name,
+				"settings": settings,
+				"models":   models,
 			}
 		}
 		if len(providers) > 0 {

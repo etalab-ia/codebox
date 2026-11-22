@@ -325,7 +325,7 @@ func msbCreateOptions(spec msbSandboxSpec) []msb.SandboxOption {
 		msb.WithRootDisk(msb.RootDisk.Managed(8 * 1024)),
 		msb.WithEnv(spec.Env),
 		msb.WithMounts(msbWorkspaceMounts(spec)),
-		msb.WithNetwork(msb.NetworkPolicy.FromProfiles(msb.NetworkProfilePublic)),
+		msb.WithNetwork(msbNetworkConfig(spec.LocalModelPort)),
 		msb.WithPortBindings(msbProjectPortBindings(spec.Ports, spec.PortsConfigured, spec.Isolation)...),
 		msb.WithSecrets(secrets...),
 		msb.WithScripts(map[string]string{"start": spec.StartScript}),
@@ -334,6 +334,24 @@ func msbCreateOptions(spec msbSandboxSpec) []msb.SandboxOption {
 		// is recognized separately.
 		msb.WithLabel(msbManagedLabel, "true"),
 	}
+}
+
+// msbNetworkConfig returns the Microsandbox network policy: public internet
+// by default, plus one narrow TCP egress rule for host.microsandbox.internal
+// on localModelPort when a local model server is configured (#447). Never
+// opens the whole host group.
+func msbNetworkConfig(localModelPort int) *msb.NetworkConfig {
+	cfg := msb.NetworkPolicy.FromProfiles(msb.NetworkProfilePublic)
+	if localModelPort > 0 {
+		cfg.Rules = append(cfg.Rules, msb.PolicyRule{
+			Action:      msb.PolicyActionAllow,
+			Direction:   msb.PolicyDirectionEgress,
+			Destination: LocalModelHost,
+			Protocols:   []msb.PolicyProtocol{msb.PolicyProtocolTCP},
+			Port:        strconv.Itoa(localModelPort),
+		})
+	}
+	return cfg
 }
 
 // msbGuestWorkspace is the guest path of the project working tree.
