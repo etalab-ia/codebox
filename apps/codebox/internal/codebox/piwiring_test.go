@@ -29,6 +29,59 @@ func TestMSBStartScriptUsesPiPrepForPi(t *testing.T) {
 	}
 }
 
+func TestPiRejectIsolationMismatchAllowsPiStartScript(t *testing.T) {
+	ctx := context.Background()
+	sandbox := msbSandboxInfo{Name: msbSandbox, Status: "running"}
+
+	// Interrupted Pi full-mode start must pass rejectIsolationMismatch so
+	// subsequent starts resume in place instead of demanding recreate (#438/#439).
+	piClient := &fakeMSBClient{
+		exists:      true,
+		status:      "running",
+		startScript: msbStartScriptFor(IsolationFull, nil, HarnessPi),
+	}
+	piRuntime := newTestMicrosandbox(t, piClient)
+	piRuntime.cfg.Harness = HarnessPi
+	piRuntime.cfg.Isolation = IsolationFull
+	if err := piRuntime.rejectIsolationMismatch(ctx, sandbox); err != nil {
+		t.Fatalf("Pi full-mode start script was rejected: %v", err)
+	}
+
+	// An OpenCode start script must still be rejected when resuming as Pi.
+	openCodeScriptClient := &fakeMSBClient{
+		exists:      true,
+		status:      "running",
+		startScript: msbStartScriptFor(IsolationFull, nil, HarnessOpenCode),
+	}
+	piWrongScript := newTestMicrosandbox(t, openCodeScriptClient)
+	piWrongScript.cfg.Harness = HarnessPi
+	piWrongScript.cfg.Isolation = IsolationFull
+	if err := piWrongScript.rejectIsolationMismatch(ctx, sandbox); err == nil || !strings.Contains(err.Error(), "codebox recreate --microsandbox") {
+		t.Fatalf("OpenCode script under Pi harness = %v, want recreate error", err)
+	}
+
+	// A genuine isolation-mode mismatch on Pi must still be rejected.
+	piBackendMismatch := newTestMicrosandbox(t, piClient)
+	piBackendMismatch.cfg.Harness = HarnessPi
+	piBackendMismatch.cfg.Isolation = IsolationBackend
+	if err := piBackendMismatch.rejectIsolationMismatch(ctx, sandbox); err == nil || !strings.Contains(err.Error(), "mode d'isolation") {
+		t.Fatalf("Pi isolation mismatch = %v, want isolation mode error", err)
+	}
+
+	// Legacy OpenCode scripts without @opencode/cli@ remain rejected for OpenCode.
+	legacyOpenCodeClient := &fakeMSBClient{
+		exists:      true,
+		status:      "running",
+		startScript: "exec sleep infinity",
+	}
+	openCodeRuntime := newTestMicrosandbox(t, legacyOpenCodeClient)
+	openCodeRuntime.cfg.Harness = HarnessOpenCode
+	openCodeRuntime.cfg.Isolation = IsolationFull
+	if err := openCodeRuntime.rejectIsolationMismatch(ctx, sandbox); err == nil || !strings.Contains(err.Error(), "script de démarrage OpenCode historique") {
+		t.Fatalf("legacy OpenCode script = %v, want historical OpenCode error", err)
+	}
+}
+
 func TestPiSandboxEnvCarriesVersionAndConfiguration(t *testing.T) {
 	overlay := albertOverlay()
 	env := piSandboxEnv(HarnessPi, overlay)

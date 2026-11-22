@@ -1654,6 +1654,12 @@ func (m *MicrosandboxRuntime) rejectIsolationMismatch(ctx context.Context, sandb
 	}
 	createdFull := strings.Contains(script, "sleep infinity")
 	if createdFull == (m.cfg.Isolation == IsolationFull) {
+		if m.cfg.EffectiveHarness() == HarnessPi {
+			if !strings.Contains(script, "pi-coding-agent") {
+				return fmt.Errorf("%s a un script de démarrage incompatible avec Pi fixé à la création ; Pi nécessite 'codebox recreate --microsandbox'. Exportez d'abord les sessions et modifications de la machine isolée : la recréation supprime l'état propre à la machine isolée", sandbox.Name)
+			}
+			return nil
+		}
 		if !strings.Contains(script, "@opencode/cli@") {
 			return fmt.Errorf("%s a un script de démarrage OpenCode historique fixé à la création ; OpenCode v%s nécessite 'codebox recreate --microsandbox'. Exportez d'abord les sessions et modifications de la machine isolée : la recréation supprime l'état propre à la machine isolée", sandbox.Name, OpenCodeVersion)
 		}
