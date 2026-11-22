@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bufio"
 	"encoding/json"
 	"path/filepath"
 	"strings"
@@ -151,15 +150,26 @@ func TestRecordInitStatsCarriesTheInventory(t *testing.T) {
 	}
 }
 
-func TestSetupConsentStaysOffWithoutATerminal(t *testing.T) {
-	statsTestPaths(t)
-	forceNonTTY(t)
-	enabled, answered, err := setupStatsConsent(bufio.NewReader(strings.NewReader("")))
-	if err != nil {
-		t.Fatal(err)
+func TestStatsDefaultOffUntilExplicitOptIn(t *testing.T) {
+	stateDir, settingsPath := statsTestPaths(t)
+	enabled, asked := codebox.ReadStatsConsent(codebox.DefaultFS, settingsPath)
+	if enabled || asked {
+		t.Fatalf("fresh installation must be undecided and disabled: enabled=%v asked=%v", enabled, asked)
 	}
-	if enabled || answered {
-		t.Fatalf("a piped run must not answer consent implicitly: enabled=%v answered=%v", enabled, answered)
+	codebox.RecordStatsEvent(codebox.DefaultFS, stateDir, codebox.StatsEventInput{Kind: "setup", Version: "test"})
+	if events, err := codebox.PendingStatsEvents(codebox.DefaultFS, stateDir); err != nil || len(events) != 0 {
+		t.Fatalf("undecided installation must not queue telemetry: events=%d err=%v", len(events), err)
+	}
+	if code, err := statsCmd([]string{"on"}); code != 0 || err != nil {
+		t.Fatalf("stats on: code=%d err=%v", code, err)
+	}
+	enabled, asked = codebox.ReadStatsConsent(codebox.DefaultFS, settingsPath)
+	if !enabled || !asked {
+		t.Fatalf("stats on must persist opt-in: enabled=%v asked=%v", enabled, asked)
+	}
+	codebox.RecordStatsEvent(codebox.DefaultFS, stateDir, codebox.StatsEventInput{Kind: "setup", Version: "test"})
+	if events, err := codebox.PendingStatsEvents(codebox.DefaultFS, stateDir); err != nil || len(events) != 1 {
+		t.Fatalf("opted-in installation must queue telemetry: events=%d err=%v", len(events), err)
 	}
 }
 
@@ -220,14 +230,20 @@ func TestStatsShowUsesThePendingJournalDecision(t *testing.T) {
 	}
 }
 
-func TestSetupConsentSkippedKeepsExistingAcceptance(t *testing.T) {
-	statsTestPaths(t)
-	forceNonTTY(t)
-	enabled, answered, err := setupStatsConsent(bufio.NewReader(strings.NewReader("")))
-	if err != nil {
-		t.Fatal(err)
+func TestStatsOffPreservesRefusalAndClearsQueue(t *testing.T) {
+	stateDir, settingsPath := statsTestPaths(t)
+	if code, err := statsCmd([]string{"on"}); code != 0 || err != nil {
+		t.Fatalf("stats on: code=%d err=%v", code, err)
 	}
-	if enabled || answered {
-		t.Fatal("a skipped question answers nothing")
+	codebox.RecordStatsEvent(codebox.DefaultFS, stateDir, codebox.StatsEventInput{Kind: "setup", Version: "test"})
+	if code, err := statsCmd([]string{"off"}); code != 0 || err != nil {
+		t.Fatalf("stats off: code=%d err=%v", code, err)
+	}
+	enabled, asked := codebox.ReadStatsConsent(codebox.DefaultFS, settingsPath)
+	if enabled || !asked {
+		t.Fatalf("stats off must persist explicit refusal: enabled=%v asked=%v", enabled, asked)
+	}
+	if events, err := codebox.PendingStatsEvents(codebox.DefaultFS, stateDir); err != nil || len(events) != 0 {
+		t.Fatalf("stats off must clear pending queue: events=%d err=%v", len(events), err)
 	}
 }

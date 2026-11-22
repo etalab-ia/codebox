@@ -1538,16 +1538,12 @@ Commandes :
   shell      Ouvrir un shell dans le runtime sélectionné
   clean      Supprimer la machine isolée sélectionnée et son état local
   doctor     Vérifier l'installation du runtime sélectionné
-  config     Afficher ou prévisualiser la configuration gérée (explain, import-env)
-  ports      Configurer les ports d'aperçu TCP de Microsandbox (list, add, remove)
-  import     Prévisualiser ou importer un projet Albert Code existant
+  config     Afficher la configuration gérée (explain)
   auth       Gérer les identifiants globaux (add, status, remove)
-  secrets    Importer et gérer les valeurs dotenv propres au projet (import)
   bindings   Approuver ou révoquer les liaisons d'identifiants optionnelles de
              ce projet (list, approve, revoke)
   trust      Approuver les entrées de projet liées à l'exécution (status,
              approve)
-  models     Lister les modèles Albert validés (live, ou dernier état connu)
   mcp        Vérifier les points d'accès MCP distants configurés (status)
   init       Configurer ce projet : mode de partage, modèle, ressources de la
              machine isolée, MCP distants et référence d'identifiant.
@@ -1559,6 +1555,7 @@ Commandes :
   setup      Configurer le poste : prérequis, identifiants, identité, modèle,
              puis installer le runtime géré (setup doctor pour le diagnostic
              en lecture seule)
+  stats      Gérer le partage optionnel de statistiques d'usage (on, off, show)
   update     Relire et appliquer les mises à jour de skills épinglées du projet
   version    Afficher l'identité de compilation
   help       Afficher cette aide
@@ -1572,14 +1569,9 @@ Sélection du runtime :
   agent-vm montent le dossier, transmettent l'identifiant à la machine isolée en
   clair et exigent --acknowledge-guest-credentials pour démarrer.
 
-  Un .env du dossier de travail n'est PLUS chargé implicitement ; les variables
-  exportées le sont toujours. Pour voir ce que contient un .env existant et où
-  chaque valeur doit aller, lancez 'codebox config import-env <chemin>' (aperçu
-  seulement). Pour prévisualiser l'import de secrets applicatifs à l'échelle du
-  projet, lancez :
-  'codebox secrets import --profile development --file .env'. L'import n'active
-  pas la livraison à la machine isolée. La clé Albert
-  va dans le trousseau : 'codebox auth add albert'.
+  Un .env du dossier de travail n'est pas chargé implicitement ; les variables
+  exportées le sont toujours. La clé d'API se stocke dans le trousseau avec
+  'codebox setup' ou 'codebox auth add albert'.
 
 Isolation :
   --isolation full (défaut) : tout l'agent, interface comprise, tourne dans la

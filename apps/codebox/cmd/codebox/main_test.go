@@ -760,3 +760,27 @@ func TestProjectManifestSelectsRuntimeAndIsolation(t *testing.T) {
 		t.Fatalf("a project without a manifest must yield no preference, got %q / %q", runtimeChoice, isolationChoice)
 	}
 }
+
+func TestUsageHidesAdvancedAndLegacyCommands(t *testing.T) {
+	out := captureStdout(t, func() { usage() })
+	for _, hidden := range []string{"\n  secrets ", "\n  import ", "\n  ports ", "\n  models ", "import-env"} {
+		if strings.Contains(out, hidden) {
+			t.Errorf("default usage() must hide %q, got:\n%s", hidden, out)
+		}
+	}
+	if !strings.Contains(out, "\n  stats ") {
+		t.Errorf("default usage() should list stats command, got:\n%s", out)
+	}
+	// Hidden compatibility commands remain directly invocable.
+	for _, args := range [][]string{
+		{"secrets", "--help"},
+		{"import", "--help"},
+		{"config", "import-env", ".env"},
+		{"ports", "list"},
+		{"models"},
+	} {
+		if _, err := parseArgs(args); err != nil {
+			t.Errorf("hidden compatibility command %v failed to parse: %v", args, err)
+		}
+	}
+}

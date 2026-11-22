@@ -7,13 +7,12 @@ les choix faits dans l'assistant, pour orienter le produit. Le partage est
 
 ## Consentement
 
-La question est posée une seule fois, à la fin de `codebox setup`, juste
-avant le récapitulatif. Elle vaut aussi pour les `init` suivants. Le
-récapitulatif indique `Statistiques d'usage : partagées` ou `non partagées`.
+Pour toute nouvelle installation (ou tant qu'aucun choix explicite n'a été
+enregistré), les statistiques restent **désactivées par défaut** et aucun
+événement n'est envoyé. L'activation est volontaire via `codebox stats on`.
 
-En mode non interactif (entrée piped), la question n'est pas posée — la
-prochaine ligne appartient à un autre écran — et le partage reste désactivé.
-Utiliser `codebox stats on` pour l'activer explicitement.
+Un choix explicite déjà enregistré (`stats on` ou `stats off`) est conservé
+tel quel par les mises à niveau et par `codebox setup`.
 
 ## Commandes
 
