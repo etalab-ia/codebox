@@ -520,6 +520,40 @@ func TestWorkspaceSourceDefaultsToProjectRoot(t *testing.T) {
 	}
 }
 
+func TestWorkspaceDirOverrideWarning(t *testing.T) {
+	root := t.TempDir()
+	other := t.TempDir()
+	pc := codebox.ProjectContext{Root: root, Name: "proj"}
+
+	// Diverging WORKSPACE_DIR surfaces the override and both paths.
+	divergent := codebox.Config{WorkspaceDir: other, WorkspaceDirSet: true, WorkspaceDirEnv: "WORKSPACE_DIR"}
+	warn := workspaceDirOverrideWarning(divergent, pc, nil)
+	if !strings.Contains(warn, "WORKSPACE_DIR="+other) || !strings.Contains(warn, root) {
+		t.Fatalf("expected override warning naming WORKSPACE_DIR, effective source, and project root, got %q", warn)
+	}
+
+	// Legacy PROJECT_DIR names PROJECT_DIR in the warning.
+	legacy := codebox.Config{WorkspaceDir: other, WorkspaceDirSet: true, WorkspaceDirEnv: "PROJECT_DIR"}
+	if got := workspaceDirOverrideWarning(legacy, pc, nil); !strings.Contains(got, "PROJECT_DIR="+other) {
+		t.Fatalf("expected PROJECT_DIR in override warning, got %q", got)
+	}
+
+	// Matching override stays silent.
+	matching := codebox.Config{WorkspaceDir: root + string(os.PathSeparator), WorkspaceDirSet: true, WorkspaceDirEnv: "WORKSPACE_DIR"}
+	if got := workspaceDirOverrideWarning(matching, pc, nil); got != "" {
+		t.Fatalf("matching WORKSPACE_DIR must stay silent, got %q", got)
+	}
+
+	// Unset override or discovery error stays silent.
+	unset := codebox.Config{WorkspaceDir: other, WorkspaceDirSet: false}
+	if got := workspaceDirOverrideWarning(unset, pc, nil); got != "" {
+		t.Fatalf("unset override must stay silent, got %q", got)
+	}
+	if got := workspaceDirOverrideWarning(divergent, pc, errDiscovery); got != "" {
+		t.Fatalf("discovery failure must stay silent, got %q", got)
+	}
+}
+
 var errDiscovery = errors.New("not a project")
 
 // TestProjectManifestSizesTheGuest pins the precedence for guest sizing: an

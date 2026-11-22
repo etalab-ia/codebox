@@ -71,6 +71,36 @@ func TestMicrosandboxPiLogsFollowIncludesLegacyFallback(t *testing.T) {
 	}
 }
 
+func TestMicrosandboxLogsFollowTreatsInterruptAsCleanExit(t *testing.T) {
+	cases := []struct {
+		name string
+		code int
+		err  error
+	}{
+		{name: "signaled -1", code: -1},
+		{name: "sigint 130", code: 130},
+		{name: "context canceled", err: context.Canceled},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			client := &fakeMSBClient{attachCode: tc.code, attachErr: tc.err}
+			m := newTestMicrosandbox(t, client)
+			if err := m.Logs(context.Background(), true); err != nil {
+				t.Fatalf("Logs --follow interruption (%s) should return nil, got %v", tc.name, err)
+			}
+		})
+	}
+}
+
+func TestMicrosandboxLogsFollowPreservesRealFailure(t *testing.T) {
+	client := &fakeMSBClient{attachCode: 1}
+	m := newTestMicrosandbox(t, client)
+	err := m.Logs(context.Background(), true)
+	if err == nil || !strings.Contains(err.Error(), "s'est terminé avec le code 1") {
+		t.Fatalf("Logs --follow exit 1 = %v, want error reporting code 1", err)
+	}
+}
+
 func TestPiReadinessGuidanceUsesPiLog(t *testing.T) {
 	client := &fakeMSBClient{execDefault: &fakeMSBExecResult{code: msbPrepareProgress, stderr: "100:1"}}
 	clock := &fakeToolchainClock{now: time.Unix(0, 0)}
