@@ -906,6 +906,9 @@ func resolveInitProviders(opts initOptions, answers codebox.InitAnswers) (codebo
 			return answers, err
 		}
 		explicitLocal = &localPS
+		if len(effectiveUserSettings) == 0 {
+			effectiveUserSettings = codebox.DefaultProviderSettings()
+		}
 		filteredUser := make([]codebox.ProviderSettings, 0, len(effectiveUserSettings)+1)
 		for _, p := range effectiveUserSettings {
 			if p.Kind == codebox.ProviderLocal {
