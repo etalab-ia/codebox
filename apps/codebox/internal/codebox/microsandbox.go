@@ -1654,6 +1654,12 @@ func (m *MicrosandboxRuntime) rejectIsolationMismatch(ctx context.Context, sandb
 	}
 	createdFull := strings.Contains(script, "sleep infinity")
 	if createdFull == (m.cfg.Isolation == IsolationFull) {
+		if m.cfg.EffectiveHarness() == HarnessPi {
+			if !strings.Contains(script, "pi-coding-agent") {
+				return fmt.Errorf("%s a un script de démarrage incompatible avec Pi fixé à la création ; Pi nécessite 'codebox recreate --microsandbox'. Exportez d'abord les sessions et modifications de la machine isolée : la recréation supprime l'état propre à la machine isolée", sandbox.Name)
+			}
+			return nil
+		}
 		if !strings.Contains(script, "@opencode/cli@") {
 			return fmt.Errorf("%s a un script de démarrage OpenCode historique fixé à la création ; OpenCode v%s nécessite 'codebox recreate --microsandbox'. Exportez d'abord les sessions et modifications de la machine isolée : la recréation supprime l'état propre à la machine isolée", sandbox.Name, OpenCodeVersion)
 		}
@@ -2352,9 +2358,12 @@ func (m *MicrosandboxRuntime) Logs(ctx context.Context, follow bool) error {
 		}
 		code, err := m.Client.AttachInteractive(ctx, m.InstanceName(), command, args, "/")
 		if err != nil {
+			if errors.Is(err, context.Canceled) {
+				return nil
+			}
 			return err
 		}
-		if code != 0 {
+		if code != 0 && code != -1 && code != 130 {
 			return fmt.Errorf("le suivi de %s dans la machine isolée s'est terminé avec le code %d", logPath, code)
 		}
 		return nil
