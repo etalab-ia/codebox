@@ -199,7 +199,7 @@ func (m *MicrosandboxRuntime) transferIntoGuest(ctx context.Context, opts SyncOp
 	if err != nil {
 		return err
 	}
-	opts.print(fmt.Sprintf("%s : écriture de %s dans la machine isolée...\n", headline, FormatByteSize(int64(len(payload)))))
+	opts.print(fmt.Sprintf("%s depuis %s : écriture de %s dans la machine isolée...\n", headline, manifest.Root, FormatByteSize(int64(len(payload)))))
 	if err := m.Client.WriteFile(ctx, m.InstanceName(), msbTransferArchivePath, payload); err != nil {
 		return fmt.Errorf("l'écriture de la charge de transfert dans la machine isolée a échoué : %w", err)
 	}

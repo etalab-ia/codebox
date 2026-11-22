@@ -30,8 +30,16 @@ func TestProvisionGuestWorkspaceWritesFilteredPayload(t *testing.T) {
 	writeFile(t, m.cfg.WorkspaceDir, ".env", "CANARY=must-not-cross\n")
 	gitInitForTransfer(t, m.cfg.WorkspaceDir)
 
-	if err := m.ProvisionGuestWorkspace(context.Background(), SyncOptions{Print: func(string) {}}); err != nil {
+	var printed strings.Builder
+	if err := m.ProvisionGuestWorkspace(context.Background(), SyncOptions{Print: func(s string) { printed.WriteString(s) }}); err != nil {
 		t.Fatalf("ProvisionGuestWorkspace: %v", err)
+	}
+	wantRoot := m.cfg.WorkspaceDir
+	if resolved, err := filepath.EvalSymlinks(wantRoot); err == nil {
+		wantRoot = resolved
+	}
+	if !strings.Contains(printed.String(), "depuis "+wantRoot) {
+		t.Fatalf("transfer headline must name the source directory %q, got:\n%s", wantRoot, printed.String())
 	}
 	if len(client.written) != 1 {
 		t.Fatalf("the transfer must write exactly one payload, got %d", len(client.written))

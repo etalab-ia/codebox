@@ -265,11 +265,11 @@ func TestWorkspaceDirSetRecordsExplicitConfiguration(t *testing.T) {
 	if LoadConfig(lookupFrom(nil)).WorkspaceDirSet {
 		t.Fatal("an unset WORKSPACE_DIR must not be reported as explicit")
 	}
-	if now := LoadConfig(lookupFrom(map[string]string{"WORKSPACE_DIR": "./w"})).WorkspaceDirSet; !now {
-		t.Fatal("WORKSPACE_DIR must be recorded as explicit")
+	if now := LoadConfig(lookupFrom(map[string]string{"WORKSPACE_DIR": "./w"})); !now.WorkspaceDirSet || now.WorkspaceDirEnv != "WORKSPACE_DIR" {
+		t.Fatalf("WORKSPACE_DIR must be recorded as explicit, got set=%v env=%q", now.WorkspaceDirSet, now.WorkspaceDirEnv)
 	}
-	if legacy := LoadConfig(lookupFrom(map[string]string{"PROJECT_DIR": "./w"})).WorkspaceDirSet; !legacy {
-		t.Fatal("the legacy PROJECT_DIR must be recorded as explicit too")
+	if legacy := LoadConfig(lookupFrom(map[string]string{"PROJECT_DIR": "./w"})); !legacy.WorkspaceDirSet || legacy.WorkspaceDirEnv != "PROJECT_DIR" {
+		t.Fatalf("the legacy PROJECT_DIR must be recorded as explicit too, got set=%v env=%q", legacy.WorkspaceDirSet, legacy.WorkspaceDirEnv)
 	}
 	// An explicitly empty value has no meaning: it must not suppress the
 	// project-root default while also being unusable as a path.

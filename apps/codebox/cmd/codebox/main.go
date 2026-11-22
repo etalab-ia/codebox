@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -177,6 +178,11 @@ func run(args []string) (int, error) {
 	}
 	// The sealed transfer source (P22/P12).
 	cfg = withProjectRootAsWorkspaceSource(cfg, pc, projErr)
+	if isLaunchAction(parsed.action) || parsed.action == "workspace" {
+		if warn := workspaceDirOverrideWarning(cfg, pc, projErr); warn != "" {
+			fmt.Fprint(os.Stderr, warn)
+		}
+	}
 	// A project with no configuration yet is offered one before the guest is
 	// built (P12): the launch would otherwise pick every default silently, and
 	// the choices it made would be invisible until someone read the review.
@@ -539,6 +545,39 @@ func withProjectRootAsWorkspaceSource(cfg codebox.Config, pc codebox.ProjectCont
 	}
 	cfg.WorkspaceDir = pc.Root
 	return cfg
+}
+
+// workspaceDirOverrideWarning returns a prominent French warning when an
+// explicit WORKSPACE_DIR / PROJECT_DIR points at a different directory than
+// the discovered project root, and "" when there is no override or they match.
+func workspaceDirOverrideWarning(cfg codebox.Config, pc codebox.ProjectContext, projErr error) string {
+	if !cfg.WorkspaceDirSet || projErr != nil || strings.TrimSpace(pc.Root) == "" {
+		return ""
+	}
+	if sameWorkspacePath(cfg.WorkspaceDir, pc.Root) {
+		return ""
+	}
+	envName := cfg.WorkspaceDirEnv
+	if envName == "" {
+		envName = "WORKSPACE_DIR"
+	}
+	return fmt.Sprintf("Avertissement : la source de l'espace de travail est remplacée par %s=%s (racine du projet : %s)\n",
+		envName, cfg.WorkspaceDir, pc.Root)
+}
+
+func sameWorkspacePath(a, b string) bool {
+	ca := filepath.Clean(a)
+	cb := filepath.Clean(b)
+	if ca == cb {
+		return true
+	}
+	if ra, err := filepath.EvalSymlinks(ca); err == nil {
+		ca = ra
+	}
+	if rb, err := filepath.EvalSymlinks(cb); err == nil {
+		cb = rb
+	}
+	return ca == cb
 }
 
 // configureGatewayProjectSecrets reads the project's non-secret `secrets`

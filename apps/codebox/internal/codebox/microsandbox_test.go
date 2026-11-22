@@ -47,6 +47,7 @@ type fakeMSBClient struct {
 	stopErr                error
 	removeErr              error
 	shellErr               error
+	attachCode             int
 	attachErr              error
 
 	calls []string
@@ -709,7 +710,7 @@ func (f *fakeMSBClient) Shell(name string) error {
 
 func (f *fakeMSBClient) AttachInteractive(_ context.Context, name, cmd string, args []string, cwd string) (int, error) {
 	f.record("attach " + name + " " + strings.Join(append([]string{cmd}, args...), " ") + " " + cwd)
-	return 0, f.attachErr
+	return f.attachCode, f.attachErr
 }
 
 func cloneStringMap(in map[string]string) map[string]string {
