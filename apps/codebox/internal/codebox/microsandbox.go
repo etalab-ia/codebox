@@ -2352,9 +2352,12 @@ func (m *MicrosandboxRuntime) Logs(ctx context.Context, follow bool) error {
 		}
 		code, err := m.Client.AttachInteractive(ctx, m.InstanceName(), command, args, "/")
 		if err != nil {
+			if errors.Is(err, context.Canceled) {
+				return nil
+			}
 			return err
 		}
-		if code != 0 {
+		if code != 0 && code != -1 && code != 130 {
 			return fmt.Errorf("le suivi de %s dans la machine isolée s'est terminé avec le code %d", logPath, code)
 		}
 		return nil
