@@ -190,6 +190,13 @@ func firstRunProviderDefaults(ctx context.Context, opts initOptions, j *codebox.
 				}
 			}
 			userProviders = append(filtered, local)
+			filteredSettings := make([]codebox.ProviderSettings, 0, len(settings)+1)
+			for _, provider := range settings {
+				if provider.Kind != codebox.ProviderLocal {
+					filteredSettings = append(filteredSettings, provider)
+				}
+			}
+			settings = append(filteredSettings, local)
 		}
 		if err := codebox.ValidateProjectProviders(settings, userProviders); err != nil {
 			return nil, fmt.Errorf("la plateforme du projet ne peut pas être approuvée avant de réutiliser un identifiant : %w", err)
