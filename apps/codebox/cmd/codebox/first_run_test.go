@@ -146,7 +146,17 @@ func TestCombinedFirstRunProjectChoicePreservesOtherMachineProviders(t *testing.
 
 func TestCombinedFirstRunMistralResolvesUsableProjectModel(t *testing.T) {
 	root := initTestProject(t)
-	_, _, initOpts := stubCombinedRunEnvironment(t, false)
+	stateDir, _, initOpts := stubCombinedRunEnvironment(t, false)
+	j, err := codebox.ReadSetupJournal(codebox.DefaultFS, stateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// A host-bound reference is enough for the existing stage to reuse a saved
+	// key. No credential value or real host keychain is involved in this test.
+	j.CredentialKinds = []string{"mistral:api.mistral.ai"}
+	if err := codebox.WriteSetupJournal(codebox.DefaultFS, stateDir, j); err != nil {
+		t.Fatal(err)
+	}
 	catalogue := setupProviderCatalogueFn
 	setupProviderCatalogueFn = func(provider codebox.InferenceProvider) ([]codebox.CatalogueModel, error) {
 		if provider.Kind != codebox.ProviderMistral {
