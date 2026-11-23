@@ -74,17 +74,6 @@ func combinedFirstRun(opts initOptions, in *bufio.Reader) (int, error) {
 		}
 		opts.Providers = providerSettingsOf(providers)
 		opts.Set["providers"] = true
-		if !opts.Set["model"] {
-			defaultModel, err := firstRunDefaultModel(opts.Root, providers)
-			if err != nil {
-				if !opts.Advanced {
-					return 1, err
-				}
-				fmt.Fprintf(os.Stderr, "Attention : %v\n", err)
-			} else {
-				opts.DefaultModel = defaultModel
-			}
-		}
 
 		machineProviders := mergeFirstRunMachineProviders(providers)
 		resolvedMachineProviders, err := codebox.ResolveProviders(machineProviders)
@@ -100,6 +89,27 @@ func combinedFirstRun(opts initOptions, in *bufio.Reader) (int, error) {
 		}
 		if err := firstRunSaveIdentity(w, &j, fs, stateDir); err != nil {
 			return 1, err
+		}
+	}
+
+	providerAnswers, err := resolveInitProviders(opts, codebox.InitAnswers{Root: opts.Root, Providers: append([]codebox.ProviderSettings(nil), opts.Providers...)})
+	if err != nil {
+		return 1, err
+	}
+	opts.Providers = providerAnswers.Providers
+	defaultProviders, err := codebox.ResolveProviders(opts.Providers)
+	if err != nil {
+		return 1, err
+	}
+	if !opts.Set["model"] {
+		defaultModel, err := firstRunDefaultModel(opts.Root, defaultProviders)
+		if err != nil {
+			if !opts.Advanced {
+				return 1, err
+			}
+			fmt.Fprintf(os.Stderr, "Attention : %v\n", err)
+		} else {
+			opts.DefaultModel = defaultModel
 		}
 	}
 

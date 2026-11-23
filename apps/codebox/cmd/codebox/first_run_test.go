@@ -286,6 +286,52 @@ func TestInitRunPiUsesCompatibleFallbackForAutomaticDefault(t *testing.T) {
 	}
 }
 
+func TestCombinedFirstRunProviderFlagResolvesCompatibleDefault(t *testing.T) {
+	root := initTestProject(t)
+	_, _, initOpts := stubCombinedRunEnvironment(t, true)
+	settingsPath, err := codebox.UserSettingsPath()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := codebox.WriteUserSettings(codebox.DefaultFS, settingsPath, codebox.UserSettings{
+		SchemaVersion: 2,
+		DefaultModel:  "albert/deepseek-v4-flash",
+		Models:        []string{"albert/deepseek-v4-flash"},
+		Providers: []codebox.ProviderSettings{
+			{Kind: codebox.ProviderAlbert},
+			{Kind: codebox.ProviderMistral, CredentialRef: "mistral:api.mistral.ai"},
+		},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	catalogue := setupProviderCatalogueFn
+	setupProviderCatalogueFn = func(provider codebox.InferenceProvider) ([]codebox.CatalogueModel, error) {
+		if provider.Kind != codebox.ProviderMistral {
+			t.Fatalf("unexpected catalogue provider: %s", provider.Kind)
+		}
+		return []codebox.CatalogueModel{{ID: "mistral-large-latest"}}, nil
+	}
+	t.Cleanup(func() { setupProviderCatalogueFn = catalogue })
+	code, err := combinedFirstRun(initOptions{
+		Root:      root,
+		Providers: []codebox.ProviderSettings{{Kind: codebox.ProviderMistral}},
+		Set:       map[string]bool{"root": true, "providers": true},
+	}, bufio.NewReader(strings.NewReader("")))
+	if err != nil || code != 0 {
+		t.Fatalf("flag-selected provider first run = %d, %v", code, err)
+	}
+	if initOpts.DefaultModel != "mistral/mistral-large-latest" {
+		t.Fatalf("flag-selected project default = %q", initOpts.DefaultModel)
+	}
+	us, err := codebox.ReadUserSettings(codebox.DefaultFS, settingsPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if us.DefaultModel != "albert/deepseek-v4-flash" {
+		t.Fatalf("flag-selected project changed machine default: %q", us.DefaultModel)
+	}
+}
+
 func TestCombinedFirstRunExplicitModelSkipsCatalogue(t *testing.T) {
 	root := initTestProject(t)
 	stateDir, _, initOpts := stubCombinedRunEnvironment(t, false)
