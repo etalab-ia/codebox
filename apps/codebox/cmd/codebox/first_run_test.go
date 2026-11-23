@@ -214,7 +214,7 @@ func TestFirstRunDefaultModelUsesProviderCatalogue(t *testing.T) {
 		expected string
 	}{
 		{name: "Mistral preferred default", kind: codebox.ProviderMistral, models: []codebox.CatalogueModel{{ID: "mistral-small-latest"}, {ID: "mistral-large-latest"}}, expected: "mistral/mistral-large-latest"},
-		{name: "OpenAI-compatible first catalogue model", kind: codebox.ProviderOpenAICompatible, baseURL: "https://openrouter.ai/api/v1", models: []codebox.CatalogueModel{{ID: "example/chat-model"}}, expected: "openai-compatible/example/chat-model"},
+		{name: "OpenAI-compatible first verified chat model", kind: codebox.ProviderOpenAICompatible, baseURL: "https://openrouter.ai/api/v1", models: []codebox.CatalogueModel{{ID: "embedding-model", Type: "embedding"}, {ID: "example/chat-model", Type: "text-generation"}}, expected: "openai-compatible/example/chat-model"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			setupProviderCatalogueFn = func(codebox.InferenceProvider) ([]codebox.CatalogueModel, error) { return tc.models, nil }
@@ -332,6 +332,84 @@ func TestCombinedFirstRunProviderFlagResolvesCompatibleDefault(t *testing.T) {
 	}
 }
 
+func TestSeedInitAnswersClearsIncompatibleSmallModel(t *testing.T) {
+	setupTestEnv(t)
+	root := initTestProject(t)
+	if err := codebox.WriteProjectManifest(codebox.DefaultFS, codebox.ProjectManifestPath(root), codebox.ProjectManifest{
+		SchemaVersion: 8, Model: "albert/old-model", SmallModel: codebox.MinistralSmallModelRef,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	opts := initOptions{
+		Root: root, DefaultModel: "mistral/mistral-large-latest",
+		Providers: []codebox.ProviderSettings{{Kind: codebox.ProviderMistral}},
+		Set:       map[string]bool{"root": true, "providers": true},
+	}
+	answers := seedInitAnswersFromManifest(opts, codebox.InitAnswers{Root: root})
+	if answers.SmallModel != "" {
+		t.Fatalf("incompatible inherited small model = %q, want empty", answers.SmallModel)
+	}
+}
+
+func TestCombinedFirstRunPreservesLocalSmallModelProvider(t *testing.T) {
+	root := initTestProject(t)
+	_, _, initOpts := stubCombinedRunEnvironment(t, true)
+	local := codebox.ProviderSettings{Kind: codebox.ProviderLocal, Name: "Ollama", BaseURL: "http://localhost:11434/v1"}
+	if err := codebox.WriteProjectManifest(codebox.DefaultFS, codebox.ProjectManifestPath(root), codebox.ProjectManifest{
+		SchemaVersion: 8,
+		SmallModel:    "local/qwen2.5:3b",
+		Providers:     []codebox.ProviderSettings{{Kind: codebox.ProviderAlbert}, local},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	settingsPath, err := codebox.UserSettingsPath()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := codebox.WriteUserSettings(codebox.DefaultFS, settingsPath, codebox.UserSettings{
+		SchemaVersion: 2,
+		Providers:     []codebox.ProviderSettings{{Kind: codebox.ProviderAlbert}, local},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	present := setupCredentialPresentFn
+	setupCredentialPresentFn = func(_ context.Context, kind codebox.CredentialKind) bool {
+		if kind == "" {
+			t.Fatal("a keyless local provider must not query the credential store")
+		}
+		return true
+	}
+	t.Cleanup(func() { setupCredentialPresentFn = present })
+	choose := firstRunChoosePlatformsFn
+	firstRunChoosePlatformsFn = func(current []codebox.SetupPlatform, _ *bufio.Reader, _ string) ([]codebox.SetupPlatform, error) {
+		for _, platform := range current {
+			if platform.Kind == string(codebox.ProviderAlbert) {
+				return []codebox.SetupPlatform{platform}, nil
+			}
+		}
+		t.Fatal("Albert provider missing")
+		return nil, nil
+	}
+	t.Cleanup(func() { firstRunChoosePlatformsFn = choose })
+	code, err := combinedFirstRun(initOptions{Root: root, Set: map[string]bool{"root": true}}, bufio.NewReader(strings.NewReader("")))
+	if err != nil || code != 0 {
+		t.Fatalf("local-provider reconfiguration = %d, %v", code, err)
+	}
+	foundLocal := false
+	for _, provider := range initOpts.Providers {
+		if provider.Kind == codebox.ProviderLocal && provider.BaseURL == local.BaseURL {
+			foundLocal = true
+		}
+	}
+	if !foundLocal {
+		t.Fatalf("local provider was dropped: %+v", initOpts.Providers)
+	}
+	answers := seedInitAnswersFromManifest(*initOpts, codebox.InitAnswers{Root: root})
+	if answers.SmallModel != "local/qwen2.5:3b" {
+		t.Fatalf("compatible local small model was not preserved: %q", answers.SmallModel)
+	}
+}
+
 func TestCombinedFirstRunExplicitModelSkipsCatalogue(t *testing.T) {
 	root := initTestProject(t)
 	stateDir, _, initOpts := stubCombinedRunEnvironment(t, false)
@@ -398,6 +476,23 @@ func TestCombinedFirstRunAdvancedRecoversFromCatalogueOutage(t *testing.T) {
 	}
 	if !initOpts.Advanced || initOpts.DefaultModel != "" {
 		t.Fatalf("advanced recovery must open with a manual model answer: %+v", *initOpts)
+	}
+}
+
+func TestFirstRunDefaultModelRequiresVerifiedChatModel(t *testing.T) {
+	setupTestEnv(t)
+	provider, err := codebox.ResolveProvider(codebox.ProviderSettings{Kind: codebox.ProviderOpenAICompatible, Name: "Test", BaseURL: "https://openrouter.ai/api/v1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	catalogue := setupProviderCatalogueFn
+	setupProviderCatalogueFn = func(codebox.InferenceProvider) ([]codebox.CatalogueModel, error) {
+		return []codebox.CatalogueModel{{ID: "embedding-model", Type: "embedding"}, {ID: "rerank-model", Type: "rerank"}}, nil
+	}
+	t.Cleanup(func() { setupProviderCatalogueFn = catalogue })
+	model, err := firstRunDefaultModel(t.TempDir(), []codebox.InferenceProvider{provider})
+	if err == nil || model != "" || !strings.Contains(err.Error(), "modèle explicite") {
+		t.Fatalf("non-chat default = %q, %v; want explicit-model error", model, err)
 	}
 }
 

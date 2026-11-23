@@ -841,6 +841,15 @@ func reconcileInitDefaultModelWithHarness(opts initOptions, answers codebox.Init
 	return answers
 }
 
+func initProviderKindSelected(providers []codebox.ProviderSettings, kind codebox.ProviderKind) bool {
+	for _, provider := range providers {
+		if provider.Kind == kind {
+			return true
+		}
+	}
+	return false
+}
+
 func seedInitAnswersFromManifest(opts initOptions, answers codebox.InitAnswers) codebox.InitAnswers {
 	// Clear previous-project values first. If the new root has no manifest,
 	// this leaves each non-flag answer at the built-in default instead of
@@ -913,13 +922,7 @@ func seedInitAnswersFromManifest(opts initOptions, answers codebox.InitAnswers) 
 	if !opts.Set["model"] {
 		if opts.DefaultModel != "" {
 			inheritedKind, _ := codebox.ProviderModelID(manifest.Model)
-			compatible := false
-			for _, provider := range opts.Providers {
-				if provider.Kind == inheritedKind {
-					compatible = true
-					break
-				}
-			}
+			compatible := initProviderKindSelected(opts.Providers, inheritedKind)
 			if manifest.Model != "" && compatible {
 				answers.Model = manifest.Model
 			} else {
@@ -931,6 +934,9 @@ func seedInitAnswersFromManifest(opts initOptions, answers codebox.InitAnswers) 
 	}
 	if !opts.Set["small-model"] {
 		answers.SmallModel = manifest.SmallModel
+		if opts.Set["providers"] && answers.SmallModel != "" && !initProviderKindSelected(opts.Providers, codebox.ModelRefProvider(answers.SmallModel)) {
+			answers.SmallModel = ""
+		}
 	}
 	if !opts.Set["cpus"] {
 		answers.CPUs = manifest.CPUs

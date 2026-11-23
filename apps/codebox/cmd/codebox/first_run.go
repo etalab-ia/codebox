@@ -72,6 +72,13 @@ func combinedFirstRun(opts initOptions, in *bufio.Reader) (int, error) {
 		if err != nil {
 			return 1, err
 		}
+		if !opts.Set["local-server"] {
+			localProviders, err := firstRunLocalProviders(current)
+			if err != nil {
+				return 1, err
+			}
+			providers = append(providers, localProviders...)
+		}
 		opts.Providers = providerSettingsOf(providers)
 		opts.Set["providers"] = true
 
@@ -185,6 +192,9 @@ func firstRunProviderDefaults(ctx context.Context, root string, j *codebox.Setup
 		platforms = append(platforms, codebox.SetupPlatform{
 			Kind: string(provider.Kind), Name: provider.Name, BaseURL: provider.BaseURL, CredentialRef: provider.CredentialRef,
 		})
+		if provider.NoKey {
+			continue
+		}
 		if setupCredentialPresentFn(ctx, setupProviderStoreKind(provider)) {
 			j.CredentialKinds = addCredentialKind(j.CredentialKinds, string(setupProviderStoreKind(provider)))
 		}
@@ -243,9 +253,35 @@ func firstRunDefaultModel(root string, providers []codebox.InferenceProvider) (s
 				return codebox.ProviderModelRef(provider.Kind, model.ID), nil
 			}
 		}
-		return codebox.ProviderModelRef(provider.Kind, models[0].ID), nil
+		for _, model := range models {
+			if model.Type != "text-generation" {
+				continue
+			}
+			return codebox.ProviderModelRef(provider.Kind, model.ID), nil
+		}
+		return "", fmt.Errorf("aucun modèle de conversation vérifiable n'est disponible sur %s ; indiquez un modèle explicite avec --model ou 'codebox init --advanced'", provider.Name)
 	}
 	return "", fmt.Errorf("aucun modèle par défaut n'est disponible pour la plateforme choisie ; choisissez un modèle avec 'codebox init --advanced'")
+}
+
+// firstRunLocalProviders preserves auxiliary local small-model connections,
+// which are intentionally absent from the remote-provider selection screen.
+// They are appended after credential collection so no local key is requested.
+func firstRunLocalProviders(current []codebox.SetupPlatform) ([]codebox.InferenceProvider, error) {
+	var providers []codebox.InferenceProvider
+	for _, platform := range current {
+		if platform.Kind != string(codebox.ProviderLocal) {
+			continue
+		}
+		provider, err := codebox.ResolveProvider(codebox.ProviderSettings{
+			Kind: codebox.ProviderKind(platform.Kind), Name: platform.Name, BaseURL: platform.BaseURL, CredentialRef: platform.CredentialRef,
+		})
+		if err != nil {
+			return nil, err
+		}
+		providers = append(providers, provider)
+	}
+	return providers, nil
 }
 
 // mergeFirstRunMachineProviders updates the selected provider connections while
