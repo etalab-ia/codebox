@@ -460,7 +460,7 @@ func TestAskInitAdvancedHuhSubmitKeepsDefaults(t *testing.T) {
 	runInitAdvancedForm = func(form *huh.Form) (bool, error) {
 		picker := form.GetFocusedField().(*huh.Select[string])
 		picker.Focus()
-		for i := 0; i < 5; i++ {
+		for i := 0; i < 6; i++ {
 			picker.Update(tea.KeyPressMsg{Code: tea.KeyDown})
 		}
 		picker.Update(tea.KeyPressMsg{Code: tea.KeyEnter})

@@ -210,9 +210,17 @@ func TestCombinedHuhDefaultsAreEmptyAndNumbered(t *testing.T) {
 	if len(views) != 4 {
 		t.Fatalf("combined project forms = %d, want harness, runtime, skills and MCP", len(views))
 	}
-	for i, title := range []string{"[3/6] Agent (harnais)", "[4/6] Machine isolée", "[5/6] Skills (facultatif)", "[6/6] MCP (facultatif)"} {
-		if !strings.Contains(views[i], title) {
-			t.Errorf("screen %d missing %q:\n%s", i, title, views[i])
+	for _, tc := range []struct {
+		got  string
+		want string
+	}{
+		{got: initHarnessStepTitle(opts), want: "[3/6] Agent (harnais)"},
+		{got: initVMStepTitle(opts), want: "[4/6] Machine isolée"},
+		{got: initSkillsStepTitle(opts), want: "[5/6] "},
+		{got: initMCPStepTitle(opts), want: "[6/6] MCP (facultatif)"},
+	} {
+		if tc.got != tc.want {
+			t.Errorf("combined title = %q, want %q", tc.got, tc.want)
 		}
 	}
 	for _, view := range views {
