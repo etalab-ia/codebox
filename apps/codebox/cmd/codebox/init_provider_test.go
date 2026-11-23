@@ -862,7 +862,10 @@ func TestReconcileInitProviderPreservesGlobalDefaultModelOnPartialPickerSubset(t
 		t.Fatal(err)
 	}
 	setting := codebox.ProviderSettings{Kind: mistral.Kind, Name: mistral.Name, BaseURL: mistral.BaseURL}
-	_ = reconcileInitProviderAnswer(context.Background(), initOptions{}, codebox.InitAnswers{}, mistral, setting, "", false)
+	got := reconcileInitProviderAnswer(context.Background(), initOptions{}, codebox.InitAnswers{}, mistral, setting, "", false)
+	if got.Model != "mistral/mistral-large-latest" {
+		t.Fatalf("fresh project Model = %q, want saved DefaultModel mistral/mistral-large-latest", got.Model)
+	}
 
 	us, err := codebox.ReadUserSettings(codebox.DefaultFS, settingsPath)
 	if err != nil {

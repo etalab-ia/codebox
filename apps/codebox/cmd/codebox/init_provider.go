@@ -388,7 +388,7 @@ func reconcileInitProviderAnswer(ctx context.Context, opts initOptions, answers 
 			if !opts.Set["model"] {
 				cur := strings.TrimSpace(answers.Model)
 				if cur == "" {
-					answers.Model = refs[0]
+					answers.Model = defaultNonAlbertModelRef(chosen, refs, authoritative)
 				} else if authoritative {
 					if curKind, _ := codebox.ProviderModelID(cur); curKind == chosen.Kind && !containsString(refs, cur) {
 						answers.Model = refs[0]
@@ -405,6 +405,25 @@ func reconcileInitProviderAnswer(ctx context.Context, opts initOptions, answers 
 		}
 	}
 	return answers
+}
+
+// defaultNonAlbertModelRef picks the initial model for a fresh project on a
+// non-Albert provider: it honors UserSettings.DefaultModel when that default
+// belongs to the same saved endpoint (and is present in an authoritative live
+// catalogue), falling back to refs[0] otherwise.
+func defaultNonAlbertModelRef(chosen codebox.InferenceProvider, refs []string, authoritative bool) string {
+	if settingsPath, err := codebox.UserSettingsPath(); err == nil {
+		if us, rerr := codebox.ReadUserSettings(codebox.DefaultFS, settingsPath); rerr == nil && savedProviderMatchesEndpoint(us.Providers, chosen) {
+			if dm := strings.TrimSpace(us.DefaultModel); dm != "" {
+				if dmKind, _ := codebox.ProviderModelID(dm); dmKind == chosen.Kind {
+					if !authoritative || containsString(refs, dm) {
+						return dm
+					}
+				}
+			}
+		}
+	}
+	return refs[0]
 }
 
 // mergeProjectRemoteProvider sets the chosen remote provider on answers while
