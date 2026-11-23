@@ -116,7 +116,8 @@ func TestPrintInitIntroEOFStopsBeforeInit(t *testing.T) {
 }
 
 func TestInitSetupOfferRunsSetupBeforeContinuing(t *testing.T) {
-	originalCheck, originalSetup := initAlbertCredentialCheckFn, runInitSetupFn
+	originalCompleted, originalCheck, originalSetup := setupCompletedFn, initAlbertCredentialCheckFn, runInitSetupFn
+	setupCompletedFn = func() (bool, error) { return false, nil }
 	initAlbertCredentialCheckFn = func() error { return codebox.ErrCredentialNotFound }
 	setupCalled := false
 	runInitSetupFn = func(bool) (int, error) {
@@ -124,7 +125,7 @@ func TestInitSetupOfferRunsSetupBeforeContinuing(t *testing.T) {
 		return 0, nil
 	}
 	t.Cleanup(func() {
-		initAlbertCredentialCheckFn, runInitSetupFn = originalCheck, originalSetup
+		setupCompletedFn, initAlbertCredentialCheckFn, runInitSetupFn = originalCompleted, originalCheck, originalSetup
 	})
 
 	out := captureStdout(t, func() {
@@ -142,14 +143,15 @@ func TestInitSetupOfferRunsSetupBeforeContinuing(t *testing.T) {
 }
 
 func TestInitSetupOfferCanBeDeclinedWithoutError(t *testing.T) {
-	originalCheck, originalSetup := initAlbertCredentialCheckFn, runInitSetupFn
+	originalCompleted, originalCheck, originalSetup := setupCompletedFn, initAlbertCredentialCheckFn, runInitSetupFn
+	setupCompletedFn = func() (bool, error) { return false, nil }
 	initAlbertCredentialCheckFn = func() error { return codebox.ErrCredentialNotFound }
 	runInitSetupFn = func(bool) (int, error) {
 		t.Fatal("declining must not launch setup")
 		return 1, nil
 	}
 	t.Cleanup(func() {
-		initAlbertCredentialCheckFn, runInitSetupFn = originalCheck, originalSetup
+		setupCompletedFn, initAlbertCredentialCheckFn, runInitSetupFn = originalCompleted, originalCheck, originalSetup
 	})
 
 	out := captureStdout(t, func() {

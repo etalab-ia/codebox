@@ -132,8 +132,7 @@ func TestEligibleSavedProviderEnforcesProviderAndHostBinding(t *testing.T) {
 }
 
 func TestInitSetupNeededRecognizesCompletedNonAlbertSetup(t *testing.T) {
-	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
-	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	setupTestEnv(t)
 	t.Setenv("ALBERT_API_KEY", "")
 
 	origCheck := initAlbertCredentialCheckFn
@@ -151,9 +150,13 @@ func TestInitSetupNeededRecognizesCompletedNonAlbertSetup(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	mistral, err := codebox.ResolveProvider(codebox.ProviderSettings{Kind: codebox.ProviderMistral})
+	if err != nil {
+		t.Fatal(err)
+	}
 	if err := codebox.WriteUserSettings(codebox.DefaultFS, settingsPath, codebox.UserSettings{
 		SchemaVersion: 1,
-		Providers:     []codebox.ProviderSettings{{Kind: codebox.ProviderMistral, CredentialRef: "provider-mistral-api.mistral.ai"}},
+		Providers:     []codebox.ProviderSettings{{Kind: codebox.ProviderMistral, CredentialRef: codebox.ProviderCredentialRef(mistral)}},
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -165,8 +168,7 @@ func TestInitSetupNeededRecognizesCompletedNonAlbertSetup(t *testing.T) {
 
 func TestCombinedFirstRunFreshMachineAndProject(t *testing.T) {
 	clearLaunchChoiceEnv(t)
-	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
-	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	setupTestEnv(t)
 	stubCatalogueCheck(t, func(string, string) (string, error) { return "", nil })
 	stubProjectSkills(t)
 
