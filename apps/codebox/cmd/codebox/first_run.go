@@ -79,6 +79,10 @@ func combinedFirstRun(opts initOptions, in *bufio.Reader) (int, error) {
 			}
 			providers = append(providers, localProviders...)
 		}
+		j.SetPlatforms(providers)
+		if err := codebox.WriteSetupJournal(fs, stateDir, j); err != nil {
+			return 1, err
+		}
 		opts.Providers = providerSettingsOf(providers)
 		opts.Set["providers"] = true
 
@@ -159,15 +163,17 @@ func firstRunWelcome(root string) error {
 // Credential values are never read here: only their presence is recorded.
 func firstRunProviderDefaults(ctx context.Context, opts initOptions, j *codebox.SetupJournal) ([]codebox.SetupPlatform, error) {
 	root := opts.Root
-	if len(j.Platforms) > 0 {
-		return append([]codebox.SetupPlatform(nil), j.Platforms...), nil
-	}
 	var settings []codebox.ProviderSettings
+	if len(j.Platforms) > 0 {
+		settings = j.PlatformSettings()
+	}
 	fromManifest := false
-	if pc, err := codebox.DiscoverProject(root); err == nil {
-		if manifest, err := codebox.ReadProjectManifest(codebox.DefaultFS, codebox.ProjectManifestPath(pc.Root)); err == nil && len(manifest.Providers) > 0 {
-			settings = append(settings, manifest.Providers...)
-			fromManifest = true
+	if len(settings) == 0 {
+		if pc, err := codebox.DiscoverProject(root); err == nil {
+			if manifest, err := codebox.ReadProjectManifest(codebox.DefaultFS, codebox.ProjectManifestPath(pc.Root)); err == nil && len(manifest.Providers) > 0 {
+				settings = append(settings, manifest.Providers...)
+				fromManifest = true
+			}
 		}
 	}
 	if fromManifest {
@@ -315,6 +321,9 @@ func mergeFirstRunMachineProviders(selected []codebox.InferenceProvider) []codeb
 	var existing []codebox.ProviderSettings
 	if us, ok := currentUserSettings(); ok {
 		existing = append(existing, us.Providers...)
+	}
+	if len(existing) == 0 {
+		existing = codebox.DefaultProviderSettings()
 	}
 	merged := append([]codebox.ProviderSettings(nil), existing...)
 	for _, provider := range selected {

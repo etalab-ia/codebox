@@ -514,6 +514,107 @@ func TestCombinedFirstRunLocalServerFlagRepairsInheritedApproval(t *testing.T) {
 	}
 }
 
+func TestMergeFirstRunMachineProvidersMaterializesImplicitAlbert(t *testing.T) {
+	setupTestEnv(t)
+	settingsPath, err := codebox.UserSettingsPath()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := codebox.WriteUserSettings(codebox.DefaultFS, settingsPath, codebox.UserSettings{
+		SchemaVersion: 2,
+		DefaultModel:  "albert/deepseek-v4-flash",
+		Models:        []string{"albert/deepseek-v4-flash"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	selected, err := codebox.ResolveProviders([]codebox.ProviderSettings{{Kind: codebox.ProviderMistral, CredentialRef: "mistral:api.mistral.ai"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	merged := mergeFirstRunMachineProviders(selected)
+	if len(merged) != 2 || merged[0].Kind != codebox.ProviderAlbert || merged[1].Kind != codebox.ProviderMistral {
+		t.Fatalf("implicit Albert was not preserved: %+v", merged)
+	}
+}
+
+func TestCombinedFirstRunRetryPreservesLocalProviders(t *testing.T) {
+	root := initTestProject(t)
+	stateDir, _, initOpts := stubCombinedRunEnvironment(t, true)
+	local := codebox.ProviderSettings{Kind: codebox.ProviderLocal, Name: "Ollama", BaseURL: "http://localhost:11434/v1"}
+	if err := codebox.WriteProjectManifest(codebox.DefaultFS, codebox.ProjectManifestPath(root), codebox.ProjectManifest{
+		SchemaVersion: 8,
+		SmallModel:    "local/qwen2.5:3b",
+		Providers:     []codebox.ProviderSettings{{Kind: codebox.ProviderAlbert}, local},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	settingsPath, err := codebox.UserSettingsPath()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := codebox.WriteUserSettings(codebox.DefaultFS, settingsPath, codebox.UserSettings{
+		SchemaVersion: 2,
+		Providers:     []codebox.ProviderSettings{{Kind: codebox.ProviderAlbert}, local},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	choose := firstRunChoosePlatformsFn
+	firstRunChoosePlatformsFn = func(current []codebox.SetupPlatform, _ *bufio.Reader, _ string) ([]codebox.SetupPlatform, error) {
+		for _, platform := range current {
+			if platform.Kind == string(codebox.ProviderAlbert) {
+				return []codebox.SetupPlatform{platform}, nil
+			}
+		}
+		t.Fatal("Albert provider missing")
+		return nil, nil
+	}
+	t.Cleanup(func() { firstRunChoosePlatformsFn = choose })
+	calls := 0
+	combinedFirstRunInitFn = func(opts initOptions, _ *bufio.Reader, _ bool) (int, error) {
+		calls++
+		if calls == 1 {
+			return 1, errors.New("interrupted")
+		}
+		*initOpts = opts
+		return 0, nil
+	}
+	opts := initOptions{Root: root, Set: map[string]bool{"root": true}}
+	if code, err := combinedFirstRun(opts, bufio.NewReader(strings.NewReader(""))); code != 1 || err == nil {
+		t.Fatalf("first run must interrupt: %d, %v", code, err)
+	}
+	j, err := codebox.ReadSetupJournal(codebox.DefaultFS, stateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	foundJournalLocal := false
+	for _, platform := range j.Platforms {
+		if platform.Kind == string(codebox.ProviderLocal) {
+			foundJournalLocal = true
+		}
+	}
+	if !foundJournalLocal {
+		t.Fatalf("local provider missing from recovery journal: %+v", j.Platforms)
+	}
+	retryOpts := initOptions{Root: root, Set: map[string]bool{"root": true}}
+	code, err := combinedFirstRun(retryOpts, bufio.NewReader(strings.NewReader("")))
+	if err != nil || code != 0 {
+		t.Fatalf("retry = %d, %v", code, err)
+	}
+	foundLocal := false
+	for _, provider := range initOpts.Providers {
+		if provider.Kind == codebox.ProviderLocal && provider.BaseURL == local.BaseURL {
+			foundLocal = true
+		}
+	}
+	if !foundLocal {
+		t.Fatalf("retry dropped local provider: %+v", initOpts.Providers)
+	}
+	answers := seedInitAnswersFromManifest(*initOpts, codebox.InitAnswers{Root: root})
+	if answers.SmallModel != "local/qwen2.5:3b" {
+		t.Fatalf("retry dropped local small model: %q", answers.SmallModel)
+	}
+}
+
 func TestCombinedFirstRunExplicitModelSkipsCatalogue(t *testing.T) {
 	root := initTestProject(t)
 	stateDir, _, initOpts := stubCombinedRunEnvironment(t, false)
