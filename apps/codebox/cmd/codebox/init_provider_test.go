@@ -665,3 +665,44 @@ func TestReconcileInitProviderSetsAlbertDefaultWhenGlobalDefaultIsNonAlbert(t *t
 		t.Fatalf("Albert project with non-Albert global default must get an Albert model, got %q", got.Model)
 	}
 }
+
+func TestDiscoverNonAlbertModelRefsFetchesLiveModelsForDifferentEndpointPath(t *testing.T) {
+	setupTestEnv(t)
+	origModels := initProviderModelsFn
+	t.Cleanup(func() { initProviderModelsFn = origModels })
+
+	settingsPath, err := codebox.UserSettingsPath()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := codebox.WriteUserSettings(codebox.DefaultFS, settingsPath, codebox.UserSettings{
+		SchemaVersion: 1,
+		Models:        []string{"openai-compatible/team-a-only-model"},
+		Providers: []codebox.ProviderSettings{{
+			Kind:    codebox.ProviderOpenAICompatible,
+			Name:    "Team A",
+			BaseURL: "https://gateway.example/team-a/v1",
+		}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	initProviderModelsFn = func(_ context.Context, p codebox.InferenceProvider, _ string) ([]codebox.CatalogueModel, error) {
+		if p.BaseURL == "https://gateway.example/team-b/v1" {
+			return []codebox.CatalogueModel{{ID: "team-b-chat-model", Type: "text-generation"}}, nil
+		}
+		return nil, nil
+	}
+	teamB, err := codebox.ResolveProvider(codebox.ProviderSettings{
+		Kind:    codebox.ProviderOpenAICompatible,
+		Name:    "Team B",
+		BaseURL: "https://gateway.example/team-b/v1",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	refs := discoverNonAlbertModelRefs(context.Background(), teamB, "", false)
+	if len(refs) != 1 || refs[0] != "openai-compatible/team-b-chat-model" {
+		t.Fatalf("different endpoint path must fetch its own models instead of reusing team-a cache, got %v", refs)
+	}
+}

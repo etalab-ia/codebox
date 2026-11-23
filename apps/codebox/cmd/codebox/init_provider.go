@@ -265,16 +265,36 @@ func defaultAlbertModelRef() string {
 	return "albert/deepseek-v4-flash"
 }
 
+// savedProviderMatchesEndpoint reports whether saved contains a provider entry
+// for chosen.Kind with the exact same normalized base URL as chosen.
+func savedProviderMatchesEndpoint(saved []codebox.ProviderSettings, chosen codebox.InferenceProvider) bool {
+	wantURL := strings.TrimRight(strings.TrimSpace(chosen.BaseURL), "/")
+	for _, entry := range saved {
+		if entry.Kind != chosen.Kind {
+			continue
+		}
+		resolved, err := codebox.ResolveProvider(entry)
+		if err != nil {
+			continue
+		}
+		if strings.EqualFold(strings.TrimRight(strings.TrimSpace(resolved.BaseURL), "/"), wantURL) {
+			return true
+		}
+	}
+	return false
+}
+
 // discoverNonAlbertModelRefs returns provider-qualified chat-capable model refs
-// (e.g. "mistral/<id>") from existing UserSettings.Models or from the
-// provider's live catalogue when newly connected or not yet populated.
+// (e.g. "mistral/<id>") from existing UserSettings.Models (only when the
+// saved provider entry matches chosen's base URL) or from the provider's live
+// catalogue when newly connected or targeting a different endpoint path.
 func discoverNonAlbertModelRefs(ctx context.Context, chosen codebox.InferenceProvider, apiKey string, forceRefresh bool) []string {
 	if chosen.Kind == codebox.ProviderAlbert {
 		return nil
 	}
 	if !forceRefresh {
 		if settingsPath, err := codebox.UserSettingsPath(); err == nil {
-			if us, rerr := codebox.ReadUserSettings(codebox.DefaultFS, settingsPath); rerr == nil {
+			if us, rerr := codebox.ReadUserSettings(codebox.DefaultFS, settingsPath); rerr == nil && savedProviderMatchesEndpoint(us.Providers, chosen) {
 				if ids := codebox.ProviderModelIDs(us.Models, chosen.Kind); len(ids) > 0 {
 					refs := make([]string, 0, len(ids))
 					for _, id := range ids {
@@ -344,8 +364,18 @@ func reconcileInitProviderAnswer(ctx context.Context, opts initOptions, answers 
 			answers.CredentialRef = ""
 		}
 		if refs := discoverNonAlbertModelRefs(ctx, chosen, apiKey, forceModelRefresh); len(refs) > 0 {
-			if err := persistMachineProviderModels(chosen.Kind, refs); err != nil {
-				fmt.Fprintf(os.Stderr, "Attention : les modèles de %s n'ont pas pu être enregistrés : %v\n", chosen.Name, err)
+			shouldPersistModels := forceModelRefresh
+			if !shouldPersistModels {
+				if settingsPath, err := codebox.UserSettingsPath(); err == nil {
+					if us, rerr := codebox.ReadUserSettings(codebox.DefaultFS, settingsPath); rerr == nil {
+						shouldPersistModels = savedProviderMatchesEndpoint(us.Providers, chosen)
+					}
+				}
+			}
+			if shouldPersistModels {
+				if err := persistMachineProviderModels(chosen.Kind, refs); err != nil {
+					fmt.Fprintf(os.Stderr, "Attention : les modèles de %s n'ont pas pu être enregistrés : %v\n", chosen.Name, err)
+				}
 			}
 			if !opts.Set["model"] && strings.TrimSpace(answers.Model) == "" {
 				answers.Model = refs[0]
