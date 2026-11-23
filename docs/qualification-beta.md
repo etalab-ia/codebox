@@ -37,10 +37,10 @@ de démarrage d'une microVM sur l'hyperviseur natif.
    unitaires par architecture. Ne lancer `go -C apps/codebox test ./...` que depuis un
    checkout contributeur avec Go et les outils C requis; son absence sur un
    poste d'atelier ne bloque pas le test du binaire installé.
-4. Avec un projet Git jetable, tester le parcours utilisateur vide :
-   `codebox init`, puis lancer `codebox --microsandbox --isolation full`.
-   Après démarrage, exécuter `codebox check --isolation full`. Vérifier que
-   le TUI tourne dans l'invité et que `/workspace` est invité, pas un montage
+4. Avec un projet Git jetable, tester le parcours utilisateur vide : lancer
+   `codebox`, répondre au parcours combiné, puis vérifier le démarrage en
+   isolation `full`. Exécuter ensuite `codebox check --isolation full`. Vérifier
+   que le TUI tourne dans l'invité et que `/workspace` est invité, pas un montage
    du checkout hôte.
 5. Créer un fichier-canari non secret dans le checkout hôte et un fichier
    `.env` factice contenant `ALBERT_API_KEY=host-canary-not-a-secret`. Après
@@ -73,6 +73,35 @@ de démarrage d'une microVM sur l'hyperviseur natif.
     un cycle start/stop/reprise séparément : Tart sur macOS arm64 ; agent-vm sur
     macOS/Linux avec Lima. Aucun résultat de ces runtimes ne qualifie
     Microsandbox.
+
+## Parcours combiné du premier lancement (#461)
+
+Ces parcours complètent le cycle général avec des captures des écrans réels. Le
+checkout, le `HOME` et les deux projets sont jetables ; aucune capture ne contient
+de clé, de jeton ou de chemin privé.
+
+1. **Poste et projet neufs.** Lancer `codebox` dans le premier projet. Capturer
+   les six écrans : accueil, plateforme/clé, agent, machine, skills et MCP.
+   Vérifier l'absence de sélection de modèle, de question sur le stockage des
+   skills et d'écran de revue. Valider des sélections skills/MCP vides. Le
+   manifeste est écrit avant le téléchargement du runtime, qui ne commence qu'au
+   lancement effectif de l'agent.
+2. **Second projet sur le même poste.** Dans un second projet, choisir une
+   plateforme déjà enregistrée : la clé n'est pas redemandée. Vérifier que le
+   manifeste contient la plateforme du projet et que les autres connexions du
+   poste sont conservées. Si possible, choisir une plateforme différente de celle
+   du premier projet pour démontrer leur indépendance.
+3. **Reprise après interruption.** Interrompre après la plateforme mais avant
+   l'application du projet, puis relancer. La clé enregistrée n'est pas
+   redemandée et le journal permet de terminer ; après succès, il est supprimé.
+4. **Reconfiguration et réglages avancés.** Sur un projet existant, vérifier que
+   les choix et les approbations sont préservés. Ouvrir `codebox init --advanced`
+   pour modifier le stockage des skills, le modèle, l'isolation ou les ressources,
+   qui restent absents du parcours par défaut.
+5. **Script.** Sans terminal, `codebox init --root <projet>` sans `--yes` refuse
+   d'écrire et ne lit pas de réponses sur stdin. La commande équivalente avec
+   `--provider`, les autres options nécessaires et `--yes` applique la
+   configuration sans invite.
 
 ## Protocoles par plateforme
 

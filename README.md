@@ -70,11 +70,16 @@ $env:ALBERT_API_KEY = "ta-clé"
 codebox
 ```
 
-`codebox` sans argument utilise **Microsandbox en isolation `full`** : l'agent, sa TUI et ses identifiants tournent dans la microVM, dont l'espace de travail est scellé (aucun fichier de l'hôte n'y est monté). `--tart` et `--agent-vm` restent disponibles explicitement, par flag ou via `RUNTIME`.
+Le premier `codebox` ouvre six écrans courts : accueil, plateforme et clé, agent,
+machine isolée, skills et MCP. La plateforme est choisie par projet, tandis que
+les clés restent enregistrées sur le poste et peuvent être réutilisées. Le
+runtime est téléchargé au lancement.
+
+`codebox` sans argument utilise ensuite **Microsandbox en isolation `full`** : l'agent, sa TUI et ses identifiants tournent dans la microVM, dont l'espace de travail est scellé (aucun fichier de l'hôte n'y est monté). `--tart` et `--agent-vm` restent disponibles explicitement, par flag ou via `RUNTIME`.
 
 La commande prépare l'espace de travail de l'invité, démarre l'agent et attache la TUI OpenCode native. Le premier démarrage d'un sandbox Microsandbox installe ~384 Mio de paquets dans la microVM et peut dépasser largement une minute ; les démarrages suivants sont rapides.
 
-Pour rendre la clé persistante et enregistrer le runtime, le workspace ou d'autres réglages, consulte la page [Configuration](docs/config.md).
+Pour gérer les connexions du poste, le modèle par défaut, le workspace ou les réglages avancés, consulte la page [Configuration](docs/config.md).
 
 Une fois attaché, ces prompts exercent les dimensions clés de l'expérience :
 

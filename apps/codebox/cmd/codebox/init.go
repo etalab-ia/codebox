@@ -44,22 +44,18 @@ func initCmd(args []string) (int, error) {
 		return 2, err
 	}
 	tty := initTTYFn()
+	if !tty && !opts.Yes {
+		return 1, fmt.Errorf("la configuration sans terminal n'accepte pas de réponses sur stdin ; fournissez les options nécessaires et --yes pour appliquer")
+	}
 	if tty && !opts.Yes && !initStdoutTTYFn() {
 		return 1, fmt.Errorf("la configuration interactive exige que la sortie standard soit un terminal ; elle est redirigée ou pointe vers %s", os.DevNull)
 	}
 	if tty && !opts.Yes {
 		opts = initOptionsWithDisplayedRoot(opts)
-		// Keep the preflight offer's reader from consuming input intended for
-		// setup's own raw-terminal intro. A one-byte buffer avoids read-ahead.
+		// Keep one reader for any legacy credential-stage fallback. The combined
+		// interactive flow itself is Huh-only; scripts use flags and --yes.
 		in := bufio.NewReaderSize(os.Stdin, 1)
-		proceed, code, err := ensureInitSetup(in)
-		if err != nil || !proceed {
-			return code, err
-		}
-		if !printInitIntro(opts.Root, in) {
-			return 1, fmt.Errorf("annulé ; rien n'a été écrit")
-		}
-		return initRun(opts, in, tty)
+		return combinedFirstRunFn(opts, in)
 	}
 	return initRun(opts, bufio.NewReader(os.Stdin), tty)
 }
@@ -181,6 +177,7 @@ type initOptions struct {
 	CPUs            int
 	MemoryMB        int
 	CredentialRef   string
+	Providers       []codebox.ProviderSettings
 	GitHub          bool
 	Skills          []string
 	MCPConnectors   []string
@@ -191,6 +188,9 @@ type initOptions struct {
 	// questions and before the configuration is applied (#333). It has no
 	// effect on non-interactive runs.
 	Advanced bool
+	// Combined selects the approved six-screen first-run defaults. It changes
+	// presentation only; planning, application and trust checks stay shared.
+	Combined bool
 	// FromLaunch records that the launch flow is driving the setup, which only
 	// changes the closing message.
 	FromLaunch   bool
@@ -311,6 +311,19 @@ func parseInitArgs(args []string) (initOptions, error) {
 				return opts, err
 			}
 			opts.LocalServer, opts.Set["local-server"] = v, true
+		case a == "--provider":
+			v, err := value()
+			if err != nil {
+				return opts, err
+			}
+			kind := codebox.ProviderKind(v)
+			switch kind {
+			case codebox.ProviderAlbert, codebox.ProviderMistral, codebox.ProviderOpenAICompatible:
+			default:
+				return opts, fmt.Errorf("--provider accepte albert, mistral ou openai-compatible, reçu %q", v)
+			}
+			opts.Providers = append(opts.Providers, codebox.ProviderSettings{Kind: kind})
+			opts.Set["providers"] = true
 		case a == "--credential-ref":
 			v, err := value()
 			if err != nil {
@@ -361,6 +374,7 @@ func initRun(opts initOptions, in *bufio.Reader, tty bool) (code int, err error)
 		CPUs:               opts.CPUs,
 		MemoryMB:           opts.MemoryMB,
 		CredentialRef:      opts.CredentialRef,
+		Providers:          append([]codebox.ProviderSettings(nil), opts.Providers...),
 		GitHubWorkflow:     opts.GitHub,
 		Skills:             opts.Skills,
 		MCPConnectors:      opts.MCPConnectors,
@@ -841,6 +855,9 @@ func seedInitAnswersFromManifest(opts initOptions, answers codebox.InitAnswers) 
 	if !opts.Set["credential-ref"] {
 		answers.CredentialRef = ""
 	}
+	if !opts.Set["providers"] {
+		answers.Providers = nil
+	}
 	if !opts.Set["github"] {
 		answers.GitHubWorkflow = false
 	}
@@ -893,7 +910,9 @@ func seedInitAnswersFromManifest(opts initOptions, answers codebox.InitAnswers) 
 	if !opts.Set["credential-ref"] {
 		answers.CredentialRef = manifest.CredentialRef
 	}
-	answers.Providers = append([]codebox.ProviderSettings(nil), manifest.Providers...)
+	if !opts.Set["providers"] {
+		answers.Providers = append([]codebox.ProviderSettings(nil), manifest.Providers...)
+	}
 	if !opts.Set["mcps"] {
 		answers.MCPConnectors = append([]string(nil), manifest.MCPConnectors...)
 	}
@@ -930,6 +949,31 @@ func resolveInitProviders(opts initOptions, answers codebox.InitAnswers) (codebo
 			filteredUser = append(filteredUser, p)
 		}
 		effectiveUserSettings = append(filteredUser, localPS)
+	}
+	if opts.Set["providers"] {
+		available := effectiveUserSettings
+		if len(available) == 0 {
+			available = codebox.DefaultProviderSettings()
+		}
+		selected := make([]codebox.ProviderSettings, 0, len(answers.Providers))
+		for _, requested := range answers.Providers {
+			if requested.Name != "" || requested.BaseURL != "" {
+				selected = append(selected, requested)
+				continue
+			}
+			found := false
+			for _, candidate := range available {
+				if candidate.Kind == requested.Kind {
+					selected = append(selected, candidate)
+					found = true
+					break
+				}
+			}
+			if !found {
+				return answers, fmt.Errorf("la plateforme %s n'est pas configurée sur ce poste ; lancez 'codebox setup' ou choisissez une plateforme enregistrée", requested.Kind)
+			}
+		}
+		answers.Providers = selected
 	}
 	if len(answers.Providers) == 0 {
 		providers, err := codebox.ResolveProviders(effectiveUserSettings)
@@ -1046,7 +1090,9 @@ func reseedInitAnswersForRootChange(opts initOptions, answers codebox.InitAnswer
 	if newRoot == answers.Root {
 		return answers, nil
 	}
-	answers.Providers = nil
+	if !opts.Set["providers"] {
+		answers.Providers = nil
+	}
 	answers.Root = newRoot
 	answers = seedInitAnswersFromManifest(opts, answers)
 	return resolveInitProviders(opts, answers)
@@ -2189,7 +2235,9 @@ Options :
                           'auto' (ports 11434, 1234, 8080), un port ou http://localhost:<port>/v1
   --cpus <n>              processeurs de la machine isolée (maximum : la capacité détectée du poste)
   --memory-mb <size>      mémoire de la machine isolée en MiB ou GiB (ex. 4096, 4G, 2.5G ; maximum : la RAM détectée du poste)
-  --credential-ref <ref>  référence d'identifiant du projet (par défaut : la référence globale)
+  --credential-ref <ref>  référence d'identifiant Albert du projet (par défaut : la référence globale)
+  --provider <kind>       plateforme du projet, répétable : albert, mistral ou
+                          openai-compatible ; utilise une connexion enregistrée sur le poste
   --github                autoriser l'envoi des modifications vers le dépôt GitHub du projet
   --skill <id>            sélectionner une skill exacte du catalogue (répétable ; ex. official/rgaa)
   --clear-skills          retirer toutes les skills gérées du projet
@@ -2198,10 +2246,11 @@ Options :
   --local-only-skills     garder la sélection et les épinglages de skills dans l'état du poste, pas dans le dépôt
   --versioned-skills      enregistrer la sélection et les épinglages de skills dans .codebox/
   --replace               autoriser le remplacement d'un manifeste existant
-  --yes, -y               accepter la revue sans demander
+  --yes, -y               appliquer la configuration sans parcours interactif
 
-Sans terminal, la commande n'attend jamais : elle échoue et nomme les entrées
-manquantes, afin qu'un script puisse les fournir à l'exécution suivante.
+Sans terminal, stdin n'est pas un second mode de questions : fournissez les
+options nécessaires et --yes. La commande n'attend jamais de réponse et nomme
+les entrées manquantes pour que les scripts et la CI puissent les ajouter.
 `)
 }
 
@@ -2267,39 +2316,11 @@ func offerProjectInitWithReader(projectRoot string, parsed parsedArgs, given *bu
 		return false, 1, fmt.Errorf("la configuration interactive du projet exige que la sortie standard soit un terminal ; elle est redirigée ou pointe vers %s", os.DevNull)
 	}
 
-	fmt.Printf("Ce projet n'a pas encore de configuration codebox (%s).\n", codebox.ProjectManifestPath(projectRoot))
-	// One reader for both steps: a line the user typed ahead (or a piped
-	// answer list) must not be split between two buffers.
 	in := given
 	if in == nil {
 		in = bufio.NewReader(os.Stdin)
 	}
-	if tty && wizardHuhFn() {
-		proceed, err := huhConfirm("Configurer ce projet maintenant ?", "Ce projet n'a pas encore de configuration codebox. L'assistant écrit le manifeste du projet.", true)
-		if err != nil {
-			return false, 1, fmt.Errorf("projet non configuré : rien n'a été écrit. Lancez 'codebox init' quand vous voudrez le configurer")
-		}
-		if !proceed {
-			return false, 1, fmt.Errorf("projet non configuré : rien n'a été écrit. Lancez 'codebox init' quand vous voudrez le configurer")
-		}
-		if !printInitIntro(projectRoot, in) {
-			return false, 1, fmt.Errorf("projet non configuré : rien n'a été écrit. Lancez 'codebox init' quand vous voudrez le configurer")
-		}
-		code, err = initRun(initOptions{Root: projectRoot, FromLaunch: true, Set: map[string]bool{"root": true}}, nil, true)
-		if err != nil || code != 0 {
-			return false, code, err
-		}
-		return true, 0, nil
-	}
-	answer, _ := promptLine(in, "Configurer maintenant ? [O/n] : ")
-	switch strings.ToLower(strings.TrimSpace(answer)) {
-	case "n", "non", "no":
-		return false, 1, fmt.Errorf("projet non configuré : rien n'a été écrit. Lancez 'codebox init' quand vous voudrez le configurer")
-	}
-	if !printInitIntro(projectRoot, in) {
-		return false, 1, fmt.Errorf("projet non configuré : rien n'a été écrit. Lancez 'codebox init' quand vous voudrez le configurer")
-	}
-	code, err = initRun(initOptions{Root: projectRoot, FromLaunch: true, Set: map[string]bool{"root": true}}, in, true)
+	code, err = combinedFirstRunFn(initOptions{Root: projectRoot, FromLaunch: true, Set: map[string]bool{"root": true}}, in)
 	if err != nil || code != 0 {
 		return false, code, err
 	}

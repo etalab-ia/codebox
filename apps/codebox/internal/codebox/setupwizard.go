@@ -440,6 +440,12 @@ func (w SetupWizard) SaveSettings(model string, models []string, modelChosen boo
 	return WriteSetupJournal(w.FS, w.StateDir, j)
 }
 
+// CompleteSetup marks machine configuration complete. Runtime download is a
+// launch concern: it must not be a separate setup stage (#461).
+func (w SetupWizard) CompleteSetup() error {
+	return RemoveSetupJournal(w.FS, w.StateDir)
+}
+
 // InstallRuntime installs the managed runtime (resumable: a trusted
 // installation is a no-op) and completes setup.
 func (w SetupWizard) InstallRuntime(ctx context.Context) error {

@@ -77,16 +77,23 @@ l'invité ; confirmer la perte avant de l'exécuter.
 
 ## Configurer la machine (`setup`)
 
-`codebox setup` prépare la machine en une passe guidée : diagnostic
-(plateforme, virtualisation, disque — lecture seule) → écran d'introduction
-(parcours annoncé, Entrée pour commencer) → plateformes d'inférence (Albert
-API, Mistral AI, plateforme compatible OpenAI ; Albert pré-cochée, au moins une
-exigée) → une clé par plateforme (masquée, validée contre la plateforme ; rejet,
-indisponibilité réseau et réponse non compatible distincts) → sélection des
-modèles groupés par plateforme et d'un seul modèle par défaut → identifiant
-GitHub optionnel → identité git → consentement aux statistiques d'usage → revue
-→ application (réglages globaux + runtime managé). Le consentement et les
-données concernées sont décrits dans [Statistiques d'usage](stats.md).
+Le premier `codebox` dans un projet, comme `codebox init` en interactif, utilise
+un parcours combiné de six écrans : accueil, plateforme et clé, agent, machine
+isolée, skills, puis MCP. Le choix de la plateforme est fait pour chaque projet ;
+les clés déjà enregistrées sur le poste sont réutilisables sans être resaisies.
+Aucune skill ni aucun MCP n'est présélectionné et une sélection vide est validée
+directement. GitHub n'est demandé que si le projet a une origine distante. Le
+modèle, le stockage des skills, l'isolation et les ressources se règlent avec
+`codebox init --advanced`. Le runtime est téléchargé au lancement, pas pendant
+la configuration.
+
+`codebox setup` gère séparément les connexions et les défauts du poste :
+diagnostic (plateforme, virtualisation, disque — lecture seule) → plateformes et
+clés (masquées et validées) → modèles → GitHub optionnel → identité git → revue
+→ application des réglages globaux. Il ne télécharge pas le runtime. Les
+statistiques restent désactivées tant que `codebox stats on` n'a pas été choisi
+explicitement. Les données concernées sont décrites dans
+[Statistiques d'usage](stats.md).
 
 L'ordre suit celui annoncé par l'écran d'introduction : plateformes et clés,
 modèles, puis GitHub. Pour Albert API, l'écran présente les quatre modèles
@@ -125,6 +132,16 @@ codebox setup doctor     # rapport lecture seule, aucune écriture
 codebox setup doctor --json # même rapport, JSON pour automatisation
 codebox setup --fallback # utiliser le magasin fichier consentit
 codebox setup --no-color # sortie terminal simple
+```
+
+Pour un script ou la CI, le parcours interactif n'a pas de second rendu par
+questions sur stdin : il faut fournir les options et `--yes`. `--provider`
+(répétable : `albert`, `mistral`, `openai-compatible`) choisit une connexion
+enregistrée sur le poste pour ce projet. Par exemple :
+
+```bash
+codebox init --root . --provider albert --harness opencode \
+  --runtime microsandbox --clear-skills --clear-mcps --yes
 ```
 
 `codebox setup doctor` rend un rapport séparé par sections : capacité de

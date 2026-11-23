@@ -241,6 +241,15 @@ func stubWizardHuh(t *testing.T) {
 	t.Cleanup(func() { wizardHuhFn = orig })
 }
 
+func stubCombinedFirstRunLegacy(t *testing.T) {
+	t.Helper()
+	original := combinedFirstRunFn
+	combinedFirstRunFn = func(opts initOptions, in *bufio.Reader) (int, error) {
+		return initRun(opts, in, true)
+	}
+	t.Cleanup(func() { combinedFirstRunFn = original })
+}
+
 func initTestProject(t *testing.T) string {
 	t.Helper()
 	stubWizardHuh(t)
@@ -2163,6 +2172,7 @@ func TestOfferProjectInitRespectsExplicitChoices(t *testing.T) {
 // cosmetic: the manifest written by the offer is what the launch then applies.
 func TestOfferProjectInitAppliesWhatItWrote(t *testing.T) {
 	clearLaunchChoiceEnv(t)
+	stubCombinedFirstRunLegacy(t)
 	stubCatalogueCheck(t, func(string, string) (string, error) { return "", nil })
 	stubProjectSkills(t)
 	root := initTestProject(t)
