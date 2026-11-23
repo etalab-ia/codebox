@@ -615,3 +615,53 @@ func TestReconcileInitProviderClearsStaleLegacyAlbertCredentialRef(t *testing.T)
 		t.Fatalf("legacy CredentialRef = %q, want empty so launch uses the newly stored default Albert key", got.CredentialRef)
 	}
 }
+
+func TestDiscoverNonAlbertModelRefsSkipsNonChatModels(t *testing.T) {
+	setupTestEnv(t)
+	origModels := initProviderModelsFn
+	t.Cleanup(func() { initProviderModelsFn = origModels })
+	initProviderModelsFn = func(_ context.Context, _ codebox.InferenceProvider, _ string) ([]codebox.CatalogueModel, error) {
+		return []codebox.CatalogueModel{
+			{ID: "bge-embedding-v1", Type: "text-embeddings-inference"},
+			{ID: "bge-reranker-large"},
+			{ID: "whisper-large-v3"},
+			{ID: "qwen-coder-32b", Type: "text-generation"},
+		}, nil
+	}
+	compat, err := codebox.ResolveProvider(codebox.ProviderSettings{
+		Kind:    codebox.ProviderOpenAICompatible,
+		Name:    "Custom",
+		BaseURL: "https://api.example/v1",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	refs := discoverNonAlbertModelRefs(context.Background(), compat, "secret", true)
+	if len(refs) != 1 || refs[0] != "openai-compatible/qwen-coder-32b" {
+		t.Fatalf("discovered refs = %v, want only chat-capable qwen-coder-32b", refs)
+	}
+}
+
+func TestReconcileInitProviderSetsAlbertDefaultWhenGlobalDefaultIsNonAlbert(t *testing.T) {
+	setupTestEnv(t)
+	settingsPath, err := codebox.UserSettingsPath()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := codebox.WriteUserSettings(codebox.DefaultFS, settingsPath, codebox.UserSettings{
+		SchemaVersion: 1,
+		DefaultModel:  "mistral/mistral-large-latest",
+		Providers:     []codebox.ProviderSettings{{Kind: codebox.ProviderMistral}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	albert, err := codebox.ResolveProvider(codebox.ProviderSettings{Kind: codebox.ProviderAlbert})
+	if err != nil {
+		t.Fatal(err)
+	}
+	setting := codebox.ProviderSettings{Kind: albert.Kind, Name: albert.Name, BaseURL: albert.BaseURL}
+	got := reconcileInitProviderAnswer(context.Background(), initOptions{}, codebox.InitAnswers{}, albert, setting, "", false)
+	if codebox.ModelRefProvider(got.Model) != codebox.ProviderAlbert || got.Model == "" {
+		t.Fatalf("Albert project with non-Albert global default must get an Albert model, got %q", got.Model)
+	}
+}

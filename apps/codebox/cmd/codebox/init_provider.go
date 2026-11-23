@@ -235,9 +235,39 @@ func persistMachineProviderModels(kind codebox.ProviderKind, modelRefs []string)
 	return codebox.WriteUserSettings(codebox.DefaultFS, settingsPath, us)
 }
 
-// discoverNonAlbertModelRefs returns provider-qualified model refs (e.g.
-// "mistral/<id>") from existing UserSettings.Models or from the provider's
-// live catalogue when newly connected or not yet populated.
+// isLikelyNonChatModel excludes catalogue entries that are clearly not chat or
+// text-generation models (embeddings, rerankers, audio, OCR, moderation) so
+// auto-selection never picks an uncallable model for OpenCode or Pi.
+func isLikelyNonChatModel(m codebox.CatalogueModel) bool {
+	if typ := strings.ToLower(strings.TrimSpace(m.Type)); typ != "" {
+		switch typ {
+		case "text-generation", "chat", "image-text-to-text":
+		default:
+			return true
+		}
+	}
+	id := strings.ToLower(strings.TrimSpace(m.ID))
+	for _, token := range []string{"embed", "rerank", "whisper", "tts", "dall-e", "moderation", "ocr"} {
+		if strings.Contains(id, token) {
+			return true
+		}
+	}
+	return false
+}
+
+// defaultAlbertModelRef returns the curated default Albert model reference.
+func defaultAlbertModelRef() string {
+	for _, choice := range codebox.CuratedAlbertModels() {
+		if choice.Default {
+			return "albert/" + choice.OpenCodeID
+		}
+	}
+	return "albert/deepseek-v4-flash"
+}
+
+// discoverNonAlbertModelRefs returns provider-qualified chat-capable model refs
+// (e.g. "mistral/<id>") from existing UserSettings.Models or from the
+// provider's live catalogue when newly connected or not yet populated.
 func discoverNonAlbertModelRefs(ctx context.Context, chosen codebox.InferenceProvider, apiKey string, forceRefresh bool) []string {
 	if chosen.Kind == codebox.ProviderAlbert {
 		return nil
@@ -260,30 +290,48 @@ func discoverNonAlbertModelRefs(ctx context.Context, chosen codebox.InferencePro
 		return nil
 	}
 	seen := map[string]bool{}
-	refs := make([]string, 0, len(models))
+	var preferred, fallback []string
 	for _, m := range models {
 		id := strings.TrimSpace(m.ID)
-		if id == "" {
+		if id == "" || isLikelyNonChatModel(m) {
 			continue
 		}
 		ref := string(chosen.Kind) + "/" + id
-		if !seen[ref] {
-			seen[ref] = true
-			refs = append(refs, ref)
+		if seen[ref] {
+			continue
+		}
+		seen[ref] = true
+		typ := strings.ToLower(strings.TrimSpace(m.Type))
+		if typ == "text-generation" || typ == "chat" {
+			preferred = append(preferred, ref)
+		} else {
+			fallback = append(fallback, ref)
 		}
 	}
-	return refs
+	return append(preferred, fallback...)
 }
 
 // reconcileInitProviderAnswer updates answers.Providers, answers.CredentialRef,
-// and (for non-Albert platforms without an explicit model) answers.Model so the
-// written manifest launches cleanly against the selected provider.
+// and answers.Model so the written manifest launches cleanly against the
+// selected provider without inheriting an incompatible global DefaultModel.
 func reconcileInitProviderAnswer(ctx context.Context, opts initOptions, answers codebox.InitAnswers, chosen codebox.InferenceProvider, setting codebox.ProviderSettings, apiKey string, forceModelRefresh bool) codebox.InitAnswers {
 	answers.Providers = mergeProjectRemoteProvider(answers, setting)
 	if setting.Kind == codebox.ProviderAlbert {
 		// Keep the legacy Albert credentialRef aligned with the selected or
 		// newly stored Albert entry so launch never falls back to a stale ref.
 		answers.CredentialRef = setting.CredentialRef
+		// When the machine's global DefaultModel belongs to a non-Albert
+		// provider that this project no longer configures, pin an Albert
+		// default so launch does not inherit an unavailable model.
+		if !opts.Set["model"] && strings.TrimSpace(answers.Model) == "" {
+			if settingsPath, err := codebox.UserSettingsPath(); err == nil {
+				if us, rerr := codebox.ReadUserSettings(codebox.DefaultFS, settingsPath); rerr == nil {
+					if dm := strings.TrimSpace(us.DefaultModel); dm != "" && codebox.ModelRefProvider(dm) != codebox.ProviderAlbert {
+						answers.Model = defaultAlbertModelRef()
+					}
+				}
+			}
+		}
 	} else {
 		hasAlbert := false
 		for _, p := range answers.Providers {
