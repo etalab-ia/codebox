@@ -145,9 +145,20 @@ func firstRunProviderDefaults(ctx context.Context, root string, j *codebox.Setup
 		return append([]codebox.SetupPlatform(nil), j.Platforms...), nil
 	}
 	var settings []codebox.ProviderSettings
+	fromManifest := false
 	if pc, err := codebox.DiscoverProject(root); err == nil {
-		if manifest, err := codebox.ReadProjectManifest(codebox.DefaultFS, codebox.ProjectManifestPath(pc.Root)); err == nil {
+		if manifest, err := codebox.ReadProjectManifest(codebox.DefaultFS, codebox.ProjectManifestPath(pc.Root)); err == nil && len(manifest.Providers) > 0 {
 			settings = append(settings, manifest.Providers...)
+			fromManifest = true
+		}
+	}
+	if fromManifest {
+		var userProviders []codebox.ProviderSettings
+		if us, ok := currentUserSettings(); ok {
+			userProviders = append(userProviders, us.Providers...)
+		}
+		if err := codebox.ValidateProjectProviders(settings, userProviders); err != nil {
+			return nil, fmt.Errorf("la plateforme du projet ne peut pas être approuvée avant de réutiliser un identifiant : %w", err)
 		}
 	}
 	if len(settings) == 0 {

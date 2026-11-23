@@ -258,6 +258,34 @@ func TestSeedInitAnswersReconcilesModelWithSelectedProvider(t *testing.T) {
 	}
 }
 
+func TestInitRunPiUsesCompatibleFallbackForAutomaticDefault(t *testing.T) {
+	setupTestEnv(t)
+	root := initTestProject(t)
+	stubInitSkillResolver(t)
+	stubCatalogueCheck(t, func(string, string) (string, error) {
+		t.Fatal("an automatic Pi-incompatible default must be replaced before catalogue validation")
+		return "", nil
+	})
+	opts := initOptions{
+		Root: root, Harness: string(codebox.HarnessPi), DefaultModel: "albert/qwen3-coder",
+		Providers: []codebox.ProviderSettings{{Kind: codebox.ProviderAlbert}},
+		Set: map[string]bool{
+			"root": true, "harness": true, "runtime": true, "skills": true, "mcps": true, "github": true,
+		},
+	}
+	code, err := initRun(opts, bufio.NewReader(strings.NewReader("")), true)
+	if err != nil || code != 0 {
+		t.Fatalf("Pi initialization with automatic Albert default = %d, %v", code, err)
+	}
+	manifest, err := codebox.ReadProjectManifest(codebox.DefaultFS, codebox.ProjectManifestPath(root))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if manifest.Model != "albert/deepseek-v4-flash" {
+		t.Fatalf("Pi fallback model = %q, want albert/deepseek-v4-flash", manifest.Model)
+	}
+}
+
 func TestCombinedFirstRunExplicitModelSkipsCatalogue(t *testing.T) {
 	root := initTestProject(t)
 	stateDir, _, initOpts := stubCombinedRunEnvironment(t, false)
@@ -423,6 +451,46 @@ func TestCombinedHuhDefaultsAreEmptyAndNumbered(t *testing.T) {
 		if strings.Contains(view, "Où enregistrer les skills ?") || strings.Contains(view, "Aucune skill sélectionnée") || strings.Contains(view, "Aucun MCP sélectionné") || strings.Contains(view, "GitHub") {
 			t.Fatalf("combined flow contains advanced or confirmation screen:\n%s", view)
 		}
+	}
+}
+
+func TestFirstRunProviderDefaultsValidatesManifestEndpointBeforeCredentialProbe(t *testing.T) {
+	setupTestEnv(t)
+	root := initTestProject(t)
+	manifest := codebox.ProjectManifest{
+		SchemaVersion: 8,
+		Providers: []codebox.ProviderSettings{{
+			Kind: codebox.ProviderOpenAICompatible, Name: "Attacker", BaseURL: "https://attacker.example/v1",
+		}},
+	}
+	if err := codebox.WriteProjectManifest(codebox.DefaultFS, codebox.ProjectManifestPath(root), manifest); err != nil {
+		t.Fatal(err)
+	}
+	present := setupCredentialPresentFn
+	probeCalls := 0
+	setupCredentialPresentFn = func(context.Context, codebox.CredentialKind) bool {
+		probeCalls++
+		return true
+	}
+	t.Cleanup(func() { setupCredentialPresentFn = present })
+	j := codebox.SetupJournal{Stage: codebox.StageCredential}
+	if _, err := firstRunProviderDefaults(context.Background(), root, &j); err == nil || !strings.Contains(err.Error(), "attacker.example") {
+		t.Fatalf("unapproved manifest endpoint was not rejected: %v", err)
+	}
+	if probeCalls != 0 {
+		t.Fatalf("credential presence was probed before endpoint approval: %d", probeCalls)
+	}
+
+	manifest.Providers[0].CredentialRef = "openai-compatible:attacker.example"
+	if err := codebox.WriteProjectManifest(codebox.DefaultFS, codebox.ProjectManifestPath(root), manifest); err != nil {
+		t.Fatal(err)
+	}
+	platforms, err := firstRunProviderDefaults(context.Background(), root, &j)
+	if err != nil {
+		t.Fatalf("explicit host-bound provider was not accepted: %v", err)
+	}
+	if len(platforms) != 1 || platforms[0].CredentialRef != "openai-compatible:attacker.example" || probeCalls != 1 {
+		t.Fatalf("host-bound defaults = %+v, probes = %d", platforms, probeCalls)
 	}
 }
 

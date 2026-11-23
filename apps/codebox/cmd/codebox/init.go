@@ -496,6 +496,7 @@ func initRun(opts initOptions, in *bufio.Reader, tty bool) (code int, err error)
 				}
 			}
 		}
+		answers = reconcileInitDefaultModelWithHarness(opts, answers)
 		if !opts.Set["cpus"] && opts.maxCPUs == 1 && answers.CPUs > opts.maxCPUs {
 			// The only valid whole-core choice is automatic; discard an
 			// oversized legacy manifest value so init --replace can repair it.
@@ -826,6 +827,17 @@ func withBrowserResourceGuidance(answers codebox.InitAnswers) codebox.InitAnswer
 		}
 	}
 	answers.BrowserResourceGuidance = codebox.BrowserResourceGuidance(host, guestCPUs, guestMemoryMB, err)
+	return answers
+}
+
+// reconcileInitDefaultModelWithHarness keeps automatic defaults distinct from
+// explicit answers. If the provider-resolved default cannot run on Pi, clear it
+// so InitWizard applies its existing Pi-compatible fallback instead of rejecting
+// a model the user never explicitly chose.
+func reconcileInitDefaultModelWithHarness(opts initOptions, answers codebox.InitAnswers) codebox.InitAnswers {
+	if opts.DefaultModel != "" && answers.Model == opts.DefaultModel && initHarnessValue(answers) == codebox.HarnessPi && codebox.PiUnsupportedModelReason(answers.Model) != "" {
+		answers.Model = ""
+	}
 	return answers
 }
 
