@@ -270,7 +270,7 @@ func TestInitRunPiUsesCompatibleFallbackForAutomaticDefault(t *testing.T) {
 		Root: root, Harness: string(codebox.HarnessPi), DefaultModel: "albert/qwen3-coder",
 		Providers: []codebox.ProviderSettings{{Kind: codebox.ProviderAlbert}},
 		Set: map[string]bool{
-			"root": true, "harness": true, "runtime": true, "skills": true, "mcps": true, "github": true,
+			"root": true, "harness": true, "runtime": true, "skills": true, "skills-storage": true, "mcps": true, "github": true,
 		},
 	}
 	code, err := initRun(opts, bufio.NewReader(strings.NewReader("")), true)
