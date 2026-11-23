@@ -56,6 +56,7 @@ var initProviderStoreFn = func(ctx context.Context, provider codebox.InferencePr
 		if err := store.Put(ctx, kind, key); err != nil {
 			return "", err
 		}
+		codebox.BumpCredentialGeneration(kind)
 		_ = codebox.RecordCredentialStore(codebox.DefaultStateDir(), kind, store.Kind())
 		return ref, nil
 	}
@@ -69,6 +70,7 @@ var initProviderStoreFn = func(ctx context.Context, provider codebox.InferencePr
 	if err := store.Put(ctx, kind, key); err != nil {
 		return "", err
 	}
+	codebox.BumpCredentialGeneration(kind)
 	_ = codebox.RecordCredentialStore(codebox.DefaultStateDir(), kind, store.Kind())
 	return ref, nil
 }
@@ -99,10 +101,11 @@ func initRuntimeOptionsForOS(goos string) []huh.Option[string] {
 	return options
 }
 
-// eligibleSavedProvider returns the first saved machine provider entry whose
-// kind, resolved host, and credential reference all match chosen AND whose
-// secret is present in the machine store. A key for another provider or host
-// is never returned (#445, #461).
+// eligibleSavedProvider returns the chosen provider paired with the first saved
+// machine credential reference whose kind, resolved host, and reference match
+// chosen AND whose secret is present in the machine store. A key for another
+// provider or host is never returned, and the newly chosen endpoint name and
+// base URL are preserved (#445, #461).
 func eligibleSavedProvider(ctx context.Context, chosen codebox.InferenceProvider, saved []codebox.ProviderSettings) (codebox.ProviderSettings, bool) {
 	for _, entry := range saved {
 		if entry.Kind != chosen.Kind {
@@ -123,9 +126,9 @@ func eligibleSavedProvider(ctx context.Context, chosen codebox.InferenceProvider
 			continue
 		}
 		return codebox.ProviderSettings{
-			Kind:          resolved.Kind,
-			Name:          resolved.Name,
-			BaseURL:       resolved.BaseURL,
+			Kind:          chosen.Kind,
+			Name:          chosen.Name,
+			BaseURL:       chosen.BaseURL,
 			CredentialRef: ref,
 		}, true
 	}
@@ -142,8 +145,9 @@ func eligibleSavedProvider(ctx context.Context, chosen codebox.InferenceProvider
 }
 
 // persistMachineProviderSetting records the newly connected provider in
-// UserSettings, populates git identity from host git config when absent, and
-// clears any stale setup journal so HasCompletedSetup reports true.
+// UserSettings, keeping providers unique by kind so ResolveProviders never
+// rejects duplicate kinds, populates git identity from host git config when
+// absent, and clears any stale setup journal so HasCompletedSetup reports true.
 func persistMachineProviderSetting(setting codebox.ProviderSettings) error {
 	settingsPath, err := codebox.UserSettingsPath()
 	if err != nil {
@@ -156,7 +160,7 @@ func persistMachineProviderSetting(setting codebox.ProviderSettings) error {
 	us.SchemaVersion = 1
 	replaced := false
 	for i := range us.Providers {
-		if us.Providers[i].Kind == setting.Kind && strings.EqualFold(strings.TrimSpace(us.Providers[i].BaseURL), strings.TrimSpace(setting.BaseURL)) {
+		if us.Providers[i].Kind == setting.Kind {
 			us.Providers[i] = setting
 			replaced = true
 			break
@@ -251,138 +255,162 @@ func askInitProviderStepHuh(opts initOptions, answers codebox.InitAnswers) (code
 		return answers, err
 	}
 
-	setting := codebox.ProviderSettings{Kind: codebox.ProviderKind(kindChoice)}
-	if setting.Kind == codebox.ProviderOpenAICompatible {
-		if err := huhRun(huh.NewForm(huh.NewGroup(
-			huh.NewInput().
-				Title("Nom de la plateforme").
-				Placeholder("OpenRouter").
-				Validate(func(s string) error {
-					if strings.TrimSpace(s) == "" {
-						return fmt.Errorf("indiquez un nom pour cette plateforme")
-					}
-					return nil
-				}).
-				Value(&customName),
-			huh.NewInput().
-				Title("URL de base (API OpenAI)").
-				Placeholder("https://openrouter.ai/api/v1").
-				Validate(func(s string) error {
-					_, err := codebox.ResolveProvider(codebox.ProviderSettings{
-						Kind:    codebox.ProviderOpenAICompatible,
-						Name:    strings.TrimSpace(customName),
-						BaseURL: strings.TrimSpace(s),
-					})
-					return err
-				}).
-				Value(&customBaseURL),
-		))); err != nil {
-			return answers, err
-		}
-		setting.Name = strings.TrimSpace(customName)
-		setting.BaseURL = strings.TrimSpace(customBaseURL)
-	}
-
-	chosen, err := codebox.ResolveProvider(setting)
-	if err != nil {
-		return answers, err
-	}
-
-	if eligible, ok := eligibleSavedProvider(ctx, chosen, savedProviders); ok {
-		useSaved := "saved"
-		label := fmt.Sprintf("Utiliser la clé enregistrée (%s — %s)", eligible.Name, chosen.Host)
-		err := huhRun(huh.NewForm(huh.NewGroup(
-			huh.NewSelect[string]().
-				Title(fmt.Sprintf("Clé %s", chosen.Name)).
-				Description("Une clé enregistrée sur ce poste correspond à cette plateforme et à cet hôte.").
-				Options(
-					huh.NewOption(label, "saved"),
-					huh.NewOption("Saisir une nouvelle clé", "new"),
-				).
-				Value(&useSaved),
-		)))
-		if err != nil {
-			return answers, err
-		}
-		if useSaved == "saved" {
-			answers.Providers = mergeProjectRemoteProvider(answers.Providers, eligible)
-			return answers, nil
-		}
-	}
-
-	// Prompt for a new masked key; inline errors preserve the chosen provider
-	// and endpoint inputs.
-	var keyError string
+	var endpointError string
 	for {
-		var key string
-		desc := fmt.Sprintf("Clé pour %s (%s). La saisie est masquée et enregistrée dans le magasin de ce poste.", chosen.Name, chosen.Host)
-		if keyError != "" {
-			desc = "Erreur : " + keyError + "\n" + desc
+		setting := codebox.ProviderSettings{Kind: codebox.ProviderKind(kindChoice)}
+		if setting.Kind == codebox.ProviderOpenAICompatible {
+			urlDesc := "URL de la racine API OpenAI (ex. https://openrouter.ai/api/v1)."
+			if endpointError != "" {
+				urlDesc = "Erreur : " + endpointError + "\n" + urlDesc
+			}
+			if err := huhRun(huh.NewForm(huh.NewGroup(
+				huh.NewInput().
+					Title("Nom de la plateforme").
+					Placeholder("OpenRouter").
+					Validate(func(s string) error {
+						if strings.TrimSpace(s) == "" {
+							return fmt.Errorf("indiquez un nom pour cette plateforme")
+						}
+						return nil
+					}).
+					Value(&customName),
+				huh.NewInput().
+					Title("URL de base (API OpenAI)").
+					Description(urlDesc).
+					Placeholder("https://openrouter.ai/api/v1").
+					Validate(func(s string) error {
+						_, err := codebox.ResolveProvider(codebox.ProviderSettings{
+							Kind:    codebox.ProviderOpenAICompatible,
+							Name:    strings.TrimSpace(customName),
+							BaseURL: strings.TrimSpace(s),
+						})
+						return err
+					}).
+					Value(&customBaseURL),
+			))); err != nil {
+				return answers, err
+			}
+			endpointError = ""
+			setting.Name = strings.TrimSpace(customName)
+			setting.BaseURL = strings.TrimSpace(customBaseURL)
 		}
-		err := huhRun(huh.NewForm(huh.NewGroup(
-			huh.NewInput().
-				Title(fmt.Sprintf("Clé %s", chosen.Name)).
-				Description(desc).
-				EchoMode(huh.EchoModePassword).
-				Validate(func(s string) error {
-					if strings.TrimSpace(s) == "" {
-						return fmt.Errorf("saisissez une clé API")
-					}
-					return nil
-				}).
-				Value(&key),
-		)))
+
+		chosen, err := codebox.ResolveProvider(setting)
 		if err != nil {
 			return answers, err
 		}
-		key = strings.TrimSpace(key)
-		if key == "" {
-			return answers, nil
-		}
-		probe := initProviderValidateFn(ctx, chosen, key)
-		if probe.Rejected {
-			keyError = fmt.Sprintf("clé refusée par %s (%s)", chosen.Name, probe.Detail)
-			continue
-		}
-		if probe.Unreachable {
-			saveAnyway := "save"
-			confirmErr := huhRun(huh.NewForm(huh.NewGroup(
+
+		if eligible, ok := eligibleSavedProvider(ctx, chosen, savedProviders); ok {
+			useSaved := "saved"
+			label := fmt.Sprintf("Utiliser la clé enregistrée (%s — %s)", eligible.Name, chosen.Host)
+			err := huhRun(huh.NewForm(huh.NewGroup(
 				huh.NewSelect[string]().
-					Title(fmt.Sprintf("%s ne répond pas", chosen.Name)).
-					Description(probe.Detail).
+					Title(fmt.Sprintf("Clé %s", chosen.Name)).
+					Description("Une clé enregistrée sur ce poste correspond à cette plateforme et à cet hôte.").
 					Options(
-						huh.NewOption("Enregistrer la clé quand même", "save"),
-						huh.NewOption("Réessayer la saisie", "retry"),
-						huh.NewOption("Annuler", "cancel"),
+						huh.NewOption(label, "saved"),
+						huh.NewOption("Saisir une nouvelle clé", "new"),
 					).
-					Value(&saveAnyway),
+					Value(&useSaved),
 			)))
-			if confirmErr != nil {
-				return answers, confirmErr
+			if err != nil {
+				return answers, err
 			}
-			if saveAnyway == "retry" {
-				keyError = ""
+			if useSaved == "saved" {
+				answers.Providers = mergeProjectRemoteProvider(answers.Providers, eligible)
+				return answers, nil
+			}
+		}
+
+		// Prompt for a new masked key; inline errors preserve the chosen provider
+		// and endpoint inputs.
+		var keyError string
+		reopenEndpoint := false
+		for {
+			var key string
+			desc := fmt.Sprintf("Clé pour %s (%s). La saisie est masquée et enregistrée dans le magasin de ce poste.", chosen.Name, chosen.Host)
+			if keyError != "" {
+				desc = "Erreur : " + keyError + "\n" + desc
+			}
+			err := huhRun(huh.NewForm(huh.NewGroup(
+				huh.NewInput().
+					Title(fmt.Sprintf("Clé %s", chosen.Name)).
+					Description(desc).
+					EchoMode(huh.EchoModePassword).
+					Validate(func(s string) error {
+						if strings.TrimSpace(s) == "" {
+							return fmt.Errorf("saisissez une clé API")
+						}
+						return nil
+					}).
+					Value(&key),
+			)))
+			if err != nil {
+				return answers, err
+			}
+			key = strings.TrimSpace(key)
+			if key == "" {
+				return answers, nil
+			}
+			probe := initProviderValidateFn(ctx, chosen, key)
+			if probe.Rejected {
+				keyError = fmt.Sprintf("clé refusée par %s (%s)", chosen.Name, probe.Detail)
 				continue
 			}
-			if saveAnyway == "cancel" {
-				return answers, huh.ErrUserAborted
+			if probe.Incompatible {
+				detail := fmt.Sprintf("la réponse de %s n'est pas un catalogue de modèles compatible OpenAI (%s)", chosen.Name, probe.Detail)
+				if chosen.Kind == codebox.ProviderOpenAICompatible {
+					endpointError = detail
+					reopenEndpoint = true
+					break
+				}
+				keyError = detail
+				continue
 			}
-		}
+			if probe.Unreachable {
+				saveAnyway := "save"
+				confirmErr := huhRun(huh.NewForm(huh.NewGroup(
+					huh.NewSelect[string]().
+						Title(fmt.Sprintf("%s ne répond pas", chosen.Name)).
+						Description(probe.Detail).
+						Options(
+							huh.NewOption("Enregistrer la clé quand même", "save"),
+							huh.NewOption("Réessayer la saisie", "retry"),
+							huh.NewOption("Annuler", "cancel"),
+						).
+						Value(&saveAnyway),
+				)))
+				if confirmErr != nil {
+					return answers, confirmErr
+				}
+				if saveAnyway == "retry" {
+					keyError = ""
+					continue
+				}
+				if saveAnyway == "cancel" {
+					return answers, huh.ErrUserAborted
+				}
+			}
 
-		ref, storeErr := initProviderStoreFn(ctx, chosen, key)
-		if storeErr != nil {
-			return answers, fmt.Errorf("impossible d'enregistrer la clé %s : %w", chosen.Name, storeErr)
+			ref, storeErr := initProviderStoreFn(ctx, chosen, key)
+			if storeErr != nil {
+				return answers, fmt.Errorf("impossible d'enregistrer la clé %s : %w", chosen.Name, storeErr)
+			}
+			persisted := codebox.ProviderSettings{
+				Kind:          chosen.Kind,
+				Name:          chosen.Name,
+				BaseURL:       chosen.BaseURL,
+				CredentialRef: ref,
+			}
+			if err := persistMachineProviderSetting(persisted); err != nil {
+				fmt.Fprintf(os.Stderr, "Attention : la configuration globale n'a pas pu être mise à jour : %v\n", err)
+			}
+			answers.Providers = mergeProjectRemoteProvider(answers.Providers, persisted)
+			return answers, nil
 		}
-		persisted := codebox.ProviderSettings{
-			Kind:          chosen.Kind,
-			Name:          chosen.Name,
-			BaseURL:       chosen.BaseURL,
-			CredentialRef: ref,
+		if reopenEndpoint {
+			continue
 		}
-		if err := persistMachineProviderSetting(persisted); err != nil {
-			fmt.Fprintf(os.Stderr, "Attention : la configuration globale n'a pas pu être mise à jour : %v\n", err)
-		}
-		answers.Providers = mergeProjectRemoteProvider(answers.Providers, persisted)
 		return answers, nil
 	}
 }

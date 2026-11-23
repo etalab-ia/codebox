@@ -282,3 +282,205 @@ func TestCombinedFirstRunFreshMachineAndProject(t *testing.T) {
 		t.Fatalf("project providers = %+v, want Albert", pm.Providers)
 	}
 }
+
+func TestPersistMachineProviderSettingKeepsProvidersUniqueByKind(t *testing.T) {
+	setupTestEnv(t)
+	first, err := codebox.ResolveProvider(codebox.ProviderSettings{
+		Kind:    codebox.ProviderOpenAICompatible,
+		Name:    "Gateway A",
+		BaseURL: "https://a.example/v1",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := codebox.ResolveProvider(codebox.ProviderSettings{
+		Kind:    codebox.ProviderOpenAICompatible,
+		Name:    "Gateway B",
+		BaseURL: "https://b.example/v1",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := persistMachineProviderSetting(codebox.ProviderSettings{
+		Kind: first.Kind, Name: first.Name, BaseURL: first.BaseURL, CredentialRef: codebox.ProviderCredentialRef(first),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := persistMachineProviderSetting(codebox.ProviderSettings{
+		Kind: second.Kind, Name: second.Name, BaseURL: second.BaseURL, CredentialRef: codebox.ProviderCredentialRef(second),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	settingsPath, err := codebox.UserSettingsPath()
+	if err != nil {
+		t.Fatal(err)
+	}
+	us, err := codebox.ReadUserSettings(codebox.DefaultFS, settingsPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := codebox.ResolveProviders(us.Providers); err != nil {
+		t.Fatalf("persisted machine providers must remain unique by kind: %v (providers=%+v)", err, us.Providers)
+	}
+	if len(us.Providers) != 1 || us.Providers[0].BaseURL != "https://b.example/v1" {
+		t.Fatalf("machine providers = %+v, want single updated openai-compatible entry", us.Providers)
+	}
+}
+
+func TestEligibleSavedProviderPreservesChosenEndpointPath(t *testing.T) {
+	origPresent := initProviderCredentialPresentFn
+	t.Cleanup(func() { initProviderCredentialPresentFn = origPresent })
+
+	teamA, err := codebox.ResolveProvider(codebox.ProviderSettings{
+		Kind:    codebox.ProviderOpenAICompatible,
+		Name:    "Team A",
+		BaseURL: "https://gateway.example/team-a/v1",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	teamB, err := codebox.ResolveProvider(codebox.ProviderSettings{
+		Kind:    codebox.ProviderOpenAICompatible,
+		Name:    "Team B",
+		BaseURL: "https://gateway.example/team-b/v1",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ref := codebox.ProviderCredentialRef(teamA)
+	initProviderCredentialPresentFn = func(_ context.Context, _ codebox.InferenceProvider, gotRef string) bool {
+		return gotRef == ref
+	}
+	saved := []codebox.ProviderSettings{{
+		Kind: teamA.Kind, Name: teamA.Name, BaseURL: teamA.BaseURL, CredentialRef: ref,
+	}}
+	got, ok := eligibleSavedProvider(context.Background(), teamB, saved)
+	if !ok {
+		t.Fatal("expected same-host saved key to be eligible")
+	}
+	if got.CredentialRef != ref {
+		t.Fatalf("credentialRef = %q, want %q", got.CredentialRef, ref)
+	}
+	if got.Name != "Team B" || got.BaseURL != "https://gateway.example/team-b/v1" {
+		t.Fatalf("saved-key reuse overwrote chosen endpoint: got %+v", got)
+	}
+}
+
+func TestAskInitProviderStepReopensEndpointOnIncompatibleProbe(t *testing.T) {
+	setupTestEnv(t)
+	origRun := huhRun
+	origPresent := initProviderCredentialPresentFn
+	origValidate := initProviderValidateFn
+	origStore := initProviderStoreFn
+	t.Cleanup(func() {
+		huhRun = origRun
+		initProviderCredentialPresentFn = origPresent
+		initProviderValidateFn = origValidate
+		initProviderStoreFn = origStore
+	})
+
+	initProviderCredentialPresentFn = func(context.Context, codebox.InferenceProvider, string) bool { return false }
+	initProviderValidateFn = func(_ context.Context, p codebox.InferenceProvider, _ string) codebox.CredentialProbe {
+		if strings.Contains(p.BaseURL, "/wrong") {
+			return codebox.CredentialProbe{Incompatible: true, Detail: "HTTP 404"}
+		}
+		return codebox.CredentialProbe{}
+	}
+	storedCount := 0
+	initProviderStoreFn = func(_ context.Context, p codebox.InferenceProvider, _ string) (string, error) {
+		storedCount++
+		return codebox.ProviderCredentialRef(p), nil
+	}
+
+	typeInput := func(form *huh.Form, text string) {
+		form.Init()
+		for _, r := range text {
+			_, _ = form.Update(tea.KeyPressMsg{Code: r, Text: string(r)})
+		}
+		_, _ = form.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+	}
+
+	step := 0
+	var reopenedView string
+	huhRun = func(form *huh.Form) error {
+		step++
+		switch step {
+		case 1:
+			// Provider select: move down twice to OpenAI-compatible.
+			form.Init()
+			_, _ = form.Update(tea.KeyPressMsg{Code: tea.KeyDown})
+			_, _ = form.Update(tea.KeyPressMsg{Code: tea.KeyDown})
+			_, _ = form.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+		case 2:
+			// First endpoint attempt: incompatible URL.
+			form.Init()
+			for _, r := range "Custom" {
+				_, _ = form.Update(tea.KeyPressMsg{Code: r, Text: string(r)})
+			}
+			form.NextField()
+			for _, r := range "https://api.example/wrong" {
+				_, _ = form.Update(tea.KeyPressMsg{Code: r, Text: string(r)})
+			}
+			_, _ = form.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+		case 3:
+			// Key prompt for incompatible endpoint.
+			typeInput(form, "secret-key")
+		case 4:
+			// Reopened endpoint form must show the incompatible error; fix URL.
+			form.Init()
+			_, _ = form.Update(tea.WindowSizeMsg{Width: 160, Height: 24})
+			reopenedView = form.View()
+			// Keep name ("Custom"), move to URL field, replace with valid URL.
+			form.NextField()
+			for i := 0; i < 40; i++ {
+				_, _ = form.Update(tea.KeyPressMsg{Code: tea.KeyBackspace})
+			}
+			for _, r := range "https://api.example/v1" {
+				_, _ = form.Update(tea.KeyPressMsg{Code: r, Text: string(r)})
+			}
+			_, _ = form.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+		case 5:
+			// Key prompt for corrected endpoint.
+			typeInput(form, "secret-key")
+		}
+		return nil
+	}
+
+	got, err := askInitProviderStepHuh(initOptions{}, codebox.InitAnswers{})
+	if err != nil {
+		t.Fatalf("askInitProviderStepHuh: %v", err)
+	}
+	if !strings.Contains(reopenedView, "HTTP 404") {
+		t.Fatalf("reopened endpoint prompt must explain incompatible failure; view=\n%s", reopenedView)
+	}
+	if storedCount != 1 {
+		t.Fatalf("incompatible endpoint must not be stored; storedCount = %d, want 1", storedCount)
+	}
+	if len(got.Providers) != 1 || got.Providers[0].BaseURL != "https://api.example/v1" {
+		t.Fatalf("providers = %+v, want corrected endpoint", got.Providers)
+	}
+}
+
+func TestInitWizardPlanLeavesPiModelEmptyForNonAlbertProvider(t *testing.T) {
+	root := initTestProject(t)
+	mistral, err := codebox.ResolveProvider(codebox.ProviderSettings{Kind: codebox.ProviderMistral})
+	if err != nil {
+		t.Fatal(err)
+	}
+	plan, err := (codebox.InitWizard{}).Plan(codebox.InitAnswers{
+		Root:    root,
+		Harness: string(codebox.HarnessPi),
+		Providers: []codebox.ProviderSettings{{
+			Kind:          mistral.Kind,
+			Name:          mistral.Name,
+			BaseURL:       mistral.BaseURL,
+			CredentialRef: codebox.ProviderCredentialRef(mistral),
+		}},
+	})
+	if err != nil {
+		t.Fatalf("Plan: %v", err)
+	}
+	if plan.Answers.Model != "" {
+		t.Fatalf("Pi + Mistral-only project must not be assigned an Albert model ref, got %q", plan.Answers.Model)
+	}
+}

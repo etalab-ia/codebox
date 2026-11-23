@@ -428,18 +428,9 @@ func (w InitWizard) Plan(answers InitAnswers) (InitPlan, error) {
 			}
 		}
 	} else if harness == HarnessPi && resolvedDefault != "" {
-		// A Pi project must not be left with an empty model the way an
-		// OpenCode project can. Empty means the launch resolves the model from
-		// the user settings, which is OpenCode's (albert/deepseek-v4-flash by
-		// default) — one Pi refuses, so the project the recap just described
-		// could not launch (#347 review). Recording the model the recap showed
-		// is also what makes the recap a promise rather than a hint.
-		//
-		// The fallback skips the validation an explicit answer gets: it is a
-		// curated model already checked against Pi's refusals, and the
-		// catalogue check warns rather than refuses, so running it here would
-		// add a warning about a model the user never chose.
-		plan.Answers.Model = resolvedDefault
+		if initProvidersAllowModel(answers.Providers, resolvedDefault) {
+			plan.Answers.Model = resolvedDefault
+		}
 	}
 	if model := strings.TrimSpace(answers.SmallModel); model != "" {
 		plan.Answers.SmallModel = model
@@ -742,6 +733,21 @@ func (w InitWizard) resolveDefaultModel(harness Harness) string {
 		return model
 	}
 	return defaultOpencodeModel
+}
+
+// initProvidersAllowModel reports whether modelRef belongs to one of the
+// configured project providers (or defaults to Albert when providers is empty).
+func initProvidersAllowModel(providers []ProviderSettings, modelRef string) bool {
+	if len(providers) == 0 {
+		return true
+	}
+	target := ModelRefProvider(modelRef)
+	for _, p := range providers {
+		if p.Kind == target {
+			return true
+		}
+	}
+	return false
 }
 
 // FormatInteractiveInitReview is the concise, shared interactive recap (#171).
