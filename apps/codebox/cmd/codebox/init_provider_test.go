@@ -484,3 +484,66 @@ func TestInitWizardPlanLeavesPiModelEmptyForNonAlbertProvider(t *testing.T) {
 		t.Fatalf("Pi + Mistral-only project must not be assigned an Albert model ref, got %q", plan.Answers.Model)
 	}
 }
+
+func TestPersistMachineProviderSettingDeduplicatesSharedHost(t *testing.T) {
+	setupTestEnv(t)
+	mistral, err := codebox.ResolveProvider(codebox.ProviderSettings{Kind: codebox.ProviderMistral})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := persistMachineProviderSetting(codebox.ProviderSettings{
+		Kind: mistral.Kind, Name: mistral.Name, BaseURL: mistral.BaseURL, CredentialRef: codebox.ProviderCredentialRef(mistral),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	// Connect an OpenAI-compatible provider pointing at Mistral's host.
+	compat, err := codebox.ResolveProvider(codebox.ProviderSettings{
+		Kind:    codebox.ProviderOpenAICompatible,
+		Name:    "Mistral Compat",
+		BaseURL: "https://api.mistral.ai/v1",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := persistMachineProviderSetting(codebox.ProviderSettings{
+		Kind: compat.Kind, Name: compat.Name, BaseURL: compat.BaseURL, CredentialRef: codebox.ProviderCredentialRef(compat),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	settingsPath, err := codebox.UserSettingsPath()
+	if err != nil {
+		t.Fatal(err)
+	}
+	us, err := codebox.ReadUserSettings(codebox.DefaultFS, settingsPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := codebox.ResolveProviders(us.Providers); err != nil {
+		t.Fatalf("saved machine providers must not contain duplicate hosts: %v (providers=%+v)", err, us.Providers)
+	}
+	if len(us.Providers) != 1 || us.Providers[0].Kind != codebox.ProviderOpenAICompatible {
+		t.Fatalf("machine providers = %+v, want single non-colliding entry", us.Providers)
+	}
+}
+
+func TestMergeProjectRemoteProviderPreservesModelRequiredProviders(t *testing.T) {
+	mistral, err := codebox.ResolveProvider(codebox.ProviderSettings{Kind: codebox.ProviderMistral})
+	if err != nil {
+		t.Fatal(err)
+	}
+	answers := codebox.InitAnswers{
+		Model:      "albert/Qwen3-Coder-30B-A3B-Instruct",
+		SmallModel: "mistral/mistral-small-latest",
+		Providers: []codebox.ProviderSettings{
+			{Kind: codebox.ProviderAlbert, Name: "Albert API"},
+			{Kind: mistral.Kind, Name: mistral.Name, BaseURL: mistral.BaseURL, CredentialRef: codebox.ProviderCredentialRef(mistral)},
+		},
+	}
+	merged := mergeProjectRemoteProvider(answers, codebox.ProviderSettings{Kind: codebox.ProviderAlbert, Name: "Albert API"})
+	if len(merged) != 2 {
+		t.Fatalf("expected Albert + Mistral (needed by smallModel), got %+v", merged)
+	}
+	if merged[0].Kind != codebox.ProviderAlbert || merged[1].Kind != codebox.ProviderMistral {
+		t.Fatalf("merged providers = %+v, want Albert and Mistral", merged)
+	}
+}

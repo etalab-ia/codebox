@@ -145,10 +145,15 @@ func eligibleSavedProvider(ctx context.Context, chosen codebox.InferenceProvider
 }
 
 // persistMachineProviderSetting records the newly connected provider in
-// UserSettings, keeping providers unique by kind so ResolveProviders never
-// rejects duplicate kinds, populates git identity from host git config when
-// absent, and clears any stale setup journal so HasCompletedSetup reports true.
+// UserSettings, keeping providers unique by kind and host so ResolveProviders
+// never rejects the saved machine settings, populates git identity from host
+// git config when absent, and clears any stale setup journal so
+// HasCompletedSetup reports true.
 func persistMachineProviderSetting(setting codebox.ProviderSettings) error {
+	newResolved, err := codebox.ResolveProvider(setting)
+	if err != nil {
+		return err
+	}
 	settingsPath, err := codebox.UserSettingsPath()
 	if err != nil {
 		return err
@@ -158,17 +163,21 @@ func persistMachineProviderSetting(setting codebox.ProviderSettings) error {
 		return err
 	}
 	us.SchemaVersion = 1
-	replaced := false
-	for i := range us.Providers {
-		if us.Providers[i].Kind == setting.Kind {
-			us.Providers[i] = setting
-			replaced = true
-			break
+	next := make([]codebox.ProviderSettings, 0, len(us.Providers)+1)
+	for _, existing := range us.Providers {
+		if existing.Kind == setting.Kind {
+			continue
 		}
+		if resolved, rerr := codebox.ResolveProvider(existing); rerr == nil && strings.EqualFold(resolved.Host, newResolved.Host) {
+			continue
+		}
+		next = append(next, existing)
 	}
-	if !replaced {
-		us.Providers = append(us.Providers, setting)
+	next = append(next, setting)
+	if _, err := codebox.ResolveProviders(next); err != nil {
+		return err
 	}
+	us.Providers = next
 	if strings.TrimSpace(us.GitName) == "" || strings.TrimSpace(us.GitEmail) == "" {
 		hostName, hostEmail := hostGitIdentityFn()
 		if strings.TrimSpace(us.GitName) == "" && strings.TrimSpace(hostName) != "" {
@@ -186,13 +195,36 @@ func persistMachineProviderSetting(setting codebox.ProviderSettings) error {
 }
 
 // mergeProjectRemoteProvider sets the chosen remote provider on answers while
-// preserving any explicit local model server provider (e.g. --local-server).
-func mergeProjectRemoteProvider(existing []codebox.ProviderSettings, chosen codebox.ProviderSettings) []codebox.ProviderSettings {
+// preserving any explicit local model server provider (e.g. --local-server)
+// and any other existing non-colliding remote providers required by retained
+// model or small-model selections.
+func mergeProjectRemoteProvider(answers codebox.InitAnswers, chosen codebox.ProviderSettings) []codebox.ProviderSettings {
+	chosenHost := ""
+	if resolved, err := codebox.ResolveProvider(chosen); err == nil {
+		chosenHost = resolved.Host
+	}
+	neededKinds := map[codebox.ProviderKind]bool{}
+	if m := strings.TrimSpace(answers.Model); m != "" {
+		neededKinds[codebox.ModelRefProvider(m)] = true
+	}
+	if sm := strings.TrimSpace(answers.SmallModel); sm != "" {
+		neededKinds[codebox.ModelRefProvider(sm)] = true
+	}
+	seenKinds := map[codebox.ProviderKind]bool{chosen.Kind: true}
 	out := []codebox.ProviderSettings{chosen}
-	for _, p := range existing {
+	for _, p := range answers.Providers {
 		if p.Kind == codebox.ProviderLocal {
 			out = append(out, p)
+			continue
 		}
+		if !neededKinds[p.Kind] || seenKinds[p.Kind] {
+			continue
+		}
+		if resolved, err := codebox.ResolveProvider(p); err == nil && chosenHost != "" && strings.EqualFold(resolved.Host, chosenHost) {
+			continue
+		}
+		seenKinds[p.Kind] = true
+		out = append(out, p)
 	}
 	return out
 }
@@ -317,7 +349,7 @@ func askInitProviderStepHuh(opts initOptions, answers codebox.InitAnswers) (code
 				return answers, err
 			}
 			if useSaved == "saved" {
-				answers.Providers = mergeProjectRemoteProvider(answers.Providers, eligible)
+				answers.Providers = mergeProjectRemoteProvider(answers, eligible)
 				return answers, nil
 			}
 		}
@@ -405,7 +437,7 @@ func askInitProviderStepHuh(opts initOptions, answers codebox.InitAnswers) (code
 			if err := persistMachineProviderSetting(persisted); err != nil {
 				fmt.Fprintf(os.Stderr, "Attention : la configuration globale n'a pas pu être mise à jour : %v\n", err)
 			}
-			answers.Providers = mergeProjectRemoteProvider(answers.Providers, persisted)
+			answers.Providers = mergeProjectRemoteProvider(answers, persisted)
 			return answers, nil
 		}
 		if reopenEndpoint {
