@@ -449,7 +449,7 @@ func initRun(opts initOptions, in *bufio.Reader, tty bool) (code int, err error)
 			if pc, err := codebox.DiscoverProject(root); err == nil {
 				root = pc.Root
 			}
-			return validateInitSmallModelInput(root, model)
+			return validateInitSmallModelInputForProviders(root, model, answers.Providers)
 		},
 	}
 	// Flags are validated before any question: a typo on the command line must
@@ -818,7 +818,7 @@ func invalidInheritedInitSetting(opts initOptions, answers codebox.InitAnswers) 
 		}
 	}
 	if !opts.Set["small-model"] && strings.TrimSpace(answers.SmallModel) != "" {
-		if _, err := validateInitSmallModelInput(answers.Root, answers.SmallModel); err != nil {
+		if _, err := validateInitSmallModelInputForProviders(answers.Root, answers.SmallModel, answers.Providers); err != nil {
 			return "small-model", err
 		}
 	}

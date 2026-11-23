@@ -548,7 +548,7 @@ func initSmallModelDisplayName(answers codebox.InitAnswers) string {
 	return "même modèle que le modèle principal (" + initModelDisplayName(answers.Model) + ")"
 }
 
-func newInitSmallModelSelect(root string, value *string) *huh.Select[string] {
+func newInitSmallModelSelect(root string, value *string, providers []codebox.ProviderSettings) *huh.Select[string] {
 	options := []huh.Option[string]{
 		huh.NewOption("Même modèle que le modèle principal (défaut)", ""),
 		huh.NewOption("Ministral 3 8B — petit modèle généraliste", codebox.MinistralSmallModelRef),
@@ -560,7 +560,10 @@ func newInitSmallModelSelect(root string, value *string) *huh.Select[string] {
 		Title("Petit modèle").
 		Description("Utilisé pour générer les titres de session. Le choix par défaut suit toujours le modèle principal. Ministral nécessite une connexion à Albert API.").
 		Options(options...).
-		Validate(func(s string) error { _, err := validateInitSmallModelInput(root, s); return err }).
+		Validate(func(s string) error {
+			_, err := validateInitSmallModelInputForProviders(root, s, providers)
+			return err
+		}).
 		Value(value)
 }
 
@@ -574,6 +577,17 @@ var initAlbertConnectedFn = func(root string) (bool, error) {
 		return false, err
 	}
 	return providersContain(providers, codebox.ProviderAlbert), nil
+}
+
+// validateInitSmallModelInputForProviders validates a newly entered small model
+// against the providers selected for this project, not merely any provider that
+// happens to remain configured on the machine.
+func validateInitSmallModelInputForProviders(root, value string, providers []codebox.ProviderSettings) (string, error) {
+	model := normalizeInitModelInput(value)
+	if model == codebox.MinistralSmallModelRef && !initProviderKindSelected(providers, codebox.ProviderAlbert) {
+		return "", fmt.Errorf("Ministral 3 8B exige que le projet conserve une connexion à l'API Albert ; choisissez un autre petit modèle ou conservez le modèle principal")
+	}
+	return validateInitSmallModelInput(root, model)
 }
 
 // validateInitSmallModelInput requires Albert for the curated Albert-only
@@ -690,7 +704,7 @@ func askInitAdvancedHuh(opts initOptions, answers codebox.InitAnswers) (codebox.
 				}).Value(&input)
 		case "small-model":
 			input = answers.SmallModel
-			field = newInitSmallModelSelect(answers.Root, &input)
+			field = newInitSmallModelSelect(answers.Root, &input, answers.Providers)
 		case "skills-storage":
 			field = huh.NewSelect[bool]().
 				Title("Où enregistrer les skills ?").

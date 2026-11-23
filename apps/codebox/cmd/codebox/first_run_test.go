@@ -615,6 +615,37 @@ func TestCombinedFirstRunRetryPreservesLocalProviders(t *testing.T) {
 	}
 }
 
+func TestInitRunRejectsNewAlbertSmallModelForMistralProject(t *testing.T) {
+	setupTestEnv(t)
+	root := initTestProject(t)
+	settingsPath, err := codebox.UserSettingsPath()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := codebox.WriteUserSettings(codebox.DefaultFS, settingsPath, codebox.UserSettings{
+		SchemaVersion: 2,
+		Providers:     []codebox.ProviderSettings{{Kind: codebox.ProviderAlbert}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	catalogue := setupProviderCatalogueFn
+	setupProviderCatalogueFn = func(codebox.InferenceProvider) ([]codebox.CatalogueModel, error) {
+		return []codebox.CatalogueModel{{ID: "mistral-large-latest"}}, nil
+	}
+	t.Cleanup(func() { setupProviderCatalogueFn = catalogue })
+	code, err := initRun(initOptions{
+		Root: root, SmallModel: codebox.MinistralSmallModelRef, Yes: true,
+		Providers: []codebox.ProviderSettings{{Kind: codebox.ProviderMistral, Name: "Mistral AI", BaseURL: "https://api.mistral.ai/v1", CredentialRef: "mistral:api.mistral.ai"}},
+		Set:       map[string]bool{"root": true, "small-model": true, "providers": true},
+	}, bufio.NewReader(strings.NewReader("")), false)
+	if code == 0 || err == nil || !strings.Contains(err.Error(), "Ministral") {
+		t.Fatalf("new Albert small model on Mistral project = %d, %v", code, err)
+	}
+	if _, statErr := os.Stat(codebox.ProjectManifestPath(root)); !os.IsNotExist(statErr) {
+		t.Fatalf("incompatible small model must not be persisted: %v", statErr)
+	}
+}
+
 func TestCombinedFirstRunExplicitModelSkipsCatalogue(t *testing.T) {
 	root := initTestProject(t)
 	stateDir, _, initOpts := stubCombinedRunEnvironment(t, false)

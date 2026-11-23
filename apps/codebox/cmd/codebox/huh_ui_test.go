@@ -616,7 +616,7 @@ func TestInitAdvancedModelEditSurvivesEscape(t *testing.T) {
 
 func TestInitSmallModelSelectorOffersMinistralAndInheritance(t *testing.T) {
 	value := ""
-	content := newInitSmallModelSelect("project", &value).View()
+	content := newInitSmallModelSelect("project", &value, nil).View()
 	for _, want := range []string{"Ministral 3 8B", "Même modèle que le modèle principal", "titres de session"} {
 		if !strings.Contains(content, want) {
 			t.Fatalf("small-model selector missing %q:\n%s", want, content)
