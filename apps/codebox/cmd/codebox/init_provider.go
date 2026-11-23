@@ -338,6 +338,9 @@ func discoverNonAlbertModelRefs(ctx context.Context, chosen codebox.InferencePro
 // and answers.Model so the written manifest launches cleanly against the
 // selected provider without inheriting an incompatible global DefaultModel.
 func reconcileInitProviderAnswer(ctx context.Context, opts initOptions, answers codebox.InitAnswers, chosen codebox.InferenceProvider, setting codebox.ProviderSettings, apiKey string, forceModelRefresh bool) codebox.InitAnswers {
+	if chosen.CredentialRef == "" && strings.TrimSpace(setting.CredentialRef) != "" {
+		chosen.CredentialRef = strings.TrimSpace(setting.CredentialRef)
+	}
 	answers.Providers = mergeProjectRemoteProvider(answers, setting)
 	if setting.Kind == codebox.ProviderAlbert {
 		// Keep the legacy Albert credentialRef aligned with the selected or
@@ -367,17 +370,19 @@ func reconcileInitProviderAnswer(ctx context.Context, opts initOptions, answers 
 			answers.CredentialRef = ""
 		}
 		if refs, authoritative := discoverNonAlbertModelRefs(ctx, chosen, apiKey, forceModelRefresh); len(refs) > 0 {
-			shouldPersistModels := forceModelRefresh
-			if !shouldPersistModels {
-				if settingsPath, err := codebox.UserSettingsPath(); err == nil {
-					if us, rerr := codebox.ReadUserSettings(codebox.DefaultFS, settingsPath); rerr == nil {
-						shouldPersistModels = savedProviderMatchesEndpoint(us.Providers, chosen)
+			if authoritative {
+				shouldPersistModels := forceModelRefresh
+				if !shouldPersistModels {
+					if settingsPath, err := codebox.UserSettingsPath(); err == nil {
+						if us, rerr := codebox.ReadUserSettings(codebox.DefaultFS, settingsPath); rerr == nil {
+							shouldPersistModels = savedProviderMatchesEndpoint(us.Providers, chosen)
+						}
 					}
 				}
-			}
-			if shouldPersistModels {
-				if err := persistMachineProviderModels(chosen.Kind, refs); err != nil {
-					fmt.Fprintf(os.Stderr, "Attention : les modèles de %s n'ont pas pu être enregistrés : %v\n", chosen.Name, err)
+				if shouldPersistModels {
+					if err := persistMachineProviderModels(chosen.Kind, refs); err != nil {
+						fmt.Fprintf(os.Stderr, "Attention : les modèles de %s n'ont pas pu être enregistrés : %v\n", chosen.Name, err)
+					}
 				}
 			}
 			if !opts.Set["model"] {

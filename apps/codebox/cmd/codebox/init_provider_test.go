@@ -803,3 +803,72 @@ func TestReconcileInitProviderPreservesInheritedModelsFromPartialPickerSubset(t 
 		t.Fatalf("valid inherited SmallModel was cleared by partial picker subset: got %q", got.SmallModel)
 	}
 }
+
+func TestReconcileInitProviderCarriesSavedCredentialRefIntoDiscovery(t *testing.T) {
+	setupTestEnv(t)
+	origModels := initProviderModelsFn
+	t.Cleanup(func() { initProviderModelsFn = origModels })
+
+	teamB, err := codebox.ResolveProvider(codebox.ProviderSettings{
+		Kind:    codebox.ProviderOpenAICompatible,
+		Name:    "Team B",
+		BaseURL: "https://gateway.example/team-b/v1",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantRef := codebox.ProviderCredentialRef(teamB)
+
+	var seenRef string
+	initProviderModelsFn = func(_ context.Context, p codebox.InferenceProvider, _ string) ([]codebox.CatalogueModel, error) {
+		seenRef = p.CredentialRef
+		return []codebox.CatalogueModel{{ID: "team-b-model", Type: "text-generation"}}, nil
+	}
+
+	// Simulate reusing a host-bound saved key for a different path on the same host:
+	// chosen has an empty CredentialRef while eligible (setting) carries wantRef.
+	eligible := codebox.ProviderSettings{
+		Kind:          teamB.Kind,
+		Name:          teamB.Name,
+		BaseURL:       teamB.BaseURL,
+		CredentialRef: wantRef,
+	}
+	got := reconcileInitProviderAnswer(context.Background(), initOptions{}, codebox.InitAnswers{}, teamB, eligible, "", false)
+	if seenRef != wantRef {
+		t.Fatalf("discovery received CredentialRef = %q, want %q", seenRef, wantRef)
+	}
+	if got.Model != "openai-compatible/team-b-model" {
+		t.Fatalf("got.Model = %q, want openai-compatible/team-b-model", got.Model)
+	}
+}
+
+func TestReconcileInitProviderPreservesGlobalDefaultModelOnPartialPickerSubset(t *testing.T) {
+	setupTestEnv(t)
+	mistral, err := codebox.ResolveProvider(codebox.ProviderSettings{Kind: codebox.ProviderMistral})
+	if err != nil {
+		t.Fatal(err)
+	}
+	settingsPath, err := codebox.UserSettingsPath()
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Machine setup keeps an external DefaultModel outside the partial picker list.
+	if err := codebox.WriteUserSettings(codebox.DefaultFS, settingsPath, codebox.UserSettings{
+		SchemaVersion: 1,
+		DefaultModel:  "mistral/mistral-large-latest",
+		Models:        []string{"mistral/mistral-small-latest"},
+		Providers:     []codebox.ProviderSettings{{Kind: mistral.Kind, Name: mistral.Name, BaseURL: mistral.BaseURL}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	setting := codebox.ProviderSettings{Kind: mistral.Kind, Name: mistral.Name, BaseURL: mistral.BaseURL}
+	_ = reconcileInitProviderAnswer(context.Background(), initOptions{}, codebox.InitAnswers{}, mistral, setting, "", false)
+
+	us, err := codebox.ReadUserSettings(codebox.DefaultFS, settingsPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if us.DefaultModel != "mistral/mistral-large-latest" {
+		t.Fatalf("global DefaultModel was overwritten by partial picker subset: got %q, want mistral/mistral-large-latest", us.DefaultModel)
+	}
+}
