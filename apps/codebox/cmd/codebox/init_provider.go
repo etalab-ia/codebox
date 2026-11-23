@@ -380,8 +380,20 @@ func reconcileInitProviderAnswer(ctx context.Context, opts initOptions, answers 
 					fmt.Fprintf(os.Stderr, "Attention : les modèles de %s n'ont pas pu être enregistrés : %v\n", chosen.Name, err)
 				}
 			}
-			if !opts.Set["model"] && strings.TrimSpace(answers.Model) == "" {
-				answers.Model = refs[0]
+			if !opts.Set["model"] {
+				cur := strings.TrimSpace(answers.Model)
+				if cur == "" {
+					answers.Model = refs[0]
+				} else if curKind, _ := codebox.ProviderModelID(cur); curKind == chosen.Kind && !containsString(refs, cur) {
+					answers.Model = refs[0]
+				}
+			}
+			if !opts.Set["small-model"] {
+				if sm := strings.TrimSpace(answers.SmallModel); sm != "" {
+					if smKind, _ := codebox.ProviderModelID(sm); smKind == chosen.Kind && !containsString(refs, sm) {
+						answers.SmallModel = ""
+					}
+				}
 			}
 		}
 	}

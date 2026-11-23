@@ -731,3 +731,42 @@ func TestPersistMachineProviderModelsReconcilesStaleDefaultModel(t *testing.T) {
 		t.Fatalf("stale DefaultModel was not updated: got %q, want openai-compatible/team-b-model", us.DefaultModel)
 	}
 }
+
+func TestReconcileInitProviderReplacesStaleInheritedModelsOnEndpointSwitch(t *testing.T) {
+	setupTestEnv(t)
+	origModels := initProviderModelsFn
+	t.Cleanup(func() { initProviderModelsFn = origModels })
+	initProviderModelsFn = func(_ context.Context, _ codebox.InferenceProvider, _ string) ([]codebox.CatalogueModel, error) {
+		return []codebox.CatalogueModel{{ID: "team-b-model", Type: "text-generation"}}, nil
+	}
+	teamB, err := codebox.ResolveProvider(codebox.ProviderSettings{
+		Kind:    codebox.ProviderOpenAICompatible,
+		Name:    "Team B",
+		BaseURL: "https://gateway.example/team-b/v1",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	inherited := codebox.InitAnswers{
+		Model:      "openai-compatible/team-a-model",
+		SmallModel: "openai-compatible/team-a-small",
+		Providers: []codebox.ProviderSettings{{
+			Kind:    codebox.ProviderOpenAICompatible,
+			Name:    "Team A",
+			BaseURL: "https://gateway.example/team-a/v1",
+		}},
+	}
+	setting := codebox.ProviderSettings{
+		Kind:          teamB.Kind,
+		Name:          teamB.Name,
+		BaseURL:       teamB.BaseURL,
+		CredentialRef: codebox.ProviderCredentialRef(teamB),
+	}
+	got := reconcileInitProviderAnswer(context.Background(), initOptions{}, inherited, teamB, setting, "secret", true)
+	if got.Model != "openai-compatible/team-b-model" {
+		t.Fatalf("inherited Model = %q, want openai-compatible/team-b-model", got.Model)
+	}
+	if got.SmallModel != "" {
+		t.Fatalf("inherited stale SmallModel = %q, want empty", got.SmallModel)
+	}
+}
