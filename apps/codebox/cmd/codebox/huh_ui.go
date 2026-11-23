@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"reflect"
+	goruntime "runtime"
 	"slices"
 	"strconv"
 	"strings"
@@ -22,15 +23,13 @@ import (
 )
 
 // huh_ui.go renders the interactive surfaces with charmbracelet/huh forms
-// (issue #133). The line-based prompts in setup.go/init.go remain the
-// non-interactive contract: they answer from a pipe, a script, or a test
-// with the same semantics. The routing seam is wizardHuhFn — tests stub it
-// to false so the scripted-line tests keep exercising the line path, the
-// same pattern as stdinIsTTYFn.
-
-// wizardHuhFn decides which wizard surface runs. Production answers whether
-// both stdin and stdout are terminals; a piped stdin (CI, scripts, tests)
-// must keep the line path. Tests stub it to false.
+// (issue #133). The legacy setup and project-wizard helpers retain line prompts
+// for their explicit compatibility paths and tests. The combined first run is
+// Huh-only: scripted initialization uses flags plus --yes instead of a second
+// line renderer (#461).
+//
+// wizardHuhFn decides which legacy wizard surface runs. Tests stub it to false;
+// the combined entry point rejects that mode rather than reading piped answers.
 var wizardHuhFn = func() bool { return !wizardNoColor && isTTY() && stdoutIsTTY() }
 
 // doctorRendererFn decides whether the assembled diagnostics use the styled
@@ -277,12 +276,16 @@ func initExpertFlags(opts initOptions) bool {
 	return false
 }
 
-// initStepPrefix numbers the five-step init flow ([1/5]..[5/5]) for
-// the beginner path. When an expert setting or an entire step comes from a
-// flag, the counter is omitted rather than risk a misleading number (#312).
+// initStepPrefix numbers the legacy five-step project wizard or, for the
+// combined flow, its project decisions within six screens ([3/6]..[6/6]).
+// When an expert setting or an entire step comes from a flag, the counter is
+// omitted rather than risk a misleading number (#312).
 func initStepPrefix(opts initOptions, step int) string {
 	if initExpertFlags(opts) {
 		return ""
+	}
+	if opts.Combined {
+		return fmt.Sprintf("[%d/6] ", step)
 	}
 	return fmt.Sprintf("[%d/5] ", step)
 }
@@ -290,28 +293,47 @@ func initStepPrefix(opts initOptions, step int) string {
 // initHarnessStepTitle is the harness screen title with the same counter rule
 // as the other steps (#312).
 func initHarnessStepTitle(opts initOptions) string {
-	return initStepPrefix(opts, 1) + "Agent (harnais)"
+	step := 1
+	if opts.Combined {
+		step = 3
+	}
+	return initStepPrefix(opts, step) + "Agent (harnais)"
 }
 
 // initVMStepTitle is the VM screen title with the same counter rule as the
 // other steps (#312).
 func initVMStepTitle(opts initOptions) string {
-	return initStepPrefix(opts, 2) + "Machine isolée"
+	step := 2
+	if opts.Combined {
+		step = 4
+	}
+	return initStepPrefix(opts, step) + "Machine isolée"
 }
 
 func initSkillsStepTitle(opts initOptions) string {
-	return initStepPrefix(opts, 3)
+	step := 3
+	if opts.Combined {
+		step = 5
+	}
+	return initStepPrefix(opts, step)
 }
 
 // initMCPStepTitle is the MCP screen title with the same counter rule as the
 // other steps (#312); the base wording is codebox.MCPStepTitle's.
 func initMCPStepTitle(opts initOptions) string {
-	return initStepPrefix(opts, 4) + "MCP (facultatif)"
+	step := 4
+	if opts.Combined {
+		step = 6
+	}
+	return initStepPrefix(opts, step) + "MCP (facultatif)"
 }
 
-// initGitHubStepTitle is the GitHub screen title with the same counter rule
-// (#312).
+// GitHub is conditional on a repository remote and stays outside the six
+// default screens, so the combined flow gives it no contradictory counter.
 func initGitHubStepTitle(opts initOptions) string {
+	if opts.Combined {
+		return "GitHub (facultatif)"
+	}
 	return initStepPrefix(opts, 5) + "GitHub (facultatif)"
 }
 
@@ -349,7 +371,7 @@ func commitInitHuhSkills(opts initOptions, answers *codebox.InitAnswers, skills 
 		answers.SkillsSet = answers.SkillsSet || !equalStringSets(answers.Skills, selectedSkills)
 		answers.Skills = selectedSkills
 		answers.RetainedSkills = retainedInitSkillIDs(selectedSkills, skillOptions)
-		needsSkillsConfirm = len(skills) == 0
+		needsSkillsConfirm = !opts.Combined && len(skills) == 0
 	}
 	if !opts.Set["skills-storage"] {
 		answers.SkillsLocalOnlySet = answers.SkillsLocalOnlySet || answers.SkillsLocalOnly != skillsLocalOnly
@@ -373,7 +395,7 @@ func commitInitHuhMCPs(opts initOptions, answers *codebox.InitAnswers, mcps []st
 	if opts.Set["mcps"] {
 		return false, nil
 	}
-	if len(mcps) == 0 {
+	if !opts.Combined && len(mcps) == 0 {
 		// Same zero-selection confirmation as the line wizard;
 		// declining reopens the form with the answers unchanged.
 		keep, confirmErr := confirmNoMCPsHuh()
@@ -526,7 +548,7 @@ func initSmallModelDisplayName(answers codebox.InitAnswers) string {
 	return "même modèle que le modèle principal (" + initModelDisplayName(answers.Model) + ")"
 }
 
-func newInitSmallModelSelect(root string, value *string) *huh.Select[string] {
+func newInitSmallModelSelect(root string, value *string, providers []codebox.ProviderSettings) *huh.Select[string] {
 	options := []huh.Option[string]{
 		huh.NewOption("Même modèle que le modèle principal (défaut)", ""),
 		huh.NewOption("Ministral 3 8B — petit modèle généraliste", codebox.MinistralSmallModelRef),
@@ -538,7 +560,10 @@ func newInitSmallModelSelect(root string, value *string) *huh.Select[string] {
 		Title("Petit modèle").
 		Description("Utilisé pour générer les titres de session. Le choix par défaut suit toujours le modèle principal. Ministral nécessite une connexion à Albert API.").
 		Options(options...).
-		Validate(func(s string) error { _, err := validateInitSmallModelInput(root, s); return err }).
+		Validate(func(s string) error {
+			_, err := validateInitSmallModelInputForProviders(root, s, providers)
+			return err
+		}).
 		Value(value)
 }
 
@@ -552,6 +577,17 @@ var initAlbertConnectedFn = func(root string) (bool, error) {
 		return false, err
 	}
 	return providersContain(providers, codebox.ProviderAlbert), nil
+}
+
+// validateInitSmallModelInputForProviders validates a newly entered small model
+// against the providers selected for this project, not merely any provider that
+// happens to remain configured on the machine.
+func validateInitSmallModelInputForProviders(root, value string, providers []codebox.ProviderSettings) (string, error) {
+	model := normalizeInitModelInput(value)
+	if model == codebox.MinistralSmallModelRef && !initProviderKindSelected(providers, codebox.ProviderAlbert) {
+		return "", fmt.Errorf("Ministral 3 8B exige que le projet conserve une connexion à l'API Albert ; choisissez un autre petit modèle ou conservez le modèle principal")
+	}
+	return validateInitSmallModelInput(root, model)
 }
 
 // validateInitSmallModelInput requires Albert for the curated Albert-only
@@ -610,6 +646,13 @@ func askInitAdvancedHuh(opts initOptions, answers codebox.InitAnswers) (codebox.
 		if !opts.Set["small-model"] {
 			options = append(options, huh.NewOption("Petit modèle : "+initSmallModelDisplayName(answers), "small-model"))
 		}
+		if !opts.Set["skills-storage"] {
+			storage := "avec le projet"
+			if answers.SkillsLocalOnly {
+				storage = "sur ce poste uniquement"
+			}
+			options = append(options, huh.NewOption("Stockage des skills : "+storage, "skills-storage"))
+		}
 		options = append(options, huh.NewOption("Terminer", "back"))
 		if len(options) == 1 {
 			choice = "back"
@@ -632,6 +675,7 @@ func askInitAdvancedHuh(opts initOptions, answers codebox.InitAnswers) (codebox.
 		}
 		var field huh.Field
 		var input string
+		skillStorageInput := answers.SkillsLocalOnly
 		switch choice {
 		case "isolation":
 			input = string(iso)
@@ -660,7 +704,13 @@ func askInitAdvancedHuh(opts initOptions, answers codebox.InitAnswers) (codebox.
 				}).Value(&input)
 		case "small-model":
 			input = answers.SmallModel
-			field = newInitSmallModelSelect(answers.Root, &input)
+			field = newInitSmallModelSelect(answers.Root, &input, answers.Providers)
+		case "skills-storage":
+			field = huh.NewSelect[bool]().
+				Title("Où enregistrer les skills ?").
+				Description("Avec le projet : elles sont versionnées avec le projet. Sur ce poste uniquement : rien n'est ajouté au dépôt.").
+				Options(huh.NewOption("Avec le projet", false), huh.NewOption("Sur ce poste uniquement", true)).
+				Value(&skillStorageInput)
 		default:
 			return answers, fmt.Errorf("réglage avancé inconnu : %q", choice)
 		}
@@ -704,6 +754,9 @@ func askInitAdvancedHuh(opts initOptions, answers codebox.InitAnswers) (codebox.
 			}
 			answers.SmallModel = normalizeInitModelInput(input)
 			smallModelWarning = warning
+		case "skills-storage":
+			answers.SkillsLocalOnly = skillStorageInput
+			answers.SkillsLocalOnlySet = true
 		}
 	}
 }
@@ -820,6 +873,17 @@ func initHarnessValue(answers codebox.InitAnswers) codebox.Harness {
 	return resolved
 }
 
+func initRuntimeOptionsForOS(goos string) []huh.Option[string] {
+	options := []huh.Option[string]{huh.NewOption("Microsandbox (recommandé)", string(codebox.RuntimeMicrosandbox))}
+	if goos == "darwin" {
+		options = append(options, huh.NewOption("Tart : VM macOS complète (expérimental)", string(codebox.RuntimeTart)))
+	}
+	if goos == "darwin" || goos == "linux" {
+		options = append(options, huh.NewOption("agent-vm : VM Lima (expérimental)", string(codebox.RuntimeAgentVM)))
+	}
+	return options
+}
+
 // askVMStepHuh asks which isolated machine runs the agent (#333). It is
 // skipped when --runtime came from the command line. Microsandbox is
 // recommended: it copies the project with .env and secrets excluded; Tart and
@@ -837,11 +901,7 @@ func askVMStepHuh(opts initOptions, answers codebox.InitAnswers) (codebox.InitAn
 	field := huh.NewSelect[string]().
 		Title(initVMStepTitle(opts)).
 		Description(description).
-		Options(
-			huh.NewOption("Microsandbox (recommandé)", string(codebox.RuntimeMicrosandbox)),
-			huh.NewOption("Tart : VM macOS complète ; dossier partagé", string(codebox.RuntimeTart)),
-			huh.NewOption("agent-vm : VM Lima ; dossier partagé", string(codebox.RuntimeAgentVM)),
-		).
+		Options(initRuntimeOptionsForOS(goruntime.GOOS)...).
 		Value(&runtime)
 	if err := huhRun(huh.NewForm(huh.NewGroup(field))); err != nil {
 		return answers, err
@@ -964,12 +1024,12 @@ func askInitQuestionsHuh(opts initOptions, answers codebox.InitAnswers) (codebox
 		mcpOptions = append(mcpOptions, huh.NewOption(choice.ID+" — "+choice.Description, choice.ID))
 	}
 
+	// An accepted empty-skills decision covers later MCP retries in the legacy
+	// project wizard; the combined flow submits empty selections directly.
+	emptySkillsConfirmed := false
 	// The form runs in a loop: when the user changes the project root, the
 	// answers are reseeded from the target project's manifest (matching
 	// the line wizard) and the form reopens with the reseeded defaults.
-	// An accepted empty-skills decision covers later MCP retries; it is reset
-	// only when the project changes or the user selects a skill again.
-	emptySkillsConfirmed := false
 	for {
 		// The harness and VM steps open the wizard (#333): they run before
 		// the project form so the on-screen order matches [1/5]..[5/5]. A
@@ -1011,7 +1071,7 @@ func askInitQuestionsHuh(opts initOptions, answers codebox.InitAnswers) (codebox
 			// actually shows: an unchanged submission must not look
 			// like a new selection and re-resolve existing pins.
 			answers.Skills = append([]string(nil), current...)
-			if len(current) == 0 && !projectManifestExists(answers.Root) && initSkillInCatalogue(catalogue, "official/securite-developpement") {
+			if !opts.Combined && len(current) == 0 && !projectManifestExists(answers.Root) && initSkillInCatalogue(catalogue, "official/securite-developpement") {
 				skills = []string{"official/securite-developpement"}
 			}
 		}
@@ -1025,11 +1085,9 @@ func askInitQuestionsHuh(opts initOptions, answers codebox.InitAnswers) (codebox
 				}
 			}
 		}
-		if len(mcps) == 0 && !haveManifestMCPs && !answers.MCPsSet {
-			// Mirror the line wizard: a fresh initialization (no manifest,
-			// no flag) preselects the curated default, while a manifest
-			// deliberately written with zero MCPs stays empty, and so does
-			// an explicitly confirmed empty selection from a prior pass.
+		if !opts.Combined && len(mcps) == 0 && !haveManifestMCPs && !answers.MCPsSet {
+			// Legacy project initialization preselects the curated default. The
+			// combined first run deliberately starts with no MCP selected.
 			mcps = append([]string(nil), codebox.DefaultFreshMCPIDs...)
 			answers.MCPConnectors = append([]string(nil), codebox.DefaultFreshMCPIDs...)
 		}
@@ -1051,7 +1109,7 @@ func askInitQuestionsHuh(opts initOptions, answers codebox.InitAnswers) (codebox
 		// live behind the review's "Réglages avancés" entry (#170).
 
 		skillsGroup := newInitSkillsGroup(skillOptionsPass, &skills, &skillsLocalOnly,
-			!opts.Set["skills"] && !skipSkills, !opts.Set["skills-storage"], initSkillsStepTitle(opts))
+			!opts.Set["skills"] && !skipSkills, !opts.Combined && !opts.Set["skills-storage"], initSkillsStepTitle(opts))
 
 		mcpFields := make([]huh.Field, 0, 2)
 		if !opts.Set["mcps"] {
@@ -1121,8 +1179,6 @@ func askInitQuestionsHuh(opts initOptions, answers codebox.InitAnswers) (codebox
 		if needsSkillsConfirm && !emptySkillsConfirmed {
 			proceed, err := initEmptySkillsConfirmFn()
 			if err != nil {
-				// An aborted confirmation is an interruption on the skills
-				// step, not a retry and not a successful return (#310).
 				recordInitAbandon(answers.Root, "skills")
 				return answers, err
 			}
@@ -1156,11 +1212,16 @@ func askInitQuestionsHuh(opts initOptions, answers codebox.InitAnswers) (codebox
 		// order on screen matches the flow, and its own screens never throw
 		// away the answers already collected (#155).
 		if !opts.Set["github"] {
-			var err error
-			answers, err = askGitHubStepHuh(answers, initGitHubStepTitle(opts))
-			if err != nil {
-				recordInitAbandon(answers.Root, "github")
-				return answers, err
+			if opts.Combined && !githubInitProbeFn(answers.Root).HasOrigin {
+				answers.GitHubWorkflow = false
+				answers.GitHubRemote = codebox.GitHubRemote{}
+			} else {
+				var err error
+				answers, err = askGitHubStepHuh(answers, initGitHubStepTitle(opts))
+				if err != nil {
+					recordInitAbandon(answers.Root, "github")
+					return answers, err
+				}
 			}
 		}
 		return answers, nil

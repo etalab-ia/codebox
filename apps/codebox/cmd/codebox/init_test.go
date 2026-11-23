@@ -241,6 +241,15 @@ func stubWizardHuh(t *testing.T) {
 	t.Cleanup(func() { wizardHuhFn = orig })
 }
 
+func stubCombinedFirstRunLegacy(t *testing.T) {
+	t.Helper()
+	original := combinedFirstRunFn
+	combinedFirstRunFn = func(opts initOptions, in *bufio.Reader) (int, error) {
+		return initRun(opts, in, true)
+	}
+	t.Cleanup(func() { combinedFirstRunFn = original })
+}
+
 func initTestProject(t *testing.T) string {
 	t.Helper()
 	stubWizardHuh(t)
@@ -2163,13 +2172,13 @@ func TestOfferProjectInitRespectsExplicitChoices(t *testing.T) {
 // cosmetic: the manifest written by the offer is what the launch then applies.
 func TestOfferProjectInitAppliesWhatItWrote(t *testing.T) {
 	clearLaunchChoiceEnv(t)
+	stubCombinedFirstRunLegacy(t)
 	stubCatalogueCheck(t, func(string, string) (string, error) { return "", nil })
 	stubProjectSkills(t)
 	root := initTestProject(t)
-	// confirm, intro, harness, VM, skills, no-skill confirmation, storage, MCPs, GitHub.
-	// The offer collects the beginner answers only: the expert settings open
-	// with `codebox init --advanced` (#333), never from the launch path.
-	input := "\n\n\n\n\ny\n\nchrome-devtools\n\n"
+	// harness, VM, skills, no-skill confirmation, storage, MCPs, GitHub.
+	// The offer no longer adds separate confirmation and intro prompts (#461).
+	input := "\n\n\ny\n\nchrome-devtools\n\n"
 	devNullLike := bufio.NewReader(strings.NewReader(input))
 
 	// Drive the offer with the same answers a user would give.

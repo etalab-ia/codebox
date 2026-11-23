@@ -1181,7 +1181,10 @@ func TestSetupWizardNonTTYAnswersTrimNewlines(t *testing.T) {
 			seenKey = key
 			return nil
 		},
-		func(context.Context) error { return nil },
+		func(context.Context) error {
+			t.Fatal("setup must leave runtime download to project launch")
+			return nil
+		},
 		func(string) string { return "" })
 	if code != 0 || err != nil {
 		t.Fatalf("wizard run: code=%d err=%v", code, err)

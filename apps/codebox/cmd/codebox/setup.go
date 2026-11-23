@@ -22,8 +22,8 @@ import (
 // before a fatal virtualization failure) -> Albert credential (masked,
 // validated; rejection vs network failure distinguished) -> optional GitHub
 // credential -> editable git identity -> model selection -> review ->
-// apply (settings + managed runtime). An interrupted setup resumes at the
-// unfinished stage via the host-state journal.
+// apply (settings; the managed runtime downloads later at project launch).
+// An interrupted setup resumes at the unfinished stage via the host journal.
 //
 //	setup              # interactive wizard
 //	setup doctor       # read-only diagnosis, no prompts, no writes
@@ -279,10 +279,9 @@ func printSetupIntro() bool {
 }
 
 // setupWizardRun is the testable core of the wizard: input comes from in,
-// and the network-facing seams (Albert validation, runtime installation)
-// are injectable so tests never hit the network or download anything. A nil
-// validate uses the real endpoint probe; a nil ensure installs the real
-// managed runtime.
+// and credential validation is injectable so tests never hit the network. The
+// ensure argument remains available to the engine's runtime-install primitive,
+// but setup completion itself never downloads a runtime (#461).
 func setupWizardRun(fallback bool, in *bufio.Reader, validate func(context.Context, string) error, ensure func(context.Context) error, catalogue func(model string) string) (int, error) {
 	ctx := context.Background()
 	stateDir := codebox.DefaultStateDir()
@@ -334,45 +333,7 @@ func setupWizardRun(fallback bool, in *bufio.Reader, validate func(context.Conte
 		fmt.Println("Reprise de la configuration là où elle s'était arrêtée (les clés déjà enregistrées sont conservées).")
 	}
 
-	validateAlbertKey := func(ctx context.Context, key string) error {
-		if validate != nil {
-			return validate(ctx, key)
-		}
-		probe := codebox.ValidateAlbertKey(ctx, nil, key)
-		switch {
-		case probe.Rejected:
-			return codebox.RejectedCredentialError{Detail: probe.Detail}
-		case probe.Unreachable:
-			return fmt.Errorf("impossible de joindre le point d'accès Albert : %s", probe.Detail)
-		}
-		return nil
-	}
-	w := codebox.SetupWizard{
-		FS:       fs,
-		StateDir: stateDir,
-		Store: func(ctx context.Context) (codebox.SetupStore, error) {
-			return authStore(fallback)
-		},
-		ValidateAlbert: validateAlbertKey,
-		ValidateProvider: func(ctx context.Context, provider codebox.InferenceProvider, key string) codebox.CredentialProbe {
-			if provider.Kind == codebox.ProviderAlbert {
-				if validate != nil {
-					if err := validate(ctx, key); err != nil {
-						var rejected codebox.RejectedCredentialError
-						if errors.As(err, &rejected) {
-							return codebox.CredentialProbe{Rejected: true, Detail: rejected.Detail}
-						}
-						return codebox.CredentialProbe{Unreachable: true, Detail: err.Error()}
-					}
-					return codebox.CredentialProbe{}
-				}
-				return codebox.ValidateAlbertKey(ctx, nil, key)
-			}
-			return codebox.ValidateProviderKey(ctx, nil, provider, key)
-		},
-		ValidateGitHub: githubTokenProbeFn,
-		EnsureRuntime:  ensure,
-	}
+	w := newSetupWizard(fs, stateDir, fallback, validate, ensure)
 
 	// Stage: inference platforms and their keys.
 	providers, err := setupPlatformStage(ctx, w, in, fallback, &j, fs, stateDir)
@@ -719,11 +680,8 @@ func setupWizardRun(fallback bool, in *bufio.Reader, validate func(context.Conte
 	}
 	fmt.Println()
 	fmt.Println(setupRuntimeSummary(j.Preflight))
-	fmt.Println()
-	fmt.Println("Installation de la machine isolée…")
-	if err := w.InstallRuntime(ctx); err != nil {
-		// Journal preserved: the retry skips the credential prompts.
-		return 1, fmt.Errorf("l'installation du runtime a échoué : %v (relancez 'codebox setup' pour reprendre ; les questions d'identifiants seront ignorées)", err)
+	if err := w.CompleteSetup(); err != nil {
+		return 1, fmt.Errorf("la configuration a été enregistrée, mais son état final n'a pas pu être écrit : %w", err)
 	}
 	codebox.RecordStatsEvent(fs, stateDir, codebox.StatsEventInput{
 		Kind:    "setup",
@@ -739,6 +697,47 @@ func setupWizardRun(fallback bool, in *bufio.Reader, validate func(context.Conte
 	fmt.Println()
 	fmt.Println(setupCompletionMessage())
 	return 0, nil
+}
+
+// newSetupWizard builds the shared credential-stage engine used by both the
+// standalone machine setup and the combined machine-and-project first run.
+func newSetupWizard(fs codebox.FS, stateDir string, fallback bool, validate func(context.Context, string) error, ensure func(context.Context) error) codebox.SetupWizard {
+	validateAlbertKey := func(ctx context.Context, key string) error {
+		if validate != nil {
+			return validate(ctx, key)
+		}
+		probe := codebox.ValidateAlbertKey(ctx, nil, key)
+		switch {
+		case probe.Rejected:
+			return codebox.RejectedCredentialError{Detail: probe.Detail}
+		case probe.Unreachable:
+			return fmt.Errorf("impossible de joindre le point d'accès Albert : %s", probe.Detail)
+		}
+		return nil
+	}
+	return codebox.SetupWizard{
+		FS:       fs,
+		StateDir: stateDir,
+		Store: func(ctx context.Context) (codebox.SetupStore, error) {
+			return authStore(fallback)
+		},
+		ValidateAlbert: validateAlbertKey,
+		ValidateProvider: func(ctx context.Context, provider codebox.InferenceProvider, key string) codebox.CredentialProbe {
+			if provider.Kind == codebox.ProviderAlbert {
+				if err := validateAlbertKey(ctx, key); err != nil {
+					var rejected codebox.RejectedCredentialError
+					if errors.As(err, &rejected) {
+						return codebox.CredentialProbe{Rejected: true, Detail: rejected.Detail}
+					}
+					return codebox.CredentialProbe{Unreachable: true, Detail: err.Error()}
+				}
+				return codebox.CredentialProbe{}
+			}
+			return codebox.ValidateProviderKey(ctx, nil, provider, key)
+		},
+		ValidateGitHub: githubTokenProbeFn,
+		EnsureRuntime:  ensure,
+	}
 }
 
 // setupPlatformStage asks which inference platforms to connect and stores one
@@ -832,6 +831,13 @@ func setupPlatformStage(ctx context.Context, w codebox.SetupWizard, in *bufio.Re
 			platforms = chosen
 		}
 	}
+	return setupSelectedPlatformStage(ctx, w, in, fallback, j, fs, stateDir, platforms, providerKeyScreenHeader)
+}
+
+// setupSelectedPlatformStage collects endpoints and missing keys for an already
+// chosen provider set. The combined first run uses it without setup's legacy
+// resume-confirmation screen.
+func setupSelectedPlatformStage(ctx context.Context, w codebox.SetupWizard, in *bufio.Reader, fallback bool, j *codebox.SetupJournal, fs codebox.FS, stateDir string, platforms []codebox.SetupPlatform, header func(codebox.InferenceProvider, bool) string) ([]codebox.InferenceProvider, error) {
 	// The OpenAI-compatible platform cannot be defaulted: collect its name and
 	// base URL before the resolver can validate the set.
 	for i := range platforms {
@@ -867,7 +873,7 @@ func setupPlatformStage(ctx context.Context, w codebox.SetupWizard, in *bufio.Re
 			fmt.Printf("Clé %s déjà enregistrée.\n", provider.Name)
 			continue
 		}
-		updatedProvider, verified, err := providerKeyStage(ctx, w, in, provider, fallback, stateDir)
+		updatedProvider, verified, err := providerKeyStageWithHeader(ctx, w, in, provider, fallback, stateDir, header)
 		if err != nil {
 			return nil, err
 		}
@@ -917,6 +923,10 @@ func setupPlatformStage(ctx context.Context, w codebox.SetupWizard, in *bufio.Re
 // first and pre-checked but can be unchecked; at least one platform is
 // required.
 func chooseSetupPlatforms(current []codebox.SetupPlatform, in *bufio.Reader) ([]codebox.SetupPlatform, error) {
+	return chooseSetupPlatformsWithTitle(current, in, "[1/3] Plateformes d'inférence")
+}
+
+func chooseSetupPlatformsWithTitle(current []codebox.SetupPlatform, in *bufio.Reader, title string) ([]codebox.SetupPlatform, error) {
 	order := []codebox.ProviderKind{codebox.ProviderAlbert, codebox.ProviderMistral, codebox.ProviderOpenAICompatible}
 	labels := map[codebox.ProviderKind]string{
 		codebox.ProviderAlbert:           "Albert API                 l'IA souveraine de l'État (recommandé)",
@@ -932,7 +942,7 @@ func chooseSetupPlatforms(current []codebox.SetupPlatform, in *bufio.Reader) ([]
 	}
 	selected := defaultKinds
 	if !wizardHuhFn() {
-		fmt.Println("[1/3] Plateformes d'inférence")
+		fmt.Println(title)
 		fmt.Println()
 		fmt.Println("Choisissez où l'agent envoie ses demandes. Entrez les numéros séparés par des virgules pour en connecter plusieurs.")
 		fmt.Println()
@@ -970,7 +980,7 @@ func chooseSetupPlatforms(current []codebox.SetupPlatform, in *bufio.Reader) ([]
 		}
 		err := huhRun(huh.NewForm(huh.NewGroup(
 			keepMultiSelectCursorOnResize(huh.NewMultiSelect[string]().
-				Title("[1/3] Plateformes d'inférence").
+				Title(title).
 				Description("Choisissez où l'agent envoie ses demandes. Vous pouvez en connecter plusieurs.\n\nEspace : cocher ou décocher. Entrée : valider.").
 				Height(len(options) + 10).
 				Validate(func(values []string) error {
@@ -1353,6 +1363,10 @@ func confirmAlbertEnvKeyStorage(in *bufio.Reader, fallback bool) (bool, error) {
 // explain, re-ask on a refusal, offer retry or continue on an unreachable
 // endpoint. It returns whether the stored key passed validation.
 func providerKeyStage(ctx context.Context, w codebox.SetupWizard, in *bufio.Reader, provider codebox.InferenceProvider, fallback bool, stateDir string) (codebox.InferenceProvider, bool, error) {
+	return providerKeyStageWithHeader(ctx, w, in, provider, fallback, stateDir, providerKeyScreenHeader)
+}
+
+func providerKeyStageWithHeader(ctx context.Context, w codebox.SetupWizard, in *bufio.Reader, provider codebox.InferenceProvider, fallback bool, stateDir string, header func(codebox.InferenceProvider, bool) string) (codebox.InferenceProvider, bool, error) {
 	if provider.Kind != codebox.ProviderAlbert && strings.TrimSpace(provider.CredentialRef) == "" {
 		provider.CredentialRef = codebox.ProviderCredentialRef(provider)
 	}
@@ -1362,7 +1376,7 @@ func providerKeyStage(ctx context.Context, w codebox.SetupWizard, in *bufio.Read
 			return provider, verified, err
 		}
 	}
-	fmt.Println(providerKeyScreenHeader(provider, fallback))
+	fmt.Println(header(provider, fallback))
 	if _, err := w.ResolveStore(ctx); err != nil {
 		return provider, false, err
 	}
@@ -1406,7 +1420,7 @@ func providerKeyStage(ctx context.Context, w codebox.SetupWizard, in *bufio.Read
 				if provider.Kind == codebox.ProviderOpenAICompatible && strings.TrimSpace(provider.CredentialRef) == "" {
 					provider.CredentialRef = codebox.ProviderCredentialRef(provider)
 				}
-				fmt.Println(providerKeyScreenHeader(provider, fallback))
+				fmt.Println(header(provider, fallback))
 			}
 			continue
 		}

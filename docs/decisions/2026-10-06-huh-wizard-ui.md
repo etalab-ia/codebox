@@ -37,3 +37,27 @@ and stdout must be terminals); tests stub it to false, the same pattern as
   `codebox init < answers.txt` in a real terminal still works.
 - The non-TTY contract is untouched: with no terminal, `init` still fails
   naming the missing flags rather than waiting.
+
+## 2026-11-23 update — combined first run (#461)
+
+The combined first run supersedes the line-prompt contract for the interactive
+setup/init journey:
+
+- Bare `codebox` and interactive `codebox init` use one six-screen Huh flow:
+  welcome, provider/key, agent, runtime, skills and MCP. GitHub is asked only
+  when a repository remote exists; advanced settings and the final review do
+  not add default screens.
+- Provider connections and credential values stay machine-scoped. Each project
+  records its selected providers and host-bound credential references; choosing
+  a subset for one project does not remove other machine connections.
+- A fresh machine and an existing machine use the same project flow. Interrupted
+  credential stages retain the existing setup journal; successful project apply
+  marks machine setup complete without downloading a runtime.
+- `codebox setup` manages machine connections, credentials and global defaults.
+  Runtime download happens at project launch, not as a setup stage.
+- The combined default has no preselected skill or MCP and no empty-selection
+  confirmation. Skill storage, model selection, isolation and resources live in
+  `codebox init --advanced`.
+- Interactive screens have one Huh implementation. Piped answer files are no
+  longer a second interactive renderer: scripts and CI supply flags and `--yes`;
+  `init` without a terminal refuses to write without that explicit apply flag.
