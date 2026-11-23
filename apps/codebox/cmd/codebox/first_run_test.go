@@ -410,6 +410,110 @@ func TestCombinedFirstRunPreservesLocalSmallModelProvider(t *testing.T) {
 	}
 }
 
+func TestInitRunProviderFlagYesResolvesCompatibleDefault(t *testing.T) {
+	setupTestEnv(t)
+	root := initTestProject(t)
+	stubInitSkillResolver(t)
+	settingsPath, err := codebox.UserSettingsPath()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := codebox.WriteUserSettings(codebox.DefaultFS, settingsPath, codebox.UserSettings{
+		SchemaVersion: 2,
+		DefaultModel:  "albert/deepseek-v4-flash",
+		Models:        []string{"albert/deepseek-v4-flash"},
+		Providers: []codebox.ProviderSettings{
+			{Kind: codebox.ProviderAlbert},
+			{Kind: codebox.ProviderMistral, CredentialRef: "mistral:api.mistral.ai"},
+		},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	catalogue := setupProviderCatalogueFn
+	setupProviderCatalogueFn = func(provider codebox.InferenceProvider) ([]codebox.CatalogueModel, error) {
+		if provider.Kind != codebox.ProviderMistral {
+			t.Fatalf("unexpected catalogue provider: %s", provider.Kind)
+		}
+		return []codebox.CatalogueModel{{ID: "mistral-large-latest"}}, nil
+	}
+	t.Cleanup(func() { setupProviderCatalogueFn = catalogue })
+	code, err := initRun(initOptions{
+		Root: root, Yes: true,
+		Providers: []codebox.ProviderSettings{{Kind: codebox.ProviderMistral}},
+		Set:       map[string]bool{"root": true, "providers": true},
+	}, bufio.NewReader(strings.NewReader("")), false)
+	if err != nil || code != 0 {
+		t.Fatalf("scripted provider-flag init = %d, %v", code, err)
+	}
+	manifest, err := codebox.ReadProjectManifest(codebox.DefaultFS, codebox.ProjectManifestPath(root))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if manifest.Model != "mistral/mistral-large-latest" {
+		t.Fatalf("scripted project model = %q", manifest.Model)
+	}
+	us, err := codebox.ReadUserSettings(codebox.DefaultFS, settingsPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if us.DefaultModel != "albert/deepseek-v4-flash" {
+		t.Fatalf("scripted project changed machine default: %q", us.DefaultModel)
+	}
+}
+
+func TestCombinedFirstRunLocalServerFlagRepairsInheritedApproval(t *testing.T) {
+	root := initTestProject(t)
+	_, _, initOpts := stubCombinedRunEnvironment(t, true)
+	oldLocal := codebox.ProviderSettings{Kind: codebox.ProviderLocal, Name: "Old local", BaseURL: "http://localhost:2375/v1"}
+	if err := codebox.WriteProjectManifest(codebox.DefaultFS, codebox.ProjectManifestPath(root), codebox.ProjectManifest{
+		SchemaVersion: 8,
+		SmallModel:    "local/old-model",
+		Providers:     []codebox.ProviderSettings{{Kind: codebox.ProviderAlbert}, oldLocal},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	settingsPath, err := codebox.UserSettingsPath()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := codebox.WriteUserSettings(codebox.DefaultFS, settingsPath, codebox.UserSettings{
+		SchemaVersion: 2,
+		Providers:     []codebox.ProviderSettings{{Kind: codebox.ProviderAlbert}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	choose := firstRunChoosePlatformsFn
+	firstRunChoosePlatformsFn = func(current []codebox.SetupPlatform, _ *bufio.Reader, _ string) ([]codebox.SetupPlatform, error) {
+		for _, platform := range current {
+			if platform.Kind == string(codebox.ProviderAlbert) {
+				return []codebox.SetupPlatform{platform}, nil
+			}
+		}
+		t.Fatal("Albert provider missing")
+		return nil, nil
+	}
+	t.Cleanup(func() { firstRunChoosePlatformsFn = choose })
+	code, err := combinedFirstRun(initOptions{
+		Root: root, LocalServer: "11434",
+		Set: map[string]bool{"root": true, "local-server": true},
+	}, bufio.NewReader(strings.NewReader("")))
+	if err != nil || code != 0 {
+		t.Fatalf("local-server approval repair = %d, %v", code, err)
+	}
+	foundApproved := false
+	for _, provider := range initOpts.Providers {
+		if provider.Kind == codebox.ProviderLocal && provider.BaseURL == "http://localhost:11434/v1" {
+			foundApproved = true
+		}
+		if provider.Kind == codebox.ProviderLocal && provider.BaseURL == oldLocal.BaseURL {
+			t.Fatalf("unapproved inherited local provider survived: %+v", provider)
+		}
+	}
+	if !foundApproved {
+		t.Fatalf("explicit local-server approval missing: %+v", initOpts.Providers)
+	}
+}
+
 func TestCombinedFirstRunExplicitModelSkipsCatalogue(t *testing.T) {
 	root := initTestProject(t)
 	stateDir, _, initOpts := stubCombinedRunEnvironment(t, false)
@@ -615,7 +719,7 @@ func TestFirstRunProviderDefaultsValidatesManifestEndpointBeforeCredentialProbe(
 	}
 	t.Cleanup(func() { setupCredentialPresentFn = present })
 	j := codebox.SetupJournal{Stage: codebox.StageCredential}
-	if _, err := firstRunProviderDefaults(context.Background(), root, &j); err == nil || !strings.Contains(err.Error(), "attacker.example") {
+	if _, err := firstRunProviderDefaults(context.Background(), initOptions{Root: root}, &j); err == nil || !strings.Contains(err.Error(), "attacker.example") {
 		t.Fatalf("unapproved manifest endpoint was not rejected: %v", err)
 	}
 	if probeCalls != 0 {
@@ -626,7 +730,7 @@ func TestFirstRunProviderDefaultsValidatesManifestEndpointBeforeCredentialProbe(
 	if err := codebox.WriteProjectManifest(codebox.DefaultFS, codebox.ProjectManifestPath(root), manifest); err != nil {
 		t.Fatal(err)
 	}
-	platforms, err := firstRunProviderDefaults(context.Background(), root, &j)
+	platforms, err := firstRunProviderDefaults(context.Background(), initOptions{Root: root}, &j)
 	if err != nil {
 		t.Fatalf("explicit host-bound provider was not accepted: %v", err)
 	}
@@ -658,7 +762,7 @@ func TestFirstRunProviderDefaultsPreferExistingProject(t *testing.T) {
 	setupCredentialPresentFn = func(context.Context, codebox.CredentialKind) bool { return true }
 	t.Cleanup(func() { setupCredentialPresentFn = present })
 	j := codebox.SetupJournal{Stage: codebox.StageCredential}
-	platforms, err := firstRunProviderDefaults(context.Background(), root, &j)
+	platforms, err := firstRunProviderDefaults(context.Background(), initOptions{Root: root}, &j)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -402,6 +402,22 @@ func initRun(opts initOptions, in *bufio.Reader, tty bool) (code int, err error)
 	if err != nil {
 		return 1, err
 	}
+	if !opts.Combined && opts.Set["providers"] && !opts.Set["model"] && opts.DefaultModel == "" {
+		providers, err := codebox.ResolveProviders(answers.Providers)
+		if err != nil {
+			return 1, err
+		}
+		defaultModel, err := firstRunDefaultModel(answers.Root, providers)
+		if err != nil {
+			if !opts.Advanced || !tty || opts.Yes {
+				return 1, err
+			}
+			fmt.Fprintf(os.Stderr, "Attention : %v\n", err)
+		} else {
+			opts.DefaultModel = defaultModel
+			answers = seedInitAnswersFromManifest(opts, answers)
+		}
+	}
 
 	// The catalogue check reads the credential reference of the project being
 	// configured, not of whatever directory the caller happens to run from,

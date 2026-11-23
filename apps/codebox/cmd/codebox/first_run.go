@@ -60,7 +60,7 @@ func combinedFirstRun(opts initOptions, in *bufio.Reader) (int, error) {
 	w := newSetupWizard(fs, stateDir, j.StoreKind == "file", nil, nil)
 	providersCollected := !opts.Set["providers"]
 	if providersCollected {
-		current, err := firstRunProviderDefaults(ctx, opts.Root, &j)
+		current, err := firstRunProviderDefaults(ctx, opts, &j)
 		if err != nil {
 			return 1, err
 		}
@@ -157,7 +157,8 @@ func firstRunWelcome(root string) error {
 // firstRunProviderDefaults seeds a project choice from an interrupted journal,
 // then from an existing project manifest, and finally from machine settings.
 // Credential values are never read here: only their presence is recorded.
-func firstRunProviderDefaults(ctx context.Context, root string, j *codebox.SetupJournal) ([]codebox.SetupPlatform, error) {
+func firstRunProviderDefaults(ctx context.Context, opts initOptions, j *codebox.SetupJournal) ([]codebox.SetupPlatform, error) {
+	root := opts.Root
 	if len(j.Platforms) > 0 {
 		return append([]codebox.SetupPlatform(nil), j.Platforms...), nil
 	}
@@ -173,6 +174,22 @@ func firstRunProviderDefaults(ctx context.Context, root string, j *codebox.Setup
 		var userProviders []codebox.ProviderSettings
 		if us, ok := currentUserSettings(); ok {
 			userProviders = append(userProviders, us.Providers...)
+		}
+		if opts.Set["local-server"] {
+			local, err := resolveInitLocalServer(ctx, opts.LocalServer)
+			if err != nil {
+				return nil, err
+			}
+			if len(userProviders) == 0 {
+				userProviders = codebox.DefaultProviderSettings()
+			}
+			filtered := make([]codebox.ProviderSettings, 0, len(userProviders)+1)
+			for _, provider := range userProviders {
+				if provider.Kind != codebox.ProviderLocal {
+					filtered = append(filtered, provider)
+				}
+			}
+			userProviders = append(filtered, local)
 		}
 		if err := codebox.ValidateProjectProviders(settings, userProviders); err != nil {
 			return nil, fmt.Errorf("la plateforme du projet ne peut pas être approuvée avant de réutiliser un identifiant : %w", err)
