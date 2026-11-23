@@ -630,6 +630,6 @@ réécrit vers `http://host.microsandbox.internal:<port>/v1` et la politique
 réseau n'ouvre que cet hôte et ce port TCP précis (jamais l'ensemble du groupe
 `host`). Tart et agent-vm ne sont pas pris en charge.
 
-**Cible de qualification : Ollama + Microsandbox** (qualification native en
-attente). LM Studio et llama.cpp exposent la même API et devraient fonctionner,
+**Qualifié : Ollama + Microsandbox** (qualification native validée sur macOS
+arm64). LM Studio et llama.cpp exposent la même API et devraient fonctionner,
 sans garantie.

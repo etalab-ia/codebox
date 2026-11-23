@@ -103,31 +103,50 @@ func TestLocalProviderRefusedOnNonMicrosandboxRuntimes(t *testing.T) {
 }
 
 func TestMSBNetworkConfigAllowsOnlyLocalModelHostAndPort(t *testing.T) {
-	// Without local server: no host.microsandbox.internal rule.
-	plain := msbNetworkConfig(0)
-	for _, r := range plain.Rules {
-		if r.Destination == LocalModelHost {
-			t.Fatalf("unexpected local model rule without local server: %+v", r)
+	// Without a valid local server port: deny-by-default egress, no LocalModelHost
+	// domain rule, and no "host" group rule beyond gateway DNS (port 53).
+	for _, port := range []int{0, -1, 70000} {
+		plain := msbNetworkConfig(port)
+		if plain.DefaultEgress != msb.PolicyActionDeny {
+			t.Fatalf("msbNetworkConfig(%d).DefaultEgress = %q, want %q", port, plain.DefaultEgress, msb.PolicyActionDeny)
+		}
+		for _, r := range plain.Rules {
+			if r.Destination == LocalModelHost {
+				t.Fatalf("msbNetworkConfig(%d) unexpected domain rule: %+v", port, r)
+			}
+			if r.Destination == string(msb.NetworkProfileHost) && r.Port != "53" {
+				t.Fatalf("msbNetworkConfig(%d) unexpected host rule beyond DNS: %+v", port, r)
+			}
 		}
 	}
 
-	// With local server on 11434: allows ONLY host.microsandbox.internal TCP 11434,
-	// never opening the whole "host" group beyond DNS.
+	// With local server on 11434: host.microsandbox.internal is a static /etc/hosts
+	// gateway entry under Microsandbox's "host" group, not a DNS-resolved domain.
+	// Allow ONLY TCP 11434 on "host", never a domain rule or broad "host" rule.
 	withLocal := msbNetworkConfig(11434)
-	found := false
+	if withLocal.DefaultEgress != msb.PolicyActionDeny {
+		t.Fatalf("DefaultEgress = %q, want %q", withLocal.DefaultEgress, msb.PolicyActionDeny)
+	}
+	found := 0
 	for _, r := range withLocal.Rules {
-		if r.Destination == "host" && r.Port != "53" {
-			t.Fatalf("must not open broad host group: %+v", r)
-		}
 		if r.Destination == LocalModelHost {
+			t.Fatalf("must not emit domain rule for static /etc/hosts gateway %s: %+v", LocalModelHost, r)
+		}
+		if r.Destination == string(msb.NetworkProfileHost) {
+			if r.Port == "" || len(r.Ports) != 0 {
+				t.Fatalf("must not open broad host group: %+v", r)
+			}
+			if r.Port == "53" {
+				continue
+			}
 			if r.Action != msb.PolicyActionAllow || r.Direction != msb.PolicyDirectionEgress || r.Port != "11434" || len(r.Protocols) != 1 || r.Protocols[0] != msb.PolicyProtocolTCP {
 				t.Fatalf("unexpected local model egress rule: %+v", r)
 			}
-			found = true
+			found++
 		}
 	}
-	if !found {
-		t.Fatalf("missing narrow egress rule for %s:11434 in %+v", LocalModelHost, withLocal.Rules)
+	if found != 1 {
+		t.Fatalf("found %d narrow host:11434 egress rules, want 1 in %+v", found, withLocal.Rules)
 	}
 }
 
