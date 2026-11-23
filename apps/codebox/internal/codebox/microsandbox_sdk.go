@@ -348,16 +348,19 @@ func msbCreateOptions(spec msbSandboxSpec) []msb.SandboxOption {
 }
 
 // msbNetworkConfig returns the Microsandbox network policy: public internet
-// by default, plus one narrow TCP egress rule for host.microsandbox.internal
-// on localModelPort when a local model server is configured (#447). Never
-// opens the whole host group.
+// by default, plus one narrow TCP egress rule for the host gateway on
+// localModelPort when a local model server is configured (#447). Inside the
+// guest, host.microsandbox.internal is a static /etc/hosts entry routed to the
+// host gateway IP (classified under destination group "host", not DNS), so
+// matching NetworkProfileHost on that single port mirrors Rule.AllowDNS()
+// without exposing other host ports.
 func msbNetworkConfig(localModelPort int) *msb.NetworkConfig {
 	cfg := msb.NetworkPolicy.FromProfiles(msb.NetworkProfilePublic)
-	if localModelPort > 0 {
+	if localModelPort > 0 && localModelPort <= 65535 {
 		cfg.Rules = append(cfg.Rules, msb.PolicyRule{
 			Action:      msb.PolicyActionAllow,
 			Direction:   msb.PolicyDirectionEgress,
-			Destination: LocalModelHost,
+			Destination: string(msb.NetworkProfileHost),
 			Protocols:   []msb.PolicyProtocol{msb.PolicyProtocolTCP},
 			Port:        strconv.Itoa(localModelPort),
 		})
