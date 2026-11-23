@@ -2176,10 +2176,9 @@ func TestOfferProjectInitAppliesWhatItWrote(t *testing.T) {
 	stubCatalogueCheck(t, func(string, string) (string, error) { return "", nil })
 	stubProjectSkills(t)
 	root := initTestProject(t)
-	// confirm, intro, harness, VM, skills, no-skill confirmation, storage, MCPs, GitHub.
-	// The offer collects the beginner answers only: the expert settings open
-	// with `codebox init --advanced` (#333), never from the launch path.
-	input := "\n\n\n\n\ny\n\nchrome-devtools\n\n"
+	// harness, VM, skills, no-skill confirmation, storage, MCPs, GitHub.
+	// The offer no longer adds separate confirmation and intro prompts (#461).
+	input := "\n\n\ny\n\nchrome-devtools\n\n"
 	devNullLike := bufio.NewReader(strings.NewReader(input))
 
 	// Drive the offer with the same answers a user would give.
