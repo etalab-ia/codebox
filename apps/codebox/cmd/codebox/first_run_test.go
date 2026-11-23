@@ -222,11 +222,108 @@ func TestFirstRunDefaultModelUsesProviderCatalogue(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			got, err := firstRunDefaultModel([]codebox.InferenceProvider{provider})
+			got, err := firstRunDefaultModel(t.TempDir(), []codebox.InferenceProvider{provider})
 			if err != nil || got != tc.expected {
 				t.Fatalf("default model = %q, %v; want %q", got, err, tc.expected)
 			}
 		})
+	}
+}
+
+func TestSeedInitAnswersReconcilesModelWithSelectedProvider(t *testing.T) {
+	setupTestEnv(t)
+	for _, tc := range []struct {
+		name      string
+		inherited string
+		expected  string
+	}{
+		{name: "incompatible Albert model replaced", inherited: "albert/old-model", expected: "mistral/mistral-large-latest"},
+		{name: "compatible Mistral model preserved", inherited: "mistral/mistral-small-latest", expected: "mistral/mistral-small-latest"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			root := initTestProject(t)
+			if err := codebox.WriteProjectManifest(codebox.DefaultFS, codebox.ProjectManifestPath(root), codebox.ProjectManifest{SchemaVersion: 8, Model: tc.inherited}); err != nil {
+				t.Fatal(err)
+			}
+			opts := initOptions{
+				Root: root, DefaultModel: "mistral/mistral-large-latest",
+				Providers: []codebox.ProviderSettings{{Kind: codebox.ProviderMistral}},
+				Set:       map[string]bool{"root": true, "providers": true},
+			}
+			answers := seedInitAnswersFromManifest(opts, codebox.InitAnswers{Root: root})
+			if answers.Model != tc.expected {
+				t.Fatalf("model = %q, want %q", answers.Model, tc.expected)
+			}
+		})
+	}
+}
+
+func TestCombinedFirstRunExplicitModelSkipsCatalogue(t *testing.T) {
+	root := initTestProject(t)
+	stateDir, _, initOpts := stubCombinedRunEnvironment(t, false)
+	j, err := codebox.ReadSetupJournal(codebox.DefaultFS, stateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	j.CredentialKinds = []string{"mistral:api.mistral.ai"}
+	if err := codebox.WriteSetupJournal(codebox.DefaultFS, stateDir, j); err != nil {
+		t.Fatal(err)
+	}
+	catalogue := setupProviderCatalogueFn
+	setupProviderCatalogueFn = func(codebox.InferenceProvider) ([]codebox.CatalogueModel, error) {
+		t.Fatal("an explicit model must not require a catalogue request")
+		return nil, errors.New("catalogue unavailable")
+	}
+	t.Cleanup(func() { setupProviderCatalogueFn = catalogue })
+	choose := firstRunChoosePlatformsFn
+	firstRunChoosePlatformsFn = func([]codebox.SetupPlatform, *bufio.Reader, string) ([]codebox.SetupPlatform, error) {
+		return []codebox.SetupPlatform{{Kind: string(codebox.ProviderMistral), CredentialRef: "mistral:api.mistral.ai"}}, nil
+	}
+	t.Cleanup(func() { firstRunChoosePlatformsFn = choose })
+	code, err := combinedFirstRun(initOptions{
+		Root: root, Model: "mistral/custom-model",
+		Providers: []codebox.ProviderSettings{{Kind: codebox.ProviderMistral}},
+		Set:       map[string]bool{"root": true, "model": true, "providers": true},
+	}, bufio.NewReader(strings.NewReader("")))
+	if err != nil || code != 0 {
+		t.Fatalf("explicit-model first run = %d, %v", code, err)
+	}
+	if initOpts.Model != "mistral/custom-model" || initOpts.DefaultModel != "" {
+		t.Fatalf("explicit model answers = %+v", *initOpts)
+	}
+}
+
+func TestCombinedFirstRunAdvancedRecoversFromCatalogueOutage(t *testing.T) {
+	root := initTestProject(t)
+	stateDir, _, initOpts := stubCombinedRunEnvironment(t, false)
+	j, err := codebox.ReadSetupJournal(codebox.DefaultFS, stateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	j.CredentialKinds = []string{"mistral:api.mistral.ai"}
+	if err := codebox.WriteSetupJournal(codebox.DefaultFS, stateDir, j); err != nil {
+		t.Fatal(err)
+	}
+	catalogue := setupProviderCatalogueFn
+	setupProviderCatalogueFn = func(codebox.InferenceProvider) ([]codebox.CatalogueModel, error) {
+		return nil, errors.New("catalogue unavailable")
+	}
+	t.Cleanup(func() { setupProviderCatalogueFn = catalogue })
+	choose := firstRunChoosePlatformsFn
+	firstRunChoosePlatformsFn = func([]codebox.SetupPlatform, *bufio.Reader, string) ([]codebox.SetupPlatform, error) {
+		return []codebox.SetupPlatform{{Kind: string(codebox.ProviderMistral), CredentialRef: "mistral:api.mistral.ai"}}, nil
+	}
+	t.Cleanup(func() { firstRunChoosePlatformsFn = choose })
+	code, err := combinedFirstRun(initOptions{
+		Root: root, Advanced: true,
+		Providers: []codebox.ProviderSettings{{Kind: codebox.ProviderMistral}},
+		Set:       map[string]bool{"root": true, "providers": true},
+	}, bufio.NewReader(strings.NewReader("")))
+	if err != nil || code != 0 {
+		t.Fatalf("advanced catalogue-outage recovery = %d, %v", code, err)
+	}
+	if !initOpts.Advanced || initOpts.DefaultModel != "" {
+		t.Fatalf("advanced recovery must open with a manual model answer: %+v", *initOpts)
 	}
 }
 

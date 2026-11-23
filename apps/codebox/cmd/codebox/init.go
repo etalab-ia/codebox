@@ -899,7 +899,23 @@ func seedInitAnswersFromManifest(opts initOptions, answers codebox.InitAnswers) 
 		answers.Harness = manifest.Harness
 	}
 	if !opts.Set["model"] {
-		answers.Model = manifest.Model
+		if opts.DefaultModel != "" {
+			inheritedKind, _ := codebox.ProviderModelID(manifest.Model)
+			compatible := false
+			for _, provider := range opts.Providers {
+				if provider.Kind == inheritedKind {
+					compatible = true
+					break
+				}
+			}
+			if manifest.Model != "" && compatible {
+				answers.Model = manifest.Model
+			} else {
+				answers.Model = opts.DefaultModel
+			}
+		} else {
+			answers.Model = manifest.Model
+		}
 	}
 	if !opts.Set["small-model"] {
 		answers.SmallModel = manifest.SmallModel

@@ -74,9 +74,16 @@ func combinedFirstRun(opts initOptions, in *bufio.Reader) (int, error) {
 		}
 		opts.Providers = providerSettingsOf(providers)
 		opts.Set["providers"] = true
-		opts.DefaultModel, err = firstRunDefaultModel(providers)
-		if err != nil {
-			return 1, err
+		if !opts.Set["model"] {
+			defaultModel, err := firstRunDefaultModel(opts.Root, providers)
+			if err != nil {
+				if !opts.Advanced {
+					return 1, err
+				}
+				fmt.Fprintf(os.Stderr, "Attention : %v\n", err)
+			} else {
+				opts.DefaultModel = defaultModel
+			}
 		}
 
 		machineProviders := mergeFirstRunMachineProviders(providers)
@@ -168,7 +175,17 @@ func firstRunProviderDefaults(ctx context.Context, root string, j *codebox.Setup
 // Existing compatible defaults win, Albert keeps its curated default, and other
 // providers use their own catalogue. The machine-wide model settings are not
 // changed: this is a project answer, editable later under --advanced.
-func firstRunDefaultModel(providers []codebox.InferenceProvider) (string, error) {
+func firstRunDefaultModel(root string, providers []codebox.InferenceProvider) (string, error) {
+	if pc, err := codebox.DiscoverProject(root); err == nil {
+		if manifest, err := codebox.ReadProjectManifest(codebox.DefaultFS, codebox.ProjectManifestPath(pc.Root)); err == nil && manifest.Model != "" {
+			kind, _ := codebox.ProviderModelID(manifest.Model)
+			for _, provider := range providers {
+				if provider.Kind == kind {
+					return manifest.Model, nil
+				}
+			}
+		}
+	}
 	if us, ok := currentUserSettings(); ok && us.DefaultModel != "" {
 		kind, _ := codebox.ProviderModelID(us.DefaultModel)
 		for _, provider := range providers {
@@ -187,6 +204,11 @@ func firstRunDefaultModel(providers []codebox.InferenceProvider) (string, error)
 	for _, provider := range providers {
 		if provider.Kind == codebox.ProviderAlbert || provider.Kind == codebox.ProviderLocal {
 			continue
+		}
+		if us, ok := currentUserSettings(); ok {
+			if ids := codebox.ProviderModelIDs(us.Models, provider.Kind); len(ids) > 0 {
+				return codebox.ProviderModelRef(provider.Kind, ids[0]), nil
+			}
 		}
 		models, err := setupProviderCatalogueFn(provider)
 		if err != nil {
