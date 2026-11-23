@@ -706,3 +706,28 @@ func TestDiscoverNonAlbertModelRefsFetchesLiveModelsForDifferentEndpointPath(t *
 		t.Fatalf("different endpoint path must fetch its own models instead of reusing team-a cache, got %v", refs)
 	}
 }
+
+func TestPersistMachineProviderModelsReconcilesStaleDefaultModel(t *testing.T) {
+	setupTestEnv(t)
+	settingsPath, err := codebox.UserSettingsPath()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := codebox.WriteUserSettings(codebox.DefaultFS, settingsPath, codebox.UserSettings{
+		SchemaVersion: 1,
+		DefaultModel:  "openai-compatible/team-a-model",
+		Models:        []string{"openai-compatible/team-a-model"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := persistMachineProviderModels(codebox.ProviderOpenAICompatible, []string{"openai-compatible/team-b-model"}); err != nil {
+		t.Fatal(err)
+	}
+	us, err := codebox.ReadUserSettings(codebox.DefaultFS, settingsPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if us.DefaultModel != "openai-compatible/team-b-model" {
+		t.Fatalf("stale DefaultModel was not updated: got %q, want openai-compatible/team-b-model", us.DefaultModel)
+	}
+}

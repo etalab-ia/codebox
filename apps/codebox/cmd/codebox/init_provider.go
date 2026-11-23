@@ -229,7 +229,10 @@ func persistMachineProviderModels(kind codebox.ProviderKind, modelRefs []string)
 	}
 	kept = append(kept, modelRefs...)
 	us.Models = kept
-	if strings.TrimSpace(us.DefaultModel) == "" {
+	dm := strings.TrimSpace(us.DefaultModel)
+	if dm == "" {
+		us.DefaultModel = modelRefs[0]
+	} else if existingKind, _ := codebox.ProviderModelID(dm); existingKind == kind && !containsString(modelRefs, dm) {
 		us.DefaultModel = modelRefs[0]
 	}
 	return codebox.WriteUserSettings(codebox.DefaultFS, settingsPath, us)
