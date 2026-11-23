@@ -75,6 +75,16 @@ var initProviderStoreFn = func(ctx context.Context, provider codebox.InferencePr
 	return ref, nil
 }
 
+// initProviderModelsFn fetches the live model catalogue for a non-Albert
+// provider so newly connected platforms immediately populate UserSettings.Models
+// and a default model for first launch. Tests stub it to avoid network traffic.
+var initProviderModelsFn = func(ctx context.Context, provider codebox.InferenceProvider, apiKey string) ([]codebox.CatalogueModel, error) {
+	if strings.TrimSpace(apiKey) != "" {
+		return codebox.FetchProviderModels(ctx, nil, provider, apiKey)
+	}
+	return setupProviderCatalogueFn(provider)
+}
+
 // initProviderStepFn is the interactive provider/key screen in askInitQuestionsHuh.
 // Tests that focus on downstream steps may stub it; end-to-end tests exercise
 // the real askInitProviderStepHuh.
@@ -192,6 +202,109 @@ func persistMachineProviderSetting(setting codebox.ProviderSettings) error {
 	}
 	_ = codebox.RemoveSetupJournal(codebox.DefaultFS, codebox.DefaultStateDir())
 	return nil
+}
+
+// persistMachineProviderModels merges discovered provider-qualified model refs
+// for kind into UserSettings.Models and seeds DefaultModel when empty so
+// resolveProviderOverlays produces a usable overlay on first launch.
+func persistMachineProviderModels(kind codebox.ProviderKind, modelRefs []string) error {
+	if kind == codebox.ProviderAlbert || len(modelRefs) == 0 {
+		return nil
+	}
+	settingsPath, err := codebox.UserSettingsPath()
+	if err != nil {
+		return err
+	}
+	us, err := codebox.ReadUserSettings(codebox.DefaultFS, settingsPath)
+	if err != nil {
+		return err
+	}
+	us.SchemaVersion = 1
+	kept := make([]string, 0, len(us.Models)+len(modelRefs))
+	for _, ref := range us.Models {
+		if existingKind, _ := codebox.ProviderModelID(ref); existingKind == kind {
+			continue
+		}
+		kept = append(kept, ref)
+	}
+	kept = append(kept, modelRefs...)
+	us.Models = kept
+	if strings.TrimSpace(us.DefaultModel) == "" {
+		us.DefaultModel = modelRefs[0]
+	}
+	return codebox.WriteUserSettings(codebox.DefaultFS, settingsPath, us)
+}
+
+// discoverNonAlbertModelRefs returns provider-qualified model refs (e.g.
+// "mistral/<id>") from existing UserSettings.Models or from the provider's
+// live catalogue when newly connected or not yet populated.
+func discoverNonAlbertModelRefs(ctx context.Context, chosen codebox.InferenceProvider, apiKey string, forceRefresh bool) []string {
+	if chosen.Kind == codebox.ProviderAlbert {
+		return nil
+	}
+	if !forceRefresh {
+		if settingsPath, err := codebox.UserSettingsPath(); err == nil {
+			if us, rerr := codebox.ReadUserSettings(codebox.DefaultFS, settingsPath); rerr == nil {
+				if ids := codebox.ProviderModelIDs(us.Models, chosen.Kind); len(ids) > 0 {
+					refs := make([]string, 0, len(ids))
+					for _, id := range ids {
+						refs = append(refs, string(chosen.Kind)+"/"+id)
+					}
+					return refs
+				}
+			}
+		}
+	}
+	models, err := initProviderModelsFn(ctx, chosen, apiKey)
+	if err != nil || len(models) == 0 {
+		return nil
+	}
+	seen := map[string]bool{}
+	refs := make([]string, 0, len(models))
+	for _, m := range models {
+		id := strings.TrimSpace(m.ID)
+		if id == "" {
+			continue
+		}
+		ref := string(chosen.Kind) + "/" + id
+		if !seen[ref] {
+			seen[ref] = true
+			refs = append(refs, ref)
+		}
+	}
+	return refs
+}
+
+// reconcileInitProviderAnswer updates answers.Providers, answers.CredentialRef,
+// and (for non-Albert platforms without an explicit model) answers.Model so the
+// written manifest launches cleanly against the selected provider.
+func reconcileInitProviderAnswer(ctx context.Context, opts initOptions, answers codebox.InitAnswers, chosen codebox.InferenceProvider, setting codebox.ProviderSettings, apiKey string, forceModelRefresh bool) codebox.InitAnswers {
+	answers.Providers = mergeProjectRemoteProvider(answers, setting)
+	if setting.Kind == codebox.ProviderAlbert {
+		// Keep the legacy Albert credentialRef aligned with the selected or
+		// newly stored Albert entry so launch never falls back to a stale ref.
+		answers.CredentialRef = setting.CredentialRef
+	} else {
+		hasAlbert := false
+		for _, p := range answers.Providers {
+			if p.Kind == codebox.ProviderAlbert {
+				hasAlbert = true
+				break
+			}
+		}
+		if !hasAlbert {
+			answers.CredentialRef = ""
+		}
+		if refs := discoverNonAlbertModelRefs(ctx, chosen, apiKey, forceModelRefresh); len(refs) > 0 {
+			if err := persistMachineProviderModels(chosen.Kind, refs); err != nil {
+				fmt.Fprintf(os.Stderr, "Attention : les modèles de %s n'ont pas pu être enregistrés : %v\n", chosen.Name, err)
+			}
+			if !opts.Set["model"] && strings.TrimSpace(answers.Model) == "" {
+				answers.Model = refs[0]
+			}
+		}
+	}
+	return answers
 }
 
 // mergeProjectRemoteProvider sets the chosen remote provider on answers while
@@ -349,7 +462,7 @@ func askInitProviderStepHuh(opts initOptions, answers codebox.InitAnswers) (code
 				return answers, err
 			}
 			if useSaved == "saved" {
-				answers.Providers = mergeProjectRemoteProvider(answers, eligible)
+				answers = reconcileInitProviderAnswer(ctx, opts, answers, chosen, eligible, "", false)
 				return answers, nil
 			}
 		}
@@ -437,7 +550,7 @@ func askInitProviderStepHuh(opts initOptions, answers codebox.InitAnswers) (code
 			if err := persistMachineProviderSetting(persisted); err != nil {
 				fmt.Fprintf(os.Stderr, "Attention : la configuration globale n'a pas pu être mise à jour : %v\n", err)
 			}
-			answers.Providers = mergeProjectRemoteProvider(answers, persisted)
+			answers = reconcileInitProviderAnswer(ctx, opts, answers, chosen, persisted, key, true)
 			return answers, nil
 		}
 		if reopenEndpoint {

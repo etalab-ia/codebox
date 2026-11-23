@@ -372,12 +372,17 @@ func TestAskInitProviderStepReopensEndpointOnIncompatibleProbe(t *testing.T) {
 	origPresent := initProviderCredentialPresentFn
 	origValidate := initProviderValidateFn
 	origStore := initProviderStoreFn
+	origModels := initProviderModelsFn
 	t.Cleanup(func() {
 		huhRun = origRun
 		initProviderCredentialPresentFn = origPresent
 		initProviderValidateFn = origValidate
 		initProviderStoreFn = origStore
+		initProviderModelsFn = origModels
 	})
+	initProviderModelsFn = func(context.Context, codebox.InferenceProvider, string) ([]codebox.CatalogueModel, error) {
+		return []codebox.CatalogueModel{{ID: "custom-model"}}, nil
+	}
 
 	initProviderCredentialPresentFn = func(context.Context, codebox.InferenceProvider, string) bool { return false }
 	initProviderValidateFn = func(_ context.Context, p codebox.InferenceProvider, _ string) codebox.CredentialProbe {
@@ -545,5 +550,68 @@ func TestMergeProjectRemoteProviderPreservesModelRequiredProviders(t *testing.T)
 	}
 	if merged[0].Kind != codebox.ProviderAlbert || merged[1].Kind != codebox.ProviderMistral {
 		t.Fatalf("merged providers = %+v, want Albert and Mistral", merged)
+	}
+}
+
+func TestReconcileInitProviderPopulatesModelsForNewNonAlbertPlatform(t *testing.T) {
+	setupTestEnv(t)
+	origModels := initProviderModelsFn
+	t.Cleanup(func() { initProviderModelsFn = origModels })
+	initProviderModelsFn = func(_ context.Context, _ codebox.InferenceProvider, _ string) ([]codebox.CatalogueModel, error) {
+		return []codebox.CatalogueModel{
+			{ID: "mistral-large-latest"},
+			{ID: "mistral-small-latest"},
+		}, nil
+	}
+
+	mistral, err := codebox.ResolveProvider(codebox.ProviderSettings{Kind: codebox.ProviderMistral})
+	if err != nil {
+		t.Fatal(err)
+	}
+	setting := codebox.ProviderSettings{
+		Kind:          mistral.Kind,
+		Name:          mistral.Name,
+		BaseURL:       mistral.BaseURL,
+		CredentialRef: codebox.ProviderCredentialRef(mistral),
+	}
+	if err := persistMachineProviderSetting(setting); err != nil {
+		t.Fatal(err)
+	}
+	got := reconcileInitProviderAnswer(context.Background(), initOptions{}, codebox.InitAnswers{}, mistral, setting, "secret-key", true)
+	if got.Model != "mistral/mistral-large-latest" {
+		t.Fatalf("project model = %q, want mistral/mistral-large-latest", got.Model)
+	}
+	settingsPath, err := codebox.UserSettingsPath()
+	if err != nil {
+		t.Fatal(err)
+	}
+	us, err := codebox.ReadUserSettings(codebox.DefaultFS, settingsPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if us.DefaultModel != "mistral/mistral-large-latest" {
+		t.Fatalf("UserSettings.DefaultModel = %q, want mistral/mistral-large-latest", us.DefaultModel)
+	}
+	overlays := resolveProviderOverlays([]codebox.InferenceProvider{mistral}, got.Model)
+	if len(overlays) != 1 || len(overlays[0].Models) != 2 {
+		t.Fatalf("expected Mistral overlay with 2 models, got %+v", overlays)
+	}
+}
+
+func TestReconcileInitProviderClearsStaleLegacyAlbertCredentialRef(t *testing.T) {
+	albert, err := codebox.ResolveProvider(codebox.ProviderSettings{Kind: codebox.ProviderAlbert})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Project inherited a legacy custom credentialRef, then stored a new key
+	// under the default Albert entry (CredentialRef == "").
+	inherited := codebox.InitAnswers{
+		CredentialRef: "custom-old-albert",
+		Providers:     []codebox.ProviderSettings{{Kind: codebox.ProviderAlbert, CredentialRef: "custom-old-albert"}},
+	}
+	replaced := codebox.ProviderSettings{Kind: albert.Kind, Name: albert.Name, BaseURL: albert.BaseURL, CredentialRef: ""}
+	got := reconcileInitProviderAnswer(context.Background(), initOptions{}, inherited, albert, replaced, "new-key", true)
+	if got.CredentialRef != "" {
+		t.Fatalf("legacy CredentialRef = %q, want empty so launch uses the newly stored default Albert key", got.CredentialRef)
 	}
 }
