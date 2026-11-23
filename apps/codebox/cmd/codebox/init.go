@@ -191,6 +191,9 @@ type initOptions struct {
 	// Combined selects the approved six-screen first-run defaults. It changes
 	// presentation only; planning, application and trust checks stay shared.
 	Combined bool
+	// DefaultModel is resolved from the selected provider for the combined flow.
+	// Unlike an explicit --model flag, it remains editable in advanced settings.
+	DefaultModel string
 	// FromLaunch records that the launch flow is driving the setup, which only
 	// changes the closing message.
 	FromLaunch   bool
@@ -841,7 +844,7 @@ func seedInitAnswersFromManifest(opts initOptions, answers codebox.InitAnswers) 
 		answers.Harness = ""
 	}
 	if !opts.Set["model"] {
-		answers.Model = ""
+		answers.Model = opts.DefaultModel
 	}
 	if !opts.Set["small-model"] {
 		answers.SmallModel = ""
@@ -2176,6 +2179,12 @@ var catalogueModelFetchFn = codebox.FetchCatalogue
 var catalogueModelAPIKeyFn = resolveAlbertProviderKeyForCatalogueAt
 
 func catalogueModelWarningForRoot(projectRoot, model string) (string, error) {
+	if kind, _ := codebox.ProviderModelID(model); kind != codebox.ProviderAlbert {
+		// This validator is specifically the Albert catalogue check. Non-Albert
+		// models come from their own provider's catalogue and must not be looked
+		// up as if they were Albert IDs.
+		return "", nil
+	}
 	apiKey, err := catalogueModelAPIKeyFn(projectRoot)
 	if err != nil {
 		return "le modèle a été enregistré sans vérification : aucun identifiant Albert ne permet de consulter le catalogue", nil

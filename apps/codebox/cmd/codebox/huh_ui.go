@@ -23,15 +23,13 @@ import (
 )
 
 // huh_ui.go renders the interactive surfaces with charmbracelet/huh forms
-// (issue #133). The line-based prompts in setup.go/init.go remain the
-// non-interactive contract: they answer from a pipe, a script, or a test
-// with the same semantics. The routing seam is wizardHuhFn — tests stub it
-// to false so the scripted-line tests keep exercising the line path, the
-// same pattern as stdinIsTTYFn.
-
-// wizardHuhFn decides which wizard surface runs. Production answers whether
-// both stdin and stdout are terminals; a piped stdin (CI, scripts, tests)
-// must keep the line path. Tests stub it to false.
+// (issue #133). The legacy setup and project-wizard helpers retain line prompts
+// for their explicit compatibility paths and tests. The combined first run is
+// Huh-only: scripted initialization uses flags plus --yes instead of a second
+// line renderer (#461).
+//
+// wizardHuhFn decides which legacy wizard surface runs. Tests stub it to false;
+// the combined entry point rejects that mode rather than reading piped answers.
 var wizardHuhFn = func() bool { return !wizardNoColor && isTTY() && stdoutIsTTY() }
 
 // doctorRendererFn decides whether the assembled diagnostics use the styled

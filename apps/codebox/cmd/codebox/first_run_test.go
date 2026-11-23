@@ -144,6 +144,95 @@ func TestCombinedFirstRunProjectChoicePreservesOtherMachineProviders(t *testing.
 	}
 }
 
+func TestCombinedFirstRunMistralResolvesUsableProjectModel(t *testing.T) {
+	root := initTestProject(t)
+	_, _, initOpts := stubCombinedRunEnvironment(t, false)
+	catalogue := setupProviderCatalogueFn
+	setupProviderCatalogueFn = func(provider codebox.InferenceProvider) ([]codebox.CatalogueModel, error) {
+		if provider.Kind != codebox.ProviderMistral {
+			t.Fatalf("unexpected catalogue provider: %s", provider.Kind)
+		}
+		return []codebox.CatalogueModel{{ID: "mistral-small-latest"}, {ID: "mistral-large-latest"}}, nil
+	}
+	t.Cleanup(func() { setupProviderCatalogueFn = catalogue })
+	choose := firstRunChoosePlatformsFn
+	firstRunChoosePlatformsFn = func([]codebox.SetupPlatform, *bufio.Reader, string) ([]codebox.SetupPlatform, error) {
+		return []codebox.SetupPlatform{{Kind: string(codebox.ProviderMistral), CredentialRef: "mistral:api.mistral.ai"}}, nil
+	}
+	t.Cleanup(func() { firstRunChoosePlatformsFn = choose })
+	code, err := combinedFirstRun(initOptions{Root: root, Set: map[string]bool{"root": true}}, bufio.NewReader(strings.NewReader("")))
+	if err != nil || code != 0 {
+		t.Fatalf("Mistral-only first run = %d, %v", code, err)
+	}
+	if initOpts.DefaultModel != "mistral/mistral-large-latest" {
+		t.Fatalf("project default model = %q", initOpts.DefaultModel)
+	}
+	providers, err := codebox.ResolveProviders(initOpts.Providers)
+	if err != nil {
+		t.Fatal(err)
+	}
+	overlays := resolveProviderOverlays(providers, initOpts.DefaultModel)
+	if len(overlays) != 1 || overlays[0].Kind != string(codebox.ProviderMistral) || len(overlays[0].Models) != 1 || overlays[0].Models[0].ID != "mistral-large-latest" {
+		t.Fatalf("launch provider overlays = %+v", overlays)
+	}
+	effective := (codebox.ManagedOverlay{Providers: overlays}).EffectiveOverlay()
+	if effective.Model != "mistral/mistral-large-latest" {
+		t.Fatalf("effective launch model = %q", effective.Model)
+	}
+	settingsPath, err := codebox.UserSettingsPath()
+	if err != nil {
+		t.Fatal(err)
+	}
+	us, err := codebox.ReadUserSettings(codebox.DefaultFS, settingsPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if us.DefaultModel != "" || len(us.Models) != 0 {
+		t.Fatalf("project default leaked into machine model defaults: %+v", us)
+	}
+}
+
+func TestFirstRunDefaultModelUsesProviderCatalogue(t *testing.T) {
+	setupTestEnv(t)
+	catalogue := setupProviderCatalogueFn
+	t.Cleanup(func() { setupProviderCatalogueFn = catalogue })
+	for _, tc := range []struct {
+		name     string
+		kind     codebox.ProviderKind
+		baseURL  string
+		models   []codebox.CatalogueModel
+		expected string
+	}{
+		{name: "Mistral preferred default", kind: codebox.ProviderMistral, models: []codebox.CatalogueModel{{ID: "mistral-small-latest"}, {ID: "mistral-large-latest"}}, expected: "mistral/mistral-large-latest"},
+		{name: "OpenAI-compatible first catalogue model", kind: codebox.ProviderOpenAICompatible, baseURL: "https://openrouter.ai/api/v1", models: []codebox.CatalogueModel{{ID: "example/chat-model"}}, expected: "openai-compatible/example/chat-model"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			setupProviderCatalogueFn = func(codebox.InferenceProvider) ([]codebox.CatalogueModel, error) { return tc.models, nil }
+			provider, err := codebox.ResolveProvider(codebox.ProviderSettings{Kind: tc.kind, Name: "Test", BaseURL: tc.baseURL})
+			if err != nil {
+				t.Fatal(err)
+			}
+			got, err := firstRunDefaultModel([]codebox.InferenceProvider{provider})
+			if err != nil || got != tc.expected {
+				t.Fatalf("default model = %q, %v; want %q", got, err, tc.expected)
+			}
+		})
+	}
+}
+
+func TestCatalogueWarningDoesNotValidateMistralAgainstAlbert(t *testing.T) {
+	original := catalogueModelAPIKeyFn
+	catalogueModelAPIKeyFn = func(string) (string, error) {
+		t.Fatal("a Mistral model must not trigger an Albert credential lookup")
+		return "", nil
+	}
+	t.Cleanup(func() { catalogueModelAPIKeyFn = original })
+	warning, err := catalogueModelWarningForRoot(t.TempDir(), "mistral/mistral-large-latest")
+	if err != nil || warning != "" {
+		t.Fatalf("Mistral validation = %q, %v", warning, err)
+	}
+}
+
 func TestCombinedFirstRunInterruptedProjectKeepsRecoveryJournal(t *testing.T) {
 	root := initTestProject(t)
 	stateDir, _, _ := stubCombinedRunEnvironment(t, false)

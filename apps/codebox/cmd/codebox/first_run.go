@@ -74,6 +74,10 @@ func combinedFirstRun(opts initOptions, in *bufio.Reader) (int, error) {
 		}
 		opts.Providers = providerSettingsOf(providers)
 		opts.Set["providers"] = true
+		opts.DefaultModel, err = firstRunDefaultModel(providers)
+		if err != nil {
+			return 1, err
+		}
 
 		machineProviders := mergeFirstRunMachineProviders(providers)
 		resolvedMachineProviders, err := codebox.ResolveProviders(machineProviders)
@@ -158,6 +162,47 @@ func firstRunProviderDefaults(ctx context.Context, root string, j *codebox.Setup
 		}
 	}
 	return platforms, nil
+}
+
+// firstRunDefaultModel resolves the model recorded in the project manifest.
+// Existing compatible defaults win, Albert keeps its curated default, and other
+// providers use their own catalogue. The machine-wide model settings are not
+// changed: this is a project answer, editable later under --advanced.
+func firstRunDefaultModel(providers []codebox.InferenceProvider) (string, error) {
+	if us, ok := currentUserSettings(); ok && us.DefaultModel != "" {
+		kind, _ := codebox.ProviderModelID(us.DefaultModel)
+		for _, provider := range providers {
+			if provider.Kind == kind {
+				return us.DefaultModel, nil
+			}
+		}
+	}
+	for _, provider := range providers {
+		if provider.Kind == codebox.ProviderAlbert {
+			if model := defaultSetupModel(); model != "" {
+				return model, nil
+			}
+		}
+	}
+	for _, provider := range providers {
+		if provider.Kind == codebox.ProviderAlbert || provider.Kind == codebox.ProviderLocal {
+			continue
+		}
+		models, err := setupProviderCatalogueFn(provider)
+		if err != nil {
+			return "", fmt.Errorf("aucun modèle par défaut n'a pu être résolu pour %s : son catalogue est indisponible (%w) ; relancez le parcours ou choisissez un modèle avec 'codebox init --advanced'", provider.Name, err)
+		}
+		if len(models) == 0 {
+			return "", fmt.Errorf("aucun modèle n'est disponible sur %s ; choisissez un modèle avec 'codebox init --advanced'", provider.Name)
+		}
+		for _, model := range models {
+			if provider.Kind == codebox.ProviderMistral && model.ID == "mistral-large-latest" {
+				return codebox.ProviderModelRef(provider.Kind, model.ID), nil
+			}
+		}
+		return codebox.ProviderModelRef(provider.Kind, models[0].ID), nil
+	}
+	return "", fmt.Errorf("aucun modèle par défaut n'est disponible pour la plateforme choisie ; choisissez un modèle avec 'codebox init --advanced'")
 }
 
 // mergeFirstRunMachineProviders updates the selected provider connections while
