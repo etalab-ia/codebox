@@ -356,7 +356,7 @@ func TestCombinedFirstRunExplicitModelSkipsCatalogue(t *testing.T) {
 	t.Cleanup(func() { firstRunChoosePlatformsFn = choose })
 	code, err := combinedFirstRun(initOptions{
 		Root: root, Model: "mistral/custom-model",
-		Providers: []codebox.ProviderSettings{{Kind: codebox.ProviderMistral}},
+		Providers: []codebox.ProviderSettings{{Kind: codebox.ProviderMistral, Name: "Mistral AI", BaseURL: "https://api.mistral.ai/v1", CredentialRef: "mistral:api.mistral.ai"}},
 		Set:       map[string]bool{"root": true, "model": true, "providers": true},
 	}, bufio.NewReader(strings.NewReader("")))
 	if err != nil || code != 0 {
@@ -390,7 +390,7 @@ func TestCombinedFirstRunAdvancedRecoversFromCatalogueOutage(t *testing.T) {
 	t.Cleanup(func() { firstRunChoosePlatformsFn = choose })
 	code, err := combinedFirstRun(initOptions{
 		Root: root, Advanced: true,
-		Providers: []codebox.ProviderSettings{{Kind: codebox.ProviderMistral}},
+		Providers: []codebox.ProviderSettings{{Kind: codebox.ProviderMistral, Name: "Mistral AI", BaseURL: "https://api.mistral.ai/v1", CredentialRef: "mistral:api.mistral.ai"}},
 		Set:       map[string]bool{"root": true, "providers": true},
 	}, bufio.NewReader(strings.NewReader("")))
 	if err != nil || code != 0 {
