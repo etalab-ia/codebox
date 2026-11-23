@@ -288,12 +288,12 @@ func savedProviderMatchesEndpoint(saved []codebox.ProviderSettings, chosen codeb
 }
 
 // discoverNonAlbertModelRefs returns provider-qualified chat-capable model refs
-// (e.g. "mistral/<id>") from existing UserSettings.Models (only when the
-// saved provider entry matches chosen's base URL) or from the provider's live
-// catalogue when newly connected or targeting a different endpoint path.
-func discoverNonAlbertModelRefs(ctx context.Context, chosen codebox.InferenceProvider, apiKey string, forceRefresh bool) []string {
+// (e.g. "mistral/<id>") and reports whether the list came from the live
+// provider catalogue (authoritative=true) rather than the partial
+// UserSettings.Models picker subset (authoritative=false).
+func discoverNonAlbertModelRefs(ctx context.Context, chosen codebox.InferenceProvider, apiKey string, forceRefresh bool) ([]string, bool) {
 	if chosen.Kind == codebox.ProviderAlbert {
-		return nil
+		return nil, false
 	}
 	if !forceRefresh {
 		if settingsPath, err := codebox.UserSettingsPath(); err == nil {
@@ -303,14 +303,14 @@ func discoverNonAlbertModelRefs(ctx context.Context, chosen codebox.InferencePro
 					for _, id := range ids {
 						refs = append(refs, string(chosen.Kind)+"/"+id)
 					}
-					return refs
+					return refs, false
 				}
 			}
 		}
 	}
 	models, err := initProviderModelsFn(ctx, chosen, apiKey)
 	if err != nil || len(models) == 0 {
-		return nil
+		return nil, false
 	}
 	seen := map[string]bool{}
 	var preferred, fallback []string
@@ -331,7 +331,7 @@ func discoverNonAlbertModelRefs(ctx context.Context, chosen codebox.InferencePro
 			fallback = append(fallback, ref)
 		}
 	}
-	return append(preferred, fallback...)
+	return append(preferred, fallback...), true
 }
 
 // reconcileInitProviderAnswer updates answers.Providers, answers.CredentialRef,
@@ -366,7 +366,7 @@ func reconcileInitProviderAnswer(ctx context.Context, opts initOptions, answers 
 		if !hasAlbert {
 			answers.CredentialRef = ""
 		}
-		if refs := discoverNonAlbertModelRefs(ctx, chosen, apiKey, forceModelRefresh); len(refs) > 0 {
+		if refs, authoritative := discoverNonAlbertModelRefs(ctx, chosen, apiKey, forceModelRefresh); len(refs) > 0 {
 			shouldPersistModels := forceModelRefresh
 			if !shouldPersistModels {
 				if settingsPath, err := codebox.UserSettingsPath(); err == nil {
@@ -384,11 +384,13 @@ func reconcileInitProviderAnswer(ctx context.Context, opts initOptions, answers 
 				cur := strings.TrimSpace(answers.Model)
 				if cur == "" {
 					answers.Model = refs[0]
-				} else if curKind, _ := codebox.ProviderModelID(cur); curKind == chosen.Kind && !containsString(refs, cur) {
-					answers.Model = refs[0]
+				} else if authoritative {
+					if curKind, _ := codebox.ProviderModelID(cur); curKind == chosen.Kind && !containsString(refs, cur) {
+						answers.Model = refs[0]
+					}
 				}
 			}
-			if !opts.Set["small-model"] {
+			if authoritative && !opts.Set["small-model"] {
 				if sm := strings.TrimSpace(answers.SmallModel); sm != "" {
 					if smKind, _ := codebox.ProviderModelID(sm); smKind == chosen.Kind && !containsString(refs, sm) {
 						answers.SmallModel = ""

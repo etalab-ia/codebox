@@ -636,9 +636,9 @@ func TestDiscoverNonAlbertModelRefsSkipsNonChatModels(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	refs := discoverNonAlbertModelRefs(context.Background(), compat, "secret", true)
-	if len(refs) != 1 || refs[0] != "openai-compatible/qwen-coder-32b" {
-		t.Fatalf("discovered refs = %v, want only chat-capable qwen-coder-32b", refs)
+	refs, authoritative := discoverNonAlbertModelRefs(context.Background(), compat, "secret", true)
+	if !authoritative || len(refs) != 1 || refs[0] != "openai-compatible/qwen-coder-32b" {
+		t.Fatalf("discovered refs = %v (authoritative=%v), want only chat-capable qwen-coder-32b", refs, authoritative)
 	}
 }
 
@@ -701,9 +701,9 @@ func TestDiscoverNonAlbertModelRefsFetchesLiveModelsForDifferentEndpointPath(t *
 	if err != nil {
 		t.Fatal(err)
 	}
-	refs := discoverNonAlbertModelRefs(context.Background(), teamB, "", false)
-	if len(refs) != 1 || refs[0] != "openai-compatible/team-b-chat-model" {
-		t.Fatalf("different endpoint path must fetch its own models instead of reusing team-a cache, got %v", refs)
+	refs, authoritative := discoverNonAlbertModelRefs(context.Background(), teamB, "", false)
+	if !authoritative || len(refs) != 1 || refs[0] != "openai-compatible/team-b-chat-model" {
+		t.Fatalf("different endpoint path must fetch its own models instead of reusing team-a cache, got %v (authoritative=%v)", refs, authoritative)
 	}
 }
 
@@ -768,5 +768,38 @@ func TestReconcileInitProviderReplacesStaleInheritedModelsOnEndpointSwitch(t *te
 	}
 	if got.SmallModel != "" {
 		t.Fatalf("inherited stale SmallModel = %q, want empty", got.SmallModel)
+	}
+}
+
+func TestReconcileInitProviderPreservesInheritedModelsFromPartialPickerSubset(t *testing.T) {
+	setupTestEnv(t)
+	mistral, err := codebox.ResolveProvider(codebox.ProviderSettings{Kind: codebox.ProviderMistral})
+	if err != nil {
+		t.Fatal(err)
+	}
+	settingsPath, err := codebox.UserSettingsPath()
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Machine setup only enabled mistral-small-latest in UserSettings.Models.
+	if err := codebox.WriteUserSettings(codebox.DefaultFS, settingsPath, codebox.UserSettings{
+		SchemaVersion: 1,
+		Models:        []string{"mistral/mistral-small-latest"},
+		Providers:     []codebox.ProviderSettings{{Kind: mistral.Kind, Name: mistral.Name, BaseURL: mistral.BaseURL}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	inherited := codebox.InitAnswers{
+		Model:      "mistral/mistral-large-latest",
+		SmallModel: "mistral/ministral-8b-latest",
+		Providers:  []codebox.ProviderSettings{{Kind: mistral.Kind, Name: mistral.Name, BaseURL: mistral.BaseURL}},
+	}
+	setting := codebox.ProviderSettings{Kind: mistral.Kind, Name: mistral.Name, BaseURL: mistral.BaseURL}
+	got := reconcileInitProviderAnswer(context.Background(), initOptions{}, inherited, mistral, setting, "", false)
+	if got.Model != "mistral/mistral-large-latest" {
+		t.Fatalf("valid inherited Model was overwritten by partial picker subset: got %q", got.Model)
+	}
+	if got.SmallModel != "mistral/ministral-8b-latest" {
+		t.Fatalf("valid inherited SmallModel was cleared by partial picker subset: got %q", got.SmallModel)
 	}
 }
