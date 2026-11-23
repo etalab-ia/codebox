@@ -719,11 +719,8 @@ func setupWizardRun(fallback bool, in *bufio.Reader, validate func(context.Conte
 	}
 	fmt.Println()
 	fmt.Println(setupRuntimeSummary(j.Preflight))
-	fmt.Println()
-	fmt.Println("Installation de la machine isolée…")
-	if err := w.InstallRuntime(ctx); err != nil {
-		// Journal preserved: the retry skips the credential prompts.
-		return 1, fmt.Errorf("l'installation du runtime a échoué : %v (relancez 'codebox setup' pour reprendre ; les questions d'identifiants seront ignorées)", err)
+	if err := codebox.RemoveSetupJournal(fs, stateDir); err != nil {
+		return 1, err
 	}
 	codebox.RecordStatsEvent(fs, stateDir, codebox.StatsEventInput{
 		Kind:    "setup",

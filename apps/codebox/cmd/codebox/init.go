@@ -52,9 +52,13 @@ func initCmd(args []string) (int, error) {
 		// Keep the preflight offer's reader from consuming input intended for
 		// setup's own raw-terminal intro. A one-byte buffer avoids read-ahead.
 		in := bufio.NewReaderSize(os.Stdin, 1)
-		proceed, code, err := ensureInitSetup(in)
-		if err != nil || !proceed {
-			return code, err
+		// In interactive huh mode, screen 2 (provider/key) handles both fresh
+		// machine setup and saved-key reuse in one combined flow (#461).
+		if !wizardHuhFn() {
+			proceed, code, err := ensureInitSetup(in)
+			if err != nil || !proceed {
+				return code, err
+			}
 		}
 		if !printInitIntro(opts.Root, in) {
 			return 1, fmt.Errorf("annulé ; rien n'a été écrit")
@@ -87,8 +91,13 @@ var initTTYFn = isTTY
 var initStdoutTTYFn = stdoutIsTTY
 
 func initSetupNeeded() (bool, error) {
-	// Global setup owns the account credential and default settings. A
-	// project's credentialRef is not evidence that global setup is missing.
+	// Completed machine setup (any provider, not only Albert) satisfies the
+	// global setup requirement (#434, #461).
+	if completed, err := setupCompletedFn(); err == nil && completed {
+		return false, nil
+	}
+	// Legacy fallback: an environment-provided or default Albert credential
+	// also satisfies setup without requiring a settings file.
 	err := initAlbertCredentialCheckFn()
 	if errors.Is(err, codebox.ErrCredentialNotFound) {
 		return true, nil
@@ -143,25 +152,11 @@ func printInitIntro(root string, in *bufio.Reader) bool {
 			root = filepath.Join("~", rel)
 		}
 	}
-	fmt.Printf(`Configuration du projet : %s
-Dossier : %s
+	fmt.Printf(`Configuration du projet : %s (%s)
 
-codebox va préparer une machine isolée pour ce projet.
-Microsandbox (recommandé) travaille sur une copie filtrée : vos fichiers .env
-et les fichiers ignorés par git ne sont pas copiés.
+5 choix rapides : plateforme et clé, agent, machine isolée, skills, MCP.
+Les réglages avancés (modèle, ressources, isolation, stockage des skills) restent dans 'codebox init --advanced'.
 
-5 étapes :
-  1. Agent (harnais) : le moteur qui travaille dans la machine isolée.
-  2. Machine isolée : le type d'environnement qui exécute l'agent.
-  3. Skills (facultatif) : des savoir-faire pour l'agent (sécurité, accessibilité…).
-  4. MCP (facultatif) : des services que l'agent peut interroger (data.gouv.fr, chrome-devtools…).
-  5. GitHub (facultatif) : autoriser l'agent à proposer ses modifications sur ce dépôt.
-
-Les réglages techniques (ressources, isolation…) ont des valeurs par défaut.
-Les autres types de machine isolée et le partage du dossier qu'ils impliquent
-sont expliqués dans les réglages avancés.
-
-La configuration est enregistrée à la fin de ces étapes, puis le projet démarre.
 Appuyez sur Entrée pour commencer, ou sur Ctrl+C pour quitter.
 `, project, root)
 	_, ok := promptLine(in, "")
@@ -1263,10 +1258,6 @@ func askInitQuestions(in *bufio.Reader, opts initOptions, answers codebox.InitAn
 				return answers, fmt.Errorf("impossible de lire les skills actuelles du projet : %w", err)
 			}
 			answers.Skills = current
-			if catalogueErr == nil && len(current) == 0 && !projectManifestExists(answers.Root) && initSkillInCatalogue(catalogue, "official/securite-developpement") {
-				answers.Skills = []string{"official/securite-developpement"}
-				answers.SkillsSet = true
-			}
 		}
 		if catalogueErr == nil {
 			for {
@@ -2275,13 +2266,6 @@ func offerProjectInitWithReader(projectRoot string, parsed parsedArgs, given *bu
 		in = bufio.NewReader(os.Stdin)
 	}
 	if tty && wizardHuhFn() {
-		proceed, err := huhConfirm("Configurer ce projet maintenant ?", "Ce projet n'a pas encore de configuration codebox. L'assistant écrit le manifeste du projet.", true)
-		if err != nil {
-			return false, 1, fmt.Errorf("projet non configuré : rien n'a été écrit. Lancez 'codebox init' quand vous voudrez le configurer")
-		}
-		if !proceed {
-			return false, 1, fmt.Errorf("projet non configuré : rien n'a été écrit. Lancez 'codebox init' quand vous voudrez le configurer")
-		}
 		if !printInitIntro(projectRoot, in) {
 			return false, 1, fmt.Errorf("projet non configuré : rien n'a été écrit. Lancez 'codebox init' quand vous voudrez le configurer")
 		}

@@ -73,17 +73,9 @@ func TestPrintInitIntroShowsProjectAndSteps(t *testing.T) {
 	})
 	for _, want := range []string{
 		"Configuration du projet : qa-codebox-scratch",
-		"Dossier : " + root,
-		"Microsandbox (recommandé) travaille sur une copie filtrée",
-		"vos fichiers .env",
-		"Les autres types de machine isolée",
-		"réglages avancés.",
-		"1. Agent (harnais)",
-		"2. Machine isolée",
-		"3. Skills (facultatif)",
-		"4. MCP (facultatif)",
-		"5. GitHub (facultatif)",
-		"La configuration est enregistrée à la fin de ces étapes",
+		root,
+		"5 choix rapides : plateforme et clé, agent, machine isolée, skills, MCP.",
+		"codebox init --advanced",
 		"Appuyez sur Entrée pour commencer, ou sur Ctrl+C pour quitter.",
 	} {
 		if !strings.Contains(out, want) {
@@ -118,7 +110,7 @@ func TestPrintInitIntroEOFStopsBeforeInit(t *testing.T) {
 			t.Fatal("EOF must cancel init")
 		}
 	})
-	if !strings.Contains(out, "La configuration est enregistrée à la fin de ces étapes") {
+	if !strings.Contains(out, "Appuyez sur Entrée pour commencer") {
 		t.Fatalf("intro was not shown before cancellation: %q", out)
 	}
 }
@@ -867,30 +859,27 @@ func TestAskInitQuestionsHuhMCPSeedingAndWithdrawnRetention(t *testing.T) {
 
 	// A manifest deliberately written with zero MCPs triggers the
 	// zero-selection confirmation before any write-back. The skills form, the
-	// empty-skills confirmation and the MCP form must all succeed first; the
-	// abort is injected only when the zero-MCP confirmation is actually shown.
+	// Existing manifest with zero MCPs: empty selection is accepted directly
+	// without an extra confirmation screen (#461).
 	if err := codebox.WriteProjectManifest(codebox.DefaultFS, codebox.ProjectManifestPath(root), codebox.ProjectManifest{
 		MCPConnectors:   []string{},
 		SkillsLocalOnly: true,
 	}); err != nil {
 		t.Fatalf("write manifest: %v", err)
 	}
-	formCalls := 0
-	zeroMCPConfirmation := false
 	huhRun = func(form *huh.Form) error {
-		formCalls++
 		form.Init()
 		if strings.Contains(ansi.Strip(form.View()), "Aucun MCP sélectionné") {
-			zeroMCPConfirmation = true
-			return huh.ErrUserAborted
+			t.Fatal("zero-MCP manifest must not trigger an extra confirmation screen (#461)")
 		}
 		return nil
 	}
-	if _, err = askInitQuestionsHuh(opts, codebox.InitAnswers{Root: root}); !errors.Is(err, huh.ErrUserAborted) {
-		t.Fatalf("a zero-MCP manifest must trigger the confirmation and an abort must surface, got %v", err)
+	answers, err = askInitQuestionsHuh(opts, codebox.InitAnswers{Root: root})
+	if err != nil {
+		t.Fatalf("zero-MCP manifest must succeed without extra confirmation, got %v", err)
 	}
-	if !zeroMCPConfirmation || formCalls != 6 {
-		t.Fatalf("the abort must come from the zero-MCP confirmation after all preceding forms (reached=%v, calls=%d)", zeroMCPConfirmation, formCalls)
+	if len(answers.MCPConnectors) != 0 {
+		t.Fatalf("zero-MCP manifest must stay empty, got %v", answers.MCPConnectors)
 	}
 }
 
@@ -1248,8 +1237,8 @@ func TestInitInteractiveUsesDefaultsOnEmptyAnswers(t *testing.T) {
 	if pm.CPUs != 0 || pm.MemoryMB != 0 {
 		t.Fatalf("the default sizing must be left unset in the manifest, got %d/%d", pm.CPUs, pm.MemoryMB)
 	}
-	if strings.Join(pm.MCPConnectors, ",") != "data-gouv" {
-		t.Fatalf("a fresh project must default to the data-gouv MCP, got %v", pm.MCPConnectors)
+	if len(pm.MCPConnectors) != 0 {
+		t.Fatalf("a fresh project must start with no MCP preselected (#445, #461), got %v", pm.MCPConnectors)
 	}
 }
 
@@ -1274,7 +1263,7 @@ func TestInitAdvancedFlagOpensExpertSettings(t *testing.T) {
 	runtimeInstallHintFn = func(codebox.Runtime) (bool, string) { return true, "" }
 	t.Cleanup(func() { detectHostResourcesFn = originalHostResources; runtimeInstallHintFn = originalInstallHint })
 	input := strings.Join([]string{
-		"", "microsandbox", "", "projet", "chrome-devtools", "n", // harness, VM, skills, storage, MCPs, GitHub
+		"", "microsandbox", "", "y", "projet", "chrome-devtools", "n", // harness, VM, skills, empty-skills confirm, storage, MCPs, GitHub
 		"backend", "3", "2048", // isolation, cpus, memory
 		"qwen3-coder",                  // main-model override
 		"ministral-3-8b-instruct-2512", // distinct small model
@@ -1675,7 +1664,7 @@ func TestInitSkillPromptShowsSixChoicesAndConfirmsEmptySelection(t *testing.T) {
 		t.Fatalf("selected skills = %+v", got)
 	}
 	for _, want := range []string{
-		"Skills (facultatif)", "[x] securite-developpement", "[ ] anssi-guides",
+		"Skills (facultatif)", "[ ] securite-developpement", "[ ] anssi-guides",
 		"[ ] rgaa", "[ ] react-dsfr", "[ ] lasuite-ui-kit", "[ ] datagouv-apis",
 		"Aucune skill sélectionnée. Continuer sans skill ?",
 		"Où enregistrer les skills ?", "règles de sécurité de l'État, issues des guides ANSSI",
@@ -1691,7 +1680,7 @@ func TestInitSkillPromptShowsSixChoicesAndConfirmsEmptySelection(t *testing.T) {
 	}
 }
 
-func TestInitLineWizardDefaultsSecuritySkillForNewProject(t *testing.T) {
+func TestInitLineWizardDefaultsEmptySkillsForNewProject(t *testing.T) {
 	root := initTestProject(t)
 	originalCatalogue := projectSkillCatalogueFn
 	projectSkillCatalogueFn = func(context.Context) ([]codebox.ProjectSkill, error) {
@@ -1706,16 +1695,16 @@ func TestInitLineWizardDefaultsSecuritySkillForNewProject(t *testing.T) {
 	var got codebox.InitAnswers
 	out := captureStdout(t, func() {
 		var err error
-		got, err = askInitQuestions(bufio.NewReader(strings.NewReader("\n\n")), initOptions{Set: set}, codebox.InitAnswers{Root: root})
+		got, err = askInitQuestions(bufio.NewReader(strings.NewReader("\n\n\n")), initOptions{Set: set}, codebox.InitAnswers{Root: root})
 		if err != nil {
 			t.Fatalf("askInitQuestions: %v", err)
 		}
 	})
-	if !got.SkillsSet || !equalStringSlices(got.Skills, []string{"official/securite-developpement"}) {
-		t.Fatalf("new-project default selection = %+v", got)
+	if len(got.Skills) != 0 {
+		t.Fatalf("new-project default selection must be empty (#445, #461), got %+v", got)
 	}
-	if !strings.Contains(out, "[x] securite-developpement") || !strings.Contains(out, "1 skill sélectionnée.") {
-		t.Fatalf("default skill and count not shown: %s", out)
+	if !strings.Contains(out, "[ ] securite-developpement") {
+		t.Fatalf("unselected skills list not shown: %s", out)
 	}
 }
 
@@ -2373,7 +2362,7 @@ func TestInitRendersGitHubStepAfterSkillsAndMCP(t *testing.T) {
 	}
 	skillsAt := strings.Index(out, "Skills (facultatif)")
 	mcpAt := strings.Index(out, codebox.MCPStepTitle)
-	githubAt := strings.Index(out, "[5/5] GitHub (facultatif)")
+	githubAt := strings.Index(out, "GitHub (facultatif)")
 	if skillsAt < 0 || mcpAt < 0 || githubAt < 0 {
 		t.Fatalf("all three step screens must be rendered (skills %d, MCP %d, GitHub %d):\n%s", skillsAt, mcpAt, githubAt, out)
 	}
@@ -2686,32 +2675,32 @@ func TestInitIntroOmitsLegacyRuntimes(t *testing.T) {
 		}
 	}
 	if !strings.Contains(out, "réglages avancés") {
-		t.Errorf("the intro must point at the advanced settings for the other runtimes:\n%s", out)
-	}
-	if !strings.Contains(out, ".env") {
-		t.Errorf("the .env filtering note must stay in the intro:\n%s", out)
+		t.Errorf("the intro must point at the advanced settings:\n%s", out)
 	}
 }
 
-// TestInitStepPrefixCounters pins the counter rule (#312, renumbered to five
-// steps by #333): the beginner path numbers the steps, and any flag-provided
-// expert setting hides the numbers instead of showing a misleading one.
+// TestInitStepPrefixCounters pins the counter rule (#312, #461): the beginner
+// path numbers the five choices [1/5]..[5/5], and any flag-provided expert
+// setting hides the numbers instead of showing a misleading one.
 func TestInitStepPrefixCounters(t *testing.T) {
 	assertBeginner := func(name string, opts initOptions) {
 		t.Helper()
-		if got := initHarnessStepTitle(opts); got != "[1/5] Agent (harnais)" {
+		if got := initProviderStepTitle(opts); got != "[1/5] Plateforme d'inférence" {
+			t.Errorf("%s: provider title = %q", name, got)
+		}
+		if got := initHarnessStepTitle(opts); got != "[2/5] Agent (harnais)" {
 			t.Errorf("%s: harness title = %q", name, got)
 		}
-		if got := initVMStepTitle(opts); got != "[2/5] Machine isolée" {
+		if got := initVMStepTitle(opts); got != "[3/5] Machine isolée" {
 			t.Errorf("%s: VM title = %q", name, got)
 		}
-		if got := initSkillsStepTitle(opts); got != "[3/5] " {
+		if got := initSkillsStepTitle(opts); got != "[4/5] " {
 			t.Errorf("%s: skills prefix = %q", name, got)
 		}
-		if got := initMCPStepTitle(opts); got != "[4/5] MCP (facultatif)" {
+		if got := initMCPStepTitle(opts); got != "[5/5] MCP (facultatif)" {
 			t.Errorf("%s: MCP title = %q", name, got)
 		}
-		if got := initGitHubStepTitle(opts); got != "[5/5] GitHub (facultatif)" {
+		if got := initGitHubStepTitle(opts); got != "GitHub (facultatif)" {
 			t.Errorf("%s: GitHub title = %q", name, got)
 		}
 	}

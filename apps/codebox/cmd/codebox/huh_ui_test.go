@@ -13,7 +13,6 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/huh/v2"
-	"github.com/charmbracelet/x/ansi"
 	"github.com/etalab-ia/codebox/apps/codebox/internal/codebox"
 )
 
@@ -131,7 +130,7 @@ func TestInitSkillsAreTheSixDescribedOfficialEntries(t *testing.T) {
 	}
 }
 
-func TestInitHuhWizardDefaultsSecuritySkillForNewProject(t *testing.T) {
+func TestInitHuhWizardDefaultsEmptySkillsForNewProject(t *testing.T) {
 	root := initTestProject(t)
 	originalCatalogue, originalHuhRun := projectSkillCatalogueFn, huhRun
 	projectSkillCatalogueFn = func(context.Context) ([]codebox.ProjectSkill, error) {
@@ -151,178 +150,49 @@ func TestInitHuhWizardDefaultsSecuritySkillForNewProject(t *testing.T) {
 	if err != nil {
 		t.Fatalf("askInitQuestionsHuh: %v", err)
 	}
-	if !got.SkillsSet || !equalStringSlices(got.Skills, []string{"official/securite-developpement"}) {
-		t.Fatalf("new-project default selection = %+v", got)
+	if len(got.Skills) != 0 {
+		t.Fatalf("new-project default skills must be empty (#445, #461), got %+v", got.Skills)
 	}
 }
 
-// initEmptySkillsSequence runs askInitQuestionsHuh with an explicitly empty
-// skill selection and records the form/confirmation sequence (#307). The
-// scripted confirmation answers are returned in order.
-func initEmptySkillsSequence(t *testing.T, mcpsFlag bool, skills []string, confirms []bool) ([]string, codebox.InitAnswers) {
-	t.Helper()
+func TestInitHuhEmptySkillsAndMCPAcceptedWithoutExtraConfirm(t *testing.T) {
 	root := initTestProject(t)
-	originalCatalogue, originalHuhRun, originalConfirm := projectSkillCatalogueFn, huhRun, initEmptySkillsConfirmFn
+	originalCatalogue, originalHuhRun, originalConfirm, originalProvider, originalProbe := projectSkillCatalogueFn, huhRun, initEmptySkillsConfirmFn, initProviderStepFn, githubInitProbeFn
 	projectSkillCatalogueFn = func(context.Context) ([]codebox.ProjectSkill, error) {
 		return initSkillFixtureCatalogue(), nil
+	}
+	initProviderStepFn = func(_ initOptions, answers codebox.InitAnswers) (codebox.InitAnswers, error) {
+		return answers, nil
+	}
+	githubInitProbeFn = func(string) codebox.GitHubProjectStatus {
+		return codebox.GitHubProjectStatus{HasOrigin: false}
 	}
 	var events []string
 	huhRun = func(*huh.Form) error {
 		events = append(events, "form")
 		return nil
 	}
-	remaining := append([]bool(nil), confirms...)
 	initEmptySkillsConfirmFn = func() (bool, error) {
-		events = append(events, "confirm")
-		if len(remaining) == 0 {
-			t.Fatal("the zero-skills confirmation ran more often than scripted")
-		}
-		answer := remaining[0]
-		remaining = remaining[1:]
-		return answer, nil
-	}
-	t.Cleanup(func() {
-		projectSkillCatalogueFn, huhRun, initEmptySkillsConfirmFn = originalCatalogue, originalHuhRun, originalConfirm
-	})
-	set := map[string]bool{"root": true, "github": true, "skills-storage": true}
-	if mcpsFlag {
-		set["mcps"] = true
-	}
-	opts := initOptions{Set: set, hostCPUs: 8, hostMemoryMB: 16384, maxCPUs: 8, maxMemoryMB: 8192}
-	got, err := askInitQuestionsHuh(opts, codebox.InitAnswers{
-		Root: root, SkillsSet: true, Skills: skills,
-		MCPsSet: true, MCPConnectors: []string{"github"},
-	})
-	if err != nil {
-		t.Fatalf("askInitQuestionsHuh: %v", err)
-	}
-	if len(remaining) != 0 {
-		t.Fatalf("only %d of %d scripted confirmations ran (events: %v)", len(confirms)-len(remaining), len(confirms), events)
-	}
-	return events, got
-}
-
-// TestInitHuhEmptySkillsConfirmsBeforeMCP: leaving an empty skills selection
-// triggers exactly ONE confirmation, BEFORE the MCP form (#307), and
-// accepting keeps zero skills through the recap.
-func TestInitHuhEmptySkillsConfirmsBeforeMCP(t *testing.T) {
-	events, got := initEmptySkillsSequence(t, false, nil, []bool{true})
-	// The harness and VM steps render their own forms first (#333).
-	if !equalStringSlices(events, []string{"form", "form", "form", "confirm", "form"}) {
-		t.Fatalf("sequence = %v, want harness, VM and skills forms, confirmation, MCP form", events)
-	}
-	if !got.SkillsSet || len(got.Skills) != 0 {
-		t.Fatalf("an accepted empty selection must stay explicitly empty: %+v", got)
-	}
-	if !equalStringSlices(got.MCPConnectors, []string{"github"}) {
-		t.Fatalf("MCP answers lost: %+v", got)
-	}
-}
-
-// TestInitHuhEmptySkillsConfirmWithoutMCPStep: the same single confirmation
-// when no MCP step runs (flag-provided MCPs).
-func TestInitHuhEmptySkillsConfirmWithoutMCPStep(t *testing.T) {
-	events, got := initEmptySkillsSequence(t, true, nil, []bool{true})
-	if !equalStringSlices(events, []string{"form", "form", "form", "confirm"}) {
-		t.Fatalf("sequence = %v, want harness, VM and skills forms then confirmation only", events)
-	}
-	if !got.SkillsSet || len(got.Skills) != 0 {
-		t.Fatalf("an accepted empty selection must stay explicitly empty: %+v", got)
-	}
-}
-
-// TestInitHuhEmptySkillsDeclineReopensEmptySelection: declining returns to
-// the skills form with the selection still EMPTY (the default is not
-// restored), and each transition asks exactly once.
-func TestInitHuhEmptySkillsDeclineReopensEmptySelection(t *testing.T) {
-	events, got := initEmptySkillsSequence(t, false, nil, []bool{false, true})
-	// Declining restarts the question loop, so the step forms run again.
-	want := []string{"form", "form", "form", "confirm", "form", "form", "form", "confirm", "form"}
-	if !equalStringSlices(events, want) {
-		t.Fatalf("sequence = %v, want %v", events, want)
-	}
-	if len(got.Skills) != 0 {
-		t.Fatalf("a declined retry must not restore the default skill: %+v", got)
-	}
-}
-
-// TestInitHuhNonEmptySkillsAskNoConfirmation: a non-empty selection never
-// triggers the confirmation.
-func TestInitHuhNonEmptySkillsAskNoConfirmation(t *testing.T) {
-	events, got := initEmptySkillsSequence(t, false, []string{"official/rgaa"}, nil)
-	if !equalStringSlices(events, []string{"form", "form", "form", "form"}) {
-		t.Fatalf("sequence = %v, want harness, VM, skills and MCP forms, no confirmation", events)
-	}
-	if !equalStringSlices(got.Skills, []string{"official/rgaa"}) {
-		t.Fatalf("skills = %+v, want the submitted selection", got)
-	}
-}
-
-// TestInitHuhEmptySkillsAcceptedOnceAcrossMCPRetry drives the real Huh
-// selections: clear skills once, clear and decline MCP, then clear and accept
-// it on retry. The accepted zero-skills decision must not be asked again (#307).
-func TestInitHuhEmptySkillsAcceptedOnceAcrossMCPRetry(t *testing.T) {
-	root := initTestProject(t)
-	originalCatalogue, originalHuhRun, originalConfirm := projectSkillCatalogueFn, huhRun, initEmptySkillsConfirmFn
-	projectSkillCatalogueFn = func(context.Context) ([]codebox.ProjectSkill, error) {
-		return initSkillFixtureCatalogue(), nil
-	}
-	var events []string
-	skillsCleared := false
-	mcpConfirmations := 0
-	huhRun = func(form *huh.Form) error {
-		form.Init()
-		_, _ = form.Update(tea.WindowSizeMsg{Width: 100, Height: 24})
-		view := ansi.Strip(form.View())
-		switch {
-		case strings.Contains(view, "Agent (harnais)"):
-			// Harness step: keep the default and move on.
-		case strings.Contains(view, "Machine isolée"):
-			// VM step: keep the default and move on.
-		case strings.Contains(view, "Aucun MCP sélectionné"):
-			mcpConfirmations++
-			if mcpConfirmations == 1 {
-				events = append(events, "mcp-decline")
-				return nil // the confirmation's default is to return to the MCP form
-			}
-			events = append(events, "mcp-accept")
-			_, _ = form.Update(tea.KeyPressMsg(tea.Key{Code: 'y', Text: "y"}))
-		case strings.Contains(view, "MCP (facultatif)"):
-			events = append(events, "mcp-clear")
-			_, _ = form.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeySpace, Text: " "}))
-		case strings.Contains(view, "Une skill apporte"):
-			events = append(events, "skills")
-			if !skillsCleared {
-				_, _ = form.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeySpace, Text: " "}))
-				skillsCleared = true
-			}
-		default:
-			t.Fatalf("unexpected form:\n%s", view)
-		}
-		return nil
-	}
-	initEmptySkillsConfirmFn = func() (bool, error) {
-		events = append(events, "skills-confirm")
+		t.Fatal("empty skills must not trigger an extra confirmation screen (#461)")
 		return true, nil
 	}
 	t.Cleanup(func() {
-		projectSkillCatalogueFn, huhRun, initEmptySkillsConfirmFn = originalCatalogue, originalHuhRun, originalConfirm
+		projectSkillCatalogueFn, huhRun, initEmptySkillsConfirmFn, initProviderStepFn, githubInitProbeFn = originalCatalogue, originalHuhRun, originalConfirm, originalProvider, originalProbe
 	})
-	opts := initOptions{Set: map[string]bool{"root": true, "github": true, "skills-storage": true},
-		hostCPUs: 8, hostMemoryMB: 16384, maxCPUs: 8, maxMemoryMB: 8192}
-	got, err := askInitQuestionsHuh(opts, codebox.InitAnswers{
-		Root: root, SkillsSet: true, Skills: []string{"official/securite-developpement"},
-		MCPsSet: true, MCPConnectors: []string{"data-gouv"},
-	})
+	opts := initOptions{Set: map[string]bool{"root": true}, hostCPUs: 8, hostMemoryMB: 16384, maxCPUs: 8, maxMemoryMB: 8192}
+	got, err := askInitQuestionsHuh(opts, codebox.InitAnswers{Root: root})
 	if err != nil {
 		t.Fatalf("askInitQuestionsHuh: %v", err)
 	}
-	wantEvents := []string{"skills", "skills-confirm", "mcp-clear", "mcp-decline", "skills", "mcp-clear", "mcp-accept"}
-	if !equalStringSlices(events, wantEvents) {
-		t.Fatalf("events = %v, want %v", events, wantEvents)
+	// Agent, VM, skills, and MCP run as 4 forms (provider stubbed, GitHub skipped without remote).
+	if !equalStringSlices(events, []string{"form", "form", "form", "form"}) {
+		t.Fatalf("sequence = %v, want 4 forms with no extra confirmation", events)
 	}
 	if len(got.Skills) != 0 || len(got.MCPConnectors) != 0 {
-		t.Fatalf("confirmed empty selections were not preserved: %+v", got)
+		t.Fatalf("empty defaults must stay empty: skills=%v mcps=%v", got.Skills, got.MCPConnectors)
+	}
+	if got.GitHubWorkflow {
+		t.Fatal("project without GitHub remote must skip GitHub workflow")
 	}
 }
 
@@ -460,7 +330,7 @@ func TestAskInitAdvancedHuhSubmitKeepsDefaults(t *testing.T) {
 	runInitAdvancedForm = func(form *huh.Form) (bool, error) {
 		picker := form.GetFocusedField().(*huh.Select[string])
 		picker.Focus()
-		for i := 0; i < 5; i++ {
+		for i := 0; i < 6; i++ {
 			picker.Update(tea.KeyPressMsg{Code: tea.KeyDown})
 		}
 		picker.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
@@ -841,10 +711,10 @@ func TestRetainedSkillOptionsPreserveUnavailablePins(t *testing.T) {
 }
 
 func TestInitSkillsStepPrefixIsOmittedForPartialWizard(t *testing.T) {
-	if got := initSkillsStepTitle(initOptions{}); got != "[3/5] " {
+	if got := initSkillsStepTitle(initOptions{}); got != "[4/5] " {
 		t.Fatalf("full wizard prefix = %q", got)
 	}
-	if got := initSkillsStepTitle(initOptions{Set: map[string]bool{"root": true}}); got != "[3/5] " {
+	if got := initSkillsStepTitle(initOptions{Set: map[string]bool{"root": true}}); got != "[4/5] " {
 		t.Fatalf("a displayed or explicit root must keep the beginner prefix = %q", got)
 	}
 	for _, field := range []string{"runtime", "isolation", "model", "small-model", "cpus", "memory-mb", "credential-ref", "github", "skills", "mcps"} {
@@ -1049,8 +919,12 @@ func initAbandonRun(t *testing.T, skills, mcps []string, abortOn map[int]bool, c
 		}
 		return true, nil
 	}
+	origProvider := initProviderStepFn
+	initProviderStepFn = func(_ initOptions, answers codebox.InitAnswers) (codebox.InitAnswers, error) {
+		return answers, nil
+	}
 	t.Cleanup(func() {
-		projectSkillCatalogueFn, huhRun, initEmptySkillsConfirmFn = originalCatalogue, originalHuhRun, originalConfirm
+		projectSkillCatalogueFn, huhRun, initEmptySkillsConfirmFn, initProviderStepFn = originalCatalogue, originalHuhRun, originalConfirm, origProvider
 	})
 	opts := initOptions{Set: map[string]bool{"root": true, "github": true, "skills-storage": true},
 		hostCPUs: 8, hostMemoryMB: 16384, maxCPUs: 8, maxMemoryMB: 8192}
@@ -1092,24 +966,6 @@ func TestInitHuhAbandonStages(t *testing.T) {
 		}
 		if !equalStringSlices(stages, []string{"mcp"}) {
 			t.Fatalf("stages = %v, want mcp only", stages)
-		}
-	})
-	t.Run("abort on the zero-skills confirmation", func(t *testing.T) {
-		stages, err := initAbandonRun(t, nil, []string{"github"}, nil, huh.ErrUserAborted, true)
-		if err == nil {
-			t.Fatal("an aborted confirmation must return an error")
-		}
-		if !equalStringSlices(stages, []string{"skills"}) {
-			t.Fatalf("stages = %v, want skills", stages)
-		}
-	})
-	t.Run("abort on the zero-MCP confirmation", func(t *testing.T) {
-		stages, err := initAbandonRun(t, nonEmpty, nil, map[int]bool{5: true}, nil, true)
-		if err == nil {
-			t.Fatal("an aborted confirmation must return an error")
-		}
-		if !equalStringSlices(stages, []string{"mcp"}) {
-			t.Fatalf("stages = %v, want mcp", stages)
 		}
 	})
 	t.Run("no consent means no event", func(t *testing.T) {

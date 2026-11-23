@@ -62,13 +62,13 @@ var RemovedMCPIDs = map[string]string{
 const BrowserDownloadNote = "Le navigateur est téléchargé dans la machine isolée au premier lancement (environ 2,6 Go). Prévoyez au moins 4 Go de mémoire."
 
 // DefaultFreshMCPIDs is the pre-checked selection for a fresh initialization
-// (no manifest, no flag): data-gouv is offered by default (#168).
-var DefaultFreshMCPIDs = []string{"data-gouv"}
+// (no manifest, no flag): nothing is preselected (#445, #461).
+var DefaultFreshMCPIDs []string
 
 // MCPStepTitle is the wizard screen title from #168. The live screens compute
 // the counter with initStepPrefix (#312, renumbered to five steps by #333);
 // this value is the beginner-path spelling other packages and tests reuse.
-const MCPStepTitle = "[4/5] MCP (facultatif)"
+const MCPStepTitle = "[5/5] MCP (facultatif)"
 
 // MCPStepIntro is the one-line explanation printed under the MCP screen
 // title. The line wizard and the huh form both render it (#168 texts, QA

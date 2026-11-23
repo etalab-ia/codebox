@@ -288,31 +288,31 @@ func initStepPrefix(opts initOptions, step int) string {
 }
 
 // initHarnessStepTitle is the harness screen title with the same counter rule
-// as the other steps (#312).
+// as the other steps (#312, #461).
 func initHarnessStepTitle(opts initOptions) string {
-	return initStepPrefix(opts, 1) + "Agent (harnais)"
+	return initStepPrefix(opts, 2) + "Agent (harnais)"
 }
 
 // initVMStepTitle is the VM screen title with the same counter rule as the
-// other steps (#312).
+// other steps (#312, #461).
 func initVMStepTitle(opts initOptions) string {
-	return initStepPrefix(opts, 2) + "Machine isolée"
+	return initStepPrefix(opts, 3) + "Machine isolée"
 }
 
 func initSkillsStepTitle(opts initOptions) string {
-	return initStepPrefix(opts, 3)
+	return initStepPrefix(opts, 4)
 }
 
 // initMCPStepTitle is the MCP screen title with the same counter rule as the
-// other steps (#312); the base wording is codebox.MCPStepTitle's.
+// other steps (#312, #461); the base wording is codebox.MCPStepTitle's.
 func initMCPStepTitle(opts initOptions) string {
-	return initStepPrefix(opts, 4) + "MCP (facultatif)"
+	return initStepPrefix(opts, 5) + "MCP (facultatif)"
 }
 
-// initGitHubStepTitle is the GitHub screen title with the same counter rule
-// (#312).
+// initGitHubStepTitle is the optional GitHub screen title shown only when the
+// project has a GitHub remote (#461).
 func initGitHubStepTitle(opts initOptions) string {
-	return initStepPrefix(opts, 5) + "GitHub (facultatif)"
+	return "GitHub (facultatif)"
 }
 
 func newProjectSkillsMultiSelect(skillOptions []huh.Option[string], value *[]string, stepPrefix string) *huh.MultiSelect[string] {
@@ -610,6 +610,13 @@ func askInitAdvancedHuh(opts initOptions, answers codebox.InitAnswers) (codebox.
 		if !opts.Set["small-model"] {
 			options = append(options, huh.NewOption("Petit modèle : "+initSmallModelDisplayName(answers), "small-model"))
 		}
+		if !opts.Set["skills-storage"] {
+			storageLabel := "Avec le projet"
+			if answers.SkillsLocalOnly {
+				storageLabel = "Sur ce poste uniquement"
+			}
+			options = append(options, huh.NewOption("Emplacement des skills : "+storageLabel, "skills-storage"))
+		}
 		options = append(options, huh.NewOption("Terminer", "back"))
 		if len(options) == 1 {
 			choice = "back"
@@ -632,6 +639,7 @@ func askInitAdvancedHuh(opts initOptions, answers codebox.InitAnswers) (codebox.
 		}
 		var field huh.Field
 		var input string
+		var skillsLocalOnlyInput bool
 		switch choice {
 		case "isolation":
 			input = string(iso)
@@ -661,6 +669,13 @@ func askInitAdvancedHuh(opts initOptions, answers codebox.InitAnswers) (codebox.
 		case "small-model":
 			input = answers.SmallModel
 			field = newInitSmallModelSelect(answers.Root, &input)
+		case "skills-storage":
+			skillsLocalOnlyInput = answers.SkillsLocalOnly
+			field = huh.NewSelect[bool]().
+				Title("Où enregistrer les skills ?").
+				Description("Avec le projet : elles sont versionnées et un coéquipier qui clone le projet les retrouve. Sur ce poste uniquement : rien n'est ajouté au dépôt.").
+				Options(huh.NewOption("Avec le projet", false), huh.NewOption("Sur ce poste uniquement", true)).
+				Value(&skillsLocalOnlyInput)
 		default:
 			return answers, fmt.Errorf("réglage avancé inconnu : %q", choice)
 		}
@@ -704,6 +719,9 @@ func askInitAdvancedHuh(opts initOptions, answers codebox.InitAnswers) (codebox.
 			}
 			answers.SmallModel = normalizeInitModelInput(input)
 			smallModelWarning = warning
+		case "skills-storage":
+			answers.SkillsLocalOnlySet = answers.SkillsLocalOnlySet || answers.SkillsLocalOnly != skillsLocalOnlyInput
+			answers.SkillsLocalOnly = skillsLocalOnlyInput
 		}
 	}
 }
@@ -830,18 +848,14 @@ func askVMStepHuh(opts initOptions, answers codebox.InitAnswers) (codebox.InitAn
 		return answers, nil
 	}
 	runtime := string(effectiveInitRuntime(answers))
-	description := "Microsandbox : copie filtrée du projet (.env et secrets exclus), démarrage rapide. Tart et agent-vm : votre dossier est partagé avec la VM."
+	description := "Microsandbox : copie filtrée du projet, démarrage rapide."
 	if notice := initRuntimeNotice(codebox.Runtime(runtime)); notice != "" {
 		description += "\n" + notice
 	}
 	field := huh.NewSelect[string]().
 		Title(initVMStepTitle(opts)).
 		Description(description).
-		Options(
-			huh.NewOption("Microsandbox (recommandé)", string(codebox.RuntimeMicrosandbox)),
-			huh.NewOption("Tart : VM macOS complète ; dossier partagé", string(codebox.RuntimeTart)),
-			huh.NewOption("agent-vm : VM Lima ; dossier partagé", string(codebox.RuntimeAgentVM)),
-		).
+		Options(initRuntimeOptionsForOS(initHostGOOSFn())...).
 		Value(&runtime)
 	if err := huhRun(huh.NewForm(huh.NewGroup(field))); err != nil {
 		return answers, err
@@ -967,15 +981,15 @@ func askInitQuestionsHuh(opts initOptions, answers codebox.InitAnswers) (codebox
 	// The form runs in a loop: when the user changes the project root, the
 	// answers are reseeded from the target project's manifest (matching
 	// the line wizard) and the form reopens with the reseeded defaults.
-	// An accepted empty-skills decision covers later MCP retries; it is reset
-	// only when the project changes or the user selects a skill again.
-	emptySkillsConfirmed := false
 	for {
-		// The harness and VM steps open the wizard (#333): they run before
-		// the project form so the on-screen order matches [1/5]..[5/5]. A
-		// root change reseeds the answers and reopens these steps with the
-		// new project's manifest defaults.
+		// The five choices run in order: [1/5] provider/key, [2/5] agent,
+		// [3/5] isolated machine, [4/5] skills, [5/5] MCP (#445, #461).
 		var stepErr error
+		answers, stepErr = initProviderStepFn(opts, answers)
+		if stepErr != nil {
+			recordInitAbandon(answers.Root, "provider")
+			return answers, stepErr
+		}
 		if opts.Set["harness"] {
 			// --harness answered the question: skip it so the counter and the
 			// on-screen order match what the user still has to decide.
@@ -998,7 +1012,6 @@ func askInitQuestionsHuh(opts initOptions, answers codebox.InitAnswers) (codebox
 		root := ""
 		skills := append([]string(nil), answers.Skills...)
 		mcps := append([]string(nil), answers.MCPConnectors...)
-		haveManifestMCPs := false
 		skillsLocalOnly := answers.SkillsLocalOnly
 
 		if !answers.SkillsSet {
@@ -1011,9 +1024,6 @@ func askInitQuestionsHuh(opts initOptions, answers codebox.InitAnswers) (codebox
 			// actually shows: an unchanged submission must not look
 			// like a new selection and re-resolve existing pins.
 			answers.Skills = append([]string(nil), current...)
-			if len(current) == 0 && !projectManifestExists(answers.Root) && initSkillInCatalogue(catalogue, "official/securite-developpement") {
-				skills = []string{"official/securite-developpement"}
-			}
 		}
 		skillOptionsPass := retainedSkillOptions(skillOptions, skills)
 		if !answers.MCPsSet {
@@ -1021,17 +1031,8 @@ func askInitQuestionsHuh(opts initOptions, answers codebox.InitAnswers) (codebox
 				if manifest, err := codebox.ReadProjectManifest(codebox.DefaultFS, codebox.ProjectManifestPath(pc.Root)); err == nil {
 					mcps = append([]string(nil), manifest.MCPConnectors...)
 					answers.MCPConnectors = append([]string(nil), manifest.MCPConnectors...)
-					haveManifestMCPs = true
 				}
 			}
-		}
-		if len(mcps) == 0 && !haveManifestMCPs && !answers.MCPsSet {
-			// Mirror the line wizard: a fresh initialization (no manifest,
-			// no flag) preselects the curated default, while a manifest
-			// deliberately written with zero MCPs stays empty, and so does
-			// an explicitly confirmed empty selection from a prior pass.
-			mcps = append([]string(nil), codebox.DefaultFreshMCPIDs...)
-			answers.MCPConnectors = append([]string(nil), codebox.DefaultFreshMCPIDs...)
 		}
 		mcpOptionsPass := retainedMCPOptions(mcpOptions, mcps)
 
@@ -1046,12 +1047,10 @@ func askInitQuestionsHuh(opts initOptions, answers codebox.InitAnswers) (codebox
 			).Title("Projet")
 		}
 
-		// Runtime, isolation, model, resources and the credential reference
-		// are expert settings: they no longer appear in the default path and
-		// live behind the review's "Réglages avancés" entry (#170).
-
+		// Isolation, model, resources, and skill storage are expert settings:
+		// they stay out of the default path and live behind `codebox init --advanced` (#461).
 		skillsGroup := newInitSkillsGroup(skillOptionsPass, &skills, &skillsLocalOnly,
-			!opts.Set["skills"] && !skipSkills, !opts.Set["skills-storage"], initSkillsStepTitle(opts))
+			!opts.Set["skills"] && !skipSkills, false, initSkillsStepTitle(opts))
 
 		mcpFields := make([]huh.Field, 0, 2)
 		if !opts.Set["mcps"] {
@@ -1066,11 +1065,6 @@ func askInitQuestionsHuh(opts initOptions, answers codebox.InitAnswers) (codebox
 		// huh's accessible runner (TERM=dumb) iterates every group and
 		// never evaluates hide predicates, so a hidden group would still
 		// prompt there and its submitted value would override the flag.
-		//
-		// The skills groups run in a FIRST form and the MCP group in a
-		// second one (#307): the empty-skills confirmation belongs to the
-		// moment the user leaves the skills selection, before the MCP
-		// step, like the line wizard — not after the whole form.
 		var skillsFormGroups []*huh.Group
 		for _, g := range []*huh.Group{rootGroup, skillsGroup} {
 			if g != nil {
@@ -1107,33 +1101,10 @@ func askInitQuestionsHuh(opts initOptions, answers codebox.InitAnswers) (codebox
 			if !opts.Set["mcps"] {
 				answers.MCPsSet = false
 			}
-			emptySkillsConfirmed = false
 			continue
 		}
 		answers.Root = newRoot
-		// Commit the skills answers BEFORE the confirmation: a declined
-		// confirmation reopens the form, which reseeds from answers, so the
-		// storage choice and the other answers must already be safe (#307).
-		needsSkillsConfirm := commitInitHuhSkills(opts, &answers, skills, skillsLocalOnly, skillOptions, skipSkills)
-		if len(skills) > 0 {
-			emptySkillsConfirmed = false
-		}
-		if needsSkillsConfirm && !emptySkillsConfirmed {
-			proceed, err := initEmptySkillsConfirmFn()
-			if err != nil {
-				// An aborted confirmation is an interruption on the skills
-				// step, not a retry and not a successful return (#310).
-				recordInitAbandon(answers.Root, "skills")
-				return answers, err
-			}
-			if !proceed {
-				keepEmptyInitSkillsForRetry(&answers)
-				continue
-			}
-			answers.Skills = nil
-			answers.SkillsSet = true
-			emptySkillsConfirmed = true
-		}
+		_ = commitInitHuhSkills(opts, &answers, skills, skillsLocalOnly, skillOptions, skipSkills)
 		if mcpGroup != nil {
 			if err := huhRun(huh.NewForm(mcpGroup)); err != nil {
 				// The MCP form is a distinct step: an interruption here
@@ -1142,25 +1113,23 @@ func askInitQuestionsHuh(opts initOptions, answers codebox.InitAnswers) (codebox
 				return answers, err
 			}
 		}
-		retryMCPs, err := commitInitHuhMCPs(opts, &answers, mcps)
-		if err != nil {
-			recordInitAbandon(answers.Root, "mcp")
-			return answers, err
+		if !opts.Set["mcps"] {
+			answers.MCPsSet = answers.MCPsSet || !equalStringSets(answers.MCPConnectors, mcps)
+			answers.MCPConnectors = mcps
 		}
-		if retryMCPs {
-			continue
-		}
-		// The GitHub step is a distinct screen, not a field of the main
-		// form: it renders one of the four situations and verifies on that
-		// screen (#169). It runs after the main form so the [1/5]..[5/5]
-		// order on screen matches the flow, and its own screens never throw
-		// away the answers already collected (#155).
+		// Ask GitHub once and only when the project has a GitHub remote and
+		// the chosen runtime supports the GitHub workflow (#445, #461).
 		if !opts.Set["github"] {
-			var err error
-			answers, err = askGitHubStepHuh(answers, initGitHubStepTitle(opts))
-			if err != nil {
-				recordInitAbandon(answers.Root, "github")
-				return answers, err
+			if gitHubAvailableForRuntime(answers.Runtime) && githubInitProbeFn(answers.Root).HasOrigin {
+				var err error
+				answers, err = askGitHubStepHuh(answers, initGitHubStepTitle(opts))
+				if err != nil {
+					recordInitAbandon(answers.Root, "github")
+					return answers, err
+				}
+			} else {
+				answers.GitHubWorkflow = false
+				answers.GitHubRemote = codebox.GitHubRemote{}
 			}
 		}
 		return answers, nil
