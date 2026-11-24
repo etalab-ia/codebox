@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.4.1](https://github.com/etalab-ia/codebox/compare/codebox-server-v0.4.0...codebox-server-v0.4.1) (2026-11-24)
+
+
+### Miscellaneous Chores
+
+* merge release updates into first-run branch ([c574dbd](https://github.com/etalab-ia/codebox/commit/c574dbd175275e9c8e9b613571969b22bc29f53f))
+
 ## [0.4.0](https://github.com/etalab-ia/codebox/compare/codebox-server-v0.3.1...codebox-server-v0.4.0) (2026-11-23)
 
 
