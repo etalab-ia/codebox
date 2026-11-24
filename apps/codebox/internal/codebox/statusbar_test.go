@@ -401,7 +401,45 @@ func TestReconcileNoOpInstallsStatusBarInPlaceWhenMissingOrOutdated(t *testing.T
 	}
 }
 
+func TestReadStagedStatusBarConfigAndInstallLocal(t *testing.T) {
+	stateDir := t.TempDir()
+	tt := &Tart{
+		StateDir: stateDir,
+		Config: Config{
+			WorkspaceDir: filepath.Join(t.TempDir(), "mon-projet-staged"),
+			Providers: []InferenceProvider{
+				{Kind: ProviderAlbert, Name: "Albert API (État)"},
+				{Kind: ProviderOpenAICompatible, Name: "Scaleway"},
+			},
+		},
+	}
+	if err := tt.stageStatusBarConfig(); err != nil {
+		t.Fatalf("stageStatusBarConfig: %v", err)
+	}
+	staged := readStagedStatusBarConfig(filepath.Join(tt.StageDir(), statusBarStagedConfigName))
+	if len(staged) == 0 {
+		t.Fatal("readStagedStatusBarConfig returned empty payload")
+	}
+	home := t.TempDir()
+	xdg := filepath.Join(home, ".config")
+	if err := InstallLocalStatusBarWithConfigJSON(home, xdg, HarnessOpenCode, staged); err != nil {
+		t.Fatalf("InstallLocalStatusBarWithConfigJSON: %v", err)
+	}
+	raw, err := os.ReadFile(filepath.Join(xdg, "opencode", "plugins", statusBarDirName, "config.json"))
+	if err != nil {
+		t.Fatalf("read installed config.json: %v", err)
+	}
+	var got statusBarConfig
+	if err := json.Unmarshal(raw, &got); err != nil {
+		t.Fatalf("unmarshal config.json: %v", err)
+	}
+	if got.ProjectName != "mon-projet-staged" || got.ProviderNames["openai-compatible"] != "Scaleway" {
+		t.Fatalf("installed config.json = %#v", got)
+	}
+}
+
 func TestTartStagesProjectMetadataForRunGuestPrepare(t *testing.T) {
+	skipUnixGuest(t)
 	stateDir := t.TempDir()
 	tt := &Tart{
 		StateDir: stateDir,

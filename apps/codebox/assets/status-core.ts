@@ -641,11 +641,17 @@ export function buildStatusLines(input: StatusRenderInput): StatusLine[] {
   }
 
   // Albert API: 3 lines.
-  const activeModelKey = (input.apiModelID ?? input.modelDisplayID ?? "").trim().toLowerCase();
+  const activeModelKeys = new Set<string>();
+  for (const candidate of [input.apiModelID, input.modelDisplayID]) {
+    const clean = (candidate ?? "").trim().toLowerCase();
+    if (!clean) continue;
+    activeModelKeys.add(clean);
+    activeModelKeys.add(shortModelName(clean).toLowerCase());
+  }
   const recent = pruneWindow(input.requests, input.now).filter((r) => {
-    if (!r.model || !activeModelKey) return true;
+    if (!r.model || activeModelKeys.size === 0) return true;
     const sampleKey = r.model.trim().toLowerCase();
-    return sampleKey === activeModelKey || shortModelName(sampleKey) === shortModelName(activeModelKey);
+    return activeModelKeys.has(sampleKey) || activeModelKeys.has(shortModelName(sampleKey).toLowerCase());
   });
   const localRpm = recent.length;
   const localTpm = recent.reduce((sum, r) => sum + Math.max(0, r.tokens), 0);

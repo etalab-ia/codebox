@@ -142,7 +142,16 @@ export default Plugin.define({
       const messages = sessionID ? context.data.session.message.list(sessionID) : [];
       const est = Math.max(1, estimateTokens(messages));
       const ts = Date.now();
-      const modelKey = event?.data?.model?.modelID ?? currentTarget.apiModelID ?? currentTarget.aliasModelID;
+      const evModel = event?.data?.model;
+      const listedModels = context.data.location.model.list(context.location) ?? [];
+      const resolvedModel =
+        evModel?.providerID && evModel?.modelID
+          ? listedModels.find(
+              (m) => m.providerID === evModel.providerID && (m.id === evModel.modelID || m.modelID === evModel.modelID),
+            )
+          : undefined;
+      const modelKey =
+        resolvedModel?.modelID ?? evModel?.modelID ?? currentTarget.apiModelID ?? currentTarget.aliasModelID;
       setLastDispatchContext(est);
       setRequests((prev) => [...pruneWindow(prev, ts), { t: ts, tokens: est, model: modelKey }]);
       setNow(ts);

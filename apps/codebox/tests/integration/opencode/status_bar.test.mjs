@@ -489,3 +489,55 @@ test("summarizePiBranch reconstructs resumed sessions and resets to zero for emp
   assert.equal(estimated.sessionInputTokens, 100);
   assert.equal(estimated.sessionOutputTokens, 50);
 });
+
+test("Model aliases (e.g. deepseek-v4-flash) match API model IDs in public and optimistic account counters", () => {
+  const fetchedAt = 100_000;
+  const now = 102_000;
+  const aliasRequests = [{ t: fetchedAt + 500, tokens: 12_000, model: "deepseek-v4-flash" }];
+
+  // Public fallback mode must count alias-tagged sample.
+  const publicPlain = renderPlainLines(
+    buildStatusLines({
+      providerID: "albert",
+      modelDisplayID: "deepseek-v4-flash",
+      apiModelID: "deepseek-ai/DeepSeek-V4-Flash-0731",
+      cwd: "/workspace",
+      contextWindow: 131_072,
+      lastContextTokens: 0,
+      sessionInputTokens: 12_000,
+      sessionOutputTokens: 0,
+      requests: aliasRequests,
+      now,
+      limitsChecked: true,
+      config: { projectName: "mon-projet" },
+    }),
+  );
+  assert.match(publicPlain[1], /RPM ░░░░░░░░░░ 1\/50 │ TPM ░░░░░░░░░░ 12k\/246k \(grille publique\)$/);
+
+  // Account-limits mode must include alias-tagged sample sent after fetchedAt.
+  const accountPlain = renderPlainLines(
+    buildStatusLines({
+      providerID: "albert",
+      modelDisplayID: "deepseek-v4-flash",
+      apiModelID: "deepseek-ai/DeepSeek-V4-Flash-0731",
+      cwd: "/workspace",
+      contextWindow: 131_072,
+      lastContextTokens: 0,
+      sessionInputTokens: 12_000,
+      sessionOutputTokens: 0,
+      requests: aliasRequests,
+      now,
+      accountLimits: {
+        model: "deepseek-ai/DeepSeek-V4-Flash-0731",
+        rpm: { limit: 50, used: 5, remaining: 45 },
+        tpm: { limit: 246_000, used: 100_000, remaining: 146_000 },
+        rpd: { limit: null, used: null, remaining: null },
+        fetchedAt,
+      },
+      limitsChecked: true,
+      dailyUsage: { requests: 5, kgCO2eq: 0.001, completionTokens: 10_000 },
+      config: { projectName: "mon-projet" },
+    }),
+  );
+  assert.match(accountPlain[1], /RPM █░░░░░░░░░ 6\/50 │ TPM █████░░░░░ 112k\/246k$/);
+});
