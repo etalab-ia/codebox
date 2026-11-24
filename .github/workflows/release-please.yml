@@ -28,18 +28,50 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     outputs:
-      codebox_release_created: ${{ steps.release.outputs['apps/codebox--release_created'] || steps.dispatch.outputs.codebox_release_created }}
-      codebox_tag_name: ${{ steps.release.outputs['apps/codebox--tag_name'] || steps.dispatch.outputs.codebox_tag_name }}
-      codebox_server_release_created: ${{ steps.release.outputs['apps/codebox-server--release_created'] || steps.dispatch.outputs.codebox_server_release_created }}
-      codebox_server_tag_name: ${{ steps.release.outputs['apps/codebox-server--tag_name'] || steps.dispatch.outputs.codebox_server_tag_name }}
+      codebox_release_created: ${{ steps.release_codebox.outputs['apps/codebox--release_created'] || steps.dispatch.outputs.codebox_release_created }}
+      codebox_tag_name: ${{ steps.release_codebox.outputs['apps/codebox--tag_name'] || steps.dispatch.outputs.codebox_tag_name }}
+      codebox_server_release_created: ${{ steps.release_codebox_server.outputs['apps/codebox-server--release_created'] || steps.dispatch.outputs.codebox_server_release_created }}
+      codebox_server_tag_name: ${{ steps.release_codebox_server.outputs['apps/codebox-server--tag_name'] || steps.dispatch.outputs.codebox_server_tag_name }}
     steps:
-      - name: Run release-please
-        id: release
+      # Each component owns its own config and manifest under .github/release-please/
+      # so concurrent release PRs never conflict on a shared manifest file.
+      # Run both release-creation passes before PR updates: release-please aborts
+      # createPullRequests while any merged PR still carries `autorelease: pending`.
+      - name: Release codebox
+        id: release_codebox
         if: github.event_name == 'push'
         uses: googleapis/release-please-action@45996ed1f6d02564a971a2fa1b5860e934307cf7 # v5
         with:
-          config-file: release-please-config.json
-          manifest-file: .release-please-manifest.json
+          config-file: .github/release-please/codebox.config.json
+          manifest-file: .github/release-please/codebox.manifest.json
+          skip-github-pull-request: true
+
+      - name: Release codebox-server
+        id: release_codebox_server
+        if: github.event_name == 'push'
+        uses: googleapis/release-please-action@45996ed1f6d02564a971a2fa1b5860e934307cf7 # v5
+        with:
+          config-file: .github/release-please/codebox-server.config.json
+          manifest-file: .github/release-please/codebox-server.manifest.json
+          skip-github-pull-request: true
+
+      - name: Update codebox release PR
+        id: pr_codebox
+        if: github.event_name == 'push'
+        uses: googleapis/release-please-action@45996ed1f6d02564a971a2fa1b5860e934307cf7 # v5
+        with:
+          config-file: .github/release-please/codebox.config.json
+          manifest-file: .github/release-please/codebox.manifest.json
+          skip-github-release: true
+
+      - name: Update codebox-server release PR
+        id: pr_codebox_server
+        if: github.event_name == 'push'
+        uses: googleapis/release-please-action@45996ed1f6d02564a971a2fa1b5860e934307cf7 # v5
+        with:
+          config-file: .github/release-please/codebox-server.config.json
+          manifest-file: .github/release-please/codebox-server.manifest.json
+          skip-github-release: true
 
       # Manual path: build and upload assets for an already-released tag, so
       # the artifact pipeline can be exercised without cutting a release.
@@ -346,7 +378,7 @@ jobs:
           GH_REPO: ${{ github.repository }}
           TAG: ${{ needs.release-please.outputs.codebox_tag_name }}
         run: gh release upload "$TAG" dist/codebox-* dist/SHA256SUMS --clobber
-      # The release is created as a draft (release-please-config.json) so
+      # The release is created as a draft (.github/release-please/codebox.config.json) so
       # `releases/latest` — which install.sh resolves — can never point at a
       # release without binaries, whether the build is still running or has
       # failed. Publish only now that every asset is uploaded, and claim the

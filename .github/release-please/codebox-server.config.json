@@ -18,16 +18,6 @@
     {"type": "ci", "section": "Continuous Integration", "hidden": true}
   ],
   "packages": {
-    "apps/codebox": {
-      "release-type": "simple",
-      "bump-minor-pre-major": true,
-      "changelog-path": "CHANGELOG.md",
-      "initial-version": "0.1.0",
-      "component": "codebox",
-      "include-component-in-tag": true,
-      "draft": true,
-      "force-tag-creation": true
-    },
     "apps/codebox-server": {
       "release-type": "simple",
       "bump-minor-pre-major": true,

@@ -44,6 +44,8 @@ jobs:
         run: bash .github/scripts/test-msb-hardware-watchdog.sh
       - name: Test artifact visibility guard
         run: python3 .github/scripts/test_wait_for_artifacts.py
+      - name: Test split release-please configuration
+        run: python3 .github/scripts/test_release_please_config.py
 
   check:
     runs-on: ubuntu-latest
