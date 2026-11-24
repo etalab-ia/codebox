@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """Download only project-pinned official darwin/arm64 runtime, verify before extract."""
 import hashlib, os, pathlib, subprocess, sys, tarfile
-VERSION='0.7.15'
+VERSION='0.8.1'
 URL=f'https://github.com/superradcompany/microsandbox/releases/download/v{VERSION}/microsandbox-darwin-aarch64.tar.gz'
-SHA='99b1b0e1d5a30a30e12b4371a339e1683e57f7d12a57be32e63198c8809e1f3d'
+SHA='2a313e1e6b9866b6ddb4605b33bedf1d72876d8ba5aa749729eba41b76787f19'
 def install(directory):
     root=pathlib.Path(directory);root.mkdir(mode=0o700)
     archive=root/'official.tar.gz'

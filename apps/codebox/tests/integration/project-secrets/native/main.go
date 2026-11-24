@@ -23,8 +23,8 @@ import (
 
 var source = os.Getenv("CODEBOX_QUALIFICATION_SOURCE")
 
-const runtimeVersion = "0.7.15"
-const archiveSHA = "99b1b0e1d5a30a30e12b4371a339e1683e57f7d12a57be32e63198c8809e1f3d"
+const runtimeVersion = "0.8.1"
+const archiveSHA = "2a313e1e6b9866b6ddb4605b33bedf1d72876d8ba5aa749729eba41b76787f19"
 const markerA = "__CODEBOX_SECRET_a01__"
 const markerB = "__CODEBOX_SECRET_b02__"
 const markerC = "__CODEBOX_SECRET_c03__"
@@ -145,6 +145,7 @@ func run() {
 		h, e := msb.GetSandbox(ctx, name)
 		if e == nil {
 			diagnostic("cleanup-kill", h.Kill(ctx), "")
+			_ = h.Close()
 			e = msb.RemoveSandbox(ctx, name)
 		}
 		if !msb.IsKind(e, msb.ErrSandboxNotFound) {
@@ -178,6 +179,7 @@ func run() {
 		h, e := msb.GetSandbox(c, name)
 		if e == nil {
 			diagnostic("cleanup-kill", h.Kill(c), "")
+			_ = h.Close()
 			e = msb.RemoveSandbox(c, name)
 		}
 		if !msb.IsKind(e, msb.ErrSandboxNotFound) {
@@ -204,12 +206,18 @@ func run() {
 	if e != nil {
 		return
 	}
+	defer func() {
+		if s != nil {
+			_ = s.Close()
+		}
+	}()
 	h, e := msb.GetSandbox(ctx, name)
 	if e != nil {
 		diagnostic("get-handle", e, "")
 		result("get-handle", false)
 		return
 	}
+	defer func() { _ = h.Close() }()
 	modify := func(stage string, m msb.ModifyOptions) bool {
 		p, e := h.Modify(ctx, m)
 		diagnostic(stage, e, "")
@@ -290,11 +298,13 @@ func run() {
 		diagnostic("persisted-config-get", e, "")
 		result("persisted-config", false)
 	} else {
-		raw := fresh.ConfigJSON()
-		cfg, e := fresh.Config()
-		diagnostic("persisted-config-decode", e, "")
-		result("persisted-envrefs-no-raw-canary", strings.Contains(raw, "JC_P0_HOST_A") && strings.Contains(raw, "JC_P0_HOST_B") && strings.Contains(raw, "JC_P0_HOST_C") && !strings.Contains(raw, cValue) && !strings.Contains(raw, a) && !strings.Contains(raw, b) && !strings.Contains(raw, a2))
-		result("no-host-mounts", e == nil && len(cfg.Volumes) == 0)
+		raw, rawErr := fresh.ConfigJSON(ctx)
+		cfg, cfgErr := fresh.Config(ctx)
+		_ = fresh.Close()
+		diagnostic("persisted-config-json", rawErr, "")
+		diagnostic("persisted-config-decode", cfgErr, "")
+		result("persisted-envrefs-no-raw-canary", rawErr == nil && strings.Contains(raw, "JC_P0_HOST_A") && strings.Contains(raw, "JC_P0_HOST_B") && strings.Contains(raw, "JC_P0_HOST_C") && !strings.Contains(raw, cValue) && !strings.Contains(raw, a) && !strings.Contains(raw, b) && !strings.Contains(raw, a2))
+		result("no-host-mounts", cfgErr == nil && cfg != nil && len(cfg.Spec.Mounts) == 0)
 	}
 	ok = modify("removal", msb.ModifyOptions{Policy: msb.ModificationPolicyNoRestart, SecretsRemove: []string{"JC_A"}})
 	request("p02lab.test", "/removed", headers, true)
@@ -337,25 +347,20 @@ func run() {
 	if stopErr != nil {
 		return
 	}
-	detachErr := s.Detach(ctx)
+	detachErr := errors.Join(s.Detach(ctx), s.Close())
+	s = nil
 	diagnostic("nextboot-release-old-handle", detachErr, "")
 	result("nextboot-release-old-handle", detachErr == nil)
 	if detachErr != nil {
 		return
 	}
-	h, e = msb.GetSandbox(ctx, name)
-	diagnostic("nextboot-get", e, "")
-	if e != nil {
-		result("nextboot-start", false)
-		return
-	}
-	s, e = h.StartDetached(ctx)
+	s, e = msb.StartSandboxDetached(ctx, name)
 	diagnostic("nextboot-start", e, "")
 	result("nextboot-start", e == nil)
 	if e != nil {
 		return
 	}
-	// StartDetached returns a connected Sandbox. The exec closure follows s.
+	// StartSandboxDetached returns a connected Sandbox. The exec closure follows s.
 	out, e = exec("import os,json; print(json.dumps([os.environ.get('JC_A'),os.environ.get('JC_B'),os.environ.get('JC_C')]))")
 	env = nil
 	if e == nil && out != nil {
@@ -375,10 +380,12 @@ func run() {
 	fresh, e = msb.GetSandbox(ctx, name)
 	diagnostic("nextboot-config-get", e, "")
 	if e == nil {
-		raw := fresh.ConfigJSON()
-		cfg, decodeErr := fresh.Config()
+		raw, rawErr := fresh.ConfigJSON(ctx)
+		cfg, decodeErr := fresh.Config(ctx)
+		_ = fresh.Close()
+		diagnostic("nextboot-config-json", rawErr, "")
 		diagnostic("nextboot-config-decode", decodeErr, "")
-		result("nextboot-persisted-envrefs-no-canary-no-mounts", strings.Contains(raw, "JC_P0_HOST_A") && strings.Contains(raw, "JC_P0_HOST_B") && strings.Contains(raw, "JC_P0_HOST_C") && !strings.Contains(raw, a) && !strings.Contains(raw, a2) && !strings.Contains(raw, b) && !strings.Contains(raw, cValue) && decodeErr == nil && len(cfg.Volumes) == 0)
+		result("nextboot-persisted-envrefs-no-canary-no-mounts", rawErr == nil && strings.Contains(raw, "JC_P0_HOST_A") && strings.Contains(raw, "JC_P0_HOST_B") && strings.Contains(raw, "JC_P0_HOST_C") && !strings.Contains(raw, a) && !strings.Contains(raw, a2) && !strings.Contains(raw, b) && !strings.Contains(raw, cValue) && decodeErr == nil && cfg != nil && len(cfg.Spec.Mounts) == 0)
 	} else {
 		result("nextboot-persisted-envrefs-no-canary-no-mounts", false)
 	}

@@ -266,7 +266,12 @@ func (sdkMSBClient) Lookup(ctx context.Context, name string) (msbSandboxInfo, bo
 	if err != nil {
 		return msbSandboxInfo{}, false, err
 	}
-	return msbSandboxInfo{Name: h.Name(), Status: string(h.Status())}, true, nil
+	defer func() { _ = h.Close() }()
+	status, err := h.Status(ctx)
+	if err != nil {
+		return msbSandboxInfo{}, false, err
+	}
+	return msbSandboxInfo{Name: h.Name(), Status: string(status)}, true, nil
 }
 
 // List enumerates managed sandboxes by the ownership label, following the
@@ -283,8 +288,16 @@ func (sdkMSBClient) List(ctx context.Context) ([]msbSandboxInfo, error) {
 		if err != nil {
 			return nil, err
 		}
-		for _, h := range page.Sandboxes {
-			out = append(out, msbSandboxInfo{Name: h.Name(), Status: string(h.Status())})
+		for i, h := range page.Sandboxes {
+			status, err := h.Status(ctx)
+			if err != nil {
+				for _, rem := range page.Sandboxes[i:] {
+					_ = rem.Close()
+				}
+				return nil, err
+			}
+			_ = h.Close()
+			out = append(out, msbSandboxInfo{Name: h.Name(), Status: string(status)})
 		}
 		if page.NextCursor == nil || *page.NextCursor == "" {
 			return out, nil
@@ -402,24 +415,26 @@ func (sdkMSBClient) Create(ctx context.Context, spec msbSandboxSpec) error {
 	return detachMSBSandbox(sb)
 }
 
-// Close stops detached VMs too. Detach releases ownership without stopping
-// them; use a fresh bounded context so caller cancellation cannot skip cleanup.
+// Detach disarms automatic shutdown without releasing the native handle in
+// v0.8+, so detachMSBSandbox follows Detach with Close to avoid leaking the
+// native registration. A fresh bounded context prevents caller cancellation
+// from skipping cleanup.
 type msbDetachable interface {
 	Detach(context.Context) error
+	Close() error
 }
 
 func detachMSBSandbox(sb msbDetachable) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	return sb.Detach(ctx)
+	if err := sb.Detach(ctx); err != nil {
+		return err
+	}
+	return sb.Close()
 }
 
 func (sdkMSBClient) Start(ctx context.Context, name string) error {
-	h, err := msb.GetSandbox(ctx, name)
-	if err != nil {
-		return err
-	}
-	sb, err := h.StartDetached(ctx)
+	sb, err := msb.StartSandboxDetached(ctx, name)
 	if err != nil {
 		return err
 	}
@@ -458,6 +473,7 @@ func (sdkMSBClient) ModifyNextStart(ctx context.Context, name string, env map[st
 	if err != nil {
 		return err
 	}
+	defer func() { _ = h.Close() }()
 	_, err = h.Modify(ctx, msbNextStartOptions(env, bindings, previouslyApplied))
 	return err
 }
@@ -544,6 +560,7 @@ func (sdkMSBClient) RotateSecretsLive(ctx context.Context, name string, bindings
 	if err != nil {
 		return err
 	}
+	defer func() { _ = h.Close() }()
 	_, err = h.Modify(ctx, msbRotateLiveOptions(bindings))
 	return err
 }
@@ -570,16 +587,45 @@ func (sdkMSBClient) RemoveSecrets(ctx context.Context, name string, guestEnvs []
 	if err != nil {
 		return err
 	}
+	defer func() { _ = h.Close() }()
 	_, err = h.Modify(ctx, msbRemoveSecretsOptions(guestEnvs, live))
 	return err
 }
 
+type msbConnectable interface {
+	Status(context.Context) (msb.SandboxStatus, error)
+	Close() error
+}
+
+// verifyConnectedMSBSandbox enforces that a retrieved handle targets an
+// already-running sandbox before returning it for exec/fs/attach. In SDK v0.8+,
+// calling guest operations directly on a stopped Sandbox auto-starts it without
+// codebox's secret transport setup and would make Close() stop the VM on return.
+func verifyConnectedMSBSandbox(ctx context.Context, name string, sb msbConnectable) error {
+	status, err := sb.Status(ctx)
+	if err != nil {
+		_ = sb.Close()
+		return err
+	}
+	if status != msb.SandboxStatusRunning && status != msb.SandboxStatusDraining {
+		_ = sb.Close()
+		return &msb.Error{
+			Kind:    msb.ErrSandboxNotRunning,
+			Message: fmt.Sprintf("la machine isolée %q n'est pas en cours d'exécution (état : %s)", name, status),
+		}
+	}
+	return nil
+}
+
 func connectMSBSandbox(ctx context.Context, name string) (*msb.Sandbox, error) {
-	h, err := msb.GetSandbox(ctx, name)
+	sb, err := msb.GetSandbox(ctx, name)
 	if err != nil {
 		return nil, err
 	}
-	return h.Connect(ctx)
+	if err := verifyConnectedMSBSandbox(ctx, name, sb); err != nil {
+		return nil, err
+	}
+	return sb, nil
 }
 
 func (sdkMSBClient) Exec(ctx context.Context, name, command string) (code int, stderr string, err error) {
@@ -587,8 +633,8 @@ func (sdkMSBClient) Exec(ctx context.Context, name, command string) (code int, s
 	if err != nil {
 		return 0, "", err
 	}
-	// Connect returns a non-owning handle, so Close only releases it and does
-	// not stop the VM.
+	// Connecting to an already-running sandbox acquires no shutdown ownership,
+	// so Close only releases the native handle and does not stop the VM.
 	defer func() { err = errors.Join(err, sb.Close()) }()
 	out, err := sb.Shell(ctx, command)
 	if err != nil {
@@ -655,6 +701,7 @@ func (sdkMSBClient) Stop(ctx context.Context, name string) error {
 	if err != nil {
 		return err
 	}
+	defer func() { _ = h.Close() }()
 	return h.Stop(ctx, msb.WithStopTimeout(3*time.Second))
 }
 
@@ -663,6 +710,7 @@ func (sdkMSBClient) Remove(ctx context.Context, name string) error {
 	if err != nil {
 		return err
 	}
+	defer func() { _ = h.Close() }()
 	// Destroy handles running and stopped sandboxes and binds removal to the
 	// identity just retrieved, refusing to remove a same-name replacement.
 	return h.Destroy(ctx, msb.WithDestroyForce())
@@ -720,6 +768,46 @@ func (m persistedMount) bindSource() string {
 	return ""
 }
 
+// unwrapPersistedConfigSpec extracts the local persisted SandboxSpec JSON from
+// ConfigJSON. Microsandbox v0.8+ wraps the persisted spec in a
+// SandboxConfigInspection envelope ({"kind":"local","name":...,"spec":{...},
+// "unavailable":[...],"redacted":[...]}), while older snapshots and create-path
+// wire shapes carry the spec fields at the top level.
+//
+// Non-local inspection envelopes (such as "remote", which redacts mount sources
+// and secret sources) and malformed/missing spec payloads fail closed so
+// callers never mistake a redacted view for a sealed workspace or an empty
+// secret list.
+func unwrapPersistedConfigSpec(configJSON string) (json.RawMessage, error) {
+	var envelope map[string]json.RawMessage
+	if err := json.Unmarshal([]byte(configJSON), &envelope); err != nil {
+		return nil, err
+	}
+	if envelope == nil {
+		return nil, errors.New("document JSON vide")
+	}
+	kindRaw, hasKind := envelope["kind"]
+	specRaw, hasSpec := envelope["spec"]
+	if !hasKind && !hasSpec {
+		return json.RawMessage(configJSON), nil
+	}
+	if !hasKind || !hasSpec {
+		return nil, errors.New("enveloppe d'inspection de configuration incomplète")
+	}
+	var kind string
+	if err := json.Unmarshal(kindRaw, &kind); err != nil {
+		return nil, fmt.Errorf("type d'inspection de configuration invalide : %w", err)
+	}
+	if kind != "local" {
+		return nil, fmt.Errorf("type d'inspection de configuration non pris en charge : %q", kind)
+	}
+	var specObj map[string]json.RawMessage
+	if err := json.Unmarshal(specRaw, &specObj); err != nil || specObj == nil {
+		return nil, errors.New("spécification d'inspection de configuration invalide")
+	}
+	return specRaw, nil
+}
+
 // parseWorkspaceMount returns the host path bound at the guest path, or ""
 // when the document carries no such mount.
 //
@@ -728,8 +816,12 @@ func (m persistedMount) bindSource() string {
 // missed bind mount here would read as "no host workspace" — the one answer
 // that must never be produced by accident.
 func parseWorkspaceMount(configJSON, guestPath string) (string, error) {
+	specJSON, err := unwrapPersistedConfigSpec(configJSON)
+	if err != nil {
+		return "", fmt.Errorf("décodage de la configuration persistée de la machine isolée : %w", err)
+	}
 	var raw persistedMounts
-	if err := json.Unmarshal([]byte(configJSON), &raw); err != nil {
+	if err := json.Unmarshal(specJSON, &raw); err != nil {
 		return "", fmt.Errorf("décodage de la configuration persistée de la machine isolée : %w", err)
 	}
 	for _, m := range raw.Mounts {
@@ -764,8 +856,12 @@ func parseWorkspaceMount(configJSON, guestPath string) (string, error) {
 // host-backed shape as owned costs the host checkout — every untracked
 // secret in it included. Confidentiality wins over convenience here.
 func parseOwnedWorkspace(configJSON, guestPath string) (bool, error) {
+	specJSON, err := unwrapPersistedConfigSpec(configJSON)
+	if err != nil {
+		return false, fmt.Errorf("décodage de la configuration persistée de la machine isolée : %w", err)
+	}
 	var raw persistedMounts
-	if err := json.Unmarshal([]byte(configJSON), &raw); err != nil {
+	if err := json.Unmarshal(specJSON, &raw); err != nil {
 		return false, fmt.Errorf("décodage de la configuration persistée de la machine isolée : %w", err)
 	}
 	for _, m := range raw.Mounts {
@@ -802,6 +898,10 @@ func parseOwnedWorkspace(configJSON, guestPath string) (bool, error) {
 // {host_port, guest_port} entries; parse this persisted shape, not the SDK
 // option shape.
 func parseServerPortForwarded(configJSON string) (bool, error) {
+	specJSON, err := unwrapPersistedConfigSpec(configJSON)
+	if err != nil {
+		return false, fmt.Errorf("décodage de la configuration persistée de la machine isolée : %w", err)
+	}
 	var raw struct {
 		Network *struct {
 			Ports *[]struct {
@@ -810,7 +910,7 @@ func parseServerPortForwarded(configJSON string) (bool, error) {
 			} `json:"ports"`
 		} `json:"network"`
 	}
-	if err := json.Unmarshal([]byte(configJSON), &raw); err != nil {
+	if err := json.Unmarshal(specJSON, &raw); err != nil {
 		return false, fmt.Errorf("décodage de la configuration persistée de la machine isolée : %w", err)
 	}
 	if raw.Network == nil || raw.Network.Ports == nil {
@@ -829,6 +929,10 @@ func parseServerPortForwarded(configJSON string) (bool, error) {
 // reads. Mappings changed in the project manifest only apply on recreate, so
 // this list is the authority for which host forwards exist right now.
 func parseAppliedPortMappings(configJSON string) ([]PortMapping, error) {
+	specJSON, err := unwrapPersistedConfigSpec(configJSON)
+	if err != nil {
+		return nil, fmt.Errorf("décodage de la configuration persistée de la machine isolée : %w", err)
+	}
 	var raw struct {
 		Network *struct {
 			Ports *[]struct {
@@ -837,7 +941,7 @@ func parseAppliedPortMappings(configJSON string) ([]PortMapping, error) {
 			} `json:"ports"`
 		} `json:"network"`
 	}
-	if err := json.Unmarshal([]byte(configJSON), &raw); err != nil {
+	if err := json.Unmarshal(specJSON, &raw); err != nil {
 		return nil, fmt.Errorf("décodage de la configuration persistée de la machine isolée : %w", err)
 	}
 	if raw.Network == nil || raw.Network.Ports == nil {
@@ -857,7 +961,12 @@ func (sdkMSBClient) AppliedPortMappings(ctx context.Context, name string) ([]Por
 	if err != nil {
 		return nil, err
 	}
-	return parseAppliedPortMappings(h.ConfigJSON())
+	defer func() { _ = h.Close() }()
+	raw, err := h.ConfigJSON(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return parseAppliedPortMappings(raw)
 }
 
 func (sdkMSBClient) WorkspaceMount(ctx context.Context, name string) (string, error) {
@@ -865,7 +974,12 @@ func (sdkMSBClient) WorkspaceMount(ctx context.Context, name string) (string, er
 	if err != nil {
 		return "", err
 	}
-	return parseWorkspaceMount(h.ConfigJSON(), msbGuestWorkspace)
+	defer func() { _ = h.Close() }()
+	raw, err := h.ConfigJSON(ctx)
+	if err != nil {
+		return "", err
+	}
+	return parseWorkspaceMount(raw, msbGuestWorkspace)
 }
 
 // WorkspaceOwned reports whether the sandbox's /workspace is an owned volume
@@ -877,7 +991,12 @@ func (sdkMSBClient) WorkspaceOwned(ctx context.Context, name string) (bool, erro
 	if err != nil {
 		return false, err
 	}
-	return parseOwnedWorkspace(h.ConfigJSON(), msbGuestWorkspace)
+	defer func() { _ = h.Close() }()
+	raw, err := h.ConfigJSON(ctx)
+	if err != nil {
+		return false, err
+	}
+	return parseOwnedWorkspace(raw, msbGuestWorkspace)
 }
 
 // ServerPortForwarded reports whether the persisted sandbox config exposes
@@ -887,7 +1006,12 @@ func (sdkMSBClient) ServerPortForwarded(ctx context.Context, name string) (bool,
 	if err != nil {
 		return false, err
 	}
-	return parseServerPortForwarded(h.ConfigJSON())
+	defer func() { _ = h.Close() }()
+	raw, err := h.ConfigJSON(ctx)
+	if err != nil {
+		return false, err
+	}
+	return parseServerPortForwarded(raw)
 }
 
 // WriteFile writes data to a file inside the running sandbox, creating it.
@@ -906,28 +1030,33 @@ func (sdkMSBClient) WriteFile(ctx context.Context, name, guestPath string, data 
 	return sb.FS().Write(ctx, guestPath, data)
 }
 
+func startScriptFromConfig(cfg *msb.SandboxConfigInspection) (string, error) {
+	if cfg == nil {
+		return "", errors.New("configuration d'inspection de la machine isolée absente")
+	}
+	if cfg.Kind != "local" {
+		return "", fmt.Errorf("type d'inspection de configuration non pris en charge : %q", cfg.Kind)
+	}
+	return cfg.Spec.Runtime.Scripts["start"], nil
+}
+
 func (sdkMSBClient) StartScript(ctx context.Context, name string) (string, error) {
 	h, err := msb.GetSandbox(ctx, name)
 	if err != nil {
 		return "", err
 	}
-	cfg, err := h.Config()
+	defer func() { _ = h.Close() }()
+	cfg, err := h.Config(ctx)
 	if err != nil {
 		return "", err
 	}
-	return cfg.Scripts["start"], nil
+	return startScriptFromConfig(cfg)
 }
 
 // persistedGuestEnv mirrors how the runtime stores a sandbox's guest
-// environment. The runtime flattens its spec into the sandbox config
-// (serde flatten) and the spec's env field is a list of {key, value} entries,
-// so the stored JSON carries "env" as an array of objects.
-//
-// The SDK's own SandboxConfig.Env map cannot see it. SandboxConfig.UnmarshalJSON
-// decodes into an internal struct with no top-level env field, and fills the
-// public Env map only from the init section; reading it therefore always
-// yields nil for a sandbox created with a spec env. Parsing the raw config is
-// the only way to observe what the guest actually holds.
+// environment. In v0.8+, ConfigJSON wraps the persisted SandboxSpec under
+// {"kind":"local","spec":{...}} and the spec's env field is a list of
+// {key, value} entries.
 //
 // The representation is stable across releases: the runtime's catalog encoder
 // lists config.env among the collections that "have the same representation in
@@ -943,8 +1072,12 @@ type persistedGuestEnv struct {
 }
 
 func parseGuestEnv(configJSON string) (map[string]string, error) {
+	specJSON, err := unwrapPersistedConfigSpec(configJSON)
+	if err != nil {
+		return nil, fmt.Errorf("décodage de la configuration persistée de la machine isolée : %w", err)
+	}
 	var raw persistedGuestEnv
-	if err := json.Unmarshal([]byte(configJSON), &raw); err != nil {
+	if err := json.Unmarshal(specJSON, &raw); err != nil {
 		return nil, fmt.Errorf("décodage de la configuration persistée de la machine isolée : %w", err)
 	}
 	env := make(map[string]string, len(raw.Env))
@@ -1006,6 +1139,10 @@ type persistedSecretRef struct {
 //     absence is missing metadata rather than an empty placeholder. It is read
 //     through a pointer to keep "absent" distinguishable from "".
 func parsePersistedEnvRefSecrets(configJSON string) ([]persistedSecretRef, error) {
+	specJSON, err := unwrapPersistedConfigSpec(configJSON)
+	if err != nil {
+		return nil, fmt.Errorf("décodage des secrets persistés de la machine isolée : %w", err)
+	}
 	var raw struct {
 		Network struct {
 			Secrets struct {
@@ -1018,7 +1155,7 @@ func parsePersistedEnvRefSecrets(configJSON string) ([]persistedSecretRef, error
 			} `json:"secrets"`
 		} `json:"network"`
 	}
-	if err := json.Unmarshal([]byte(configJSON), &raw); err != nil {
+	if err := json.Unmarshal(specJSON, &raw); err != nil {
 		return nil, fmt.Errorf("décodage des secrets persistés de la machine isolée : %w", err)
 	}
 	seen := make(map[string]struct{}, len(raw.Network.Secrets.Secrets))
@@ -1095,18 +1232,26 @@ func (p persistedHostPattern) host() string {
 
 // persistedConfigReader is the part of an SDK sandbox handle the guest-env
 // reader needs. Naming it keeps the reader verifiable without a live sandbox:
-// the real handle's ConfigJSON carries the persisted document, whereas its
-// typed SandboxConfig is blind to the spec env (see persistedGuestEnv).
+// the real handle's ConfigJSON carries the persisted SandboxConfigInspection
+// document.
 type persistedConfigReader interface {
-	ConfigJSON() string
+	ConfigJSON(context.Context) (string, error)
 }
 
-func guestEnvFromHandle(h persistedConfigReader) (map[string]string, error) {
-	return parseGuestEnv(h.ConfigJSON())
+func guestEnvFromHandle(ctx context.Context, h persistedConfigReader) (map[string]string, error) {
+	raw, err := h.ConfigJSON(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return parseGuestEnv(raw)
 }
 
-func persistedSecretRefsFromHandle(h persistedConfigReader) ([]persistedSecretRef, error) {
-	return parsePersistedEnvRefSecrets(h.ConfigJSON())
+func persistedSecretRefsFromHandle(ctx context.Context, h persistedConfigReader) ([]persistedSecretRef, error) {
+	raw, err := h.ConfigJSON(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return parsePersistedEnvRefSecrets(raw)
 }
 
 // Env returns the persisted guest environment. Earlier versions stored the
@@ -1117,7 +1262,8 @@ func (sdkMSBClient) Env(ctx context.Context, name string) (map[string]string, er
 	if err != nil {
 		return nil, err
 	}
-	return guestEnvFromHandle(h)
+	defer func() { _ = h.Close() }()
+	return guestEnvFromHandle(ctx, h)
 }
 
 // PersistedSecretRefs returns the env-reference secret registrations the
@@ -1132,7 +1278,8 @@ func (sdkMSBClient) PersistedSecretRefs(ctx context.Context, name string) ([]per
 	if err != nil {
 		return nil, err
 	}
-	return persistedSecretRefsFromHandle(h)
+	defer func() { _ = h.Close() }()
+	return persistedSecretRefsFromHandle(ctx, h)
 }
 
 func (sdkMSBClient) Shell(name string) (err error) {

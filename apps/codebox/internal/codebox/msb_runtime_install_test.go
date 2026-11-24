@@ -46,11 +46,11 @@ func TestMSBRuntimeArtifacts(t *testing.T) {
 		name         string
 		sha256       string
 	}{
-		{"darwin", "arm64", "microsandbox-darwin-aarch64.tar.gz", "99b1b0e1d5a30a30e12b4371a339e1683e57f7d12a57be32e63198c8809e1f3d"},
-		{"linux", "arm64", "microsandbox-linux-aarch64.tar.gz", "1ace5e63bb5793034f0e8afe7d73c6af3e4a2b05cb5b9287cb2da42520a293d5"},
-		{"linux", "amd64", "microsandbox-linux-x86_64.tar.gz", "37ffc7bf7b2b977ab004f620f47ae4466f021a9b880c94f46f697c56cf6932b7"},
-		{"windows", "arm64", "microsandbox-windows-aarch64.tar.gz", "48f80a41148476c286b13d81d3e3fc501319c8c3f5f651a1eff5bf009f3d5bab"},
-		{"windows", "amd64", "microsandbox-windows-x86_64.tar.gz", "615d84ebf764cfb960f8f6256f8eade13646fec43957824ee173b3f8edfbe633"},
+		{"darwin", "arm64", "microsandbox-darwin-aarch64.tar.gz", "2a313e1e6b9866b6ddb4605b33bedf1d72876d8ba5aa749729eba41b76787f19"},
+		{"linux", "arm64", "microsandbox-linux-aarch64.tar.gz", "4ebdbecb7bc737d7e2e0c58d60af9b8866f1c9a3164971367b77ca4efaf0cc49"},
+		{"linux", "amd64", "microsandbox-linux-x86_64.tar.gz", "51f1969bb2f6ff648941b11c345fba5a9e83ab7f7259c63170f59cd0b74c3cb4"},
+		{"windows", "arm64", "microsandbox-windows-aarch64.tar.gz", "1c0a2177d3dfc8fdffc39b64464efc1fffe00fc1b558c7d8c3ba79134df7f00b"},
+		{"windows", "amd64", "microsandbox-windows-x86_64.tar.gz", "b28a8242fede288a5779b1813a796911f6d5ea236e35985fc69f9d93b03a6398"},
 	}
 	for _, test := range tests {
 		t.Run(test.goos+"-"+test.goarch, func(t *testing.T) {
