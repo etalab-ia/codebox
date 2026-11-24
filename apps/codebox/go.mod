@@ -15,7 +15,7 @@ require (
 	github.com/go-rotini/dotenv v1.0.3
 	github.com/joho/godotenv v1.5.1
 	github.com/mattn/go-runewidth v0.0.31
-	github.com/superradcompany/microsandbox/sdk/go v0.7.15
+	github.com/superradcompany/microsandbox/sdk/go v0.8.1
 	golang.org/x/mod v0.43.0
 	golang.org/x/sys v0.50.0
 	golang.org/x/term v0.48.0
@@ -39,6 +39,7 @@ require (
 	github.com/mitchellh/hashstructure/v2 v2.0.2 // indirect
 	github.com/muesli/cancelreader v0.2.2 // indirect
 	github.com/rivo/uniseg v0.4.7 // indirect
+	github.com/superradcompany/microsandbox/sdk/go/core v0.8.1 // indirect
 	github.com/xo/terminfo v1.0.0 // indirect
 	golang.org/x/sync v0.24.0 // indirect
 )
