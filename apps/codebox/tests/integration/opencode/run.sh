@@ -258,6 +258,20 @@ try {
       assert.ok(!url.includes(synthetic));
     });
   });
+  await test('C10b managed global TUI status bar plugin does not affect server/config diagnostics', async () => {
+    const assetsDir = path.resolve(here, '../../../assets');
+    const plugDir = path.join(globalDir, 'plugins', 'codebox-status');
+    fs.mkdirSync(plugDir, {recursive:true});
+    fs.copyFileSync(path.join(assetsDir, 'opencode-status-tui.tsx'), path.join(plugDir, 'tui.tsx'));
+    fs.copyFileSync(path.join(assetsDir, 'status-core.ts'), path.join(plugDir, 'status-core.ts'));
+    await server({}, async ({json, logs}) => {
+      docs(await json('/api/config'));
+      const plugins = await json('/api/plugin');
+      assert.ok(Array.isArray(plugins.data));
+      assert.ok(!logs().includes('configuration normalization diagnostic'), `configuration diagnostics: ${logs()}`);
+    });
+    fs.rmSync(plugDir, {recursive:true, force:true});
+  });
   console.log('SKIP C11: v1 OPENCODE_DISABLE_PROJECT_CONFIG is not a supported v2 isolation contract.');
   console.log('SKIP legacy declared .mjs plugin function fixture: v2 configured paths must be plugin directories; C9 tests the native equivalent.');
   if (process.env.OPENCODE_INTEGRATION_NETWORK === '1') {
@@ -281,3 +295,4 @@ console.log(`\npasses: ${passes}, failures: ${failures}`);
 process.exitCode = failures ? 1 : 0;
 })().catch(async e => { console.error(e.stack || e); await Promise.all([...children].map(stop)); process.exitCode=1; });
 NODE
+node --test "$HERE/status_bar.test.mjs"
