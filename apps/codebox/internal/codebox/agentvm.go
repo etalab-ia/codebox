@@ -771,6 +771,9 @@ func (a *AgentVM) RunAgent(ctx context.Context) error {
 	if err := a.guestRun(ctx, "chmod", "600", agentVMSecretsEnvPath); err != nil {
 		return err
 	}
+	if err := a.installManagedStatusBar(ctx, HarnessOpenCode); err != nil {
+		return err
+	}
 	listCommand := fmt.Sprintf("set -a; . %s; set +a; cd %s && opencode session list --standalone --format json", agentVMSecretsEnvPath, shellQuote(cfg.WorkspaceDir))
 	sessions, err := a.Runner.Run(ctx, "limactl", "shell", vm, "sh", "-c", listCommand)
 	var listErr error
@@ -812,6 +815,30 @@ func (a *AgentVM) RunAgent(ctx context.Context) error {
 	return interactive("limactl", "shell", vm, "sh", "-c", launch)
 }
 
+// installManagedStatusBar stages the status bar archive on the host, copies it
+// into the Lima guest with limactl copy, and installs it atomically outside
+// the workspace so the project trust prompt does not apply (#318).
+func (a *AgentVM) installManagedStatusBar(ctx context.Context, harness Harness) error {
+	archive, versionDigest, archiveSHA, err := statusBarArchive(harness, a.Config)
+	if err != nil {
+		return fmt.Errorf("préparation de la barre d'état gérée : %w", err)
+	}
+	stageDir := a.StageDir()
+	if err := os.MkdirAll(stageDir, 0o700); err != nil {
+		return err
+	}
+	hostArchive := filepath.Join(stageDir, "codebox-status.tar.gz")
+	if err := os.WriteFile(hostArchive, archive, 0o600); err != nil {
+		return err
+	}
+	guestArchive := "/tmp/codebox-status-" + versionDigest[:16] + ".tar.gz"
+	if err := runOK(a.Runner, ctx, "limactl", "copy", hostArchive, a.VMName()+":"+guestArchive); err != nil {
+		return err
+	}
+	script := guestStatusBarInstallScript(harness, guestArchive, versionDigest, archiveSHA)
+	return a.guestRun(ctx, "sh", "-c", script)
+}
+
 // runPiAgent launches Pi's TUI inside the guest (#176). Pi has no server mode,
 // so the whole agent — configuration, skills and sessions — stays in the
 // guest and the host is only a terminal passthrough. The preparation mirrors
@@ -847,6 +874,9 @@ func (a *AgentVM) runPiAgent(ctx context.Context) error {
 		return err
 	}
 	if err := a.guestRun(ctx, "sh", "-c", configScript); err != nil {
+		return err
+	}
+	if err := a.installManagedStatusBar(ctx, HarnessPi); err != nil {
 		return err
 	}
 	launchArgs := append(piModelArgs(a.OpenCodeOverlay), piResumeArgs(a.piGuestHasSessions(ctx, vm))...)

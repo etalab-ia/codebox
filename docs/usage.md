@@ -71,3 +71,25 @@ codebox
 ```
 
 `PROJECT_DIR` reste accepté mais est déprécié (un avertissement le signale).
+
+## Barre d'état (OpenCode et Pi)
+
+En isolation `full` (mode par défaut), codebox installe automatiquement une barre d'état dans le répertoire global de l'agent invité (`~/.config/opencode/plugins/codebox-status/` pour OpenCode, `~/.pi/agent/extensions/codebox-status/` pour Pi), en dehors du dépôt du projet : aucune question supplémentaire n'est posée pendant `codebox init` et l'écran de confiance projet ne s'applique pas.
+
+Sur **Albert API**, trois lignes s'affichent sous la zone de saisie :
+
+```text
+Albert API · gpt-oss-120b · medium │ mon-projet (main)
+Contexte ███░░░░░░░ 31% │ RPM ██░░░░░░░░ 12/50 │ TPM ████████░░ 200k/246k
+Session 481k tok · ≈ 0,1 gCO2e │ Jour ███░░░░░░░ 167/500 req · 4,8 gCO2e
+```
+
+- **Ligne 1** : plateforme, modèle actif, niveau de réflexion (masqué s'il n'y en a pas), dossier du projet et branche Git. Elle se met à jour lors d'un changement via `/model`.
+- **Ligne 2** : part de la fenêtre de contexte utilisée, puis débits RPM et TPM contre les quotas du compte. Les jauges passent à l'orange à 70 % et au rouge à 90 %.
+- **Ligne 3** : jetons et empreinte CO2 estimée de la session, puis requêtes du jour contre la limite journalière (RPD) et CO2 du jour via `GET /v1/me/usage`. Si l'appel échoue, la ligne affiche `usage Albert indisponible` sans interrompre l'agent.
+
+Les limites et compteurs restants sont lus sur `GET /v1/limits` (OpenGateLLM 0.9.3+) avec la clé du projet, en passant par le proxy de secrets vers `albert.api.etalab.gouv.fr`. Tant que l'instance Albert API ne sert pas `/v1/limits`, la barre utilise la grille publique (avec comptage local sur 60 secondes) et ajoute `(grille publique)`.
+
+Sur les autres plateformes (Mistral AI, plateforme compatible OpenAI), deux lignes s'affichent sans appel d'usage : plateforme, modèle, dossier et branche, puis contexte et jetons de la session.
+
+**Limites connues :** les jetons locaux sont estimés à environ 4 caractères par jeton ; avant OpenGateLLM 0.9.3, les compteurs RPM/TPM reflètent la session courante alors que les quotas Albert portent sur tout le compte ; l'usage du jour (`/v1/me/usage`) est enregistré par Albert avec un délai de 3 à 10 minutes.

@@ -1102,6 +1102,13 @@ func (t *Tart) runPiAgent(ctx context.Context) error {
 	if err := t.guestRun(ctx, "/bin/zsh", "-lc", configScript); err != nil {
 		return err
 	}
+	statusScript, err := statusBarGuestShellScript(HarnessPi, t.Config)
+	if err != nil {
+		return err
+	}
+	if err := t.guestRun(ctx, "/bin/zsh", "-lc", statusScript); err != nil {
+		return err
+	}
 	hasSessions := t.piGuestHasSessions(ctx, vm)
 	interactive := t.Interactive
 	if interactive == nil {

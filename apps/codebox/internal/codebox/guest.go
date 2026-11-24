@@ -473,7 +473,20 @@ func RunGuestPrepare(ctx context.Context, cfg GuestConfig) error {
 	_, _ = g.run(ctx, "git", "config", "--global", "user.name", gitName)
 	_, _ = g.run(ctx, "git", "config", "--global", "user.email", gitEmail)
 	_, _ = g.run(ctx, "git", "config", "--global", "--add", "safe.directory", "*")
+	if err := InstallLocalStatusBar(cfg.Home, envLookup(cfg.Environ, "XDG_CONFIG_HOME"), HarnessOpenCode, Config{}); err != nil {
+		return fmt.Errorf("installation de la barre d'état OpenCode : %w", err)
+	}
 	return nil
+}
+
+func envLookup(environ []string, key string) string {
+	prefix := key + "="
+	for i := len(environ) - 1; i >= 0; i-- {
+		if strings.HasPrefix(environ[i], prefix) {
+			return strings.TrimPrefix(environ[i], prefix)
+		}
+	}
+	return ""
 }
 
 // guestSecretsEnvPath is where the isolation-full TUI step sources its

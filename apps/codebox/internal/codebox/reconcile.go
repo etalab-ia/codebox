@@ -192,6 +192,11 @@ type InstanceState struct {
 	// whose credential came from the environment, which codebox cannot
 	// revoke. A missing state file means "unknown", treated as bound.
 	BoundCredentials []string `json:"boundCredentials,omitempty"`
+	// StatusBarDigest is the digest of the managed status bar assets installed
+	// in the guest (#318). It is guest-local managed data outside
+	// ConfigRevision so upgrading the status bar applies in place on a healthy
+	// instance without restarting or recreating the VM.
+	StatusBarDigest string `json:"statusBarDigest,omitempty"`
 	// Pending journals the operations of the current apply that have not
 	// completed yet, so an interrupted apply resumes instead of restarting
 	// from scratch or silently skipping.
@@ -254,6 +259,9 @@ type DesiredState struct {
 	// the same documents describe the same guest. It is empty for another
 	// harness, which keeps an OpenCode guest's revision unchanged.
 	PiConfigFingerprint string
+	// StatusBarDigest is the digest of the managed status bar files (#318).
+	// Excluded from ConfigRevision so updates apply in place on no-op starts.
+	StatusBarDigest string
 }
 
 // ConfigRevision hashes the non-secret configuration. Credential values
@@ -551,6 +559,22 @@ func (m *MicrosandboxRuntime) Reconcile(ctx context.Context) error {
 				return err
 			}
 		}
+		// The managed status bar (#318) is guest-local managed data too: an
+		// existing healthy sandbox created by an older codebox release or with
+		// a renamed project receives it in place without restarting the VM,
+		// while an up-to-date instance remains a strict zero-mutation no-op.
+		if desired.StatusBarDigest != "" && (applied == nil || applied.StatusBarDigest != desired.StatusBarDigest) {
+			if err := m.installManagedStatusBar(ctx); err != nil {
+				return err
+			}
+			if applied != nil {
+				updated := *applied
+				updated.StatusBarDigest = desired.StatusBarDigest
+				if err := WriteInstanceState(DefaultFS, path, updated); err != nil {
+					return fmt.Errorf("enregistrement de la révision de la barre d'état de %s : %w", m.InstanceName(), err)
+				}
+			}
+		}
 		// Guest-readable project secrets are guest-local managed data for the
 		// same reason: the approvals are host-local and deliberately absent
 		// from the VM configuration revision, so a delivery or a revocation
@@ -665,6 +689,9 @@ func (m *MicrosandboxRuntime) desiredState(resolved bool, bindings []resolvedBin
 		LocalModelPort:  localModelPortFor(m.cfg.Providers),
 		MCPConnectors:   append([]string(nil), m.OpenCodeOverlay.MCPConnectors...),
 	}
+	if m.cfg.Isolation == IsolationFull {
+		d.StatusBarDigest = statusBarDigest(m.cfg.EffectiveHarness(), m.cfg)
+	}
 	// The composed Pi configuration is prepared into the guest once, from the
 	// environment this run builds; carrying its digest here is how a later
 	// change to it reaches a guest that is still running the previous one.
@@ -721,6 +748,7 @@ func (d DesiredState) toState() InstanceState {
 		CredentialRev:    d.CredentialRev,
 		CredentialGen:    credentialGenJSON(d.CredentialGeneration),
 		BoundCredentials: append([]string(nil), d.BoundCredentials...),
+		StatusBarDigest:  d.StatusBarDigest,
 	}
 }
 

@@ -701,6 +701,11 @@ func (m *MicrosandboxRuntime) start(ctx context.Context, bindings []resolvedBind
 			return err
 		}
 	}
+	if m.cfg.Isolation == IsolationFull {
+		if err := m.installManagedStatusBar(ctx); err != nil {
+			return err
+		}
+	}
 	// Phase 3: publish the approved project secrets as managed guest dotenv
 	// files, after the workspace exists so the files are not overwritten by
 	// the transfer, and before the GitHub preparation so a failure stops the
