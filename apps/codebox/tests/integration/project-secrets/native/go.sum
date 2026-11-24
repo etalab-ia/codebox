@@ -1,2 +1,4 @@
-github.com/superradcompany/microsandbox/sdk/go v0.7.15 h1:1RfMGylU/KX+BqHWbTjsQYRWfRo+c3qFrvFX9UnaT3A=
-github.com/superradcompany/microsandbox/sdk/go v0.7.15/go.mod h1:p7Tm/p9zkO7sHO3N8A1fiTVeLB2w/fQoKdYlpN/5neA=
+github.com/superradcompany/microsandbox/sdk/go v0.8.1 h1:ofKqZ6z+LNm33RJcEqqr6s080/Qb0akzmm/j5vzBXio=
+github.com/superradcompany/microsandbox/sdk/go v0.8.1/go.mod h1:i2DiKgzihbJ+uqL/rfKxQo8RRWxBbTCDzBKgbwDu1EY=
+github.com/superradcompany/microsandbox/sdk/go/core v0.8.1 h1:85bB5dXbt296iqV2Ltj/RRqoZRWe6PfQnAAqBo2QnTQ=
+github.com/superradcompany/microsandbox/sdk/go/core v0.8.1/go.mod h1:UqeGW1GYxxMR/M2b+R+C54jkloA5/JiV6A8PPMUcuE4=

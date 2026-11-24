@@ -1517,26 +1517,120 @@ func TestMSBNextStartOptionsRefreshesSecret(t *testing.T) {
 }
 
 type fakeDetachable struct {
-	called bool
-	err    error
+	detached  bool
+	closed    bool
+	order     []string
+	detachErr error
+	closeErr  error
 }
 
 func (f *fakeDetachable) Detach(ctx context.Context) error {
-	f.called = true
+	f.detached = true
+	f.order = append(f.order, "detach")
 	if _, ok := ctx.Deadline(); !ok {
 		return errors.New("detach context is not bounded")
 	}
-	return f.err
+	return f.detachErr
+}
+
+func (f *fakeDetachable) Close() error {
+	f.closed = true
+	f.order = append(f.order, "close")
+	return f.closeErr
 }
 
 func TestDetachMSBSandbox(t *testing.T) {
-	sb := &fakeDetachable{}
-	if err := detachMSBSandbox(sb); err != nil {
-		t.Fatalf("detachMSBSandbox: %v", err)
+	t.Run("detaches then closes native handle", func(t *testing.T) {
+		sb := &fakeDetachable{}
+		if err := detachMSBSandbox(sb); err != nil {
+			t.Fatalf("detachMSBSandbox: %v", err)
+		}
+		if !sb.detached || !sb.closed {
+			t.Fatalf("detached=%v closed=%v, want both true", sb.detached, sb.closed)
+		}
+		if strings.Join(sb.order, ",") != "detach,close" {
+			t.Fatalf("call order = %v, want [detach close]", sb.order)
+		}
+	})
+
+	t.Run("does not close when detach fails", func(t *testing.T) {
+		wantErr := errors.New("detach failed")
+		sb := &fakeDetachable{detachErr: wantErr}
+		if err := detachMSBSandbox(sb); !errors.Is(err, wantErr) {
+			t.Fatalf("err = %v, want %v", err, wantErr)
+		}
+		if sb.closed {
+			t.Fatal("Close must not be called when Detach fails")
+		}
+	})
+
+	t.Run("surfaces close error after detach", func(t *testing.T) {
+		wantErr := errors.New("close failed")
+		sb := &fakeDetachable{closeErr: wantErr}
+		if err := detachMSBSandbox(sb); !errors.Is(err, wantErr) {
+			t.Fatalf("err = %v, want %v", err, wantErr)
+		}
+		if !sb.detached || !sb.closed {
+			t.Fatalf("detached=%v closed=%v, want both true", sb.detached, sb.closed)
+		}
+	})
+}
+
+type fakeConnectable struct {
+	status msb.SandboxStatus
+	err    error
+	closed bool
+}
+
+func (f *fakeConnectable) Status(context.Context) (msb.SandboxStatus, error) {
+	return f.status, f.err
+}
+
+func (f *fakeConnectable) Close() error {
+	f.closed = true
+	return nil
+}
+
+func TestVerifyConnectedMSBSandbox(t *testing.T) {
+	for _, allowed := range []msb.SandboxStatus{msb.SandboxStatusRunning, msb.SandboxStatusDraining} {
+		t.Run("allows "+string(allowed), func(t *testing.T) {
+			sb := &fakeConnectable{status: allowed}
+			if err := verifyConnectedMSBSandbox(context.Background(), msbSandbox, sb); err != nil {
+				t.Fatalf("verifyConnectedMSBSandbox(%s): %v", allowed, err)
+			}
+			if sb.closed {
+				t.Fatalf("handle must remain open for %s sandbox", allowed)
+			}
+		})
 	}
-	if !sb.called {
-		t.Fatal("Detach was not called")
+	for _, blocked := range []msb.SandboxStatus{
+		msb.SandboxStatusCreated,
+		msb.SandboxStatusStarting,
+		msb.SandboxStatusPaused,
+		msb.SandboxStatusStopped,
+		msb.SandboxStatusCrashed,
+	} {
+		t.Run("rejects "+string(blocked), func(t *testing.T) {
+			sb := &fakeConnectable{status: blocked}
+			err := verifyConnectedMSBSandbox(context.Background(), msbSandbox, sb)
+			if !msb.IsKind(err, msb.ErrSandboxNotRunning) {
+				t.Fatalf("err = %v, want ErrSandboxNotRunning", err)
+			}
+			if !sb.closed {
+				t.Fatalf("handle must be closed when rejecting %s sandbox", blocked)
+			}
+		})
 	}
+	t.Run("closes handle on status lookup error", func(t *testing.T) {
+		wantErr := errors.New("status lookup failed")
+		sb := &fakeConnectable{err: wantErr}
+		if err := verifyConnectedMSBSandbox(context.Background(), msbSandbox, sb); !errors.Is(err, wantErr) {
+			t.Fatalf("err = %v, want %v", err, wantErr)
+		}
+		if !sb.closed {
+			t.Fatal("handle must be closed on status lookup error")
+		}
+	})
 }
 
 func TestMSBRuntimeBinaryUsesManagedHome(t *testing.T) {
@@ -2107,27 +2201,36 @@ func TestMicrosandboxFullModeStartsWithNoPersistedKey(t *testing.T) {
 
 // handledConfig is a persisted document exposed the way a real SDK handle
 // exposes it. The fake carries no typed config, which is the faithful shape:
-// the real handle's typed SandboxConfig cannot see the spec env either, so a
-// reader that reaches for it observes nothing.
-type handledConfig struct{ configJSON string }
+// the real handle's ConfigJSON carries the SandboxConfigInspection envelope.
+type handledConfig struct {
+	configJSON string
+	err        error
+}
 
-func (h handledConfig) ConfigJSON() string { return h.configJSON }
+func (h handledConfig) ConfigJSON(context.Context) (string, error) { return h.configJSON, h.err }
+
+func wrapLocalConfigInspection(specJSON string) string {
+	return `{"name":"` + msbSandbox + `","kind":"local","spec":` + specJSON + `,"unavailable":[],"redacted":[]}`
+}
 
 // TestGuestEnvFromHandleReadsThePersistedDocument covers the wiring, not just
-// the parser. The guard is only as good as the source it reads, and the source
-// that looks obvious, the handle's typed sandbox config, is blind to the spec
-// env. A reader wired to that field no-ops in production while every
-// fakeMSBClient test still passes, so this pins the document the reader uses.
+// the parser. It tests both the v0.8+ SandboxConfigInspection envelope and
+// ConfigJSON error propagation.
 func TestGuestEnvFromHandleReadsThePersistedDocument(t *testing.T) {
-	h := handledConfig{configJSON: persistedConfigWithGuestEnv(
+	h := handledConfig{configJSON: wrapLocalConfigInspection(persistedConfigWithGuestEnv(
 		`{"key":"` + msbAPISecretEnv + `","value":"albert-real-secret"}`,
-	)}
-	env, err := guestEnvFromHandle(h)
+	))}
+	env, err := guestEnvFromHandle(context.Background(), h)
 	if err != nil {
 		t.Fatalf("guestEnvFromHandle: %v", err)
 	}
 	if got := env[msbAPISecretEnv]; got != "albert-real-secret" {
 		t.Fatalf("%s = %q, want the value stored in the persisted document", msbAPISecretEnv, got)
+	}
+
+	wantErr := errors.New("config lookup failed")
+	if _, err := guestEnvFromHandle(context.Background(), handledConfig{err: wantErr}); !errors.Is(err, wantErr) {
+		t.Fatalf("guestEnvFromHandle error = %v, want %v", err, wantErr)
 	}
 }
 
@@ -2143,19 +2246,150 @@ func persistedConfigWithSecrets(secrets ...string) string {
 }
 
 // TestParsePersistedEnvRefSecretsReadsThePersistedDocument pins what recovery
-// reads from the stored document. The typed SandboxConfig never fills its
-// Secrets field, so this is the only source that carries the host transport
-// variables the stop-start script actually references.
+// reads from the stored document, including the v0.8+ SandboxConfigInspection
+// envelope and lookup error propagation.
 func TestParsePersistedEnvRefSecretsReadsThePersistedDocument(t *testing.T) {
-	h := handledConfig{configJSON: persistedConfigWithSecrets(
+	h := handledConfig{configJSON: wrapLocalConfigInspection(persistedConfigWithSecrets(
 		`{"name":"ALBERT_API_KEY","source":{"kind":"env","var":"CODEBOX_HOST_ALBERT_API_KEY"}}`,
-	)}
-	refs, err := persistedSecretRefsFromHandle(h)
+	))}
+	refs, err := persistedSecretRefsFromHandle(context.Background(), h)
 	if err != nil {
 		t.Fatalf("persistedSecretRefsFromHandle: %v", err)
 	}
 	if len(refs) != 1 || refs[0].HostEnv != "CODEBOX_HOST_ALBERT_API_KEY" {
 		t.Fatalf("persisted secret refs = %v, want [CODEBOX_HOST_ALBERT_API_KEY]", refs)
+	}
+
+	wantErr := errors.New("config lookup failed")
+	if _, err := persistedSecretRefsFromHandle(context.Background(), handledConfig{err: wantErr}); !errors.Is(err, wantErr) {
+		t.Fatalf("persistedSecretRefsFromHandle error = %v, want %v", err, wantErr)
+	}
+}
+
+// TestConfigParsersHandleV08InspectionEnvelope pins the v0.8+ wire shape where
+// Sandbox.ConfigJSON returns a SandboxConfigInspection envelope wrapping the
+// local SandboxSpec under {"kind":"local","spec":{...}}, and verifies every
+// security-relevant parser fails closed on non-local or malformed envelopes.
+func TestConfigParsersHandleV08InspectionEnvelope(t *testing.T) {
+	ownedEnvelope := wrapLocalConfigInspection(`{
+		"name":"` + msbSandbox + `",
+		"runtime":{"workdir":"/workspace","shell":"/bin/sh","scripts":{"start":"exec sleep infinity"}},
+		"env":[{"key":"` + msbAPISecretEnv + `","value":"` + msbAPISecretPlaceholder + `"}],
+		"mounts":[{"type":"Owned","guest":"/workspace","storage":{"kind":"dir"}}],
+		"network":{
+			"ports":[{"host_port":4096,"guest_port":4096},{"host_port":8080,"guest_port":80}],
+			"secrets":{"secrets":[{"env_var":"API_KEY","source":{"kind":"env","var":"CODEBOX_HOST_PROJECT_API_KEY"},"placeholder":"__MKR__","allowed_hosts":[{"exact":"api.example.com"}]}]}
+		}
+	}`)
+	bindEnvelope := wrapLocalConfigInspection(persistedConfigWithMounts(persistedWorkspaceBindMount))
+
+	owned, err := parseOwnedWorkspace(ownedEnvelope, "/workspace")
+	if err != nil || !owned {
+		t.Fatalf("parseOwnedWorkspace(v0.8 owned envelope) = %v, %v; want true, nil", owned, err)
+	}
+	ownedBind, err := parseOwnedWorkspace(bindEnvelope, "/workspace")
+	if err != nil || ownedBind {
+		t.Fatalf("parseOwnedWorkspace(v0.8 bind envelope) = %v, %v; want false, nil", ownedBind, err)
+	}
+	host, err := parseWorkspaceMount(bindEnvelope, "/workspace")
+	if err != nil || host != "/Users/tester/project" {
+		t.Fatalf("parseWorkspaceMount(v0.8 bind envelope) = %q, %v; want /Users/tester/project, nil", host, err)
+	}
+	forwarded, err := parseServerPortForwarded(ownedEnvelope)
+	if err != nil || !forwarded {
+		t.Fatalf("parseServerPortForwarded(v0.8 envelope) = %v, %v; want true, nil", forwarded, err)
+	}
+	mappings, err := parseAppliedPortMappings(ownedEnvelope)
+	if err != nil || !equalPortMappings(mappings, []PortMapping{{Host: 4096, Guest: 4096}, {Host: 8080, Guest: 80}}) {
+		t.Fatalf("parseAppliedPortMappings(v0.8 envelope) = %v, %v", mappings, err)
+	}
+	env, err := parseGuestEnv(ownedEnvelope)
+	if err != nil || env[msbAPISecretEnv] != msbAPISecretPlaceholder {
+		t.Fatalf("parseGuestEnv(v0.8 envelope) = %v, %v", env, err)
+	}
+	refs, err := parsePersistedEnvRefSecrets(ownedEnvelope)
+	if err != nil || len(refs) != 1 || refs[0].HostEnv != "CODEBOX_HOST_PROJECT_API_KEY" || len(refs[0].AllowedHosts) != 1 || refs[0].AllowedHosts[0] != "api.example.com" || refs[0].Placeholder == nil || *refs[0].Placeholder != "__MKR__" {
+		t.Fatalf("parsePersistedEnvRefSecrets(v0.8 envelope) = %+v, %v", refs, err)
+	}
+
+	// Non-local (remote) projections redact mount sources and secret sources;
+	// every parser must fail closed rather than interpreting a remote or
+	// malformed envelope as empty mounts or empty secrets.
+	rejected := []struct {
+		name string
+		doc  string
+	}{
+		{
+			name: "remote inspection envelope",
+			doc:  `{"name":"` + msbSandbox + `","kind":"remote","spec":{"mounts":[{"type":"Bind","guest":"/workspace"}],"network":{"ports":[],"secrets":[]},"env":[]},"unavailable":[],"redacted":["mounts[0].source"]}`,
+		},
+		{
+			name: "unknown inspection kind",
+			doc:  `{"name":"` + msbSandbox + `","kind":"future","spec":{"mounts":[{"type":"Owned","guest":"/workspace"}]}}`,
+		},
+		{
+			name: "missing spec with kind present",
+			doc:  `{"name":"` + msbSandbox + `","kind":"local"}`,
+		},
+		{
+			name: "null spec with kind present",
+			doc:  `{"name":"` + msbSandbox + `","kind":"local","spec":null}`,
+		},
+		{
+			name: "missing kind with spec present",
+			doc:  `{"name":"` + msbSandbox + `","spec":{"mounts":[{"type":"Owned","guest":"/workspace"}]}}`,
+		},
+		{
+			name: "non-string kind",
+			doc:  `{"name":"` + msbSandbox + `","kind":123,"spec":{}}`,
+		},
+		{
+			name: "json null document",
+			doc:  `null`,
+		},
+	}
+	for _, tc := range rejected {
+		t.Run(tc.name, func(t *testing.T) {
+			if _, err := parseWorkspaceMount(tc.doc, "/workspace"); err == nil {
+				t.Errorf("parseWorkspaceMount accepted %s", tc.name)
+			}
+			if _, err := parseOwnedWorkspace(tc.doc, "/workspace"); err == nil {
+				t.Errorf("parseOwnedWorkspace accepted %s", tc.name)
+			}
+			if _, err := parseServerPortForwarded(tc.doc); err == nil {
+				t.Errorf("parseServerPortForwarded accepted %s", tc.name)
+			}
+			if _, err := parseAppliedPortMappings(tc.doc); err == nil {
+				t.Errorf("parseAppliedPortMappings accepted %s", tc.name)
+			}
+			if _, err := parseGuestEnv(tc.doc); err == nil {
+				t.Errorf("parseGuestEnv accepted %s", tc.name)
+			}
+			if _, err := parsePersistedEnvRefSecrets(tc.doc); err == nil {
+				t.Errorf("parsePersistedEnvRefSecrets accepted %s", tc.name)
+			}
+		})
+	}
+}
+
+func TestStartScriptFromConfig(t *testing.T) {
+	cfg := &msb.SandboxConfigInspection{
+		Kind: "local",
+		Spec: msb.SandboxInspectionSpec{
+			Runtime: msb.SandboxRuntimeInspection{
+				Scripts: map[string]string{"start": "exec sleep infinity"},
+			},
+		},
+	}
+	got, err := startScriptFromConfig(cfg)
+	if err != nil || got != "exec sleep infinity" {
+		t.Fatalf("startScriptFromConfig(local) = %q, %v", got, err)
+	}
+	if _, err := startScriptFromConfig(nil); err == nil {
+		t.Fatal("startScriptFromConfig(nil) must fail")
+	}
+	if _, err := startScriptFromConfig(&msb.SandboxConfigInspection{Kind: "remote"}); err == nil {
+		t.Fatal("startScriptFromConfig(remote) must fail closed")
 	}
 }
 
