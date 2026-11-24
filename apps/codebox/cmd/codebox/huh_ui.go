@@ -340,7 +340,7 @@ func initGitHubStepTitle(opts initOptions) string {
 func newProjectSkillsMultiSelect(skillOptions []huh.Option[string], value *[]string, stepPrefix string) *huh.MultiSelect[string] {
 	return huh.NewMultiSelect[string]().
 		TitleFunc(func() string { return initSkillsTitle(len(*value), stepPrefix) }, value).
-		Description("Une skill apporte à l'agent un savoir-faire de l'État : règles, références, exemples. Il s'en sert quand votre demande s'y rapporte. " + multiSelectKeyHint).
+		Description("Savoir-faire de l'État pour l'agent (https://github.com/etalab-ia/codebox#skills). " + multiSelectKeyHint).
 		Height(len(skillOptions) + 10).
 		Filterable(true).
 		Options(skillOptions...).
@@ -465,21 +465,11 @@ func retainedMCPOptions(options []huh.Option[string], selected []string) []huh.O
 // the line wizard's « Continuer sans MCP ? » (O/n, Enter keeps the MCP-less
 // project).
 func confirmNoMCPsHuh() (bool, error) {
-	var keep bool
-	err := huhRun(huh.NewForm(
-		huh.NewGroup(
-			huh.NewConfirm().
-				Title("Aucun MCP sélectionné. Continuer sans MCP ?").
-				Description("L'agent n'aura accès à aucun service distant ni outil de navigateur géré ; un MCP restera ajoutable plus tard.").
-				Affirmative("Oui").
-				Negative("Non").
-				Value(&keep),
-		),
-	))
-	if err != nil {
-		return false, err
-	}
-	return keep, nil
+	return huhConfirm(
+		"Aucun MCP sélectionné. Continuer sans MCP ?",
+		"L'agent n'aura accès à aucun service distant ni outil de navigateur géré ; un MCP restera ajoutable plus tard.",
+		false,
+	)
 }
 
 // stdoutIsTTY reports whether standard output is a terminal, using the same
@@ -834,7 +824,7 @@ func askHarnessStepHuh(opts initOptions, answers codebox.InitAnswers) (codebox.I
 	harness := effectiveInitHarness(answers)
 	field := huh.NewSelect[string]().
 		Title(initHarnessStepTitle(opts)).
-		Description("OpenCode est l'agent historique, avec ses greffons et ses MCP. Pi est un agent en terminal plus léger, installé dans la même machine isolée.").
+		Description("OpenCode (complet) ou Pi (léger). Détails : https://github.com/etalab-ia/codebox#agent").
 		Options(
 			huh.NewOption("OpenCode (recommandé)", string(codebox.HarnessOpenCode)),
 			huh.NewOption("Pi", string(codebox.HarnessPi)),
@@ -894,7 +884,7 @@ func askVMStepHuh(opts initOptions, answers codebox.InitAnswers) (codebox.InitAn
 		return answers, nil
 	}
 	runtime := string(effectiveInitRuntime(answers))
-	description := "Microsandbox : copie filtrée du projet (.env et secrets exclus), démarrage rapide. Tart et agent-vm : votre dossier est partagé avec la VM."
+	description := "Microsandbox : copie filtrée du projet, démarrage rapide. Détails : https://github.com/etalab-ia/codebox#machine-isol%C3%A9e"
 	if notice := initRuntimeNotice(codebox.Runtime(runtime)); notice != "" {
 		description += "\n" + notice
 	}

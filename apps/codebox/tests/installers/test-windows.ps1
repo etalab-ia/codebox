@@ -166,8 +166,10 @@ try {
 	Assert-InstallerTest ([System.IO.File]::ReadAllText($interruptedTarget) -eq 'old before interrupt') 'interrupted replacement damaged the current binary'
 
 	$unsupportedFailed = $false
-	try { Get-CodeboxAssetName -Architecture x86 } catch { $unsupportedFailed = $true }
+	$unsupportedMessage = ''
+	try { Get-CodeboxAssetName -Architecture x86 } catch { $unsupportedFailed = $true; $unsupportedMessage = $_.Exception.Message }
 	Assert-InstallerTest $unsupportedFailed 'unsupported Windows architecture was accepted'
+	Assert-InstallerTest ($unsupportedMessage -match 'architecture Windows non prise en charge') 'unsupported architecture error must be in French'
 	Assert-InstallerTest ((Get-CodeboxAssetName -Architecture ARM64) -eq 'codebox-windows-arm64.exe') 'Windows arm64 mapped to the wrong release asset'
 	Write-Host 'Windows installer checks passed'
 } finally {

@@ -113,7 +113,7 @@ func TestInitSkillsAreTheSixDescribedOfficialEntries(t *testing.T) {
 	selected := []string{"official/securite-developpement"}
 	localOnly := false
 	content := newInitSkillsGroup(options, &selected, &localOnly, true, true, "[1/3] ").Content()
-	for _, want := range []string{"Espace ou x pour cocher/décocher", "Entrée pour valider", "règles, références, exemples"} {
+	for _, want := range []string{"Espace ou x pour cocher/décocher", "Entrée pour valider", "https://github.com/etalab-ia/codebox#skills"} {
 		if !strings.Contains(content, want) {
 			t.Errorf("skills screen missing %q: %s", want, content)
 		}
@@ -290,7 +290,7 @@ func TestInitHuhEmptySkillsAcceptedOnceAcrossMCPRetry(t *testing.T) {
 		case strings.Contains(view, "MCP (facultatif)"):
 			events = append(events, "mcp-clear")
 			_, _ = form.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeySpace, Text: " "}))
-		case strings.Contains(view, "Une skill apporte"):
+		case strings.Contains(view, "Savoir-faire de l'État"):
 			events = append(events, "skills")
 			if !skillsCleared {
 				_, _ = form.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeySpace, Text: " "}))

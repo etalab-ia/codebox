@@ -981,7 +981,7 @@ func chooseSetupPlatformsWithTitle(current []codebox.SetupPlatform, in *bufio.Re
 		err := huhRun(huh.NewForm(huh.NewGroup(
 			keepMultiSelectCursorOnResize(huh.NewMultiSelect[string]().
 				Title(title).
-				Description("Choisissez où l'agent envoie ses demandes. Vous pouvez en connecter plusieurs.\n\nEspace : cocher ou décocher. Entrée : valider.").
+				Description("Plateformes d'inférence (https://github.com/etalab-ia/codebox#plateforme-et-cl%C3%A9)\nEspace : cocher ou décocher. Entrée : valider.").
 				Height(len(options) + 10).
 				Validate(func(values []string) error {
 					if len(values) == 0 {
