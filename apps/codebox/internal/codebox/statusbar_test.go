@@ -400,3 +400,64 @@ func TestReconcileNoOpInstallsStatusBarInPlaceWhenMissingOrOutdated(t *testing.T
 		t.Fatalf("second Reconcile unexpectedly wrote %d files", len(client.written)-writesBefore)
 	}
 }
+
+func TestTartStagesProjectMetadataForRunGuestPrepare(t *testing.T) {
+	stateDir := t.TempDir()
+	tt := &Tart{
+		StateDir: stateDir,
+		Config: Config{
+			WorkspaceDir: filepath.Join(t.TempDir(), "mon-projet-tart"),
+			Providers: []InferenceProvider{
+				{Kind: ProviderAlbert, Name: "Albert API (État)"},
+				{Kind: ProviderOpenAICompatible, Name: "Scaleway"},
+			},
+		},
+	}
+	if err := tt.stageStatusBarConfig(); err != nil {
+		t.Fatalf("stageStatusBarConfig: %v", err)
+	}
+	stagedPath := filepath.Join(tt.StageDir(), statusBarStagedConfigName)
+
+	guestHome := t.TempDir()
+	guestXDG := filepath.Join(guestHome, ".config")
+	fakeBinDir := filepath.Join(guestHome, ".opencode", "bin")
+	if err := os.MkdirAll(fakeBinDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(fakeBinDir, "opencode"), []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	runner := &fakeRunner{onRun: func(name string, args []string) ExecResult {
+		if strings.HasSuffix(name, "opencode") && len(args) == 1 && args[0] == "--version" {
+			return ExecResult{ExitCode: 0, Stdout: "opencode v" + OpenCodeVersion + "\n"}
+		}
+		return ExecResult{ExitCode: 0}
+	}}
+
+	err := RunGuestPrepare(context.Background(), GuestConfig{
+		Home:                guestHome,
+		Environ:             []string{"PATH=" + fakeBinDir, "XDG_CONFIG_HOME=" + guestXDG},
+		Runner:              runner,
+		Stdout:              io.Discard,
+		Stderr:              io.Discard,
+		StatusBarConfigPath: stagedPath,
+	})
+	if err != nil {
+		t.Fatalf("RunGuestPrepare: %v", err)
+	}
+
+	raw, err := os.ReadFile(filepath.Join(guestXDG, "opencode", "plugins", statusBarDirName, "config.json"))
+	if err != nil {
+		t.Fatalf("read installed config.json: %v", err)
+	}
+	var got statusBarConfig
+	if err := json.Unmarshal(raw, &got); err != nil {
+		t.Fatalf("unmarshal config.json: %v", err)
+	}
+	if got.ProjectName != "mon-projet-tart" {
+		t.Fatalf("projectName = %q, want mon-projet-tart", got.ProjectName)
+	}
+	if got.ProviderNames["openai-compatible"] != "Scaleway" {
+		t.Fatalf("providerNames = %#v, want Scaleway", got.ProviderNames)
+	}
+}

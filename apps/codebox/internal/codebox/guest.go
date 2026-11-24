@@ -98,6 +98,9 @@ type GuestConfig struct {
 	// commits (P11: from the user settings). Empty keeps the defaults.
 	GitName  string
 	GitEmail string
+	// StatusBarConfigPath overrides the staged non-secret status bar metadata
+	// path read by RunGuestPrepare (defaults to guestShareDir/status-bar-config.json).
+	StatusBarConfigPath string
 }
 
 // guestGitIdentity resolves the git identity for guest commits: the
@@ -473,7 +476,12 @@ func RunGuestPrepare(ctx context.Context, cfg GuestConfig) error {
 	_, _ = g.run(ctx, "git", "config", "--global", "user.name", gitName)
 	_, _ = g.run(ctx, "git", "config", "--global", "user.email", gitEmail)
 	_, _ = g.run(ctx, "git", "config", "--global", "--add", "safe.directory", "*")
-	if err := InstallLocalStatusBar(cfg.Home, envLookup(cfg.Environ, "XDG_CONFIG_HOME"), HarnessOpenCode, Config{}); err != nil {
+	configPath := cfg.StatusBarConfigPath
+	if configPath == "" {
+		configPath = filepath.Join(guestShareDir, statusBarStagedConfigName)
+	}
+	stagedConfig := readStagedStatusBarConfig(configPath)
+	if err := InstallLocalStatusBarWithConfigJSON(cfg.Home, envLookup(cfg.Environ, "XDG_CONFIG_HOME"), HarnessOpenCode, stagedConfig); err != nil {
 		return fmt.Errorf("installation de la barre d'état OpenCode : %w", err)
 	}
 	return nil

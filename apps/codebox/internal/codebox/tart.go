@@ -285,6 +285,22 @@ func (t *Tart) stageGuestBinary() error {
 	return os.WriteFile(filepath.Join(stageDir, guestBinaryName), data, 0o755)
 }
 
+// stageStatusBarConfig writes non-secret status bar metadata (project folder
+// name and provider display names) into the read-only Tart share so
+// RunGuestPrepare installs the configured OpenCode status bar without changing
+// the __guest-prepare argv contract (#318).
+func (t *Tart) stageStatusBarConfig() error {
+	stageDir := t.StageDir()
+	if err := os.MkdirAll(stageDir, 0o755); err != nil {
+		return err
+	}
+	configJSON, err := statusBarConfigJSON(t.Config)
+	if err != nil {
+		return err
+	}
+	return atomicWrite(DefaultFS, filepath.Join(stageDir, statusBarStagedConfigName), configJSON, 0o644)
+}
+
 // guestBinaryName is the file name of the staged binary inside the share.
 const guestBinaryName = "codebox"
 
@@ -961,6 +977,9 @@ func (t *Tart) RunAgent(ctx context.Context) error {
 	cfg := t.Config
 	vm := t.VMName()
 	if err := t.stageGuestBinary(); err != nil {
+		return err
+	}
+	if err := t.stageStatusBarConfig(); err != nil {
 		return err
 	}
 	// Copy the staged binary to guest-local disk (the share is not reliably

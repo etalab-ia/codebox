@@ -18,6 +18,7 @@ import {
   resolveFolderName,
   resolveProviderDisplayName,
   shortModelName,
+  summarizePiBranch,
 } from "../../../assets/status-core.ts";
 
 test("Albert 3-line layout with OpenGateLLM 0.9.3 /v1/limits matches design", () => {
@@ -443,4 +444,48 @@ test("Local RPM/TPM counts stay scoped to the active model after /model switch",
     }),
   );
   assert.match(plain[1], /RPM █░░░░░░░░░ 1\/10 │ TPM ██░░░░░░░░ 20k\/128k \(grille publique\)$/);
+});
+
+test("summarizePiBranch reconstructs resumed sessions and resets to zero for empty sessions", () => {
+  assert.deepEqual(summarizePiBranch([]), {
+    lastContextTokens: 0,
+    sessionInputTokens: 0,
+    sessionOutputTokens: 0,
+  });
+
+  // Resumed branch with reported provider usage (e.g. Mistral).
+  const reported = summarizePiBranch([
+    { type: "message", message: { role: "user", content: "hello" } },
+    {
+      type: "message",
+      message: {
+        role: "assistant",
+        content: "world",
+        usage: { input: 1_200, output: 300, cacheRead: 100, cacheWrite: 50 },
+      },
+    },
+    { type: "message", message: { role: "user", content: "follow up" } },
+    {
+      type: "message",
+      message: {
+        role: "assistant",
+        content: "done",
+        usage: { input: 2_000, output: 400 },
+      },
+    },
+  ]);
+  assert.deepEqual(reported, {
+    lastContextTokens: 2_000,
+    sessionInputTokens: 3_350,
+    sessionOutputTokens: 700,
+  });
+
+  // Resumed branch where Albert returns prompt_tokens=0 -> estimates from message content.
+  const estimated = summarizePiBranch([
+    { type: "message", message: { role: "user", content: "a".repeat(400) } },
+    { type: "message", message: { role: "assistant", content: "b".repeat(200), usage: { input: 0, output: 0 } } },
+  ]);
+  assert.equal(estimated.lastContextTokens, 100);
+  assert.equal(estimated.sessionInputTokens, 100);
+  assert.equal(estimated.sessionOutputTokens, 50);
 });

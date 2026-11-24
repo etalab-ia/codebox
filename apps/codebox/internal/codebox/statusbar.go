@@ -18,8 +18,9 @@ import (
 )
 
 const (
-	statusBarDirName     = "codebox-status"
-	statusBarVersionFile = ".codebox-version"
+	statusBarDirName          = "codebox-status"
+	statusBarVersionFile      = ".codebox-version"
+	statusBarStagedConfigName = "status-bar-config.json"
 )
 
 var (
@@ -81,6 +82,17 @@ func statusBarFiles(harness Harness, cfg Config) (map[string][]byte, string, err
 	configJSON, err := statusBarConfigJSON(cfg)
 	if err != nil {
 		return nil, "", err
+	}
+	return statusBarFilesWithConfigJSON(harness, configJSON)
+}
+
+func statusBarFilesWithConfigJSON(harness Harness, configJSON []byte) (map[string][]byte, string, error) {
+	if len(bytes.TrimSpace(configJSON)) == 0 {
+		var err error
+		configJSON, err = statusBarConfigJSON(Config{})
+		if err != nil {
+			return nil, "", err
+		}
 	}
 	files := map[string][]byte{
 		"status-core.ts": []byte(statusCoreTS),
@@ -273,6 +285,35 @@ func statusBarGuestShellScript(harness Harness, cfg Config) (string, error) {
 // InstallLocalStatusBar writes the managed status bar directly onto the local
 // guest filesystem (used by the in-guest Tart Go bootstrap/prepare helpers).
 func InstallLocalStatusBar(home, xdgConfigHome string, harness Harness, cfg Config) error {
+	configJSON, err := statusBarConfigJSON(cfg)
+	if err != nil {
+		return err
+	}
+	return InstallLocalStatusBarWithConfigJSON(home, xdgConfigHome, harness, configJSON)
+}
+
+// readStagedStatusBarConfig loads non-secret status bar metadata staged by the
+// host into the read-only Tart share, returning nil when absent or invalid so
+// preparation falls back to defaults.
+func readStagedStatusBarConfig(path string) []byte {
+	raw, err := os.ReadFile(path)
+	if err != nil || len(raw) == 0 || len(raw) > 64<<10 {
+		return nil
+	}
+	var parsed statusBarConfig
+	if err := json.Unmarshal(raw, &parsed); err != nil {
+		return nil
+	}
+	canonical, err := json.Marshal(parsed)
+	if err != nil {
+		return nil
+	}
+	return append(canonical, '\n')
+}
+
+// InstallLocalStatusBarWithConfigJSON installs the managed status bar locally
+// using the supplied canonical config.json payload.
+func InstallLocalStatusBarWithConfigJSON(home, xdgConfigHome string, harness Harness, configJSON []byte) error {
 	if strings.TrimSpace(home) == "" {
 		return fmt.Errorf("HOME n'est pas défini dans la machine isolée")
 	}
@@ -306,7 +347,7 @@ func InstallLocalStatusBar(home, xdgConfigHome string, harness Harness, cfg Conf
 		}
 	}
 	dest := filepath.Join(parent, statusBarDirName)
-	files, digest, err := statusBarFiles(harness, cfg)
+	files, digest, err := statusBarFilesWithConfigJSON(harness, configJSON)
 	if err != nil {
 		return err
 	}

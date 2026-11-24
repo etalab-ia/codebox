@@ -233,6 +233,66 @@ export function estimateTokens(value: unknown): number {
   }
 }
 
+export interface SessionTokenSummary {
+  readonly lastContextTokens: number;
+  readonly sessionInputTokens: number;
+  readonly sessionOutputTokens: number;
+}
+
+/**
+ * Reconstructs session input/output totals and latest context size from Pi's
+ * active session branch entries. Keeps resumed and newly switched sessions
+ * accurate without carrying stale counters across sessions.
+ */
+export function summarizePiBranch(entries: readonly unknown[]): SessionTokenSummary {
+  let lastContextTokens = 0;
+  let sessionInputTokens = 0;
+  let sessionOutputTokens = 0;
+  let runningEstimate = 0;
+
+  for (const raw of entries) {
+    if (!raw || typeof raw !== "object") continue;
+    const entry = raw as {
+      readonly type?: unknown;
+      readonly message?: {
+        readonly role?: unknown;
+        readonly content?: unknown;
+        readonly usage?: {
+          readonly input?: unknown;
+          readonly output?: unknown;
+          readonly cacheRead?: unknown;
+          readonly cacheWrite?: unknown;
+        } | null;
+      } | null;
+    };
+    if (entry.type !== "message" || !entry.message) continue;
+    const msg = entry.message;
+    if (msg.role === "assistant") {
+      const usage = msg.usage;
+      const reportedInput =
+        (typeof usage?.input === "number" && Number.isFinite(usage.input) ? Math.max(0, usage.input) : 0) +
+        (typeof usage?.cacheRead === "number" && Number.isFinite(usage.cacheRead) ? Math.max(0, usage.cacheRead) : 0) +
+        (typeof usage?.cacheWrite === "number" && Number.isFinite(usage.cacheWrite) ? Math.max(0, usage.cacheWrite) : 0);
+      const reportedOutput =
+        typeof usage?.output === "number" && Number.isFinite(usage.output) ? Math.max(0, usage.output) : 0;
+
+      const inputForTurn = reportedInput > 0 ? reportedInput : runningEstimate;
+      const outputForTurn = reportedOutput > 0 ? reportedOutput : estimateTokens(msg.content);
+
+      if (inputForTurn > 0) {
+        lastContextTokens = inputForTurn;
+        sessionInputTokens += inputForTurn;
+      }
+      sessionOutputTokens += outputForTurn;
+      runningEstimate += outputForTurn;
+    } else {
+      runningEstimate += estimateTokens(msg.content ?? msg);
+    }
+  }
+
+  return { lastContextTokens, sessionInputTokens, sessionOutputTokens };
+}
+
 export function formatTokens(n: number): string {
   const safe = Math.max(0, Math.round(n));
   if (safe >= 1_000_000) {

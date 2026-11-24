@@ -14,10 +14,12 @@ import {
   fetchAlbertUsage,
   isAlbertProvider,
   pruneWindow,
+  summarizePiBranch,
   type AccountModelLimits,
   type DailyUsage,
   type RequestSample,
   type SegmentTone,
+  type SessionTokenSummary,
   type StatusBarConfig,
 } from "./status-core.ts";
 
@@ -38,26 +40,35 @@ function loadConfig(): StatusBarConfig {
   return {};
 }
 
-function sessionOutputTokens(ctx: any): number {
-  let total = 0;
+function readBranchSummary(ctx: any): SessionTokenSummary {
   try {
-    for (const entry of ctx.sessionManager.getBranch()) {
-      if (entry?.type === "message" && entry.message?.role === "assistant") {
-        total += entry.message.usage?.output || estimateTokens(entry.message.content);
-      }
+    const branch = ctx?.sessionManager?.getBranch?.();
+    if (Array.isArray(branch)) {
+      return summarizePiBranch(branch);
     }
   } catch {
-    return total;
+    // Ignore session manager errors and render zeroed counters.
   }
-  return total;
+  return { lastContextTokens: 0, sessionInputTokens: 0, sessionOutputTokens: 0 };
+}
+
+function currentSessionKey(ctx: any): string | undefined {
+  try {
+    const id = ctx?.sessionManager?.getSessionId?.() ?? ctx?.sessionManager?.getSessionFile?.();
+    return typeof id === "string" && id ? id : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 export default function (pi: ExtensionAPI) {
   const config = loadConfig();
 
+  // Rolling 60s request window stays process-wide because Albert rate limits
+  // apply across sessions; per-session counters come from the active branch.
   let requests: RequestSample[] = [];
-  let sessionInputTokens = 0;
-  let lastContextTokens = 0;
+  let inFlightTokens = 0;
+  let activeSessionKey: string | undefined;
   let accountLimits: AccountModelLimits | undefined;
   let limitsChecked = false;
   let dailyUsage: DailyUsage | undefined;
@@ -128,13 +139,15 @@ export default function (pi: ExtensionAPI) {
     const n = estimateTokens(e?.payload);
     const ts = Date.now();
     const modelKey = ctx?.model?.id ?? e?.payload?.model;
+    activeSessionKey = currentSessionKey(ctx);
     requests = [...pruneWindow(requests, ts), { t: ts, tokens: n, model: modelKey }];
-    sessionInputTokens += n;
-    lastContextTokens = n;
+    inFlightTokens = n;
     render();
   });
 
   pi.on("session_start", async (_e: any, ctx: any) => {
+    inFlightTokens = 0;
+    activeSessionKey = currentSessionKey(ctx);
     ctx.ui.setFooter((tui: any, theme: any, footerData: any) => {
       render = () => tui.requestRender();
       const unsubBranch = footerData.onBranchChange(render);
@@ -164,6 +177,14 @@ export default function (pi: ExtensionAPI) {
         render(width: number): string[] {
           const now = Date.now();
           requests = pruneWindow(requests, now);
+          const sessionKey = currentSessionKey(ctx);
+          if (sessionKey !== activeSessionKey) {
+            activeSessionKey = sessionKey;
+            inFlightTokens = 0;
+          }
+          const branch = readBranchSummary(ctx);
+          const lastContext = inFlightTokens > 0 ? Math.max(branch.lastContextTokens, inFlightTokens) : branch.lastContextTokens;
+          const sessionInput = branch.sessionInputTokens + inFlightTokens;
           const model = ctx.model;
           const thinking = model?.reasoning ? pi.getThinkingLevel() : undefined;
 
@@ -176,9 +197,9 @@ export default function (pi: ExtensionAPI) {
             cwd: ctx.cwd,
             gitBranch: footerData.getGitBranch(),
             contextWindow: model?.contextWindow ?? 0,
-            lastContextTokens,
-            sessionInputTokens,
-            sessionOutputTokens: sessionOutputTokens(ctx),
+            lastContextTokens: lastContext,
+            sessionInputTokens: sessionInput,
+            sessionOutputTokens: branch.sessionOutputTokens,
             requests,
             now,
             accountLimits,
@@ -219,6 +240,7 @@ export default function (pi: ExtensionAPI) {
   });
 
   pi.on("turn_end", async (_e: any, ctx: any) => {
+    inFlightTokens = 0;
     await poll(ctx);
   });
 
