@@ -391,21 +391,25 @@ jobs:
           TAG: ${{ needs.release-please.outputs.codebox_tag_name }}
         run: gh release edit "$TAG" --draft=false --latest
 
-  # Server releases carry no CLI assets. Left eligible for "Latest", they
-  # would hijack `releases/latest` between CLI releases and break install.sh
-  # (its tag guard rejects codebox-server tags). Demote them at creation.
-  mark-server-release-not-latest:
+  # Server releases carry no CLI assets. They are created as drafts
+  # (.github/release-please/codebox-server.config.json) so creation can never
+  # claim `releases/latest`, then published with --latest=false and verified so
+  # installers always resolve to a published CLI release.
+  publish-server-release:
     needs: release-please
     if: needs.release-please.outputs.codebox_server_release_created == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 5
+    permissions:
+      contents: write
     steps:
-      - name: Exclude server release from Latest
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Publish server release without claiming Latest
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
           TAG: ${{ needs.release-please.outputs.codebox_server_tag_name }}
-        run: gh release edit "$TAG" --latest=false
+        run: bash .github/scripts/publish-server-release.sh
 
   build-codebox-server-container:
     needs: release-please
