@@ -75,7 +75,7 @@ The current controls have distinct scopes:
 | OSV scheduled/default-branch scan | The full detected inventory is reported to Code Scanning | A blocking verdict on every pre-existing finding |
 | `.github/dependabot.yml` | Covered ecosystems receive grouped update proposals with the configured cooldown | That updates are applied, security fixes are never suppressed, or scanner coverage replaces review |
 | Main-branch ruleset | Required signatures, required checks, non-fast-forward/deletion protection, PR workflow, and resolved review threads | Human design acceptance or merge authorization |
-| `release-please-config.json` and its workflow | Conventional release metadata and coordinated artifacts are produced by the configured pipeline | That an unpublished or incomplete release is safe to consume before publication checks finish |
+| `.github/release-please/*.config.json` and `.github/workflows/release-please.yml` | Conventional release metadata and coordinated artifacts are produced by the configured pipeline | That an unpublished or incomplete release is safe to consume before publication checks finish |
 
 Activate hooks in every clone and worktree. Confirm required status checks and signatures from GitHub rather than inferring them from config files or a green local run. The active ruleset is authoritative for which checks block merging.
 

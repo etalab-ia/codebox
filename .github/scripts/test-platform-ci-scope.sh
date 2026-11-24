@@ -20,17 +20,20 @@ check() {
   checks=$((checks + 1))
 }
 
-check 'codebox-server release pair' pull_request $'.release-please-manifest.json\napps/codebox-server/CHANGELOG.md\n' false
-check 'manifest only' pull_request $'.release-please-manifest.json\n' false
+check 'codebox-server release pair' pull_request $'.github/release-please/codebox-server.manifest.json\napps/codebox-server/CHANGELOG.md\n' false
+check 'codebox-server manifest only' pull_request $'.github/release-please/codebox-server.manifest.json\n' false
 check 'gateway changelog only' pull_request $'apps/codebox-server/CHANGELOG.md\n' false
 check 'empty pull request diff' pull_request '' true
-check 'codebox release pair' pull_request $'.release-please-manifest.json\napps/codebox/CHANGELOG.md\n' true
-check 'CLI change mixed with release metadata' pull_request $'.release-please-manifest.json\napps/codebox-server/CHANGELOG.md\napps/codebox/cmd/codebox/main.go\n' true
+check 'codebox manifest only' pull_request $'.github/release-please/codebox.manifest.json\n' true
+check 'codebox release pair' pull_request $'.github/release-please/codebox.manifest.json\napps/codebox/CHANGELOG.md\n' true
+check 'legacy root manifest is not skipped' pull_request $'.release-please-manifest.json\n' true
+check 'CLI change mixed with release metadata' pull_request $'.github/release-please/codebox-server.manifest.json\napps/codebox-server/CHANGELOG.md\napps/codebox/cmd/codebox/main.go\n' true
 check 'shared package change' pull_request $'packages/secrets/contract.go\n' true
 check 'gateway source change' pull_request $'apps/codebox-server/internal/gateway/server.go\n' true
 check 'workflow change mixed with release metadata' pull_request $'apps/codebox-server/CHANGELOG.md\n.github/workflows/ci.yml\n' true
-check 'release configuration change' pull_request $'release-please-config.json\n' true
+check 'codebox release configuration change' pull_request $'.github/release-please/codebox.config.json\n' true
+check 'codebox-server release configuration change' pull_request $'.github/release-please/codebox-server.config.json\n' true
 check 'changelog prefix is not an exact match' pull_request $'apps/codebox-server/CHANGELOG.md.backup\n' true
-check 'main push always runs platforms' push $'.release-please-manifest.json\napps/codebox-server/CHANGELOG.md\n' true
+check 'main push always runs platforms' push $'.github/release-please/codebox-server.manifest.json\napps/codebox-server/CHANGELOG.md\n' true
 
 printf 'ok - %d platform CI scope checks passed\n' "$checks"
