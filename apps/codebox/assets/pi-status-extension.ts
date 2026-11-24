@@ -138,9 +138,17 @@ export default function (pi: ExtensionAPI) {
   pi.on("before_provider_request", async (e: any, ctx: any) => {
     const n = estimateTokens(e?.payload);
     const ts = Date.now();
-    const modelKey = ctx?.model?.id ?? e?.payload?.model;
+    const model = ctx?.model;
+    const modelKey = model?.id ?? e?.payload?.model;
+    const providerID = model?.provider;
+    const baseURL = model?.baseUrl;
     activeSessionKey = currentSessionKey(ctx);
-    requests = [...pruneWindow(requests, ts), { t: ts, tokens: n, model: modelKey }];
+    if (isAlbertProvider(providerID, baseURL)) {
+      requests = [
+        ...pruneWindow(requests, ts),
+        { t: ts, tokens: n, model: modelKey, provider: providerID, baseURL },
+      ];
+    }
     inFlightTokens = n;
     render();
   });

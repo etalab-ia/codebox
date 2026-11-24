@@ -603,3 +603,63 @@ test("Fallback RPD omits quota gauge for aggregate usage buckets and scopes per-
     /Jour ░░░░░░░░░░ 42\/1000 req · 4,8 gCO2e$/,
   );
 });
+
+test("Albert RPM/TPM and optimistic counters exclude requests from other providers sharing a model ID", () => {
+  const fetchedAt = 100_000;
+  const now = 102_000;
+  const mixedRequests = [
+    // Same model ID/short name on non-Albert providers: must be excluded.
+    { t: fetchedAt + 200, tokens: 20_000, model: "openai/gpt-oss-120b", provider: "openai-compatible", baseURL: "https://api.scaleway.ai/v1" },
+    { t: fetchedAt + 300, tokens: 15_000, model: "gpt-oss-120b", provider: "mistral", baseURL: "https://api.mistral.ai/v1" },
+    // Albert requests (by provider ID or Albert baseURL): must be counted.
+    { t: fetchedAt + 400, tokens: 10_000, model: "openai/gpt-oss-120b", provider: "albert" },
+    { t: fetchedAt + 500, tokens: 5_000, model: "gpt-oss-120b", provider: "openai-compatible", baseURL: "https://albert.api.etalab.gouv.fr/v1" },
+  ];
+
+  // Public fallback mode: only the 2 Albert requests (15k tok) count.
+  const publicPlain = renderPlainLines(
+    buildStatusLines({
+      providerID: "albert",
+      modelDisplayID: "gpt-oss-120b",
+      apiModelID: "openai/gpt-oss-120b",
+      cwd: "/workspace",
+      contextWindow: 131_072,
+      lastContextTokens: 0,
+      sessionInputTokens: 0,
+      sessionOutputTokens: 0,
+      requests: mixedRequests,
+      now,
+      limitsChecked: true,
+      config: { projectName: "mon-projet" },
+    }),
+  );
+  assert.match(publicPlain[1], /RPM ██░░░░░░░░ 2\/10 │ TPM █░░░░░░░░░ 15k\/128k \(grille publique\)$/);
+
+  // Account-limits mode: optimistic delta adds only the 2 Albert requests (15k tok).
+  const accountPlain = renderPlainLines(
+    buildStatusLines({
+      providerID: "albert",
+      modelDisplayID: "gpt-oss-120b",
+      apiModelID: "openai/gpt-oss-120b",
+      cwd: "/workspace",
+      contextWindow: 131_072,
+      lastContextTokens: 0,
+      sessionInputTokens: 0,
+      sessionOutputTokens: 0,
+      requests: mixedRequests,
+      now,
+      accountLimits: {
+        model: "openai/gpt-oss-120b",
+        rpm: { limit: 50, used: 10, remaining: 40 },
+        tpm: { limit: 246_000, used: 100_000, remaining: 146_000 },
+        rpd: { limit: 500, used: 20, remaining: 480 },
+        fetchedAt,
+      },
+      limitsChecked: true,
+      dailyUsage: { requests: 20, kgCO2eq: 0.001, completionTokens: 10_000 },
+      config: { projectName: "mon-projet" },
+    }),
+  );
+  assert.match(accountPlain[1], /RPM ██░░░░░░░░ 12\/50 │ TPM █████░░░░░ 115k\/246k$/);
+  assert.match(accountPlain[2], /Jour ░░░░░░░░░░ 22\/500 req · 1,0 gCO2e$/);
+});

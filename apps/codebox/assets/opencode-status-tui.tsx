@@ -82,7 +82,7 @@ export default Plugin.define({
 
     const [requests, setRequests] = createSignal<RequestSample[]>([]);
     const [now, setNow] = createSignal(Date.now());
-    const [lastDispatchContext, setLastDispatchContext] = createSignal(0);
+    const [lastDispatchContextBySession, setLastDispatchContextBySession] = createSignal<Record<string, number>>({});
     const [accountLimits, setAccountLimits] = createSignal<AccountModelLimits | undefined>(undefined);
     const [limitsChecked, setLimitsChecked] = createSignal(false);
     const [dailyUsage, setDailyUsage] = createSignal<DailyUsage | undefined>(undefined);
@@ -144,27 +144,43 @@ export default Plugin.define({
       const ts = Date.now();
       const evModel = event?.data?.model;
       const listedModels = context.data.location.model.list(context.location) ?? [];
+      const listedProviders = context.data.location.provider.list(context.location) ?? [];
       const resolvedModel =
         evModel?.providerID && evModel?.modelID
           ? listedModels.find(
               (m) => m.providerID === evModel.providerID && (m.id === evModel.modelID || m.modelID === evModel.modelID),
             )
           : undefined;
+      const evProviderID: string | undefined = evModel?.providerID ?? currentTarget.providerID;
+      const resolvedProvider = evProviderID ? listedProviders.find((p) => p.id === evProviderID) : undefined;
+      const resolvedSettings = (resolvedModel?.settings ?? resolvedProvider?.settings) as
+        | { readonly baseURL?: string }
+        | undefined;
+      const evBaseURL =
+        resolvedSettings?.baseURL ?? (evProviderID === currentTarget.providerID ? currentTarget.baseURL : undefined);
       const modelKey =
         resolvedModel?.modelID ?? evModel?.modelID ?? currentTarget.apiModelID ?? currentTarget.aliasModelID;
-      setLastDispatchContext(est);
-      setRequests((prev) => [...pruneWindow(prev, ts), { t: ts, tokens: est, model: modelKey }]);
+      if (sessionID) {
+        setLastDispatchContextBySession((prev) => ({ ...prev, [sessionID]: est }));
+      }
+      if (isAlbertProvider(evProviderID, evBaseURL)) {
+        setRequests((prev) => [
+          ...pruneWindow(prev, ts),
+          { t: ts, tokens: est, model: modelKey, provider: evProviderID, baseURL: evBaseURL },
+        ]);
+      }
       setNow(ts);
     });
 
     const unsubStepEnded = context.data.on("session.step.ended", (event: any) => {
+      const sessionID: string | undefined = event?.data?.sessionID;
       const tokens = event?.data?.tokens;
       const reportedInput =
         (typeof tokens?.input === "number" ? tokens.input : 0) +
         (typeof tokens?.cache?.read === "number" ? tokens.cache.read : 0) +
         (typeof tokens?.cache?.write === "number" ? tokens.cache.write : 0);
-      if (reportedInput > 0) {
-        setLastDispatchContext(reportedInput);
+      if (sessionID && reportedInput > 0) {
+        setLastDispatchContextBySession((prev) => ({ ...prev, [sessionID]: reportedInput }));
       }
       void pollAlbert();
     });
@@ -246,7 +262,9 @@ export default Plugin.define({
           const mod = activeModel();
           const settings = (mod?.settings ?? prov?.settings) as { readonly baseURL?: string } | undefined;
           const totals = sessionTotals();
-          const lastCtx = Math.max(totals.lastContextTokens, isRunning() ? lastDispatchContext() : 0);
+          const sid = slotInput.sessionID;
+          const dispatchCtx = sid ? (lastDispatchContextBySession()[sid] ?? 0) : 0;
+          const lastCtx = Math.max(totals.lastContextTokens, isRunning() ? dispatchCtx : 0);
 
           return buildStatusLines({
             providerID: sel?.providerID,

@@ -29,6 +29,8 @@ export interface RequestSample {
   readonly t: number;
   readonly tokens: number;
   readonly model?: string;
+  readonly provider?: string;
+  readonly baseURL?: string;
 }
 
 export interface LimitWindow {
@@ -663,6 +665,9 @@ export function buildStatusLines(input: StatusRenderInput): StatusLine[] {
     activeModelKeys.add(shortModelName(clean).toLowerCase());
   }
   const recent = pruneWindow(input.requests, input.now).filter((r) => {
+    if ((r.provider !== undefined || r.baseURL !== undefined) && !isAlbertProvider(r.provider, r.baseURL)) {
+      return false;
+    }
     if (!r.model || activeModelKeys.size === 0) return true;
     const sampleKey = r.model.trim().toLowerCase();
     return activeModelKeys.has(sampleKey) || activeModelKeys.has(shortModelName(sampleKey).toLowerCase());
