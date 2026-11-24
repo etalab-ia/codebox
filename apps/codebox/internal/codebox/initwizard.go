@@ -858,12 +858,6 @@ func FormatInteractiveInitReview(plan InitPlan) string {
 	if a.BrowserResourceGuidance != "" {
 		row("Conseil", a.BrowserResourceGuidance)
 	}
-
-	if a.Runtime == RuntimeMicrosandbox {
-		b.WriteString("\nCopie filtrée du projet : fichiers .env, fichiers ignorés et liens symboliques exclus par défaut.\n")
-	} else {
-		b.WriteString("\nLe dossier est partagé avec la machine isolée : l'agent peut lire tous ses fichiers, y compris les secrets. Un fichier .env bloque le démarrage.\n")
-	}
 	for _, warning := range plan.Warnings {
 		fmt.Fprintf(&b, "Attention : %s\n", warning)
 	}

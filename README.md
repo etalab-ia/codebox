@@ -54,40 +54,42 @@ Binaires par plateforme, installation manuelle, vérification, compilation depui
 
 ## Démarrage rapide
 
-Pour un premier lancement, exporte la clé Albert API dans ton terminal.
-
-macOS / Linux :
+Dans le dossier d'un projet, lance simplement :
 
 ```bash
-export ALBERT_API_KEY="ta-clé"
 codebox
 ```
 
-Windows (PowerShell) :
+Au premier lancement, un assistant court (accueil, plateforme et clé, agent, machine isolée, skills, MCP) configure le poste et le projet en une seule passe, puis démarre la microVM **Microsandbox en isolation `full`** : l'agent, sa TUI et ses identifiants tournent dans la microVM, dont l'espace de travail est scellé (aucun fichier de l'hôte n'y est monté). Le runtime Microsandbox est téléchargé et vérifié automatiquement au démarrage.
 
-```powershell
-$env:ALBERT_API_KEY = "ta-clé"
-codebox
-```
+| Commande | Rôle |
+|---|---|
+| `codebox` | Premier lancement combiné puis démarrage du projet |
+| `codebox setup` | Connexions du poste, clés enregistrées et valeurs par défaut globales |
+| `codebox init` | Configuration ou reconfiguration d'un projet |
+| `codebox init --advanced` | Modèle, ressources (CPU/mémoire), isolation et stockage des skills |
 
-Le premier `codebox` ouvre six écrans courts : accueil, plateforme et clé, agent,
-machine isolée, skills et MCP. La plateforme est choisie par projet, tandis que
-les clés restent enregistrées sur le poste et peuvent être réutilisées. Le
-runtime est téléchargé au lancement.
+### Plateforme et clé
 
-`codebox` sans argument utilise ensuite **Microsandbox en isolation `full`** : l'agent, sa TUI et ses identifiants tournent dans la microVM, dont l'espace de travail est scellé (aucun fichier de l'hôte n'y est monté). `--tart` et `--agent-vm` restent disponibles explicitement, par flag ou via `RUNTIME`.
+Choisis Albert API (recommandé), Mistral AI ou une plateforme compatible OpenAI. La plateforme est choisie par projet, tandis que les clés sont stockées dans le magasin d'identifiants du poste et liées à leur plateforme et leur hôte — jamais écrites dans le dépôt. Pour gérer les clés globales : `codebox setup` ou [docs/credentials.md](docs/credentials.md).
 
-La commande prépare l'espace de travail de l'invité, démarre l'agent et attache la TUI OpenCode native. Le premier démarrage d'un sandbox Microsandbox installe ~384 Mio de paquets dans la microVM et peut dépasser largement une minute ; les démarrages suivants sont rapides.
+### Agent
 
-Pour gérer les connexions du poste, le modèle par défaut, le workspace ou les réglages avancés, consulte la page [Configuration](docs/config.md).
+**OpenCode** (recommandé) est l'agent principal, avec ses greffons et MCP. **Pi** est un agent terminal plus léger compatible avec les MCP distants.
 
-Une fois attaché, ces prompts exercent les dimensions clés de l'expérience :
+### Machine isolée
 
-1. **« Qu'y a-t-il dans ce workspace ? Décris la structure du projet. »** — inférence et outils fichiers de base.
-2. **« Sur quel OS, noyau et architecture tournes-tu ? »** — confirme que l'agent s'exécute dans le sandbox Linux, pas directement sur ton Mac.
-3. **« Code un petit jeu snake servi par un serveur Node sur le port 3000, puis lance-le. »** — écriture de fichiers + serveur de dev ; ouvre `http://localhost:3000` pour vérifier la preview.
+**Microsandbox** (recommandé) travaille sur une copie filtrée du projet (`.env`, fichiers ignorés et secrets exclus par défaut). **Tart** (macOS, expérimental) et **agent-vm** (macOS/Linux, expérimental) partagent directement le dossier du projet avec la VM. Détails : [docs/plateformes.md](docs/plateformes.md).
 
-Quatre autres prompts (toolchain polyglotte, édition et revue de diff, continuité de session, scratch space) : [docs/quickstart.md](docs/quickstart.md).
+### Skills
+
+Les skills apportent à l'agent des référentiels de l'État (sécurité ANSSI, RGAA, DSFR…). Aucune n'est cochée par défaut ; le mode de stockage se règle via `codebox init --advanced`.
+
+### MCP
+
+Les serveurs MCP connectent l'agent à des services ou outils (`data.gouv.fr`, `chrome-devtools`…). Aucun n'est coché par défaut.
+
+Pour aller plus loin (prompts d'exemple, variables d'environnement, configuration complète) : [docs/quickstart.md](docs/quickstart.md) et [docs/config.md](docs/config.md).
 
 ## Documentation
 

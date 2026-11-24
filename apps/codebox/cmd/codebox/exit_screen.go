@@ -149,6 +149,19 @@ func exitStopQuestion(ctx context.Context, b codebox.Backend, cfg codebox.Config
 		stop += " ; la prochaine reprise prend " + dur
 	}
 	stop += "."
+	if wizardHuhFn() {
+		stopNow, err := huhConfirm("Arrêter la machine isolée ?", keep+"\n"+stop, false)
+		if err == nil && stopNow {
+			if err := b.Stop(ctx); err != nil {
+				fmt.Fprintf(os.Stderr, "L'arrêt a échoué : %v\n", err)
+				return
+			}
+			fmt.Println("La machine isolée est arrêtée.")
+		} else {
+			fmt.Println("La machine isolée reste démarrée.")
+		}
+		return
+	}
 	fmt.Println("\nArrêter la machine isolée ?")
 	fmt.Println("  " + keep)
 	fmt.Println("  " + stop)

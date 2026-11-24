@@ -134,7 +134,7 @@ func ensureMSBRuntime(ctx context.Context, client *http.Client) error {
 		_ = os.Remove(msbRuntimeMarker(home))
 	}
 
-	fmt.Printf("[1/3] Téléchargement de la machine isolée v%s…\n", msbRuntimeVersion)
+	fmt.Printf("Téléchargement de la machine isolée v%s…\n", msbRuntimeVersion)
 	if client == nil {
 		client = &http.Client{Timeout: msbRuntimeHTTPTimeout}
 	}
@@ -299,7 +299,7 @@ func downloadAndInstallMSBRuntime(ctx context.Context, client *http.Client, home
 		archive.Close()
 		return err
 	}
-	fmt.Fprintln(os.Stderr, "  [2/3] Vérification de l'intégrité")
+	fmt.Fprintln(os.Stderr, "  Vérification de l'intégrité")
 	if err := verifySHA256(archive, artifact.sha256); err != nil {
 		archive.Close()
 		return fmt.Errorf("vérification de %s : %w", artifact.name, err)
@@ -308,7 +308,7 @@ func downloadAndInstallMSBRuntime(ctx context.Context, client *http.Client, home
 		archive.Close()
 		return err
 	}
-	fmt.Fprintln(os.Stderr, "  [3/3] Préparation")
+	fmt.Fprintln(os.Stderr, "  Préparation")
 	if err := extractMSBRuntime(archive, home, artifact); err != nil {
 		archive.Close()
 		return fmt.Errorf("extraction de %s : %w", artifact.name, err)
@@ -336,14 +336,14 @@ func (p *runtimeDownloadProgress) Write(data []byte) (int, error) {
 
 func (p *runtimeDownloadProgress) render() {
 	if p.total <= 0 {
-		fmt.Fprintf(os.Stderr, "\r  [1/3] Téléchargement %s", runtimeBytes(p.read))
+		fmt.Fprintf(os.Stderr, "\r  Téléchargement %s", runtimeBytes(p.read))
 	} else {
 		fraction := float64(p.read) / float64(p.total)
 		if fraction > 1 {
 			fraction = 1
 		}
 		filled := int(fraction * 10)
-		fmt.Fprintf(os.Stderr, "\r  [1/3] Téléchargement %s %s / %s", strings.Repeat("█", filled)+strings.Repeat("░", 10-filled), runtimeBytes(p.read), runtimeBytes(p.total))
+		fmt.Fprintf(os.Stderr, "\r  Téléchargement %s %s / %s", strings.Repeat("█", filled)+strings.Repeat("░", 10-filled), runtimeBytes(p.read), runtimeBytes(p.total))
 	}
 	p.last = time.Now()
 }
