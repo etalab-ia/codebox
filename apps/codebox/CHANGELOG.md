@@ -1,5 +1,42 @@
 # Changelog
 
+## [0.21.0](https://github.com/etalab-ia/codebox/compare/codebox-v0.20.0...codebox-v0.21.0) (2026-11-24)
+
+
+### Features
+
+* combine machine and project first run ([47f52f2](https://github.com/etalab-ia/codebox/commit/47f52f28e59332eedc513356f30470eb6f8d4864))
+* combine machine and project first run ([638c137](https://github.com/etalab-ia/codebox/commit/638c137b14acd399a06027786912e4df0d20ed9f))
+* **status-bar:** add OpenCode and Pi status bar for provider, context, and Albert limits ([f97507f](https://github.com/etalab-ia/codebox/commit/f97507f3254223d86bb0ada10b8f726ee6f896ba))
+* **status-bar:** add OpenCode and Pi status bar for provider, context, and Albert limits ([e5a57c5](https://github.com/etalab-ia/codebox/commit/e5a57c514b96c1ab9a9099f63dc988571292c575)), closes [#318](https://github.com/etalab-ia/codebox/issues/318)
+
+
+### Bug Fixes
+
+* preserve implicit Albert and local recovery state ([e3e8fff](https://github.com/etalab-ia/codebox/commit/e3e8fff7c16add2f4b4467af08e9aeda10357a8e))
+* preserve local models and verify chat defaults ([46119f3](https://github.com/etalab-ia/codebox/commit/46119f37c4b3e99c4a7b7ade0986f7a342e433bf))
+* reconcile models when changing providers ([34cdfa4](https://github.com/etalab-ia/codebox/commit/34cdfa40510cdd8ba0b12c21a2a542b248534846))
+* replace inherited local endpoint before validation ([8dd6aef](https://github.com/etalab-ia/codebox/commit/8dd6aef072c0e81f7b13ad0279fdba04d1564867))
+* resolve default model for connected providers ([2f44e3d](https://github.com/etalab-ia/codebox/commit/2f44e3d7a8c89f7c7e94e75dd81dbb3e333f9255))
+* resolve defaults for flag-selected providers ([a4d9136](https://github.com/etalab-ia/codebox/commit/a4d91366938eb6a426eccd5ecb3599d60f945d19))
+* resolve scripted defaults and honor local-server approval ([43cf316](https://github.com/etalab-ia/codebox/commit/43cf3168f87a9642c7ad70ebc0b83fd59794ced5))
+* skip GitHub when project has no remote ([48dd834](https://github.com/etalab-ia/codebox/commit/48dd83478d49a88617123639a74121a229bc4a73))
+* **status-bar:** avoid comparing aggregate daily usage against per-model RPD ([24bdea9](https://github.com/etalab-ia/codebox/commit/24bdea96d0a6b48f5b001cf9c9a668994f548795))
+* **status-bar:** normalize OpenCode model aliases and fix Windows test skip ([90a8f66](https://github.com/etalab-ia/codebox/commit/90a8f666997eb4bc4bd98e9bfe0bf4d5b0ef71ec))
+* **status-bar:** rebuild Pi session counters from branch and pass Tart project metadata ([b673c5e](https://github.com/etalab-ia/codebox/commit/b673c5ede7ca1290a24c3804c027447caf661cdf))
+* **status-bar:** scope OpenCode dispatch context by session and exclude non-Albert requests ([cbf5d8a](https://github.com/etalab-ia/codebox/commit/cbf5d8a19fad32d5306c6071ae7c9ff04ae3e250))
+* **ux:** finish French screen consistency, counters, and README links ([ad594e1](https://github.com/etalab-ia/codebox/commit/ad594e11e32682d0b6a5dc70c3ebc59123c1044e))
+* **ux:** finish French screen consistency, counters, and README links ([089177a](https://github.com/etalab-ia/codebox/commit/089177a5e01ad7c9957c54d82948cdcb35df9cab))
+* validate manifest endpoints and reconcile Pi defaults ([5018b34](https://github.com/etalab-ia/codebox/commit/5018b34429632ab02a9e82390c905274b53a72df))
+* validate new small models against project providers ([6aa98dd](https://github.com/etalab-ia/codebox/commit/6aa98dd3895c105b52dcd26badf284084e334273))
+
+
+### Miscellaneous Chores
+
+* merge release updates into first-run branch ([c574dbd](https://github.com/etalab-ia/codebox/commit/c574dbd175275e9c8e9b613571969b22bc29f53f))
+* **msb:** update Microsandbox runtime and Go SDK to v0.8.1 ([42f243d](https://github.com/etalab-ia/codebox/commit/42f243d48cd7e94a97bedfb4681b5bdf2d4d7a88))
+* **msb:** update Microsandbox runtime and Go SDK to v0.8.1 ([6fb6649](https://github.com/etalab-ia/codebox/commit/6fb66498c3916b11ce21a89abea59719bfeabe0c)), closes [#499](https://github.com/etalab-ia/codebox/issues/499)
+
 ## [0.20.0](https://github.com/etalab-ia/codebox/compare/codebox-v0.19.1...codebox-v0.20.0) (2026-11-23)
 
 
