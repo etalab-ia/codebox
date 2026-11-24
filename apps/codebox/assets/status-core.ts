@@ -59,6 +59,7 @@ export interface DailyUsage {
   readonly requests: number;
   readonly kgCO2eq: number;
   readonly completionTokens: number;
+  readonly requestsByModel?: Readonly<Record<string, number>>;
 }
 
 export interface StatusRenderInput {
@@ -455,15 +456,26 @@ export function parseUsageResponse(payload: unknown): DailyUsage {
   let requests = 0;
   let kgCO2eq = 0;
   let completionTokens = 0;
+  let allModelScoped = true;
+  const byModel: Record<string, number> = {};
   for (const item of data) {
     if (!item || typeof item !== "object") continue;
     const u = item as {
+      readonly model?: unknown;
       readonly requests?: unknown;
       readonly completion_tokens?: unknown;
       readonly impacts?: { readonly kgCO2eq?: unknown } | null;
     };
-    if (typeof u.requests === "number" && Number.isFinite(u.requests)) {
-      requests += Math.max(0, u.requests);
+    const itemReq =
+      typeof u.requests === "number" && Number.isFinite(u.requests) ? Math.max(0, u.requests) : 0;
+    requests += itemReq;
+    if (itemReq > 0) {
+      const modelKey = typeof u.model === "string" ? u.model.trim().toLowerCase() : "";
+      if (modelKey) {
+        byModel[modelKey] = (byModel[modelKey] ?? 0) + itemReq;
+      } else {
+        allModelScoped = false;
+      }
     }
     if (typeof u.completion_tokens === "number" && Number.isFinite(u.completion_tokens)) {
       completionTokens += Math.max(0, u.completion_tokens);
@@ -473,7 +485,9 @@ export function parseUsageResponse(payload: unknown): DailyUsage {
       kgCO2eq += Math.max(0, kg);
     }
   }
-  return { requests, kgCO2eq, completionTokens };
+  return allModelScoped && Object.keys(byModel).length > 0
+    ? { requests, kgCO2eq, completionTokens, requestsByModel: byModel }
+    : { requests, kgCO2eq, completionTokens };
 }
 
 export interface FetchOptions {
@@ -746,9 +760,16 @@ export function buildStatusLines(input: StatusRenderInput): StatusLine[] {
           co2Suffix,
         ];
       }
-    } else if (pub.rpd !== null) {
+    } else if (pub.rpd !== null && usage.requestsByModel && activeModelKeys.size > 0) {
+      let modelReq = 0;
+      for (const [m, count] of Object.entries(usage.requestsByModel)) {
+        const clean = m.trim().toLowerCase();
+        if (activeModelKeys.has(clean) || activeModelKeys.has(shortModelName(clean).toLowerCase())) {
+          modelReq += Math.max(0, count);
+        }
+      }
       jourPart = [
-        ...gaugeSegments("Jour", usage.requests, pub.rpd, "accent", `${usage.requests}/${pub.rpd} req`),
+        ...gaugeSegments("Jour", modelReq, pub.rpd, "accent", `${modelReq}/${pub.rpd} req`),
         co2Suffix,
       ];
     } else {

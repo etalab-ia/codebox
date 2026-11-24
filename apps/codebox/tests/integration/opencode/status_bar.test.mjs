@@ -135,7 +135,7 @@ test("Pre-0.9.3 fallback uses public plan table, local 60s window, and marks (gr
   const plain = renderPlainLines(lines);
   assert.equal(plain.length, 3);
   assert.match(plain[1], /RPM ██░░░░░░░░ 2\/10 │ TPM ███░░░░░░░ 40k\/128k \(grille publique\)$/);
-  assert.match(plain[2], /Jour ░░░░░░░░░░ 42\/1000 req · 1,2 gCO2e$/);
+  assert.match(plain[2], /Jour 42 req · 1,2 gCO2e$/);
 });
 
 test("Usage failure shows usage Albert indisponible in error tone on line 3", () => {
@@ -540,4 +540,66 @@ test("Model aliases (e.g. deepseek-v4-flash) match API model IDs in public and o
     }),
   );
   assert.match(accountPlain[1], /RPM █░░░░░░░░░ 6\/50 │ TPM █████░░░░░ 112k\/246k$/);
+});
+
+test("Fallback RPD omits quota gauge for aggregate usage buckets and scopes per-model usage accurately", () => {
+  const now = 120_000;
+  const baseInput = {
+    providerID: "albert",
+    modelDisplayID: "gpt-oss-120b",
+    apiModelID: "openai/gpt-oss-120b",
+    cwd: "/workspace",
+    contextWindow: 131_072,
+    lastContextTokens: 0,
+    sessionInputTokens: 0,
+    sessionOutputTokens: 0,
+    requests: [],
+    now,
+    accountLimits: undefined,
+    limitsChecked: true,
+    config: { projectName: "mon-projet" },
+  };
+
+  // Aggregate usage.bucket (OpenGateLLM 0.8+): 1500 requests across models must not
+  // render a red 1500/1000 gauge against gpt-oss-120b's per-model public RPD.
+  const aggregateUsage = parseUsageResponse({
+    object: "list",
+    data: [{ object: "usage.bucket", requests: 1500, completion_tokens: 200_000, impacts: { kgCO2eq: 0.0048 } }],
+  });
+  assert.equal(aggregateUsage.requestsByModel, undefined);
+  const aggLines = buildStatusLines({ ...baseInput, dailyUsage: aggregateUsage });
+  const aggPlain = renderPlainLines(aggLines);
+  assert.match(aggPlain[2], /Jour 1500 req · 4,8 gCO2e$/);
+  assert.ok(!aggPlain[2].includes("/1000"));
+  assert.ok(!aggLines[2].some((s) => s.tone === "error"));
+
+  // Mixed payload (one entry missing model): also treated as aggregate without gauge.
+  const mixedUsage = parseUsageResponse({
+    data: [
+      { model: "openai/gpt-oss-120b", requests: 10, impacts: { kgCO2eq: 0.0005 } },
+      { requests: 1500, impacts: { kgCO2eq: 0.0043 } },
+    ],
+  });
+  assert.equal(mixedUsage.requestsByModel, undefined);
+  assert.match(renderPlainLines(buildStatusLines({ ...baseInput, dailyUsage: mixedUsage }))[2], /Jour 1510 req · 4,8 gCO2e$/);
+
+  // Per-model usage with 1500 DeepSeek requests and 0 GPT-OSS requests: GPT-OSS gauge stays at 0/1000.
+  const deepseekOnly = parseUsageResponse({
+    data: [{ model: "deepseek-ai/DeepSeek-V4-Flash-0731", requests: 1500, completion_tokens: 200_000, impacts: { kgCO2eq: 0.0048 } }],
+  });
+  const zeroGptLines = buildStatusLines({ ...baseInput, dailyUsage: deepseekOnly });
+  assert.match(renderPlainLines(zeroGptLines)[2], /Jour ░░░░░░░░░░ 0\/1000 req · 4,8 gCO2e$/);
+  assert.ok(!zeroGptLines[2].some((s) => s.tone === "error"));
+
+  // Per-model usage with both models: GPT-OSS gauge counts only GPT-OSS requests (42/1000).
+  const multiModel = parseUsageResponse({
+    data: [
+      { model: "deepseek-ai/DeepSeek-V4-Flash-0731", requests: 1500, completion_tokens: 150_000, impacts: { kgCO2eq: 0.0038 } },
+      { model: "openai/gpt-oss-120b", requests: 42, completion_tokens: 50_000, impacts: { kgCO2eq: 0.001 } },
+    ],
+  });
+  assert.match(
+    renderPlainLines(buildStatusLines({ ...baseInput, dailyUsage: multiModel }))[2],
+    /Jour ░░░░░░░░░░ 42\/1000 req · 4,8 gCO2e$/,
+  );
 });
