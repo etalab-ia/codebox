@@ -46,6 +46,8 @@ jobs:
         run: python3 .github/scripts/test_wait_for_artifacts.py
       - name: Test split release-please configuration
         run: python3 .github/scripts/test_release_please_config.py
+      - name: Test server release Latest guard
+        run: python3 .github/scripts/test_publish_server_release.py
 
   check:
     runs-on: ubuntu-latest
