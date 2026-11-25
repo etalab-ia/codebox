@@ -242,7 +242,9 @@ func TestHandleInteractiveRecreateOnLaunchDeclinePreservesSandbox(t *testing.T) 
 		return false, nil
 	}
 
-	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	stateDir := t.TempDir()
+	t.Setenv("XDG_STATE_HOME", stateDir)
+	t.Setenv("LOCALAPPDATA", stateDir)
 	ws := t.TempDir()
 	m := codebox.NewMicrosandboxRuntimeForInstance(codebox.Config{WorkspaceDir: ws}, "cb-test-recreate")
 	d := codebox.NewDispatcherWith(codebox.Config{}, map[codebox.Runtime]codebox.Backend{
@@ -288,14 +290,17 @@ func TestHandleInteractiveRecreateOnLaunchRevalidatesExecutionTrustAfterRecovery
 		launchTrustTTYFn = oldTrustTTY
 	})
 
-	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	stateDir := t.TempDir()
+	t.Setenv("XDG_STATE_HOME", stateDir)
+	t.Setenv("LOCALAPPDATA", stateDir)
 	ws := t.TempDir()
 	launchTrustTTYFn = func() bool { return false }
 
+	wantRelPath := filepath.Join(".opencode", "plugin", "recovered.ts")
 	// Simulate workspace recovery applying a new guest-authored OpenCode plugin
 	// into the host checkout after the initial launch trust check passed.
 	launchRecreateRecoverFn = func(_ context.Context, _ *codebox.MicrosandboxRuntime, cfg codebox.Config, _ string) {
-		pluginPath := filepath.Join(cfg.WorkspaceDir, ".opencode", "plugin", "recovered.ts")
+		pluginPath := filepath.Join(cfg.WorkspaceDir, wantRelPath)
 		if err := os.MkdirAll(filepath.Dir(pluginPath), 0o755); err != nil {
 			t.Fatalf("mkdir plugin dir: %v", err)
 		}
@@ -329,8 +334,8 @@ func TestHandleInteractiveRecreateOnLaunchRevalidatesExecutionTrustAfterRecovery
 	captureStderr(t, func() {
 		code, err = handleInteractiveRecreateOnLaunch(context.Background(), d, m, codebox.Config{WorkspaceDir: ws}, "cb-test-trust", ws, recreateErr)
 	})
-	if code != 1 || err == nil || !strings.Contains(err.Error(), ".opencode/plugin/recovered.ts") || !strings.Contains(err.Error(), "codebox trust approve") {
-		t.Fatalf("unapproved recovered plugin = code %d, err %v; want execution-trust block", code, err)
+	if code != 1 || err == nil || !strings.Contains(err.Error(), wantRelPath) || !strings.Contains(err.Error(), "codebox trust approve") {
+		t.Fatalf("unapproved recovered plugin = code %d, err %v; want execution-trust block mentioning %q", code, err, wantRelPath)
 	}
 	if confirmCalled {
 		t.Fatal("recreate confirmation must not run while recovered execution inputs are unapproved")
