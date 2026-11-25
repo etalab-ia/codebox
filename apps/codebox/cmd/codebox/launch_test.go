@@ -219,8 +219,23 @@ func TestLaunchTrustDecisions(t *testing.T) {
 
 func TestHandleInteractiveRecreateOnLaunchDeclinePreservesSandbox(t *testing.T) {
 	oldConfirm := confirmLaunchRecreateFn
-	t.Cleanup(func() { confirmLaunchRecreateFn = oldConfirm })
+	oldRecover := launchRecreateRecoverFn
+	oldRun := launchRecreateRunFn
+	t.Cleanup(func() {
+		confirmLaunchRecreateFn = oldConfirm
+		launchRecreateRecoverFn = oldRecover
+		launchRecreateRunFn = oldRun
+	})
 
+	recoverCalled := false
+	launchRecreateRecoverFn = func(context.Context, *codebox.MicrosandboxRuntime, codebox.Config, string) {
+		recoverCalled = true
+	}
+	recreateCalled := false
+	launchRecreateRunFn = func(context.Context, *codebox.MicrosandboxRuntime) error {
+		recreateCalled = true
+		return nil
+	}
 	var seenReason string
 	confirmLaunchRecreateFn = func(reason string) (bool, error) {
 		seenReason = reason
@@ -245,10 +260,34 @@ func TestHandleInteractiveRecreateOnLaunchDeclinePreservesSandbox(t *testing.T) 
 	if code != 1 || err == nil || !strings.Contains(err.Error(), "rien n'a été détruit") {
 		t.Fatalf("declined recreate = code %d, err %v; want refusal preserving sandbox", code, err)
 	}
+	if !recoverCalled {
+		t.Fatal("expected pre-recreate recovery inspection to run before confirmation")
+	}
+	if recreateCalled {
+		t.Fatal("declining confirmation must never invoke Recreate")
+	}
 	if seenReason != recreateErr.Reason {
 		t.Fatalf("confirm prompt received reason %q, want %q", seenReason, recreateErr.Reason)
 	}
 	if !strings.Contains(errOut, "le serveur de modèles local a été activé sur le port 11434") {
 		t.Fatalf("stderr must display the exact recreate cause:\n%s", errOut)
+	}
+}
+
+func TestLaunchRecreateBackupPathIsUniqueAcrossRuns(t *testing.T) {
+	oldNow := launchNowFn
+	t.Cleanup(func() { launchNowFn = oldNow })
+	stateDir := t.TempDir()
+
+	launchNowFn = func() time.Time { return time.Date(2026, 11, 25, 10, 0, 0, 1, time.UTC) }
+	first := launchRecreateBackupPath(stateDir, "cb-inst")
+	launchNowFn = func() time.Time { return time.Date(2026, 11, 25, 10, 5, 0, 2, time.UTC) }
+	second := launchRecreateBackupPath(stateDir, "cb-inst")
+
+	if first == second {
+		t.Fatalf("repeated automatic backups must not overwrite the same path: %q", first)
+	}
+	if !strings.HasPrefix(first, codebox.InstanceStateDir(stateDir, "cb-inst")) || !strings.HasSuffix(first, ".patch") {
+		t.Fatalf("unexpected backup path: %q", first)
 	}
 }

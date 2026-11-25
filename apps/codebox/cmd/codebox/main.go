@@ -1469,44 +1469,67 @@ var confirmLaunchRecreateFn = func(reason string) (bool, error) {
 	}
 }
 
+// launchRecreateBackupPath returns a unique per-attempt patch path in host
+// state so repeated recreations never overwrite an earlier unapplied backup
+// (#507).
+func launchRecreateBackupPath(stateDir, instance string) string {
+	stamp := launchNowFn().UTC().Format("20060102-150405.000000000")
+	return filepath.Join(codebox.InstanceStateDir(stateDir, instance), fmt.Sprintf("recreate-backup-%s.patch", stamp))
+}
+
+// launchRecreateRecoverFn and launchRecreateRunFn are test seams so cmd/codebox
+// unit tests can exercise handleInteractiveRecreateOnLaunch without touching a
+// real Microsandbox SDK client or host state (#507).
+var launchRecreateRecoverFn = func(ctx context.Context, msb *codebox.MicrosandboxRuntime, cfg codebox.Config, instance string) {
+	if err := msb.Recover(ctx); err != nil {
+		fmt.Fprintf(os.Stderr, "Sauvegarde automatique impossible avant recréation : %v\n", err)
+		return
+	}
+	if status, serr := msb.GuestBranchStatus(ctx); serr == nil {
+		if line := guestBranchLine(status); line != "" {
+			fmt.Fprintln(os.Stderr, line)
+		}
+	}
+	if warning, werr := msb.GuestRecoveryWarning(ctx); werr == nil && warning != "" {
+		fmt.Fprintln(os.Stderr, warning)
+	}
+	unrecovered, uerr := codebox.UnrecoveredGuestChanges(ctx, msb)
+	if uerr != nil {
+		fmt.Fprintf(os.Stderr, "Impossible de vérifier les modifications de la machine isolée : %v\n", uerr)
+		return
+	}
+	if len(unrecovered) == 0 {
+		fmt.Fprintln(os.Stderr, "Aucune modification non récupérée dans la machine isolée.")
+		return
+	}
+	backupTarget := launchRecreateBackupPath(codebox.DefaultStateDir(), instance)
+	if patchPath, perr := msb.ExportGuestChanges(ctx, backupTarget); perr != nil {
+		fmt.Fprintf(os.Stderr, "Sauvegarde automatique du patch impossible : %v\n", perr)
+	} else if patchPath != "" {
+		fmt.Fprintf(os.Stderr, "Sauvegarde automatique enregistrée : %s\n", patchPath)
+	}
+	if _, aerr := runWorkspaceApply(msb, cfg.WorkspaceDir, instance, false); aerr != nil {
+		fmt.Fprintf(os.Stderr, "La récupération dans votre dossier a échoué : %v (le patch de sauvegarde reste disponible).\n", aerr)
+	}
+}
+
+var launchRecreateRunFn = func(ctx context.Context, msb *codebox.MicrosandboxRuntime) error {
+	return msb.Recreate(ctx)
+}
+
 // handleInteractiveRecreateOnLaunch explains the exact creation-fixed change,
-// saves any unrecovered sealed-workspace work to host state (and offers
-// reviewed workspace apply), asks one yes/no confirmation, and recreates the
-// sandbox so attachCmd can launch the agent directly (#507).
+// saves any unrecovered sealed-workspace work to a unique host-state patch
+// (and offers reviewed workspace apply), asks one yes/no confirmation, and
+// recreates the sandbox so attachCmd can launch the agent directly (#507).
 func handleInteractiveRecreateOnLaunch(ctx context.Context, d *codebox.Dispatcher, msb *codebox.MicrosandboxRuntime, cfg codebox.Config, instance string, recreateErr *codebox.ErrRecreateNeeded) (int, error) {
 	fmt.Fprintf(os.Stderr, "\nLa machine isolée (%s) doit être recréée : %s.\n", recreateErr.Instance, recreateErr.Reason)
 
 	// Automatically inspect and back up sealed-workspace work before asking
 	// for recreate confirmation. Never write directly into the host checkout
-	// without review: automatic backup writes a 0600 patch to host state, and
-	// applying into the checkout goes through the existing reviewed apply flow.
-	if err := msb.Recover(ctx); err != nil {
-		fmt.Fprintf(os.Stderr, "Sauvegarde automatique impossible avant recréation : %v\n", err)
-	} else {
-		if status, serr := msb.GuestBranchStatus(ctx); serr == nil {
-			if line := guestBranchLine(status); line != "" {
-				fmt.Fprintln(os.Stderr, line)
-			}
-		}
-		if warning, werr := msb.GuestRecoveryWarning(ctx); werr == nil && warning != "" {
-			fmt.Fprintln(os.Stderr, warning)
-		}
-		unrecovered, uerr := codebox.UnrecoveredGuestChanges(ctx, msb)
-		if uerr != nil {
-			fmt.Fprintf(os.Stderr, "Impossible de vérifier les modifications de la machine isolée : %v\n", uerr)
-		} else if len(unrecovered) == 0 {
-			fmt.Fprintln(os.Stderr, "Aucune modification non récupérée dans la machine isolée.")
-		} else {
-			if patchPath, perr := msb.ExportGuestChanges(ctx, ""); perr != nil {
-				fmt.Fprintf(os.Stderr, "Sauvegarde automatique du patch impossible : %v\n", perr)
-			} else if patchPath != "" {
-				fmt.Fprintf(os.Stderr, "Sauvegarde automatique enregistrée : %s\n", patchPath)
-			}
-			if _, aerr := runWorkspaceApply(msb, cfg.WorkspaceDir, instance, false); aerr != nil {
-				fmt.Fprintf(os.Stderr, "La récupération dans votre dossier a échoué : %v (le patch de sauvegarde reste disponible).\n", aerr)
-			}
-		}
-	}
+	// without review: automatic backup writes a 0600 patch to a unique path in
+	// host state, and applying into the checkout goes through the existing
+	// reviewed apply flow.
+	launchRecreateRecoverFn(ctx, msb, cfg, instance)
 
 	confirmed, err := confirmLaunchRecreateFn(recreateErr.Reason)
 	if err != nil {
@@ -1515,7 +1538,7 @@ func handleInteractiveRecreateOnLaunch(ctx context.Context, d *codebox.Dispatche
 	if !confirmed {
 		return 1, fmt.Errorf("recréation annulée ; rien n'a été détruit")
 	}
-	if err := msb.Recreate(ctx); err != nil {
+	if err := launchRecreateRunFn(ctx, msb); err != nil {
 		return 1, err
 	}
 	if err := d.WaitLaunchReady(ctx, msb); err != nil {
