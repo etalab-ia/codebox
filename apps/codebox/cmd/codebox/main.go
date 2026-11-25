@@ -314,7 +314,7 @@ func run(args []string) (int, error) {
 		SmallModel:    smallModelSelection,
 		Models:        albertModels,
 		Providers:     resolveProviderOverlaysForProject(projectRoot, cfg.Providers, modelSelection, smallModelSelection),
-		AlbertEnabled: providersContain(cfg.Providers, codebox.ProviderAlbert),
+		AlbertEnabled: providersContain(cfg.Providers, codebox.ProviderAlbert) && len(albertModels) > 0,
 		MCPConnectors: mcpSelection,
 	}
 	conflictMsg, err := opencodeConfigReview(projectRoot, overlay)
@@ -1030,13 +1030,16 @@ func resolveProviderOverlaysForProject(projectRoot string, providers []codebox.I
 		}
 	}
 	projectModels := projectManifestModels(projectRoot)
+	hasProjectModels := len(projectModels) > 0
 	var out []codebox.ProviderOverlay
 	for _, provider := range providers {
 		if provider.Kind == codebox.ProviderAlbert {
 			continue
 		}
-		ids := codebox.ProviderModelIDs(projectModels, provider.Kind)
-		if len(ids) == 0 {
+		var ids []string
+		if hasProjectModels {
+			ids = codebox.ProviderModelIDs(projectModels, provider.Kind)
+		} else {
 			ids = codebox.ProviderModelIDs(us.Models, provider.Kind)
 		}
 		for _, activeModel := range activeModels {
@@ -1105,23 +1108,28 @@ func resolveEnabledAlbertModelsForProject(projectRoot string, activeModels ...st
 			ids = append(ids, id)
 		}
 	}
-	for _, ref := range codebox.ProviderModelIDs(projectManifestModels(projectRoot), codebox.ProviderAlbert) {
-		addID(ref)
-	}
-	if len(ids) == 0 {
+	projectModels := projectManifestModels(projectRoot)
+	hasProjectModels := len(projectModels) > 0
+	if hasProjectModels {
+		for _, ref := range codebox.ProviderModelIDs(projectModels, codebox.ProviderAlbert) {
+			addID(ref)
+		}
+	} else {
+		var hasUserModels bool
 		if path, err := codebox.UserSettingsPath(); err == nil {
-			if settings, readErr := codebox.ReadUserSettings(codebox.DefaultFS, path); readErr == nil {
+			if settings, readErr := codebox.ReadUserSettings(codebox.DefaultFS, path); readErr == nil && len(settings.Models) > 0 {
+				hasUserModels = true
 				for _, ref := range codebox.ProviderModelIDs(settings.Models, codebox.ProviderAlbert) {
 					addID(ref)
 				}
 			}
 		}
-	}
-	if len(ids) == 0 {
-		// Expose all curated Albert models by default so OpenCode's /models
-		// selector is not stuck on the two legacy embedded entries (#506).
-		for _, choice := range codebox.CuratedAlbertModels() {
-			addID(choice.ID)
+		if !hasUserModels && len(ids) == 0 {
+			// Expose all curated Albert models by default so OpenCode's /models
+			// selector is not stuck on the two legacy embedded entries (#506).
+			for _, choice := range codebox.CuratedAlbertModels() {
+				addID(choice.ID)
+			}
 		}
 	}
 	var configured []codebox.AlbertModelConfig

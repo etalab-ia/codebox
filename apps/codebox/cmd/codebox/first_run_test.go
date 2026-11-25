@@ -219,6 +219,44 @@ func TestCombinedFirstRunMistralResolvesUsableProjectModel(t *testing.T) {
 	}
 }
 
+func TestCombinedFirstRunRejectsEmbeddingOnlyProviderCatalogue(t *testing.T) {
+	root := initTestProject(t)
+	stateDir, _, _ := stubCombinedRunEnvironment(t, false)
+	j, err := codebox.ReadSetupJournal(codebox.DefaultFS, stateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	j.CredentialKinds = []string{"openai-compatible:embed.example.test"}
+	if err := codebox.WriteSetupJournal(codebox.DefaultFS, stateDir, j); err != nil {
+		t.Fatal(err)
+	}
+	catalogue := setupProviderCatalogueFn
+	setupProviderCatalogueFn = func(codebox.InferenceProvider) ([]codebox.CatalogueModel, error) {
+		return []codebox.CatalogueModel{{ID: "text-embedding-3", Type: "embedding"}}, nil
+	}
+	t.Cleanup(func() { setupProviderCatalogueFn = catalogue })
+	choose := firstRunChoosePlatformsFn
+	firstRunChoosePlatformsFn = func([]codebox.SetupPlatform, *bufio.Reader, string) ([]codebox.SetupPlatform, error) {
+		return []codebox.SetupPlatform{{
+			Kind:          string(codebox.ProviderOpenAICompatible),
+			Name:          "EmbedOnly",
+			BaseURL:       "https://embed.example.test/v1",
+			CredentialRef: "openai-compatible:embed.example.test",
+		}}, nil
+	}
+	t.Cleanup(func() { firstRunChoosePlatformsFn = choose })
+	chooseModels := firstRunChooseModelsFn
+	firstRunChooseModelsFn = func([]codebox.InferenceProvider, []string, string) ([]string, string, error) {
+		t.Fatal("model picker must not run when provider has no verifiable chat model")
+		return nil, "", nil
+	}
+	t.Cleanup(func() { firstRunChooseModelsFn = chooseModels })
+	code, err := combinedFirstRun(initOptions{Root: root, Set: map[string]bool{"root": true}}, bufio.NewReader(strings.NewReader("")))
+	if code == 0 || err == nil || !strings.Contains(err.Error(), "aucun modèle de conversation vérifiable") {
+		t.Fatalf("embedding-only provider = %d, %v; want verifiable-chat-model error", code, err)
+	}
+}
+
 func TestFirstRunDefaultModelUsesProviderCatalogue(t *testing.T) {
 	setupTestEnv(t)
 	catalogue := setupProviderCatalogueFn

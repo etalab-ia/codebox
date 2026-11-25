@@ -1979,6 +1979,9 @@ func promptSetupModelsWithPrefix(providers []codebox.InferenceProvider, current 
 		}
 		known := map[string]bool{}
 		for _, model := range models {
+			if model.Type != "" && model.Type != "text-generation" {
+				continue
+			}
 			known[model.ID] = true
 			choices = append(choices, setupModelChoice{
 				Provider: provider.Kind, ID: model.ID, RefID: model.ID,

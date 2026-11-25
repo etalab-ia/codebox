@@ -145,6 +145,52 @@ func TestResolveEnabledAlbertModelsPrefersProjectManifest(t *testing.T) {
 	}
 }
 
+func TestResolveProjectWideModelsDoesNotFallBackToUnselectedProvider(t *testing.T) {
+	setupTestEnv(t)
+	path, err := codebox.UserSettingsPath()
+	if err != nil {
+		t.Fatal(err)
+	}
+	choices := codebox.CuratedAlbertModels()
+	if err := codebox.WriteUserSettings(codebox.DefaultFS, path, codebox.UserSettings{
+		SchemaVersion: 2,
+		Models:        []string{choices[0].ID, "mistral/mistral-large-latest"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	providers, err := codebox.ResolveProviders([]codebox.ProviderSettings{
+		{Kind: codebox.ProviderAlbert},
+		{Kind: codebox.ProviderMistral},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Case 1: project selects only Mistral models -> Albert must not fall back to user/curated models.
+	mistralOnlyRoot := t.TempDir()
+	if err := codebox.WriteProjectManifest(codebox.DefaultFS, codebox.ProjectManifestPath(mistralOnlyRoot), codebox.ProjectManifest{
+		SchemaVersion: 8,
+		Model:         "mistral/mistral-large-latest",
+		Models:        []string{"mistral/mistral-large-latest"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if albertGot := resolveEnabledAlbertModelsForProject(mistralOnlyRoot, "mistral/mistral-large-latest"); len(albertGot) != 0 {
+		t.Fatalf("unchecked Albert models reappeared: %+v", albertGot)
+	}
+	// Case 2: project selects only Albert models -> Mistral must not fall back to user settings.
+	albertOnlyRoot := t.TempDir()
+	if err := codebox.WriteProjectManifest(codebox.DefaultFS, codebox.ProjectManifestPath(albertOnlyRoot), codebox.ProjectManifest{
+		SchemaVersion: 8,
+		Model:         choices[2].Ref(),
+		Models:        []string{choices[2].ID},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if overlays := resolveProviderOverlaysForProject(albertOnlyRoot, providers, choices[2].Ref()); len(overlays) != 0 {
+		t.Fatalf("unchecked Mistral models reappeared: %+v", overlays)
+	}
+}
+
 func TestResolveEnabledAlbertModelsMapsLegacyFullID(t *testing.T) {
 	setupTestEnv(t)
 	path, err := codebox.UserSettingsPath()

@@ -122,7 +122,12 @@ func combinedFirstRun(opts initOptions, in *bufio.Reader) (int, error) {
 	}
 	if !opts.Set["model"] {
 		defaultModel, defaultErr := firstRunDefaultModel(opts.Root, defaultProviders)
-		if providersCollected {
+		if defaultErr != nil {
+			if !opts.Advanced {
+				return 1, defaultErr
+			}
+			fmt.Fprintf(os.Stderr, "Attention : %v\n", defaultErr)
+		} else if providersCollected {
 			currentModels := firstRunModelDefaults(opts.Root, defaultProviders)
 			chosenModels, chosenDefault, pickErr := firstRunChooseModelsFn(defaultProviders, currentModels, defaultModel)
 			if pickErr != nil {
@@ -130,9 +135,6 @@ func combinedFirstRun(opts initOptions, in *bufio.Reader) (int, error) {
 					return 1, pickErr
 				}
 				if !opts.Advanced {
-					if defaultErr != nil {
-						return 1, defaultErr
-					}
 					return 1, pickErr
 				}
 				fmt.Fprintf(os.Stderr, "Attention : %v\n", pickErr)
@@ -141,11 +143,6 @@ func combinedFirstRun(opts initOptions, in *bufio.Reader) (int, error) {
 				opts.Set["models"] = true
 				opts.DefaultModel = chosenDefault
 			}
-		} else if defaultErr != nil {
-			if !opts.Advanced {
-				return 1, defaultErr
-			}
-			fmt.Fprintf(os.Stderr, "Attention : %v\n", defaultErr)
 		} else {
 			opts.DefaultModel = defaultModel
 		}
