@@ -2,6 +2,7 @@ package codebox
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net"
 	"net/netip"
@@ -314,8 +315,20 @@ func (m *MicrosandboxRuntime) CheckGuestDNS(ctx context.Context) *GuestDNSDiagno
 	probeCtx, cancel := context.WithTimeout(ctx, guestDNSProbeTimeout)
 	defer cancel()
 	_, _, code, err := m.Client.ExecCapture(probeCtx, m.InstanceName(), "getent hosts "+shellQuote(host)+" >/dev/null 2>&1")
-	if err != nil || code == 0 {
+	if err == nil && code == 0 {
 		return nil
+	}
+	if err != nil {
+		// Caller canceled: do not emit a misleading DNS diagnostic.
+		if ctx.Err() != nil {
+			return nil
+		}
+		// A silent packet drop in Microsandbox's DNS proxy stalls getent until
+		// probeCtx expires; treat probe deadline expiration as resolution
+		// failure, while ignoring unrelated exec/transport errors.
+		if !errors.Is(err, context.DeadlineExceeded) && !errors.Is(probeCtx.Err(), context.DeadlineExceeded) {
+			return nil
+		}
 	}
 	if !m.lookupHostDNS(ctx, host) {
 		return nil

@@ -208,6 +208,44 @@ func TestCheckGuestDNS(t *testing.T) {
 			}
 		}
 	})
+
+	t.Run("guest probe deadline exceeded triggers host confirmation and diagnostic", func(t *testing.T) {
+		client := &fakeMSBClient{
+			execCaptureResults: []fakeMSBExecCaptureResult{{err: context.DeadlineExceeded}},
+		}
+		m := NewMicrosandboxRuntimeForInstance(Config{}, "cb-dns-timeout")
+		m.Client = client
+		m.goos = "darwin"
+		m.hostDNSLookup = func(context.Context, string) bool { return true }
+		m.hostDNSInspect = func(context.Context) HostDNSInfo {
+			return HostDNSInfo{
+				Nameservers:       []string{"fe80::1%en0"},
+				LinkLocalIPv6Only: true,
+			}
+		}
+		diag := m.CheckGuestDNS(context.Background())
+		if diag == nil {
+			t.Fatal("expected diagnostic when guest DNS probe times out while host resolves")
+		}
+		if !strings.Contains(diag.Error(), "IPv6 lien-local") {
+			t.Fatalf("unexpected diagnostic: %s", diag.Error())
+		}
+	})
+
+	t.Run("unrelated exec error does not emit false DNS diagnostic", func(t *testing.T) {
+		client := &fakeMSBClient{
+			execCaptureResults: []fakeMSBExecCaptureResult{{err: context.Canceled}},
+		}
+		m := NewMicrosandboxRuntimeForInstance(Config{}, "cb-dns-exec-err")
+		m.Client = client
+		m.hostDNSLookup = func(context.Context, string) bool {
+			t.Fatal("host lookup should not run on unrelated exec error")
+			return true
+		}
+		if diag := m.CheckGuestDNS(context.Background()); diag != nil {
+			t.Fatalf("expected nil diagnostic on unrelated exec error, got: %v", diag)
+		}
+	})
 }
 
 func TestDiagnosticsReportsLinkLocalIPv6HostDNS(t *testing.T) {
