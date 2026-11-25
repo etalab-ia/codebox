@@ -82,10 +82,11 @@ func (m *MicrosandboxRuntime) CollectGuestChanges(ctx context.Context) ([]GuestC
 	// -N (intent-to-add) makes new files visible in the diff; --no-renames
 	// keeps one section per path so numstat and diff pair one-to-one. The
 	// diff runs against the recovery base, not HEAD, so changes the agent
-	// already committed in the guest are collected too (#313).
-	base := " && git add -A -N && git diff " + m.guestDiffBase() + " --binary --no-renames"
+	// already committed in the guest are collected too (#313), and also covers
+	// edits to excluded local init files (#509).
+	diffBase := m.guestDiffBase()
 	numstatOut, stderr, code, err := m.Client.ExecCapture(ctx, m.InstanceName(),
-		"cd "+shellQuote(msbGuestWorkspace)+base+" --numstat -z")
+		guestDiffCommand(msbGuestWorkspace, diffBase, "--binary --no-renames --numstat -z"))
 	if err != nil {
 		return nil, err
 	}
@@ -94,7 +95,7 @@ func (m *MicrosandboxRuntime) CollectGuestChanges(ctx context.Context) ([]GuestC
 	}
 	stats := parseNumstatZ(numstatOut)
 	diffOut, stderr, code, err := m.Client.ExecCapture(ctx, m.InstanceName(),
-		"cd "+shellQuote(msbGuestWorkspace)+base)
+		guestDiffCommand(msbGuestWorkspace, diffBase, "--binary --no-renames"))
 	if err != nil {
 		return nil, err
 	}
@@ -828,7 +829,7 @@ func UnrecoveredGuestChangesForExit(ctx context.Context, m *MicrosandboxRuntime,
 func (m *MicrosandboxRuntime) unpushedGuestChangePaths(ctx context.Context, branch string) (map[string]bool, bool) {
 	ref := "refs/remotes/origin/" + branch
 	numstatOut, _, code, err := m.Client.ExecCapture(ctx, m.InstanceName(),
-		"cd "+shellQuote(msbGuestWorkspace)+" && git add -A -N && git diff "+shellQuote(ref)+" --binary --no-renames --numstat -z")
+		guestDiffCommand(msbGuestWorkspace, shellQuote(ref), "--binary --no-renames --numstat -z"))
 	if err != nil || code != 0 {
 		return nil, false
 	}

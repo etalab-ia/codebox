@@ -473,13 +473,64 @@ func (m *MicrosandboxRuntime) guestWorkspaceProvisioned(ctx context.Context) (bo
 	return strings.TrimSpace(stdout) == "yes", nil
 }
 
+// guestExcludedInitPaths lists the codebox-generated init files that GitHub
+// branch preparation keeps readable in /workspace under .git/info/exclude when
+// absent from the remote default branch (#509).
+const guestExcludedInitPaths = ".codebox/project.json .codebox/lock.json AGENTS.md"
+
+// guestWorkingTreeDirtyScript checks git status plus any agent modification or
+// deletion to excluded local init files against their restored snapshot backup,
+// so workspace sync never overwrites agent edits to AGENTS.md (#509).
+func guestWorkingTreeDirtyScript(workspace string) string {
+	return "cd " + shellQuote(workspace) +
+		" && git status --porcelain" +
+		" && backup=$(git config --local --get codebox.github-local-init-backup 2>/dev/null || true)" +
+		" && if [ -n \"$backup\" ]; then" +
+		" for p in " + guestExcludedInitPaths + "; do" +
+		" if ! git cat-file -e \"HEAD:$p\" 2>/dev/null && git cat-file -e \"$backup:$p\" 2>/dev/null; then" +
+		" if [ ! -e \"$p\" ]; then printf ' D %s\\n' \"$p\";" +
+		" elif [ \"$(git hash-object \"$p\")\" != \"$(git rev-parse \"$backup:$p\")\" ]; then printf ' M %s\\n' \"$p\"; fi;" +
+		" fi; done; fi"
+}
+
+// guestDiffCommand produces a git diff against baseRef while also tracking any
+// agent edit or deletion to excluded local init files using a temporary index,
+// leaving the guest's live .git/index untouched so those files remain
+// unpublishable on GitHub (#509). baseRefToken must already be safe for shell
+// interpolation (e.g. "HEAD", a validated hex SHA, or a shellQuote'd ref).
+func guestDiffCommand(workspace, baseRefToken, extraFlags string) string {
+	return "cd " + shellQuote(workspace) +
+		" && git add -A -N" +
+		" && backup=$(git config --local --get codebox.github-local-init-backup 2>/dev/null || true)" +
+		" && if [ -n \"$backup\" ]; then" +
+		" tmp=$(mktemp -d /tmp/codebox-diff.XXXXXX); trap 'rm -rf \"$tmp\"' EXIT HUP INT TERM;" +
+		" cp \"$(git rev-parse --git-path index)\" \"$tmp/idx\";" +
+		" base_ref=" + baseRefToken + ";" +
+		" GIT_INDEX_FILE=\"$tmp/base_idx\" git read-tree \"$base_ref\";" +
+		" added=0;" +
+		" for p in " + guestExcludedInitPaths + "; do" +
+		" if ! git cat-file -e \"$base_ref:$p\" 2>/dev/null && git cat-file -e \"$backup:$p\" 2>/dev/null; then" +
+		" info=$(git ls-tree \"$backup\" -- \"$p\");" +
+		" mode=$(printf '%s' \"$info\" | awk '{print $1}');" +
+		" oid=$(printf '%s' \"$info\" | awk '{print $3}');" +
+		" GIT_INDEX_FILE=\"$tmp/base_idx\" git update-index --add --cacheinfo \"$mode,$oid,$p\";" +
+		" GIT_INDEX_FILE=\"$tmp/idx\" git update-index --add --cacheinfo \"$mode,$oid,$p\";" +
+		" added=1;" +
+		" fi; done;" +
+		" if [ \"$added\" -eq 1 ]; then" +
+		" base_tree=$(GIT_INDEX_FILE=\"$tmp/base_idx\" git write-tree);" +
+		" GIT_INDEX_FILE=\"$tmp/idx\" git diff \"$base_tree\" " + extraFlags + ";" +
+		" else git diff " + baseRefToken + " " + extraFlags + "; fi;" +
+		" else git diff " + baseRefToken + " " + extraFlags + "; fi"
+}
+
 // guestWorkingTreeDirty returns the guest's porcelain status, or "" when the
 // tree is clean. A guest without a repository (or with an unreadable one) is
 // reported as an error rather than as clean: reading a failure as "nothing to
 // lose" is how a refresh would overwrite work.
 func (m *MicrosandboxRuntime) guestWorkingTreeDirty(ctx context.Context) (string, error) {
 	stdout, stderr, code, err := m.Client.ExecCapture(ctx, m.InstanceName(),
-		"cd "+shellQuote(msbGuestWorkspace)+" && git status --porcelain")
+		guestWorkingTreeDirtyScript(msbGuestWorkspace))
 	if err != nil {
 		return "", err
 	}
@@ -542,7 +593,7 @@ func (m *MicrosandboxRuntime) ExportGuestChanges(ctx context.Context, outPath st
 	// diff runs against the recovery base, not HEAD, so work the agent
 	// already committed is exported too (#313); --binary carries binary
 	// content.
-	cmd := "cd " + shellQuote(msbGuestWorkspace) + " && git add -A -N && git diff " + m.guestDiffBase() + " --binary"
+	cmd := guestDiffCommand(msbGuestWorkspace, m.guestDiffBase(), "--binary")
 	stdout, stderr, code, err := m.Client.ExecCapture(ctx, m.InstanceName(), cmd)
 	if err != nil {
 		return "", err

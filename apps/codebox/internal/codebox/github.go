@@ -434,6 +434,7 @@ func githubSnapshotBranchScript(workspace string, remote GitHubRemote, baseBranc
 		"; git config --file \"$temp_config\" codebox.github-workflow-origin " + shellQuote(remote.URL) +
 		"; git config --file \"$temp_config\" codebox.github-workflow-branch " + shellQuote(branch) +
 		"; git config --file \"$temp_config\" codebox.github-workflow-snapshot-policy remote-only-v1" +
+		"; if [ \"$has_local_init\" -eq 1 ]; then git config --file \"$temp_config\" codebox.github-local-init-backup " + shellQuote(backupBranch) + "; fi" +
 		"; git branch " + shellQuote(backupBranch) + " HEAD" +
 		"; git branch -m " + shellQuote(branch) +
 		"; git reset --hard \"$base\"" +
