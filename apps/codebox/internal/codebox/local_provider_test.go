@@ -106,7 +106,7 @@ func TestMSBNetworkConfigAllowsOnlyLocalModelHostAndPort(t *testing.T) {
 	// Without a valid local server port: deny-by-default egress, no LocalModelHost
 	// domain rule, and no "host" group rule beyond gateway DNS (port 53).
 	for _, port := range []int{0, -1, 70000} {
-		plain := msbNetworkConfig(port)
+		plain := msbNetworkConfig(port, nil)
 		if plain.DefaultEgress != msb.PolicyActionDeny {
 			t.Fatalf("msbNetworkConfig(%d).DefaultEgress = %q, want %q", port, plain.DefaultEgress, msb.PolicyActionDeny)
 		}
@@ -123,7 +123,7 @@ func TestMSBNetworkConfigAllowsOnlyLocalModelHostAndPort(t *testing.T) {
 	// With local server on 11434: host.microsandbox.internal is a static /etc/hosts
 	// gateway entry under Microsandbox's "host" group, not a DNS-resolved domain.
 	// Allow ONLY TCP 11434 on "host", never a domain rule or broad "host" rule.
-	withLocal := msbNetworkConfig(11434)
+	withLocal := msbNetworkConfig(11434, nil)
 	if withLocal.DefaultEgress != msb.PolicyActionDeny {
 		t.Fatalf("DefaultEgress = %q, want %q", withLocal.DefaultEgress, msb.PolicyActionDeny)
 	}

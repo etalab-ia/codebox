@@ -66,6 +66,9 @@ type Diagnostics struct {
 	// then the consented file fallback) and reports which store answered.
 	// The value is discarded by the caller and never reaches the report.
 	ReadCredential func(context.Context, CredentialKind) (string, string, error)
+	// InspectHostDNS overrides host DNS inspection in tests. When nil, Collect
+	// inspects macOS/Linux DNS resolvers via Run/FS for real platforms only.
+	InspectHostDNS func(context.Context) HostDNSInfo
 }
 
 var diagnosticVersionPattern = regexp.MustCompile(`^(?:go)?v?\d+\.\d+(?:\.\d+)?(?:[-+][0-9A-Za-z.-]+)?$`)
@@ -93,7 +96,7 @@ func (d Diagnostics) Collect(ctx context.Context) DiagnosticsReport {
 
 	report := DiagnosticsReport{Platform: preflight.Platform, Fatal: preflight.Fatal}
 	report.Sections = append(report.Sections,
-		hostSection(*preflight),
+		d.hostSection(ctx, fs, *preflight),
 		d.runtimeSection(ctx, fs, stateDir, projectDir, *preflight),
 		d.toolchainSection(ctx),
 		d.providerSection(ctx, fs),
@@ -149,16 +152,49 @@ func redactDiagnosticPaths(report *DiagnosticsReport, projectDir, stateDir strin
 	}
 }
 
-func hostSection(res SetupPreflight) DiagnosticSection {
+func (d Diagnostics) hostSection(ctx context.Context, fs FS, res SetupPreflight) DiagnosticSection {
 	disk := humanFreeBytes(res.DiskFreeBytes)
 	if res.DiskDetail != "" {
 		disk = "échec du contrôle"
 	}
-	return DiagnosticSection{Title: "Capacité de l'hôte", Items: []DiagnosticItem{
+	items := []DiagnosticItem{
 		{Name: "Plateforme", Value: res.Platform, Status: DiagnosticInfo},
 		{Name: "Virtualisation", Value: yesNo(res.VirtualizationOK), Detail: res.VirtualizationDetail, Status: statusFor(res.VirtualizationOK)},
 		{Name: "Espace disque libre", Value: disk, Detail: res.DiskDetail, Status: statusFor(res.DiskOK)},
-	}}
+	}
+	var hostDNS HostDNSInfo
+	goos := ""
+	if idx := strings.IndexByte(res.Platform, '/'); idx > 0 {
+		goos = res.Platform[:idx]
+	}
+	if d.InspectHostDNS != nil {
+		hostDNS = d.InspectHostDNS(ctx)
+	} else if goos == "darwin" || goos == "linux" {
+		run := d.Run
+		if run == nil {
+			run = (OSRunner{}).Run
+		}
+		hostDNS = InspectHostDNS(ctx, goos, run, fs)
+	}
+	if hostDNS.LinkLocalIPv6Only {
+		detail := "le poste n'expose qu'un serveur DNS IPv6 lien-local (fréquent en partage de connexion), que Microsandbox ne sait pas encore relayer ; configurez un DNS routable puis lancez 'codebox restart', ou utilisez CODEBOX_DNS_NAMESERVERS=9.9.9.9"
+		if goos == "darwin" {
+			detail = "le poste n'expose qu'un serveur DNS IPv6 lien-local (fréquent en partage de connexion), que Microsandbox ne sait pas encore relayer ; ex. 'networksetup -setdnsservers Wi-Fi 9.9.9.9 2620:fe::fe' puis 'codebox restart', ou CODEBOX_DNS_NAMESERVERS=9.9.9.9"
+		}
+		items = append(items, DiagnosticItem{
+			Name:   "DNS de l'hôte",
+			Value:  strings.Join(hostDNS.Nameservers, ", "),
+			Detail: detail,
+			Status: DiagnosticWarn,
+		})
+	} else if len(hostDNS.Nameservers) > 0 {
+		items = append(items, DiagnosticItem{
+			Name:   "DNS de l'hôte",
+			Value:  strings.Join(hostDNS.Nameservers, ", "),
+			Status: DiagnosticOK,
+		})
+	}
+	return DiagnosticSection{Title: "Capacité de l'hôte", Items: items}
 }
 
 func (d Diagnostics) runtimeSection(ctx context.Context, fs FS, stateDir, projectDir string, res SetupPreflight) DiagnosticSection {

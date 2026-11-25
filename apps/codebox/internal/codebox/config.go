@@ -49,7 +49,13 @@ type Config struct {
 	// SandboxResourcesErr records an invalid CODEBOX_CPUS or
 	// CODEBOX_MEMORY_MB, surfaced where the value is consumed.
 	SandboxResourcesErr error
-	Username            string
+	// DNSNameservers carries explicit opt-in resolvers from
+	// CODEBOX_DNS_NAMESERVERS, applied at Microsandbox creation time (#508).
+	DNSNameservers []string
+	// DNSNameserversErr records an invalid CODEBOX_DNS_NAMESERVERS value with
+	// the same deferred-validation contract as StartTimeoutErr.
+	DNSNameserversErr error
+	Username          string
 	// Password is the HTTP basic-auth password. It is empty when
 	// OPENCODE_SERVER_PASSWORD was explicitly set to an empty value, which
 	// means "no auth". PasswordSet records whether the variable was present,
@@ -347,6 +353,13 @@ func LoadConfig(lookup EnvLookup) Config {
 			continue
 		}
 		*f.dst = n
+	}
+	if v, ok := lookup("CODEBOX_DNS_NAMESERVERS"); ok && strings.TrimSpace(v) != "" {
+		if servers, err := ParseDNSNameservers(v); err != nil {
+			cfg.DNSNameserversErr = err
+		} else {
+			cfg.DNSNameservers = servers
+		}
 	}
 	if iso, err := ResolveIsolation("", envDefault(lookup, "ISOLATION", string(IsolationFull))); err != nil {
 		// Keep a usable default so commands that never read Isolation

@@ -228,6 +228,11 @@ type MicrosandboxRuntime struct {
 	// own verbose lines, because the CLI renders one French checklist from
 	// that state. A nil Launch keeps the legacy verbose behaviour.
 	Launch *LaunchUX
+	// hostDNSLookup, hostDNSInspect, and goos are seams for CheckGuestDNS so
+	// tests never touch the real host resolver or OS DNS configuration (#508).
+	hostDNSLookup  func(ctx context.Context, host string) bool
+	hostDNSInspect func(ctx context.Context) HostDNSInfo
+	goos           string
 }
 
 // verbose reports whether this runtime should keep printing its own per-phase
@@ -429,6 +434,9 @@ type msbSandboxSpec struct {
 	// server (ProviderLocal, #447); non-zero adds one narrow egress rule for
 	// host.microsandbox.internal:<port>.
 	LocalModelPort int
+	// DNSNameservers carries explicit opt-in DNS resolvers from
+	// CODEBOX_DNS_NAMESERVERS (#508).
+	DNSNameservers []string
 	// SealedWorkspace selects the P22 sealed model: /workspace is an owned
 	// volume inside the sandbox and the host checkout is NOT mounted. The
 	// zero value is refused rather than falling back to a bind mount.
@@ -458,6 +466,9 @@ func (m *MicrosandboxRuntime) validateConfig() error {
 	// defect this sizing work exists to remove.
 	if m.cfg.SandboxResourcesErr != nil {
 		return m.cfg.SandboxResourcesErr
+	}
+	if m.cfg.DNSNameserversErr != nil {
+		return m.cfg.DNSNameserversErr
 	}
 	return nil
 }
@@ -1256,6 +1267,7 @@ func (m *MicrosandboxRuntime) sandboxSpec(bindings []resolvedBinding) msbSandbox
 		Ports:           append([]PortMapping(nil), m.cfg.Ports...),
 		PortsConfigured: m.cfg.PortsConfigured,
 		LocalModelPort:  localModelPortFor(m.cfg.Providers),
+		DNSNameservers:  append([]string(nil), m.cfg.DNSNameservers...),
 		Bindings:        bindingsMetadata(bindings),
 		StartScript:     msbStartScriptFor(m.cfg.Isolation, mcpIDs, harness),
 	}

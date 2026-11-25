@@ -349,7 +349,7 @@ func msbCreateOptions(spec msbSandboxSpec) []msb.SandboxOption {
 		msb.WithRootDisk(msb.RootDisk.Managed(8 * 1024)),
 		msb.WithEnv(spec.Env),
 		msb.WithMounts(msbWorkspaceMounts(spec)),
-		msb.WithNetwork(msbNetworkConfig(spec.LocalModelPort)),
+		msb.WithNetwork(msbNetworkConfig(spec.LocalModelPort, spec.DNSNameservers)),
 		msb.WithPortBindings(msbProjectPortBindings(spec.Ports, spec.PortsConfigured, spec.Isolation)...),
 		msb.WithSecrets(secrets...),
 		msb.WithScripts(map[string]string{"start": spec.StartScript}),
@@ -362,12 +362,13 @@ func msbCreateOptions(spec msbSandboxSpec) []msb.SandboxOption {
 
 // msbNetworkConfig returns the Microsandbox network policy: public internet
 // by default, plus one narrow TCP egress rule for the host gateway on
-// localModelPort when a local model server is configured (#447). Inside the
+// localModelPort when a local model server is configured (#447), and optional
+// explicit DNS nameservers from CODEBOX_DNS_NAMESERVERS (#508). Inside the
 // guest, host.microsandbox.internal is a static /etc/hosts entry routed to the
 // host gateway IP (classified under destination group "host", not DNS), so
 // matching NetworkProfileHost on that single port mirrors Rule.AllowDNS()
 // without exposing other host ports.
-func msbNetworkConfig(localModelPort int) *msb.NetworkConfig {
+func msbNetworkConfig(localModelPort int, dnsNameservers []string) *msb.NetworkConfig {
 	cfg := msb.NetworkPolicy.FromProfiles(msb.NetworkProfilePublic)
 	if localModelPort > 0 && localModelPort <= 65535 {
 		cfg.Rules = append(cfg.Rules, msb.PolicyRule{
@@ -377,6 +378,11 @@ func msbNetworkConfig(localModelPort int) *msb.NetworkConfig {
 			Protocols:   []msb.PolicyProtocol{msb.PolicyProtocolTCP},
 			Port:        strconv.Itoa(localModelPort),
 		})
+	}
+	if len(dnsNameservers) > 0 {
+		cfg.DNS = &msb.DNSConfig{
+			Nameservers: append([]string(nil), dnsNameservers...),
+		}
 	}
 	return cfg
 }

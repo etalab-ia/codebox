@@ -650,3 +650,22 @@ réseau n'ouvre que cet hôte et ce port TCP précis (jamais l'ensemble du group
 **Qualifié : Ollama + Microsandbox** (qualification native validée sur macOS
 arm64). LM Studio et llama.cpp exposent la même API et devraient fonctionner,
 sans garantie.
+
+## DNS dans la machine isolée (`CODEBOX_DNS_NAMESERVERS`, Microsandbox)
+
+Par défaut, Microsandbox lit les serveurs DNS du poste **au démarrage** de la
+machine isolée. Sur certains partages de connexion (par exemple iPhone), le
+poste n'expose qu'un résolveur IPv6 lien-local (`fe80::…%en0`), que
+Microsandbox `v0.8.1` ne sait pas encore relayer.
+
+Au lancement (`codebox`) et dans `codebox doctor`, codebox vérifie ce cas et
+signale immédiatement le problème au lieu de laisser l'agent expirer sur
+`EAI_AGAIN`. Deux contournements explicites sont disponibles :
+
+- définir un résolveur routable sur le poste (ex. sur macOS :
+  `networksetup -setdnsservers Wi-Fi 9.9.9.9 2620:fe::fe`) puis lancer
+  `codebox restart` ;
+- ou fixer explicitement `CODEBOX_DNS_NAMESERVERS` (liste d'adresses IP ou
+  `IP:port` séparées par des virgules, ex. `CODEBOX_DNS_NAMESERVERS=9.9.9.9,2620:fe::fe`)
+  lors de la création ou recréation (`codebox recreate --microsandbox`), ce
+  réglage étant fixé à la création par le SDK Microsandbox.

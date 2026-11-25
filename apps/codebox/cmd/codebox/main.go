@@ -1317,6 +1317,11 @@ func attachCmd(d *codebox.Dispatcher, cfg codebox.Config, rt codebox.Runtime, in
 	if err := startWithLaunchReport(ctx, d, b); err != nil {
 		return 0, err
 	}
+	if msb, ok := b.(*codebox.MicrosandboxRuntime); ok {
+		if diag := msb.CheckGuestDNS(ctx); diag != nil {
+			return 1, diag
+		}
+	}
 	if cfg.Isolation == codebox.IsolationFull {
 		// The whole agent lives in the guest: no host opencode preflight, no
 		// health endpoint, no attach. The host is only a terminal passthrough.
