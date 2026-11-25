@@ -75,6 +75,7 @@ func guestBranchLine(status codebox.GuestBranchStatus) string {
 func exitRecoveryBlock(ctx context.Context, m *codebox.MicrosandboxRuntime, instance, sourceDir string) {
 	status, err := m.GuestBranchStatus(ctx)
 	if err != nil {
+		status = codebox.GuestBranchStatus{}
 		fmt.Fprintln(os.Stderr, "Impossible de lire les branches de la machine isolée ; l'état du push et de la pull request n'a pas pu être vérifié.")
 	} else if line := guestBranchLine(status); line != "" {
 		fmt.Println(line)
@@ -85,7 +86,7 @@ func exitRecoveryBlock(ctx context.Context, m *codebox.MicrosandboxRuntime, inst
 	if warning, werr := m.GuestRecoveryWarning(ctx); werr == nil && warning != "" {
 		fmt.Fprintln(os.Stderr, warning)
 	}
-	unrecovered, err := codebox.UnrecoveredGuestChanges(ctx, m)
+	unrecovered, err := codebox.UnrecoveredGuestChangesForExit(ctx, m, status)
 	if err != nil {
 		// A read failure must not read as "nothing to recover": the work is
 		// still in the isolated machine, and only the reading failed.

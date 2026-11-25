@@ -800,6 +800,46 @@ func UnrecoveredGuestChanges(ctx context.Context, m *MicrosandboxRuntime) ([]Gue
 	return out, nil
 }
 
+// UnrecoveredGuestChangesForExit lists the guest's changes that have neither
+// been applied to the host folder nor already pushed to the guest's session
+// branch on origin (#509). When the branch is not pushed or origin/<branch>
+// cannot be diffed, it fails safe and returns all unrecovered changes.
+func UnrecoveredGuestChangesForExit(ctx context.Context, m *MicrosandboxRuntime, status GuestBranchStatus) ([]GuestChange, error) {
+	changes, err := UnrecoveredGuestChanges(ctx, m)
+	if err != nil || len(changes) == 0 || !status.Pushed || status.Branch == "" {
+		return changes, err
+	}
+	unpushed, ok := m.unpushedGuestChangePaths(ctx, status.Branch)
+	if !ok {
+		return changes, nil
+	}
+	var out []GuestChange
+	for _, c := range changes {
+		if unpushed[c.Rel] {
+			out = append(out, c)
+		}
+	}
+	return out, nil
+}
+
+// unpushedGuestChangePaths returns the set of guest workspace paths whose
+// current state differs from refs/remotes/origin/<branch>. On any git or exec
+// error it returns ok=false so callers fail safe and keep reporting changes.
+func (m *MicrosandboxRuntime) unpushedGuestChangePaths(ctx context.Context, branch string) (map[string]bool, bool) {
+	ref := "refs/remotes/origin/" + branch
+	numstatOut, _, code, err := m.Client.ExecCapture(ctx, m.InstanceName(),
+		"cd "+shellQuote(msbGuestWorkspace)+" && git add -A -N && git diff "+shellQuote(ref)+" --binary --no-renames --numstat -z")
+	if err != nil || code != 0 {
+		return nil, false
+	}
+	stats := parseNumstatZ(numstatOut)
+	paths := make(map[string]bool, len(stats))
+	for _, s := range stats {
+		paths[s.rel] = true
+	}
+	return paths, true
+}
+
 // applyPolicy is the per-file decision context for bringing guest changes
 // back: the host manifest (what crossed into the guest), the recorded
 // per-file re-inclusions, and the host root for the git-ignored probe.
