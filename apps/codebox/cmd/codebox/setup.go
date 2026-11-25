@@ -1969,7 +1969,11 @@ func promptSetupModelsWithPrefix(providers []codebox.InferenceProvider, current 
 		models, err := setupProviderCatalogueFn(provider)
 		if err != nil {
 			fmt.Printf("Catalogue %s indisponible : sélection actuelle conservée.\n", provider.Name)
-			for _, id := range codebox.ProviderModelIDs(current, provider.Kind) {
+			ids := codebox.ProviderModelIDs(current, provider.Kind)
+			if defKind, defID := codebox.ProviderModelID(currentDefault); defKind == provider.Kind && defID != "" && !containsString(ids, defID) {
+				ids = append(ids, defID)
+			}
+			for _, id := range ids {
 				choices = append(choices, setupModelChoice{
 					Provider: provider.Kind, ID: id, RefID: id, Name: id,
 					Description: "conservé depuis les réglages existants", Group: provider.Name,

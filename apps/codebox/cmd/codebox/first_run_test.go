@@ -285,6 +285,50 @@ func TestFirstRunDefaultModelUsesProviderCatalogue(t *testing.T) {
 	}
 }
 
+func TestPromptSetupModelsPreservesSavedDefaultWhenCatalogueUnavailable(t *testing.T) {
+	setupTestEnv(t)
+	oldCatalogue := setupProviderCatalogueFn
+	oldPicker := setupModelPickerRun
+	t.Cleanup(func() {
+		setupProviderCatalogueFn = oldCatalogue
+		setupModelPickerRun = oldPicker
+	})
+
+	setupProviderCatalogueFn = func(codebox.InferenceProvider) ([]codebox.CatalogueModel, error) {
+		return nil, errors.New("catalogue temporarily unreachable")
+	}
+	var seenPicker setupModelPicker
+	setupModelPickerRun = func(initial setupModelPicker) (setupModelPicker, error) {
+		seenPicker = initial
+		initial.done = true
+		return initial, nil
+	}
+
+	provider, err := codebox.ResolveProvider(codebox.ProviderSettings{Kind: codebox.ProviderMistral, Name: "Mistral AI"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	models, defaultModel, _, err := promptSetupModelsWithPrefix(
+		[]codebox.InferenceProvider{provider},
+		nil,
+		"mistral/mistral-large-latest",
+		"[2/6]",
+		true,
+	)
+	if err != nil {
+		t.Fatalf("promptSetupModelsWithPrefix during catalogue outage = %v, want preserved saved default", err)
+	}
+	if defaultModel != "mistral/mistral-large-latest" {
+		t.Fatalf("defaultModel = %q, want mistral/mistral-large-latest", defaultModel)
+	}
+	if len(models) != 1 || models[0] != "mistral/mistral-large-latest" {
+		t.Fatalf("models = %v, want [mistral/mistral-large-latest]", models)
+	}
+	if !seenPicker.selected["mistral/mistral-large-latest"] {
+		t.Fatalf("picker initial selection = %v, want mistral/mistral-large-latest pre-selected", seenPicker.selected)
+	}
+}
+
 func TestSeedInitAnswersReconcilesModelWithSelectedProvider(t *testing.T) {
 	setupTestEnv(t)
 	for _, tc := range []struct {
