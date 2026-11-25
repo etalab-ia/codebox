@@ -1317,7 +1317,7 @@ func attachCmd(d *codebox.Dispatcher, cfg codebox.Config, rt codebox.Runtime, in
 	if err := startWithLaunchReport(ctx, d, b); err != nil {
 		var recreateErr *codebox.ErrRecreateNeeded
 		if msb, ok := b.(*codebox.MicrosandboxRuntime); ok && errors.As(err, &recreateErr) && attachIsTTYFn() {
-			if code, rerr := handleInteractiveRecreateOnLaunch(ctx, d, msb, cfg, instance, recreateErr); rerr != nil {
+			if code, rerr := handleInteractiveRecreateOnLaunch(ctx, d, msb, cfg, instance, projectRoot, recreateErr); rerr != nil {
 				return code, rerr
 			}
 		} else {
@@ -1519,9 +1519,11 @@ var launchRecreateRunFn = func(ctx context.Context, msb *codebox.MicrosandboxRun
 
 // handleInteractiveRecreateOnLaunch explains the exact creation-fixed change,
 // saves any unrecovered sealed-workspace work to a unique host-state patch
-// (and offers reviewed workspace apply), asks one yes/no confirmation, and
-// recreates the sandbox so attachCmd can launch the agent directly (#507).
-func handleInteractiveRecreateOnLaunch(ctx context.Context, d *codebox.Dispatcher, msb *codebox.MicrosandboxRuntime, cfg codebox.Config, instance string, recreateErr *codebox.ErrRecreateNeeded) (int, error) {
+// (and offers reviewed workspace apply), revalidates execution-input trust in
+// case recovery wrote or changed plugins/extensions/MCP commands, asks one
+// yes/no confirmation, and recreates the sandbox so attachCmd can launch the
+// agent directly (#507).
+func handleInteractiveRecreateOnLaunch(ctx context.Context, d *codebox.Dispatcher, msb *codebox.MicrosandboxRuntime, cfg codebox.Config, instance, projectRoot string, recreateErr *codebox.ErrRecreateNeeded) (int, error) {
 	fmt.Fprintf(os.Stderr, "\nLa machine isolée (%s) doit être recréée : %s.\n", recreateErr.Instance, recreateErr.Reason)
 
 	// Automatically inspect and back up sealed-workspace work before asking
@@ -1530,6 +1532,26 @@ func handleInteractiveRecreateOnLaunch(ctx context.Context, d *codebox.Dispatche
 	// host state, and applying into the checkout goes through the existing
 	// reviewed apply flow.
 	launchRecreateRecoverFn(ctx, msb, cfg, instance)
+
+	// Recovery may have applied new or modified execution inputs (.opencode
+	// plugins, opencode.json MCP commands, .pi extensions/settings) into the
+	// host checkout after the initial launch trust check ran. Re-run the trust
+	// gate before confirming recreation or launching the agent.
+	trustRoots := []string{}
+	if root := strings.TrimSpace(projectRoot); root != "" {
+		trustRoots = append(trustRoots, filepath.Clean(root))
+	}
+	if ws := strings.TrimSpace(cfg.WorkspaceDir); ws != "" {
+		cleanWS := filepath.Clean(ws)
+		if len(trustRoots) == 0 || trustRoots[0] != cleanWS {
+			trustRoots = append(trustRoots, cleanWS)
+		}
+	}
+	for _, root := range trustRoots {
+		if err := requireTrustedExecutionInputs(root); err != nil {
+			return 1, err
+		}
+	}
 
 	confirmed, err := confirmLaunchRecreateFn(recreateErr.Reason)
 	if err != nil {

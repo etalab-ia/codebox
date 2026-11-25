@@ -242,7 +242,9 @@ func TestHandleInteractiveRecreateOnLaunchDeclinePreservesSandbox(t *testing.T) 
 		return false, nil
 	}
 
-	m := codebox.NewMicrosandboxRuntimeForInstance(codebox.Config{WorkspaceDir: t.TempDir()}, "cb-test-recreate")
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	ws := t.TempDir()
+	m := codebox.NewMicrosandboxRuntimeForInstance(codebox.Config{WorkspaceDir: ws}, "cb-test-recreate")
 	d := codebox.NewDispatcherWith(codebox.Config{}, map[codebox.Runtime]codebox.Backend{
 		codebox.RuntimeMicrosandbox: m,
 	})
@@ -255,7 +257,7 @@ func TestHandleInteractiveRecreateOnLaunchDeclinePreservesSandbox(t *testing.T) 
 	var code int
 	var err error
 	errOut := captureStderr(t, func() {
-		code, err = handleInteractiveRecreateOnLaunch(context.Background(), d, m, codebox.Config{WorkspaceDir: t.TempDir()}, "cb-test-recreate", recreateErr)
+		code, err = handleInteractiveRecreateOnLaunch(context.Background(), d, m, codebox.Config{WorkspaceDir: ws}, "cb-test-recreate", ws, recreateErr)
 	})
 	if code != 1 || err == nil || !strings.Contains(err.Error(), "rien n'a été détruit") {
 		t.Fatalf("declined recreate = code %d, err %v; want refusal preserving sandbox", code, err)
@@ -271,6 +273,70 @@ func TestHandleInteractiveRecreateOnLaunchDeclinePreservesSandbox(t *testing.T) 
 	}
 	if !strings.Contains(errOut, "le serveur de modèles local a été activé sur le port 11434") {
 		t.Fatalf("stderr must display the exact recreate cause:\n%s", errOut)
+	}
+}
+
+func TestHandleInteractiveRecreateOnLaunchRevalidatesExecutionTrustAfterRecovery(t *testing.T) {
+	oldConfirm := confirmLaunchRecreateFn
+	oldRecover := launchRecreateRecoverFn
+	oldRun := launchRecreateRunFn
+	oldTrustTTY := launchTrustTTYFn
+	t.Cleanup(func() {
+		confirmLaunchRecreateFn = oldConfirm
+		launchRecreateRecoverFn = oldRecover
+		launchRecreateRunFn = oldRun
+		launchTrustTTYFn = oldTrustTTY
+	})
+
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	ws := t.TempDir()
+	launchTrustTTYFn = func() bool { return false }
+
+	// Simulate workspace recovery applying a new guest-authored OpenCode plugin
+	// into the host checkout after the initial launch trust check passed.
+	launchRecreateRecoverFn = func(_ context.Context, _ *codebox.MicrosandboxRuntime, cfg codebox.Config, _ string) {
+		pluginPath := filepath.Join(cfg.WorkspaceDir, ".opencode", "plugin", "recovered.ts")
+		if err := os.MkdirAll(filepath.Dir(pluginPath), 0o755); err != nil {
+			t.Fatalf("mkdir plugin dir: %v", err)
+		}
+		if err := os.WriteFile(pluginPath, []byte("export default {}\n"), 0o644); err != nil {
+			t.Fatalf("write plugin: %v", err)
+		}
+	}
+	confirmCalled := false
+	confirmLaunchRecreateFn = func(string) (bool, error) {
+		confirmCalled = true
+		return true, nil
+	}
+	recreateCalled := false
+	launchRecreateRunFn = func(context.Context, *codebox.MicrosandboxRuntime) error {
+		recreateCalled = true
+		return nil
+	}
+
+	m := codebox.NewMicrosandboxRuntimeForInstance(codebox.Config{WorkspaceDir: ws}, "cb-test-trust")
+	d := codebox.NewDispatcherWith(codebox.Config{}, map[codebox.Runtime]codebox.Backend{
+		codebox.RuntimeMicrosandbox: m,
+	})
+	recreateErr := &codebox.ErrRecreateNeeded{
+		Instance: "cb-test-trust",
+		Reason:   "la mémoire de la machine isolée a changé",
+		Reasons:  []string{"la mémoire de la machine isolée a changé"},
+	}
+
+	var code int
+	var err error
+	captureStderr(t, func() {
+		code, err = handleInteractiveRecreateOnLaunch(context.Background(), d, m, codebox.Config{WorkspaceDir: ws}, "cb-test-trust", ws, recreateErr)
+	})
+	if code != 1 || err == nil || !strings.Contains(err.Error(), ".opencode/plugin/recovered.ts") || !strings.Contains(err.Error(), "codebox trust approve") {
+		t.Fatalf("unapproved recovered plugin = code %d, err %v; want execution-trust block", code, err)
+	}
+	if confirmCalled {
+		t.Fatal("recreate confirmation must not run while recovered execution inputs are unapproved")
+	}
+	if recreateCalled {
+		t.Fatal("Recreate must never run while recovered execution inputs are unapproved")
 	}
 }
 
