@@ -890,10 +890,49 @@ func FormatInteractiveInitReview(plan InitPlan) string {
 	if HasBrowserMCPSelection(a.MCPConnectors) {
 		b.WriteString(BrowserDownloadNote + "\n")
 	}
-	if len(a.MCPConnectors) > 0 {
+	if initPlanMayRequireRecreate(plan) {
+		b.WriteString("Certains réglages (navigateur, serveur de modèles local, agent, isolation ou ressources) sont fixés à la création : sur une machine isolée existante, le prochain lancement proposera de sauvegarder le travail puis de la recréer.\n")
+	} else if len(a.MCPConnectors) > 0 {
 		b.WriteString("Les changements de MCP prennent effet au prochain lancement ; cela peut redémarrer la machine isolée sans effacer son contenu.\n")
 	}
 	return b.String()
+}
+
+// initPlanMayRequireRecreate reports whether applying plan can require
+// recreating an existing Microsandbox instance at next launch (#507).
+func initPlanMayRequireRecreate(plan InitPlan) bool {
+	a := plan.Answers
+	if plan.ExistingManifest != nil {
+		prev := *plan.ExistingManifest
+		if HasBrowserMCPSelection(prev.MCPConnectors) != HasBrowserMCPSelection(a.MCPConnectors) {
+			return true
+		}
+		if prev.Isolation != "" && a.Isolation != "" && prev.Isolation != string(a.Isolation) {
+			return true
+		}
+		if prev.Harness != "" && a.Harness != "" && prev.Harness != a.Harness {
+			return true
+		}
+		if prev.CPUs != 0 && a.CPUs != 0 && prev.CPUs != a.CPUs {
+			return true
+		}
+		if prev.MemoryMB != 0 && a.MemoryMB != 0 && prev.MemoryMB != a.MemoryMB {
+			return true
+		}
+		if localProviderBaseURL(prev.Providers) != localProviderBaseURL(a.Providers) {
+			return true
+		}
+	}
+	return HasBrowserMCPSelection(a.MCPConnectors) || localProviderBaseURL(a.Providers) != ""
+}
+
+func localProviderBaseURL(providers []ProviderSettings) string {
+	for _, p := range providers {
+		if p.Kind == ProviderLocal {
+			return strings.TrimSpace(p.BaseURL)
+		}
+	}
+	return ""
 }
 
 func initReviewModelName(model string) string {
@@ -1076,7 +1115,11 @@ func FormatInitReview(plan InitPlan) string {
 		b.WriteString("  DevTools n'écoute que sur la boucle locale de la machine isolée. Passer à cette image, ou la quitter, sur une machine isolée existante exige une recréation explicite ; init ne recrée jamais de machine isolée.\n")
 	}
 	b.WriteString("  L'initialisation ne démarre ni ne redémarre de machine isolée.\n")
-	b.WriteString("  Les changements de MCP gérés prennent effet au prochain lancement, ce qui peut redémarrer la machine isolée sans effacer son contenu.\n")
+	if initPlanMayRequireRecreate(plan) {
+		b.WriteString("  Certains réglages (navigateur, serveur de modèles local, agent, isolation ou ressources) sont fixés à la création : sur une machine isolée existante, le prochain lancement proposera de sauvegarder le travail puis de la recréer.\n")
+	} else {
+		b.WriteString("  Les changements de MCP gérés prennent effet au prochain lancement, ce qui peut redémarrer la machine isolée sans effacer son contenu.\n")
+	}
 	if a.Runtime == RuntimeMicrosandbox {
 		b.WriteString("\nLa machine isolée reçoit une copie filtrée du projet : fichiers .env, fichiers ignorés,\n" +
 			"liens symboliques et fichiers signalés par la détection de secrets sont exclus par défaut ('codebox workspace status').\n")

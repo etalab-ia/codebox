@@ -318,9 +318,12 @@ type ReconcileFacts struct {
 	// Healthy: the backend answers its health endpoint (backend mode).
 	Healthy bool
 	// CreationFixedChanged: a creation-fixed attribute differs from what the
-	// instance was created with — isolation, image, workspace provenance, or
-	// guest sizing.
+	// instance was created with — isolation, image, guest profile, harness,
+	// local model server port, workspace provenance, guest sizing, or ports.
 	CreationFixedChanged bool
+	// CreationFixedReasons lists the specific creation-fixed attributes that
+	// changed so the user sees the exact cause instead of a generic list (#507).
+	CreationFixedReasons []string
 	// CredentialChanged: the desired binding-set revision differs from the
 	// applied one (a value rotation within an unchanged set does NOT set it:
 	// the reference re-resolves at the next boot).
@@ -342,14 +345,10 @@ func PlanReconcile(applied *InstanceState, desired DesiredState, facts Reconcile
 		return ReconcilePlan{Ops: []ReconcileOp{OpCreate}, Reason: "l'instance n'existe pas"}
 	}
 	if facts.CreationFixedChanged {
+		reason := formatCreationFixedReasons(facts.CreationFixedReasons)
 		return ReconcilePlan{
-			Ops: []ReconcileOp{OpRecreate},
-			// The reason enumerates what can actually change. It must not
-			// name a cause the runtime no longer has (a "workspace mount"
-			// became a provenance check in P22) or omit one it does (guest
-			// sizing, the agent harness), because it is the only thing the
-			// user sees before deciding whether to lose the guest's state.
-			Reason: "le niveau d'isolation, l'image, le profil de la machine isolée, le harnais d'agent, la provenance de l'espace de travail, la taille de la machine isolée ou les ports publiés Microsandbox ont changé ; ces éléments sont fixés à la création",
+			Ops:    []ReconcileOp{OpRecreate},
+			Reason: reason,
 		}
 	}
 	if applied == nil {
@@ -384,18 +383,31 @@ func PlanReconcile(applied *InstanceState, desired DesiredState, facts Reconcile
 	}
 }
 
+func formatCreationFixedReasons(reasons []string) string {
+	if len(reasons) == 0 {
+		return "le niveau d'isolation, l'image, le profil de la machine isolée, le harnais d'agent, le port du serveur de modèles local, la provenance de l'espace de travail, la taille de la machine isolée ou les ports publiés Microsandbox ont changé ; ces éléments sont fixés à la création"
+	}
+	if len(reasons) == 1 {
+		return reasons[0] + " (élément fixé à la création)"
+	}
+	return strings.Join(reasons, " ; ") + " (éléments fixés à la création)"
+}
+
 // ErrRecreateNeeded is the typed refusal returned when a change classifies
-// as recreation. It carries the loss summary; the caller surfaces it and the
-// user decides. No code path may turn this into an automatic Clean.
+// as recreation. It carries the exact causes and the loss summary; the caller
+// surfaces it and the user decides. No code path may turn this into an
+// automatic Clean.
 type ErrRecreateNeeded struct {
 	Instance string
 	Reason   string
+	Reasons  []string
 }
 
 func (e *ErrRecreateNeeded) Error() string {
 	return fmt.Sprintf("%s ne peut pas appliquer ce changement sur place : %s. "+
-		"La recréation est destructive et fait perdre les sessions de la machine isolée, les outils installés dans la machine isolée et les fichiers propres à la machine isolée ; "+
-		"lancez 'codebox recreate --microsandbox' si cela est acceptable",
+		"La recréation est destructive et fait perdre les sessions de la machine isolée, les outils installés dans la machine isolée et les fichiers propres à la machine isolée. "+
+		"Pour récupérer d'abord le travail de l'agent : 'codebox workspace recover' puis 'codebox workspace apply'. "+
+		"Lancez ensuite 'codebox recreate --microsandbox' si cela est acceptable",
 		e.Instance, e.Reason)
 }
 
@@ -527,7 +539,11 @@ func (m *MicrosandboxRuntime) Reconcile(ctx context.Context) error {
 	}
 	plan := PlanReconcile(applied, desired, facts)
 	if plan.NeedsRecreate() {
-		return &ErrRecreateNeeded{Instance: m.InstanceName(), Reason: plan.Reason}
+		return &ErrRecreateNeeded{
+			Instance: m.InstanceName(),
+			Reason:   plan.Reason,
+			Reasons:  append([]string(nil), facts.CreationFixedReasons...),
+		}
 	}
 
 	// Resume support: a journal of pending ops from an interrupted run of
@@ -764,6 +780,52 @@ func appliedHarness(raw string) Harness {
 	return Harness(raw)
 }
 
+// creationFixedReasons lists each creation-fixed attribute that differs from
+// what the instance was created with, so users see the exact cause instead of
+// a generic list (#507).
+func creationFixedReasons(applied *InstanceState, desired DesiredState) []string {
+	if applied == nil {
+		return nil
+	}
+	var reasons []string
+	if applied.Isolation != string(desired.Isolation) {
+		reasons = append(reasons, fmt.Sprintf("le mode d'isolation a changé (%s -> %s)", applied.Isolation, desired.Isolation))
+	}
+	if applied.Image != desired.Image {
+		reasons = append(reasons, "l'image de la machine isolée a changé (mise à jour de codebox ou du navigateur)")
+	}
+	if applied.GuestProfile != desired.GuestProfile {
+		reasons = append(reasons, "le profil de la machine isolée a changé (mise à jour de codebox, de Pi ou du navigateur)")
+	}
+	if prevHarness := appliedHarness(applied.Harness); prevHarness != desired.Harness {
+		reasons = append(reasons, fmt.Sprintf("l'agent a changé (%s -> %s)", prevHarness, desired.Harness))
+	}
+	if applied.LocalModelPort != desired.LocalModelPort {
+		switch {
+		case applied.LocalModelPort == 0:
+			reasons = append(reasons, fmt.Sprintf("le serveur de modèles local a été activé sur le port %d", desired.LocalModelPort))
+		case desired.LocalModelPort == 0:
+			reasons = append(reasons, fmt.Sprintf("le serveur de modèles local (port %d) a été retiré", applied.LocalModelPort))
+		default:
+			reasons = append(reasons, fmt.Sprintf("le port du serveur de modèles local a changé (%d -> %d)", applied.LocalModelPort, desired.LocalModelPort))
+		}
+	}
+	// An instance whose state predates the recorded sizing carries 0 for it.
+	// Zero means "not recorded", not "zero CPUs": comparing it against the
+	// desired default would ask for a recreation of every pre-existing
+	// sandbox. Only a recorded value is compared.
+	if applied.CPUs != 0 && applied.CPUs != desired.CPUs {
+		reasons = append(reasons, fmt.Sprintf("le nombre de CPU a changé (%d -> %d)", applied.CPUs, desired.CPUs))
+	}
+	if applied.MemoryMB != 0 && applied.MemoryMB != desired.MemoryMB {
+		reasons = append(reasons, fmt.Sprintf("la mémoire de la machine isolée a changé (%d Mo -> %d Mo)", applied.MemoryMB, desired.MemoryMB))
+	}
+	if portMappingsChanged(applied.PortsConfigured, applied.Ports, desired.Ports, desired.PortsConfigured) {
+		reasons = append(reasons, "les ports publiés Microsandbox ont changé")
+	}
+	return reasons
+}
+
 // creationFixedChanged reports whether the instance was created with an
 // attribute that cannot be changed in place, which makes recreation the only
 // correct plan. Recreating destroys the guest's sessions and guest-only files,
@@ -771,22 +833,7 @@ func appliedHarness(raw string) Harness {
 // same": an unrecorded value is treated as the default rather than as a
 // difference, but a recorded difference always counts.
 func creationFixedChanged(applied *InstanceState, desired DesiredState) bool {
-	if applied == nil {
-		return false
-	}
-	// An instance whose state predates the recorded sizing carries 0 for it.
-	// Zero means "not recorded", not "zero CPUs": comparing it against the
-	// desired default would ask for a recreation of every pre-existing
-	// sandbox. Only a recorded value is compared.
-	resourcesChanged := (applied.CPUs != 0 && applied.CPUs != desired.CPUs) ||
-		(applied.MemoryMB != 0 && applied.MemoryMB != desired.MemoryMB)
-	return applied.Isolation != string(desired.Isolation) ||
-		applied.Image != desired.Image ||
-		applied.GuestProfile != desired.GuestProfile ||
-		appliedHarness(applied.Harness) != desired.Harness ||
-		applied.LocalModelPort != desired.LocalModelPort ||
-		resourcesChanged ||
-		portMappingsChanged(applied.PortsConfigured, applied.Ports, desired.Ports, desired.PortsConfigured)
+	return len(creationFixedReasons(applied, desired)) > 0
 }
 
 // reconcileFacts gathers what the plan needs from the guest. All guest
@@ -812,23 +859,27 @@ func (m *MicrosandboxRuntime) reconcileFacts(ctx context.Context, applied *Insta
 		// against. Do not claim that a newly configured port set was applied
 		// through an ordinary restart of an existing sandbox.
 		facts.CreationFixedChanged = true
+		facts.CreationFixedReasons = append(facts.CreationFixedReasons, "les ports publiés Microsandbox ont été configurés sur une instance antérieure au suivi d'état")
 		return facts, nil
 	}
 
 	// Creation-fixed comparison. The applied state is the authority when it
 	// exists; without it, the live checks (isolation script, mount) stand in.
 	if applied != nil {
-		if creationFixedChanged(applied, desired) {
+		if reasons := creationFixedReasons(applied, desired); len(reasons) > 0 {
 			facts.CreationFixedChanged = true
+			facts.CreationFixedReasons = append(facts.CreationFixedReasons, reasons...)
 			return facts, nil
 		}
 	}
 	if err := m.rejectIsolationMismatch(ctx, sandbox); err != nil {
 		facts.CreationFixedChanged = true
+		facts.CreationFixedReasons = append(facts.CreationFixedReasons, err.Error())
 		return facts, nil
 	}
 	if m.workspaceProvenanceChanged(ctx) {
 		facts.CreationFixedChanged = true
+		facts.CreationFixedReasons = append(facts.CreationFixedReasons, "la provenance de l'espace de travail a changé (ancien montage direct)")
 	}
 	return facts, nil
 }
@@ -979,6 +1030,9 @@ func (m *MicrosandboxRuntime) Recreate(ctx context.Context) error {
 	warnWorkspaceHygiene(ctx, m.cfg.WorkspaceDir)
 	if err := m.Clean(ctx); err != nil {
 		return err
+	}
+	if err := os.Remove(ApplyRecordPath(m.stateDirOrDefault(), m.InstanceName())); err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("nettoyage de l'historique de récupération de %s : %w", m.InstanceName(), err)
 	}
 	if err := m.Start(ctx); err != nil {
 		return err

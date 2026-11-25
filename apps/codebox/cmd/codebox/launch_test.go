@@ -216,3 +216,39 @@ func TestLaunchTrustDecisions(t *testing.T) {
 		})
 	}
 }
+
+func TestHandleInteractiveRecreateOnLaunchDeclinePreservesSandbox(t *testing.T) {
+	oldConfirm := confirmLaunchRecreateFn
+	t.Cleanup(func() { confirmLaunchRecreateFn = oldConfirm })
+
+	var seenReason string
+	confirmLaunchRecreateFn = func(reason string) (bool, error) {
+		seenReason = reason
+		return false, nil
+	}
+
+	m := codebox.NewMicrosandboxRuntimeForInstance(codebox.Config{WorkspaceDir: t.TempDir()}, "cb-test-recreate")
+	d := codebox.NewDispatcherWith(codebox.Config{}, map[codebox.Runtime]codebox.Backend{
+		codebox.RuntimeMicrosandbox: m,
+	})
+	recreateErr := &codebox.ErrRecreateNeeded{
+		Instance: "cb-test-recreate",
+		Reason:   "le serveur de modèles local a été activé sur le port 11434 (élément fixé à la création)",
+		Reasons:  []string{"le serveur de modèles local a été activé sur le port 11434"},
+	}
+
+	var code int
+	var err error
+	errOut := captureStderr(t, func() {
+		code, err = handleInteractiveRecreateOnLaunch(context.Background(), d, m, codebox.Config{WorkspaceDir: t.TempDir()}, "cb-test-recreate", recreateErr)
+	})
+	if code != 1 || err == nil || !strings.Contains(err.Error(), "rien n'a été détruit") {
+		t.Fatalf("declined recreate = code %d, err %v; want refusal preserving sandbox", code, err)
+	}
+	if seenReason != recreateErr.Reason {
+		t.Fatalf("confirm prompt received reason %q, want %q", seenReason, recreateErr.Reason)
+	}
+	if !strings.Contains(errOut, "le serveur de modèles local a été activé sur le port 11434") {
+		t.Fatalf("stderr must display the exact recreate cause:\n%s", errOut)
+	}
+}

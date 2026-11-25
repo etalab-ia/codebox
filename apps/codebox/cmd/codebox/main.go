@@ -1315,7 +1315,14 @@ func attachCmd(d *codebox.Dispatcher, cfg codebox.Config, rt codebox.Runtime, in
 	// gets its configuration classified and an interrupted apply resumed,
 	// instead of a blind start.
 	if err := startWithLaunchReport(ctx, d, b); err != nil {
-		return 0, err
+		var recreateErr *codebox.ErrRecreateNeeded
+		if msb, ok := b.(*codebox.MicrosandboxRuntime); ok && errors.As(err, &recreateErr) && attachIsTTYFn() {
+			if code, rerr := handleInteractiveRecreateOnLaunch(ctx, d, msb, cfg, instance, recreateErr); rerr != nil {
+				return code, rerr
+			}
+		} else {
+			return 0, err
+		}
 	}
 	if msb, ok := b.(*codebox.MicrosandboxRuntime); ok {
 		if diag := msb.CheckGuestDNS(ctx); diag != nil {
@@ -1433,7 +1440,93 @@ func lifecycleCmd(d *codebox.Dispatcher, rt codebox.Runtime, action string, foll
 	if err == nil && (action == "start" || action == "restart" || action == "recreate") {
 		printLaunchReport(d.Launch)
 	}
+	if err == nil && action == "recreate" {
+		fmt.Println("Lancez 'codebox' pour démarrer l'agent.")
+	}
 	return 0, err
+}
+
+// attachIsTTYFn gates interactive launch-time recreate recovery so tests can
+// drive both TTY and non-TTY branches without a real terminal.
+var attachIsTTYFn = isTTY
+
+// confirmLaunchRecreateFn asks one yes/no confirmation before recreating a
+// sandbox during `codebox` launch (#507). Tests replace this seam.
+var confirmLaunchRecreateFn = func(reason string) (bool, error) {
+	desc := "Cause : " + reason + "\n" +
+		"La recréation supprime les sessions de l'agent, les outils installés dans la machine isolée et les fichiers non appliqués dans votre dossier, puis relance l'agent automatiquement."
+	if wizardHuhFn() {
+		return huhConfirm("Recréer la machine isolée maintenant ?", desc, false)
+	}
+	fmt.Fprintln(os.Stderr, desc)
+	fmt.Fprint(os.Stderr, "Recréer la machine isolée et démarrer l'agent ? (o/N) ")
+	reply, _ := bufio.NewReader(os.Stdin).ReadString('\n')
+	switch strings.ToLower(strings.TrimSpace(reply)) {
+	case "o", "oui", "y", "yes":
+		return true, nil
+	default:
+		return false, nil
+	}
+}
+
+// handleInteractiveRecreateOnLaunch explains the exact creation-fixed change,
+// saves any unrecovered sealed-workspace work to host state (and offers
+// reviewed workspace apply), asks one yes/no confirmation, and recreates the
+// sandbox so attachCmd can launch the agent directly (#507).
+func handleInteractiveRecreateOnLaunch(ctx context.Context, d *codebox.Dispatcher, msb *codebox.MicrosandboxRuntime, cfg codebox.Config, instance string, recreateErr *codebox.ErrRecreateNeeded) (int, error) {
+	fmt.Fprintf(os.Stderr, "\nLa machine isolée (%s) doit être recréée : %s.\n", recreateErr.Instance, recreateErr.Reason)
+
+	// Automatically inspect and back up sealed-workspace work before asking
+	// for recreate confirmation. Never write directly into the host checkout
+	// without review: automatic backup writes a 0600 patch to host state, and
+	// applying into the checkout goes through the existing reviewed apply flow.
+	if err := msb.Recover(ctx); err != nil {
+		fmt.Fprintf(os.Stderr, "Sauvegarde automatique impossible avant recréation : %v\n", err)
+	} else {
+		if status, serr := msb.GuestBranchStatus(ctx); serr == nil {
+			if line := guestBranchLine(status); line != "" {
+				fmt.Fprintln(os.Stderr, line)
+			}
+		}
+		if warning, werr := msb.GuestRecoveryWarning(ctx); werr == nil && warning != "" {
+			fmt.Fprintln(os.Stderr, warning)
+		}
+		unrecovered, uerr := codebox.UnrecoveredGuestChanges(ctx, msb)
+		if uerr != nil {
+			fmt.Fprintf(os.Stderr, "Impossible de vérifier les modifications de la machine isolée : %v\n", uerr)
+		} else if len(unrecovered) == 0 {
+			fmt.Fprintln(os.Stderr, "Aucune modification non récupérée dans la machine isolée.")
+		} else {
+			if patchPath, perr := msb.ExportGuestChanges(ctx, ""); perr != nil {
+				fmt.Fprintf(os.Stderr, "Sauvegarde automatique du patch impossible : %v\n", perr)
+			} else if patchPath != "" {
+				fmt.Fprintf(os.Stderr, "Sauvegarde automatique enregistrée : %s\n", patchPath)
+			}
+			if _, aerr := runWorkspaceApply(msb, cfg.WorkspaceDir, instance, false); aerr != nil {
+				fmt.Fprintf(os.Stderr, "La récupération dans votre dossier a échoué : %v (le patch de sauvegarde reste disponible).\n", aerr)
+			}
+		}
+	}
+
+	confirmed, err := confirmLaunchRecreateFn(recreateErr.Reason)
+	if err != nil {
+		return 1, err
+	}
+	if !confirmed {
+		return 1, fmt.Errorf("recréation annulée ; rien n'a été détruit")
+	}
+	if err := msb.Recreate(ctx); err != nil {
+		return 1, err
+	}
+	if err := d.WaitLaunchReady(ctx, msb); err != nil {
+		return 1, err
+	}
+	if d.Launch != nil {
+		d.RecordLaunchSkills()
+		d.Launch.RecordMCP(msb.OpenCodeOverlay.MCPConnectors)
+	}
+	printLaunchReport(d.Launch)
+	return 0, nil
 }
 
 var launchNowFn = time.Now
@@ -1468,18 +1561,32 @@ func printLaunchReport(launch *codebox.LaunchUX) {
 
 var confirmRecreateFn = confirmDestructiveRecreate
 
-// confirmDestructiveRecreate asks the user to name what recreate destroys.
+// confirmDestructiveRecreate asks the user to confirm what recreate destroys.
 // On a non-TTY (CI, scripts) it refuses rather than destroying silently: the
 // explicit replacement is `codebox clean --<runtime>` followed by start,
 // which names the instance and the loss in its own output.
 func confirmDestructiveRecreate(rt codebox.Runtime) (int, error) {
 	fmt.Fprintf(os.Stderr, "Attention : recreate --%s reconstruit de zéro l'environnement %s et DÉTRUIT : les sessions de la machine isolée, les outils installés dans la machine isolée et les fichiers propres à la machine isolée.\n", rt, rt)
+	if rt == codebox.RuntimeMicrosandbox {
+		fmt.Fprintln(os.Stderr, "Pour récupérer d'abord le travail de l'agent : 'codebox workspace recover' puis 'codebox workspace apply'.")
+	}
 	if !isTTY() {
 		return 1, fmt.Errorf("recreate est destructeur et exige une confirmation interactive ; lancez 'codebox clean --%s' puis 'codebox start --%s' si vous voulez vraiment recréer", rt, rt)
 	}
-	fmt.Print("Recréer et perdre cet état ? Saisissez le nom du runtime pour confirmer : ")
+	if wizardHuhFn() {
+		confirmed, err := huhConfirm(fmt.Sprintf("Recréer la machine isolée (%s) ?", rt), "Les sessions, outils installés et fichiers propres à la machine isolée seront supprimés.", false)
+		if err != nil {
+			return 1, err
+		}
+		if !confirmed {
+			return 1, fmt.Errorf("non confirmé ; rien n'a été détruit")
+		}
+		return 0, nil
+	}
+	fmt.Printf("Recréer %s et perdre cet état ? (o/N) ", rt)
 	reply, _ := bufio.NewReader(os.Stdin).ReadString('\n')
-	if strings.TrimSpace(reply) != string(rt) {
+	trimmed := strings.ToLower(strings.TrimSpace(reply))
+	if trimmed != "o" && trimmed != "oui" && trimmed != "y" && trimmed != "yes" && trimmed != strings.ToLower(string(rt)) {
 		return 1, fmt.Errorf("non confirmé ; rien n'a été détruit")
 	}
 	return 0, nil
