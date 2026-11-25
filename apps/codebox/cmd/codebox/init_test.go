@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	tea "charm.land/bubbletea/v2"
 	"charm.land/huh/v2"
 	"context"
 	"errors"
@@ -1887,6 +1888,77 @@ func TestInitRefusesToReplaceWithoutTheFlag(t *testing.T) {
 	if _, err := initRun(initOptions{Root: root, Yes: true, Replace: true, Set: map[string]bool{"root": true}},
 		bufio.NewReader(strings.NewReader("")), false); err != nil {
 		t.Fatalf("init --replace: %v", err)
+	}
+}
+
+func TestInitAdvancedOnExistingProjectOpensExpertSettingsDirectly(t *testing.T) {
+	setupTestEnv(t)
+	root := initTestProject(t)
+	stubInitSkillResolver(t)
+	stubCatalogueCheck(t, func(string, string) (string, error) { return "", nil })
+	initial := codebox.ProjectManifest{
+		SchemaVersion: 8,
+		Runtime:       string(codebox.RuntimeMicrosandbox),
+		Isolation:     string(codebox.IsolationFull),
+		Harness:       string(codebox.HarnessOpenCode),
+		Model:         "albert/deepseek-v4-flash",
+		Models:        []string{"deepseek-ai/DeepSeek-V4-Flash-0731", "openai/gpt-oss-120b"},
+		CPUs:          2,
+	}
+	if err := codebox.WriteProjectManifest(codebox.DefaultFS, codebox.ProjectManifestPath(root), initial); err != nil {
+		t.Fatal(err)
+	}
+	origTTY, origStdoutTTY, origHuh, origCombined, origAdv, origHost := initTTYFn, initStdoutTTYFn, wizardHuhFn, combinedFirstRunFn, runInitAdvancedForm, detectHostResourcesFn
+	t.Cleanup(func() {
+		initTTYFn, initStdoutTTYFn, wizardHuhFn, combinedFirstRunFn, runInitAdvancedForm, detectHostResourcesFn = origTTY, origStdoutTTY, origHuh, origCombined, origAdv, origHost
+	})
+	initTTYFn = func() bool { return true }
+	initStdoutTTYFn = func() bool { return true }
+	wizardHuhFn = func() bool { return true }
+	detectHostResourcesFn = func() (codebox.HostResources, error) {
+		return codebox.HostResources{CPUs: 8, MemoryMB: 16384}, nil
+	}
+	combinedFirstRunFn = func(initOptions, *bufio.Reader) (int, error) {
+		t.Fatal("interactive init --advanced on an existing project must not repeat the 6-screen first-run wizard")
+		return 1, nil
+	}
+	calls := 0
+	runInitAdvancedForm = func(form *huh.Form) (bool, error) {
+		calls++
+		field := form.GetFocusedField()
+		field.Focus()
+		switch calls {
+		case 1:
+			// Option 0: isolation, Option 1: cpus.
+			field.Update(tea.KeyPressMsg{Code: tea.KeyDown})
+			field.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+		case 2:
+			// Clear seeded "2" and enter "4".
+			field.Update(tea.KeyPressMsg{Code: tea.KeyBackspace})
+			field.Update(tea.KeyPressMsg{Code: '4', Text: "4"})
+		case 3:
+			return true, nil
+		default:
+			t.Fatal("unexpected extra advanced form")
+		}
+		return false, nil
+	}
+	code, err := initCmd([]string{"--advanced", "--root", root})
+	if err != nil || code != 0 {
+		t.Fatalf("interactive init --advanced on existing project failed: code=%d err=%v", code, err)
+	}
+	if calls != 3 {
+		t.Fatalf("advanced form calls = %d, want 3", calls)
+	}
+	updated, err := codebox.ReadProjectManifest(codebox.DefaultFS, codebox.ProjectManifestPath(root))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if updated.CPUs != 4 {
+		t.Fatalf("updated CPUs = %d, want 4", updated.CPUs)
+	}
+	if updated.Model != initial.Model || len(updated.Models) != len(initial.Models) {
+		t.Fatalf("existing model settings were not preserved: %+v", updated)
 	}
 }
 

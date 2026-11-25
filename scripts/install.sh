@@ -319,7 +319,23 @@ if "$target" setup --check-complete; then
 	setup_complete=1
 fi
 if [ "$setup_complete" -eq 1 ]; then
-	printf 'Configuration existante conservée. Lancez "codebox setup" pour la modifier.\n'
+	printf 'Configuration existante conservée. Lancez "codebox" dans un dossier de projet pour démarrer.\n'
+	exit 0
+fi
+
+# Le premier parcours interactif (6 étapes) exige un terminal sur l'entrée et la
+# sortie standard. En mode non interactif (script, redirection, CI), on laisse le
+# binaire prêt et on indique la commande à lancer dans un projet.
+can_launch_interactive=0
+if [ -t 1 ]; then
+	if [ -t 0 ] || ( : < /dev/tty ) 2>/dev/null; then
+		can_launch_interactive=1
+	fi
+fi
+if [ "$can_launch_interactive" -ne 1 ]; then
+	printf 'codebox est installé. Ouvrez un terminal dans le dossier d'"'"'un projet puis lancez :\n'
+	# shellcheck disable=SC2016
+	printf '  "$HOME/%s/codebox"\n' "$install_dir_rel"
 	exit 0
 fi
 
@@ -327,10 +343,10 @@ printf 'Lancement de la configuration…\n\n'
 setup_status=0
 if [ ! -t 0 ] && ( : < /dev/tty ) 2>/dev/null; then
 	# Lancé depuis un tube (curl | sh) : l'entrée standard est le tube épuisé,
-	# on réattache le terminal de contrôle pour garder l'assistant interactif.
-	"$target" setup < /dev/tty || setup_status=$?
+	# on réattache le terminal de contrôle pour garder le parcours interactif.
+	"$target" < /dev/tty || setup_status=$?
 else
-	"$target" setup || setup_status=$?
+	"$target" || setup_status=$?
 fi
 if [ "$setup_status" -ne 0 ]; then
 	printf 'codebox est installé, mais la configuration n'"'"'est pas terminée.\n' >&2
@@ -345,7 +361,7 @@ if [ "$setup_status" -ne 0 ]; then
 	# commande collée. "$HOME" entre guillemets est sûr et se développe à
 	# l'exécution.
 	# shellcheck disable=SC2016  # literal "$HOME" is what the user should copy
-	printf 'Reprenez-la quand vous voulez : "$HOME/%s/codebox" setup\n' "$install_dir_rel" >&2
+	printf 'Reprenez-la quand vous voulez : "$HOME/%s/codebox"\n' "$install_dir_rel" >&2
 	if [ -f "$backup" ]; then
 		# shellcheck disable=SC2016
 		printf 'Pour revenir à la version précédente : mv "$HOME/%s/codebox.previous" "$HOME/%s/codebox"\n' "$install_dir_rel" "$install_dir_rel" >&2

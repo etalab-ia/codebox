@@ -103,6 +103,48 @@ func TestResolveEnabledAlbertModelsKeepsActiveModelAvailable(t *testing.T) {
 	}
 }
 
+func TestResolveEnabledAlbertModelsDefaultsToAllCuratedModels(t *testing.T) {
+	setupTestEnv(t)
+	root := t.TempDir()
+	got := resolveEnabledAlbertModelsForProject(root, "albert/deepseek-v4-flash")
+	choices := codebox.CuratedAlbertModels()
+	if len(got) != len(choices) {
+		t.Fatalf("default Albert models count = %d (%+v), want all %d curated models", len(got), got, len(choices))
+	}
+	for i, choice := range choices {
+		if got[i].ID != choice.OpenCodeID || got[i].ModelID != choice.ID {
+			t.Fatalf("default model[%d] = %+v, want %s (%s)", i, got[i], choice.OpenCodeID, choice.ID)
+		}
+	}
+}
+
+func TestResolveEnabledAlbertModelsPrefersProjectManifest(t *testing.T) {
+	setupTestEnv(t)
+	path, err := codebox.UserSettingsPath()
+	if err != nil {
+		t.Fatal(err)
+	}
+	choices := codebox.CuratedAlbertModels()
+	if err := codebox.WriteUserSettings(codebox.DefaultFS, path, codebox.UserSettings{
+		SchemaVersion: 2,
+		Models:        []string{choices[0].ID},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	root := t.TempDir()
+	if err := codebox.WriteProjectManifest(codebox.DefaultFS, codebox.ProjectManifestPath(root), codebox.ProjectManifest{
+		SchemaVersion: 8,
+		Model:         choices[2].Ref(),
+		Models:        []string{choices[2].ID, choices[3].ID},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	got := resolveEnabledAlbertModelsForProject(root, choices[2].Ref())
+	if len(got) != 2 || got[0].ID != choices[2].OpenCodeID || got[1].ID != choices[3].OpenCodeID {
+		t.Fatalf("project manifest models = %+v, want [%s %s]", got, choices[2].OpenCodeID, choices[3].OpenCodeID)
+	}
+}
+
 func TestResolveEnabledAlbertModelsMapsLegacyFullID(t *testing.T) {
 	setupTestEnv(t)
 	path, err := codebox.UserSettingsPath()

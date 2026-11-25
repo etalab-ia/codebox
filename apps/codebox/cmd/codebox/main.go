@@ -307,13 +307,13 @@ func run(args []string) (int, error) {
 	}
 	var albertModels []codebox.AlbertModelConfig
 	if providersContain(cfg.Providers, codebox.ProviderAlbert) {
-		albertModels = resolveEnabledAlbertModels(modelSelection, smallModelSelection)
+		albertModels = resolveEnabledAlbertModelsForProject(projectRoot, modelSelection, smallModelSelection)
 	}
 	overlay := codebox.ManagedOverlay{
 		Model:         modelSelection,
 		SmallModel:    smallModelSelection,
 		Models:        albertModels,
-		Providers:     resolveProviderOverlays(cfg.Providers, modelSelection, smallModelSelection),
+		Providers:     resolveProviderOverlaysForProject(projectRoot, cfg.Providers, modelSelection, smallModelSelection),
 		AlbertEnabled: providersContain(cfg.Providers, codebox.ProviderAlbert),
 		MCPConnectors: mcpSelection,
 	}
@@ -1004,24 +1004,41 @@ func resolveProviderSettingsAt(projectRoot string) ([]codebox.ProviderSettings, 
 	return settings, nil
 }
 
+func projectManifestModels(projectRoot string) []string {
+	if strings.TrimSpace(projectRoot) == "" {
+		return nil
+	}
+	manifest, err := codebox.ReadProjectManifest(codebox.DefaultFS, codebox.ProjectManifestPath(projectRoot))
+	if err != nil {
+		return nil
+	}
+	return manifest.Models
+}
+
 // resolveProviderOverlays turns the configured platforms into the non-Albert
 // provider blocks of the managed OpenCode config. Albert keeps its curated
 // model definitions in ManagedOverlay.Models.
 func resolveProviderOverlays(providers []codebox.InferenceProvider, activeModels ...string) []codebox.ProviderOverlay {
-	path, err := codebox.UserSettingsPath()
-	if err != nil {
-		return nil
+	return resolveProviderOverlaysForProject("", providers, activeModels...)
+}
+
+func resolveProviderOverlaysForProject(projectRoot string, providers []codebox.InferenceProvider, activeModels ...string) []codebox.ProviderOverlay {
+	var us codebox.UserSettings
+	if path, err := codebox.UserSettingsPath(); err == nil {
+		if read, readErr := codebox.ReadUserSettings(codebox.DefaultFS, path); readErr == nil {
+			us = read
+		}
 	}
-	us, readErr := codebox.ReadUserSettings(codebox.DefaultFS, path)
-	if readErr != nil {
-		return nil
-	}
+	projectModels := projectManifestModels(projectRoot)
 	var out []codebox.ProviderOverlay
 	for _, provider := range providers {
 		if provider.Kind == codebox.ProviderAlbert {
 			continue
 		}
-		ids := codebox.ProviderModelIDs(us.Models, provider.Kind)
+		ids := codebox.ProviderModelIDs(projectModels, provider.Kind)
+		if len(ids) == 0 {
+			ids = codebox.ProviderModelIDs(us.Models, provider.Kind)
+		}
 		for _, activeModel := range activeModels {
 			activeKind, activeID := codebox.ProviderModelID(activeModel)
 			if activeModel != "" && activeKind == provider.Kind && activeID != "" && !containsString(ids, activeID) {
@@ -1074,32 +1091,37 @@ func canonicalAlbertModelID(id string) string {
 }
 
 func resolveEnabledAlbertModels(activeModels ...string) []codebox.AlbertModelConfig {
+	return resolveEnabledAlbertModelsForProject("", activeModels...)
+}
+
+func resolveEnabledAlbertModelsForProject(projectRoot string, activeModels ...string) []codebox.AlbertModelConfig {
 	for i, activeModel := range activeModels {
 		activeModels[i] = canonicalAlbertModelRef(activeModel)
 	}
-	path, err := codebox.UserSettingsPath()
 	var ids []string
-	if err == nil {
-		if settings, readErr := codebox.ReadUserSettings(codebox.DefaultFS, path); readErr == nil {
-			for _, ref := range codebox.ProviderModelIDs(settings.Models, codebox.ProviderAlbert) {
-				ids = append(ids, canonicalAlbertModelID(ref))
+	addID := func(raw string) {
+		id := canonicalAlbertModelID(raw)
+		if id != "" && !containsString(ids, id) {
+			ids = append(ids, id)
+		}
+	}
+	for _, ref := range codebox.ProviderModelIDs(projectManifestModels(projectRoot), codebox.ProviderAlbert) {
+		addID(ref)
+	}
+	if len(ids) == 0 {
+		if path, err := codebox.UserSettingsPath(); err == nil {
+			if settings, readErr := codebox.ReadUserSettings(codebox.DefaultFS, path); readErr == nil {
+				for _, ref := range codebox.ProviderModelIDs(settings.Models, codebox.ProviderAlbert) {
+					addID(ref)
+				}
 			}
 		}
 	}
 	if len(ids) == 0 {
-		embeddedOnly := true
-		for _, activeModel := range activeModels {
-			if activeModel != "" && activeModel != "albert/deepseek-v4-flash" {
-				embeddedOnly = false
-			}
-		}
-		if embeddedOnly {
-			return nil
-		}
+		// Expose all curated Albert models by default so OpenCode's /models
+		// selector is not stuck on the two legacy embedded entries (#506).
 		for _, choice := range codebox.CuratedAlbertModels() {
-			if choice.Default {
-				ids = append(ids, choice.ID)
-			}
+			addID(choice.ID)
 		}
 	}
 	var configured []codebox.AlbertModelConfig

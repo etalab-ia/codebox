@@ -174,6 +174,9 @@ type ProjectManifest struct {
 	Runtime   string `json:"runtime,omitempty"`
 	Isolation string `json:"isolation,omitempty"`
 	Model     string `json:"model,omitempty"`
+	// Models is the set of models enabled in the agent's model picker for this
+	// project. Empty falls back to user settings, then all curated Albert models.
+	Models []string `json:"models,omitempty"`
 	// Harness is the agent harness the project runs (#176). Empty means the
 	// default: OpenCode. The field carries semantic weight — a manifest that
 	// selects anything else must not be read by a binary that would silently

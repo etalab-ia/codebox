@@ -263,7 +263,7 @@ func runtimeInstallDetail(installed bool) string {
 	if installed {
 		return "marqueur de provenance et fichiers requis présents"
 	}
-	return "non installé ; lancez 'codebox start --microsandbox' ou 'codebox setup'"
+	return "non installé ; téléchargé automatiquement au premier lancement ('codebox')"
 }
 
 func (d Diagnostics) toolchainSection(ctx context.Context) DiagnosticSection {

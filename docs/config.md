@@ -78,14 +78,18 @@ l'invité ; confirmer la perte avant de l'exécuter.
 ## Configurer la machine (`setup`)
 
 Le premier `codebox` dans un projet, comme `codebox init` en interactif, utilise
-un parcours combiné de six écrans : accueil, plateforme et clé, agent, machine
-isolée, skills, puis MCP. Le choix de la plateforme est fait pour chaque projet ;
-les clés déjà enregistrées sur le poste sont réutilisables sans être resaisies.
-Aucune skill ni aucun MCP n'est présélectionné et une sélection vide est validée
-directement. GitHub n'est demandé que si le projet a une origine distante. Le
-modèle, le stockage des skills, l'isolation et les ressources se règlent avec
-`codebox init --advanced`. Le runtime est téléchargé au lancement, pas pendant
-la configuration.
+un parcours combiné de six écrans : accueil, plateforme/clé et modèles, agent,
+machine isolée, skills, puis MCP. Le choix de la plateforme et des modèles est
+fait pour chaque projet (les cinq modèles Albert recommandés sont cochés par
+défaut, avec DeepSeek V4 Flash comme modèle principal) ; les clés déjà
+enregistrées sur le poste sont réutilisables sans être resaisies. Aucune skill
+ni aucun MCP n'est présélectionné et une sélection vide est validée directement.
+GitHub n'est demandé que si le projet a une origine distante. Le modèle
+principal, le petit modèle, le stockage des skills, l'isolation et les
+ressources restent modifiables avec `codebox init --advanced` (qui ouvre
+directement les réglages techniques sur un projet déjà configuré). Le runtime
+Microsandbox est téléchargé automatiquement au premier lancement, pas pendant la
+configuration.
 
 `codebox setup` gère séparément les connexions et les défauts du poste :
 diagnostic (plateforme, virtualisation, disque — lecture seule) → plateformes et
@@ -96,18 +100,20 @@ explicitement. Les données concernées sont décrites dans
 [Statistiques d'usage](stats.md).
 
 L'ordre suit celui annoncé par l'écran d'introduction : plateformes et clés,
-modèles, puis GitHub. Pour Albert API, l'écran présente les quatre modèles
-retenus et pré-sélectionne DeepSeek V4 Flash par défaut, tandis que Qwen3 Coder
-reste un choix explicite possible. Pour Mistral AI et une plateforme compatible
-OpenAI, il lit le catalogue brut de la plateforme à
+modèles, puis GitHub. Pour Albert API, l'écran présente les cinq modèles
+retenus ; lorsqu'aucune liste explicite n'est enregistrée dans le projet ni dans
+les réglages globaux, les cinq modèles Albert retenus sont tous exposés dans
+`/models` d'OpenCode avec DeepSeek V4 Flash par défaut. Pour Mistral AI et une
+plateforme compatible OpenAI, il lit le catalogue brut de la plateforme à
 l'exécution. La disponibilité Albert vient du catalogue Albert API ; un modèle
 absent est marqué indisponible et ne peut pas être choisi. Si un catalogue est
 injoignable, la sélection actuelle est conservée. Les modèles cochés sont
-enregistrés dans les réglages utilisateur et sont proposés par `/models` dans
-OpenCode. Un seul modèle est par défaut, toutes plateformes confondues. Si
-`CODEBOX_MODEL` ou le manifeste du projet impose un autre modèle, ce modèle
-est aussi exposé pour que le lancement reste possible. Le choix par défaut peut
-ensuite être modifié avec `codebox setup`.
+enregistrés dans le manifeste du projet (`models` dans `.codebox/project.json`,
+ou dans `settings.json` pour `codebox setup`) et sont proposés par `/models`
+dans OpenCode. Un seul modèle est par défaut, toutes plateformes confondues. Si
+`CODEBOX_MODEL` ou le manifeste du projet impose un autre modèle, ce modèle est
+aussi exposé pour que le lancement reste possible. Le choix par défaut peut
+ensuite être modifié avec `codebox init --advanced` ou `codebox setup`.
 
 OpenCode exige que chaque objet `limit` définisse à la fois `context` et
 `output`. codebox n'écrit cet objet que lorsque les deux valeurs sont

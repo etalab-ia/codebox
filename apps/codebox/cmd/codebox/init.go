@@ -55,9 +55,27 @@ func initCmd(args []string) (int, error) {
 		// Keep one reader for any legacy credential-stage fallback. The combined
 		// interactive flow itself is Huh-only; scripts use flags and --yes.
 		in := bufio.NewReaderSize(os.Stdin, 1)
+		if opts.Advanced && !opts.Replace && projectManifestExistsAt(opts.Root) {
+			// Interactive `codebox init --advanced` on an already-configured
+			// project opens the expert settings screen directly and saves the
+			// updated manifest instead of repeating the 6 screens and failing
+			// before the expert screen (#506).
+			opts.Replace = true
+			opts.AdvancedOnly = true
+			return initRun(opts, in, tty)
+		}
 		return combinedFirstRunFn(opts, in)
 	}
 	return initRun(opts, bufio.NewReader(os.Stdin), tty)
+}
+
+func projectManifestExistsAt(root string) bool {
+	pc, err := codebox.DiscoverProject(root)
+	if err != nil {
+		return false
+	}
+	_, err = codebox.DefaultFS.ReadFile(codebox.ProjectManifestPath(pc.Root))
+	return err == nil
 }
 
 func initOptionsWithDisplayedRoot(opts initOptions) initOptions {
@@ -172,6 +190,7 @@ type initOptions struct {
 	Isolation       string
 	Harness         string
 	Model           string
+	Models          []string
 	SmallModel      string
 	LocalServer     string
 	CPUs            int
@@ -188,6 +207,9 @@ type initOptions struct {
 	// questions and before the configuration is applied (#333). It has no
 	// effect on non-interactive runs.
 	Advanced bool
+	// AdvancedOnly skips the standard wizard screens and opens the expert
+	// settings directly when reconfiguring an existing project (#506).
+	AdvancedOnly bool
 	// Combined selects the approved six-screen first-run defaults. It changes
 	// presentation only; planning, application and trust checks stay shared.
 	Combined bool
@@ -373,6 +395,8 @@ func initRun(opts initOptions, in *bufio.Reader, tty bool) (code int, err error)
 		Isolation:          codebox.Isolation(opts.Isolation),
 		Harness:            opts.Harness,
 		Model:              opts.Model,
+		Models:             append([]string(nil), opts.Models...),
+		ModelsSet:          opts.Set["models"],
 		SmallModel:         normalizeInitModelInput(opts.SmallModel),
 		CPUs:               opts.CPUs,
 		MemoryMB:           opts.MemoryMB,
@@ -493,7 +517,7 @@ func initRun(opts initOptions, in *bufio.Reader, tty bool) (code int, err error)
 	// The wizard applies the configuration as soon as its questions pass
 	// (#333): there is no confirmation screen. askQuestions gates the
 	// default-path questions; only the GitHub re-probe below reopens them.
-	askQuestions := true
+	askQuestions := !opts.AdvancedOnly
 	interactiveReview := tty && !opts.Yes
 	// --advanced opens the expert settings once, after the questions (#333).
 	advancedDone := !opts.Advanced
@@ -604,28 +628,9 @@ func initRun(opts initOptions, in *bufio.Reader, tty bool) (code int, err error)
 		if err != nil {
 			return 1, err
 		}
-		if plan.ExistingManifest != nil && !opts.Replace {
-			fmt.Print(codebox.FormatInitReview(plan))
-			return 1, fmt.Errorf("%s existe déjà ; relancez avec --replace pour le remplacer, ou modifiez-le directement", plan.ManifestPath)
-		}
-		// Interactive runs apply directly and get the recap afterwards
-		// (#333); non-interactive runs keep the full review before the
-		// write, since nobody is there to see a post-mortem.
-		if !interactiveReview {
-			fmt.Print(codebox.FormatInitReview(plan))
-		}
-		if !tty && !opts.Yes {
-			resourceWarnings := codebox.GuestResourceWarnings(hostResources, plan.GuestCPUs, plan.GuestMemoryMB)
-			if len(resourceWarnings) > 0 {
-				return 1, fmt.Errorf("la configuration sans terminal avec une allocation de ressources élevée exige une confirmation explicite ; relancez avec --yes")
-			}
-		}
-		if !tty || opts.Yes {
-			break
-		}
-		if !advancedDone {
-			// --advanced opens the expert settings once, after the
-			// questions and before the configuration is applied (#333).
+		if tty && !opts.Yes && !advancedDone {
+			// --advanced opens the expert settings once, before any manifest
+			// replacement check or write (#333, #506).
 			advancedDone = true
 			askQuestions = false
 			answers.Advanced = true
@@ -641,6 +646,23 @@ func initRun(opts initOptions, in *bufio.Reader, tty bool) (code int, err error)
 				return 1, err
 			}
 			continue
+		}
+		allowReplace := opts.Replace || (tty && !opts.Yes && opts.Advanced)
+		if plan.ExistingManifest != nil && !allowReplace {
+			fmt.Print(codebox.FormatInitReview(plan))
+			return 1, fmt.Errorf("%s existe déjà ; relancez avec --replace pour le remplacer, ou modifiez-le directement", plan.ManifestPath)
+		}
+		// Interactive runs apply directly and get the recap afterwards
+		// (#333); non-interactive runs keep the full review before the
+		// write, since nobody is there to see a post-mortem.
+		if !interactiveReview {
+			fmt.Print(codebox.FormatInitReview(plan))
+		}
+		if !tty && !opts.Yes {
+			resourceWarnings := codebox.GuestResourceWarnings(hostResources, plan.GuestCPUs, plan.GuestMemoryMB)
+			if len(resourceWarnings) > 0 {
+				return 1, fmt.Errorf("la configuration sans terminal avec une allocation de ressources élevée exige une confirmation explicite ; relancez avec --yes")
+			}
 		}
 		break
 	}
@@ -687,7 +709,8 @@ func initRun(opts initOptions, in *bufio.Reader, tty bool) (code int, err error)
 	if plan.Answers.SmallModel != "" && codebox.ModelRefProvider(plan.Answers.SmallModel) == codebox.ProviderLocal && !hasLocalProvider {
 		return 1, fmt.Errorf("le petit modèle %q exige un serveur local (--local-server)", plan.Answers.SmallModel)
 	}
-	if err := wizard.Apply(plan, opts.Replace); err != nil {
+	allowReplace := opts.Replace || (tty && !opts.Yes && opts.Advanced)
+	if err := wizard.Apply(plan, allowReplace); err != nil {
 		if revokeContext7 {
 			return 1, fmt.Errorf("la configuration du projet n'a pas été écrite ; l'autorisation Context7 a été révoquée : %w", err)
 		}
@@ -883,6 +906,10 @@ func seedInitAnswersFromManifest(opts initOptions, answers codebox.InitAnswers) 
 	if !opts.Set["model"] {
 		answers.Model = opts.DefaultModel
 	}
+	if !opts.Set["models"] {
+		answers.Models = nil
+		answers.ModelsSet = false
+	}
 	if !opts.Set["small-model"] {
 		answers.SmallModel = ""
 	}
@@ -936,7 +963,9 @@ func seedInitAnswersFromManifest(opts initOptions, answers codebox.InitAnswers) 
 		answers.Harness = manifest.Harness
 	}
 	if !opts.Set["model"] {
-		if opts.DefaultModel != "" {
+		if opts.Set["models"] && opts.DefaultModel != "" {
+			answers.Model = opts.DefaultModel
+		} else if opts.DefaultModel != "" {
 			inheritedKind, _ := codebox.ProviderModelID(manifest.Model)
 			compatible := initProviderKindSelected(opts.Providers, inheritedKind)
 			if manifest.Model != "" && compatible {
@@ -946,6 +975,18 @@ func seedInitAnswersFromManifest(opts initOptions, answers codebox.InitAnswers) 
 			}
 		} else {
 			answers.Model = manifest.Model
+		}
+	}
+	if !opts.Set["models"] && len(manifest.Models) > 0 {
+		if opts.Set["providers"] {
+			for _, raw := range manifest.Models {
+				kind, _ := codebox.ProviderModelID(raw)
+				if initProviderKindSelected(opts.Providers, kind) {
+					answers.Models = append(answers.Models, raw)
+				}
+			}
+		} else {
+			answers.Models = append([]string(nil), manifest.Models...)
 		}
 	}
 	if !opts.Set["small-model"] {

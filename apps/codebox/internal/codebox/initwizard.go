@@ -35,6 +35,10 @@ type InitAnswers struct {
 	Isolation Isolation
 	// Model is the OpenCode model id. Empty keeps the built-in default.
 	Model string
+	// Models is the set of enabled models for this project. ModelsSet
+	// distinguishes an explicit selection from an untouched default.
+	Models    []string
+	ModelsSet bool
 	// SmallModel is the lightweight model used for titles. Empty follows the
 	// effective main model instead of pinning a duplicate selection.
 	SmallModel string
@@ -509,6 +513,9 @@ func (w InitWizard) Plan(answers InitAnswers) (InitPlan, error) {
 	if plan.ExistingManifest != nil {
 		if !answers.MCPsSet {
 			plan.Answers.MCPConnectors = append([]string(nil), plan.ExistingManifest.MCPConnectors...)
+		}
+		if !answers.ModelsSet && len(answers.Models) == 0 && len(plan.ExistingManifest.Models) > 0 {
+			plan.Answers.Models = append([]string(nil), plan.ExistingManifest.Models...)
 		}
 		selected = append(selected, plan.ExistingManifest.Skills...)
 		oldLocalOnly = plan.ExistingManifest.SkillsLocalOnly
@@ -1323,6 +1330,7 @@ func (w InitWizard) applyLocked(plan InitPlan, replace bool) error {
 		Runtime:         string(plan.Answers.Runtime),
 		Isolation:       string(plan.Answers.Isolation),
 		Model:           plan.Answers.Model,
+		Models:          append([]string(nil), plan.Answers.Models...),
 		Harness:         string(plan.Answers.Harness),
 		SmallModel:      plan.Answers.SmallModel,
 		CPUs:            plan.Answers.CPUs,

@@ -76,10 +76,10 @@ if [ "${1:-}" = version ]; then
 	printf 'codebox (Go)\n  version:  9.8.6\n'
 	exit 0
 fi
-[ "${1:-}" = setup ] || exit 7
-if [ "${2:-}" = --check-complete ]; then
+if [ "${1:-}" = setup ] && [ "${2:-}" = --check-complete ]; then
 	exit "${FAKE_SETUP_COMPLETE:-1}"
 fi
+[ "$#" -eq 0 ] || exit 7
 printf called > "$FAKE_SETUP_LOG"
 exit "${FAKE_SETUP_EXIT:-0}"
 EOF
@@ -130,26 +130,93 @@ run_installer() {
 home="$temp_root/home with spaces"
 mkdir -p "$home/.local/bin"
 printf 'old version\n' > "$home/.local/bin/codebox"
+rm -f "$temp_root/setup-called"
 run_installer "$home" "$good_sums" 0 0 0 > "$temp_root/success.out"
 cmp -s "$home/.local/bin/codebox" "$fake_binary" || { printf 'new binary was not installed\n' >&2; exit 1; }
 [ "$(cat "$home/.local/bin/codebox.previous")" = 'old version' ] || {
 	printf 'prior binary was not retained\n' >&2
 	exit 1
 }
-[ -f "$temp_root/setup-called" ] || { printf 'setup was not invoked\n' >&2; exit 1; }
+[ ! -e "$temp_root/setup-called" ] || { printf 'non-interactive install unexpectedly launched interactive codebox\n' >&2; exit 1; }
 grep -F "$release_tag" "$temp_root/urls" >/dev/null || { printf 'downloads were not pinned to one release\n' >&2; exit 1; }
 
-# The install result must be announced before the setup wizard runs, in French,
+# The install result must be announced before the next-step guidance, in French,
 # with the resolved version and platform.
 success_out="$temp_root/success.out"
 grep -F 'Installation de codebox' "$success_out" >/dev/null || { printf 'installer header is not in French\n' >&2; exit 1; }
 grep -F '✓ Version 9.8.7 téléchargée (Linux x64)' "$success_out" >/dev/null || { printf 'version/platform line missing or wrong\n' >&2; exit 1; }
 grep -F '✓ Intégrité vérifiée' "$success_out" >/dev/null || { printf 'integrity line missing\n' >&2; exit 1; }
 grep -F '✓ Installé dans ~/.local/bin/codebox' "$success_out" >/dev/null || { printf 'installed-path line missing\n' >&2; exit 1; }
-grep -F 'Lancement de la configuration' "$success_out" >/dev/null || { printf 'setup launch line missing\n' >&2; exit 1; }
+grep -F "Ouvrez un terminal dans le dossier d'un projet puis lancez :" "$success_out" >/dev/null || { printf 'non-interactive next-step guidance missing\n' >&2; exit 1; }
+grep -F '"$HOME/.local/bin/codebox"' "$success_out" >/dev/null || { printf 'non-interactive launch command missing\n' >&2; exit 1; }
 install_line=$(grep -n 'Installé dans ~/.local/bin/codebox' "$success_out" | cut -d: -f1)
-launch_line=$(grep -n 'Lancement de la configuration' "$success_out" | cut -d: -f1)
-[ "$install_line" -lt "$launch_line" ] || { printf 'install result did not appear before setup\n' >&2; exit 1; }
+guidance_line=$(grep -n 'Ouvrez un terminal dans le dossier' "$success_out" | cut -d: -f1)
+[ "$install_line" -lt "$guidance_line" ] || { printf 'install result did not appear before next-step guidance\n' >&2; exit 1; }
+
+# Interactive terminal (including curl | sh where stdin is a pipe while stdout
+# and /dev/tty are the controlling terminal): the installer must invoke bare
+# `codebox` (the 6-step first-run flow), never legacy `codebox setup`.
+pipe_tty_home="$temp_root/pipe tty home"
+mkdir -p "$pipe_tty_home/.local/bin"
+python3 - "$pipe_tty_home" "$installer" "$fake_bin" "$asset" "$good_sums" "$release_url" "$fake_binary" "$real_mv" <<'PY' > "$temp_root/pipe-tty.out" 2>&1
+import os, pty, sys, time, select
+home, installer, fake_bin, asset, sums, relurl, binary, real_mv = sys.argv[1:9]
+setup_log = os.path.join(home, "launch-called")
+env = {
+    "HOME": home, "PATH": f"{fake_bin}:{home}/.local/bin:/usr/bin:/bin", "SHELL": "/bin/zsh", "TERM": "xterm",
+    "FAKE_OS": "Linux", "FAKE_ARCH": "x86_64", "FAKE_ASSET": asset, "FAKE_BINARY": binary,
+    "FAKE_SUMS": sums, "FAKE_URL_LOG": os.path.join(home, "urls"),
+    "FAKE_RELEASE_URL": relurl, "FAKE_SETUP_LOG": setup_log,
+    "FAKE_TARGET": os.path.join(home, ".local/bin/codebox"), "REAL_MV": real_mv,
+}
+pid, fd = pty.fork()
+if pid == 0:
+    # Simulate `curl ... | sh`: stdin is a pipe, while stdout and /dev/tty stay on the PTY.
+    r_fd, w_fd = os.pipe()
+    with open(installer, "rb") as f:
+        script_bytes = f.read()
+    if os.fork() == 0:
+        os.close(r_fd)
+        os.write(w_fd, script_bytes)
+        os.close(w_fd)
+        os._exit(0)
+    os.close(w_fd)
+    os.dup2(r_fd, 0)
+    os.close(r_fd)
+    os.execve("/bin/sh", ["sh"], env)
+out = b""
+deadline = time.time() + 8
+while time.time() < deadline:
+    r, _, _ = select.select([fd], [], [], 0.3)
+    if r:
+        try: chunk = os.read(fd, 4096)
+        except OSError: break
+        if not chunk: break
+        out += chunk
+    if os.path.exists(setup_log):
+        # Drain remaining output briefly
+        _, status = os.waitpid(pid, os.WNOHANG)
+        if status != 0 or True:
+            break
+quiet = time.time() + 1.5
+while time.time() < quiet:
+    r, _, _ = select.select([fd], [], [], 0.2)
+    if not r: break
+    try: chunk = os.read(fd, 4096)
+    except OSError: break
+    if not chunk: break
+    out += chunk
+try:
+    os.waitpid(pid, 0)
+except ChildProcessError:
+    pass
+sys.stdout.write(out.decode("utf-8", "replace"))
+PY
+[ -f "$pipe_tty_home/launch-called" ] || { printf 'curl|sh interactive install did not invoke bare codebox\n' >&2; cat "$temp_root/pipe-tty.out" >&2; exit 1; }
+grep -F 'Lancement de la configuration' "$temp_root/pipe-tty.out" >/dev/null || { printf 'interactive launch banner missing\n' >&2; exit 1; }
+install_line=$(grep -n 'Installé dans ~/.local/bin/codebox' "$temp_root/pipe-tty.out" | cut -d: -f1)
+launch_line=$(grep -n 'Lancement de la configuration' "$temp_root/pipe-tty.out" | cut -d: -f1)
+[ "$install_line" -lt "$launch_line" ] || { printf 'install result did not appear before interactive launch\n' >&2; exit 1; }
 
 # A completed installation upgrading to a new binary reports the transition and
 # keeps its configuration without launching the first-run wizard. The fake
@@ -268,25 +335,60 @@ fi
 cmp -s "$target" "$temp_root/expected-target" || { printf 'failed replacement changed the installed binary\n' >&2; exit 1; }
 cmp -s "$home/.local/bin/codebox.previous" "$temp_root/expected-target" || { printf 'rollback copy missing after failed replacement\n' >&2; exit 1; }
 
-if run_installer "$home" "$good_sums" 0 0 9 > "$temp_root/setup-failure.out" 2>&1; then
-	printf 'setup failure unexpectedly succeeded\n' >&2
-	exit 1
-fi
+# Interactive launch failure (exit 9): binary stays installed, previous binary
+# is retained, rollback command and bare codebox resume command are printed.
+set +e
+python3 - "$home" "$installer" "$fake_bin" "$asset" "$good_sums" "$release_url" "$fake_binary" "$real_mv" "$temp_root/setup-failure.exit" <<'PY' > "$temp_root/setup-failure.out" 2>&1
+import os, pty, sys, time, select
+home, installer, fake_bin, asset, sums, relurl, binary, real_mv, exit_file = sys.argv[1:10]
+env = {
+    "HOME": home, "PATH": f"{fake_bin}:{home}/.local/bin:/usr/bin:/bin", "SHELL": "/bin/zsh", "TERM": "xterm",
+    "FAKE_OS": "Linux", "FAKE_ARCH": "x86_64", "FAKE_ASSET": asset, "FAKE_BINARY": binary,
+    "FAKE_SUMS": sums, "FAKE_URL_LOG": os.path.join(home, "urls-fail"),
+    "FAKE_RELEASE_URL": relurl, "FAKE_SETUP_LOG": os.path.join(home, "setup-fail-called"),
+    "FAKE_TARGET": os.path.join(home, ".local/bin/codebox"),
+    "FAKE_SETUP_EXIT": "9", "REAL_MV": real_mv,
+}
+pid, fd = pty.fork()
+if pid == 0:
+    os.execve("/bin/sh", ["sh", installer], env)
+out = b""
+deadline = time.time() + 10
+while time.time() < deadline:
+    r, _, _ = select.select([fd], [], [], 0.3)
+    if r:
+        try: chunk = os.read(fd, 4096)
+        except OSError: break
+        if not chunk: break
+        out += chunk
+    else:
+        wpid, status = os.waitpid(pid, os.WNOHANG)
+        if wpid == pid:
+            with open(exit_file, "w") as f:
+                f.write(str(os.waitstatus_to_exitcode(status)))
+            break
+if not os.path.exists(exit_file):
+    _, status = os.waitpid(pid, 0)
+    with open(exit_file, "w") as f:
+        f.write(str(os.waitstatus_to_exitcode(status)))
+sys.stdout.write(out.decode("utf-8", "replace"))
+PY
+set -e
+[ "$(cat "$temp_root/setup-failure.exit")" -eq 9 ] || { printf 'setup failure returned unexpected exit code %s\n' "$(cat "$temp_root/setup-failure.exit")" >&2; cat "$temp_root/setup-failure.out" >&2; exit 1; }
 cmp -s "$target" "$fake_binary" || { printf 'setup failure rolled back the new binary unexpectedly\n' >&2; exit 1; }
 [ "$(cat "$home/.local/bin/codebox.previous")" = 'keep me' ] || { printf 'setup failure did not retain the previous binary\n' >&2; exit 1; }
-# The rollback command must use unquoted absolute paths so a copied line works
-# (a quoted ~ would not expand in most shells).
 # Quoted, so the line survives a HOME containing spaces (this test's $home has
 # one); a bare absolute path would split at the space when pasted.
 grep -F 'Pour revenir à la version précédente : mv "$HOME/.local/bin/codebox.previous" "$HOME/.local/bin/codebox"' "$temp_root/setup-failure.out" >/dev/null || { printf 'setup failure omitted a usable rollback command\n' >&2; exit 1; }
 
 # No interactive terminal: the installer must NOT edit a shell profile file on
-# its own, must say how to get PATH in the current shell, and must still launch
-# the setup wizard (with its stdin reattached to the terminal).
+# its own, must say how to get PATH in the current shell, and must NOT launch
+# interactive codebox (which requires a TTY); instead it prints next-step guidance.
 if command -v setsid >/dev/null 2>&1; then
 	detached_home="$temp_root/detached home"
 	mkdir -p "$detached_home"
 	: > "$temp_root/detached-urls"
+	rm -f "$temp_root/detached-setup-called"
 	set +e
 	setsid env FAKE_OS=Linux FAKE_ARCH=x86_64 FAKE_ASSET=$asset FAKE_BINARY="$fake_binary" \
 		FAKE_SUMS="$good_sums" FAKE_URL_LOG="$temp_root/detached-urls" \
@@ -297,12 +399,13 @@ if command -v setsid >/dev/null 2>&1; then
 	detached_status=$?
 	set -e
 	[ "$detached_status" -eq 0 ] || { printf 'headless install did not complete (exit %s)\n' "$detached_status" >&2; exit 1; }
-	[ -f "$temp_root/detached-setup-called" ] || { printf 'headless install did not launch setup\n' >&2; exit 1; }
+	[ ! -e "$temp_root/detached-setup-called" ] || { printf 'headless install unexpectedly launched interactive codebox\n' >&2; exit 1; }
 	for profile in .zshenv .bash_profile .profile .zprofile .bashrc; do
 		[ ! -e "$detached_home/$profile" ] || { printf 'headless install edited ~/%s without asking\n' "$profile" >&2; exit 1; }
 	done
 	grep -F 'ne serait pas trouvée dans un nouveau terminal' "$temp_root/detached.out" >/dev/null || { printf 'headless install did not warn about PATH\n' >&2; exit 1; }
 	grep -F 'export PATH="$HOME/.local/bin:$PATH"' "$temp_root/detached.out" >/dev/null || { printf 'headless install did not print the PATH line\n' >&2; exit 1; }
+	grep -F "Ouvrez un terminal dans le dossier d'un projet puis lancez :" "$temp_root/detached.out" >/dev/null || { printf 'headless install did not print project launch guidance\n' >&2; exit 1; }
 fi
 
 	# Linux never targets a login file: a new terminal there is a non-login
@@ -531,10 +634,10 @@ PY
 	mkdir -p "$sig_home"
 	cat > "$temp_root/sig-setup" <<'EOS'
 #!/bin/sh
-[ "${1:-}" = setup ] || exit 0
-if [ "${2:-}" = --check-complete ]; then
+if [ "${1:-}" = setup ] && [ "${2:-}" = --check-complete ]; then
 	exit 1
 fi
+[ "$#" -eq 0 ] || exit 7
 printf called > "$FAKE_SETUP_LOG"
 printf 'assistant demarre\n'
 sleep 20
@@ -591,7 +694,11 @@ sys.stdout.write(out.decode("utf-8", "replace"))
 PY
 	grep -F 'assistant demarre' "$temp_root/sig.out" >/dev/null || { printf 'the wizard never started\n' >&2; exit 1; }
 	grep -F 'La configuration a été interrompue.' "$temp_root/sig.out" >/dev/null || { printf 'an interrupted setup must reach the recovery block\n' >&2; exit 1; }
-	grep -F 'Reprenez-la quand vous voulez : "$HOME/.local/bin/codebox" setup' "$temp_root/sig.out" >/dev/null || { printf 'an interrupted setup must print the resume command\n' >&2; exit 1; }
+	grep -F 'Reprenez-la quand vous voulez : "$HOME/.local/bin/codebox"' "$temp_root/sig.out" >/dev/null || { printf 'an interrupted setup must print the resume command\n' >&2; exit 1; }
+	if grep -F '"$HOME/.local/bin/codebox" setup' "$temp_root/sig.out" >/dev/null; then
+		printf 'an interrupted setup must not point back to legacy setup\n' >&2
+		exit 1
+	fi
 
 	# Linux bash with an existing ~/.bashrc: a new terminal there is a
 	# non-login shell, which reads ~/.bashrc and neither ~/.bash_profile nor
@@ -822,7 +929,11 @@ PY
 # containing shell metacharacters cannot break the copied command.
 # The command must name the BINARY, not the containing directory: pasting a
 # directory path fails with "Is a directory".
-grep -F 'Reprenez-la quand vous voulez : "$HOME/.local/bin/codebox" setup' "$temp_root/setup-failure.out" >/dev/null || { printf 'setup failure omitted a resolvable resume command\n' >&2; exit 1; }
+grep -F 'Reprenez-la quand vous voulez : "$HOME/.local/bin/codebox"' "$temp_root/setup-failure.out" >/dev/null || { printf 'setup failure omitted a resolvable resume command\n' >&2; exit 1; }
+if grep -F '"$HOME/.local/bin/codebox" setup' "$temp_root/setup-failure.out" >/dev/null; then
+	printf 'setup failure must not point back to legacy setup\n' >&2
+	exit 1
+fi
 grep -F "codebox est installé, mais la configuration n'est pas terminée." "$temp_root/setup-failure.out" >/dev/null || { printf 'setup failure message is not in French\n' >&2; exit 1; }
 
 unsupported_home="$temp_root/unsupported"

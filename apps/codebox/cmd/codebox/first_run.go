@@ -20,9 +20,17 @@ var combinedFirstRunFn = combinedFirstRun
 
 var firstRunChoosePlatformsFn = chooseSetupPlatformsWithTitle
 
-// combinedFirstRun runs the approved six-screen flow: welcome, provider/key,
-// agent, runtime, skills and MCP. The last four screens belong to initRun;
-// GitHub and advanced settings are conditional, not additional default steps.
+// firstRunChooseModelsFn runs the per-project model selection inside step [2/6].
+// Tests can stub it independently of setupModelPickerRun when needed.
+var firstRunChooseModelsFn = func(providers []codebox.InferenceProvider, current []string, currentDefault string) ([]string, string, error) {
+	models, defaultModel, _, err := promptSetupModelsWithPrefix(providers, current, currentDefault, "[2/6]", true)
+	return models, defaultModel, err
+}
+
+// combinedFirstRun runs the approved six-screen flow: welcome, provider/key &
+// models, agent, runtime, skills and MCP. The last four screens belong to
+// initRun; GitHub and advanced settings are conditional, not additional
+// default steps.
 func combinedFirstRun(opts initOptions, in *bufio.Reader) (int, error) {
 	if !wizardHuhFn() {
 		return 1, fmt.Errorf("le premier parcours interactif utilise un terminal ; en script, fournissez les options nécessaires et --yes, sans réponses sur stdin")
@@ -113,12 +121,31 @@ func combinedFirstRun(opts initOptions, in *bufio.Reader) (int, error) {
 		return 1, err
 	}
 	if !opts.Set["model"] {
-		defaultModel, err := firstRunDefaultModel(opts.Root, defaultProviders)
-		if err != nil {
-			if !opts.Advanced {
-				return 1, err
+		defaultModel, defaultErr := firstRunDefaultModel(opts.Root, defaultProviders)
+		if providersCollected {
+			currentModels := firstRunModelDefaults(opts.Root, defaultProviders)
+			chosenModels, chosenDefault, pickErr := firstRunChooseModelsFn(defaultProviders, currentModels, defaultModel)
+			if pickErr != nil {
+				if errors.Is(pickErr, huh.ErrUserAborted) {
+					return 1, pickErr
+				}
+				if !opts.Advanced {
+					if defaultErr != nil {
+						return 1, defaultErr
+					}
+					return 1, pickErr
+				}
+				fmt.Fprintf(os.Stderr, "Attention : %v\n", pickErr)
+			} else {
+				opts.Models = chosenModels
+				opts.Set["models"] = true
+				opts.DefaultModel = chosenDefault
 			}
-			fmt.Fprintf(os.Stderr, "Attention : %v\n", err)
+		} else if defaultErr != nil {
+			if !opts.Advanced {
+				return 1, defaultErr
+			}
+			fmt.Fprintf(os.Stderr, "Attention : %v\n", defaultErr)
 		} else {
 			opts.DefaultModel = defaultModel
 		}
@@ -230,6 +257,41 @@ func firstRunProviderDefaults(ctx context.Context, opts initOptions, j *codebox.
 		}
 	}
 	return platforms, nil
+}
+
+// firstRunModelDefaults seeds the per-project model picker from an existing
+// project manifest first, then from compatible machine-level user settings.
+// Returning nil triggers fresh provider defaults (all curated Albert models).
+func firstRunModelDefaults(root string, providers []codebox.InferenceProvider) []string {
+	filter := func(models []string) []string {
+		var out []string
+		for _, raw := range models {
+			kind, id := codebox.ProviderModelID(raw)
+			if id == "" {
+				continue
+			}
+			for _, provider := range providers {
+				if provider.Kind == kind && provider.Kind != codebox.ProviderLocal {
+					out = append(out, raw)
+					break
+				}
+			}
+		}
+		return out
+	}
+	if pc, err := codebox.DiscoverProject(root); err == nil {
+		if manifest, err := codebox.ReadProjectManifest(codebox.DefaultFS, codebox.ProjectManifestPath(pc.Root)); err == nil && len(manifest.Models) > 0 {
+			if compatible := filter(manifest.Models); len(compatible) > 0 {
+				return compatible
+			}
+		}
+	}
+	if us, ok := currentUserSettings(); ok && len(us.Models) > 0 {
+		if compatible := filter(us.Models); len(compatible) > 0 {
+			return compatible
+		}
+	}
+	return nil
 }
 
 // firstRunDefaultModel resolves the model recorded in the project manifest.

@@ -58,10 +58,11 @@ func RuntimeInstallCheck(rt Runtime) (installed bool, installHint string) {
 		_, err := exec.LookPath("limactl")
 		return err == nil, "brew install lima"
 	default:
-		hint := "codebox setup"
+		// Microsandbox is downloaded automatically on first launch (#495, #506),
+		// so there is no manual install command to print.
 		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 		defer cancel()
-		return validateInstalledMSBRuntime(ctx) == nil, hint
+		return validateInstalledMSBRuntime(ctx) == nil, ""
 	}
 }
 

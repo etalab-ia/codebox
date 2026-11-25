@@ -29,6 +29,14 @@ func stubCombinedRunEnvironment(t *testing.T, completed bool) (stateDir string, 
 	hostGitIdentityFn = func() (string, string) { return "Test User", "test@example.test" }
 	wizard := wizardHuhFn
 	wizardHuhFn = func() bool { return true }
+	albertCatalogue := setupModelCatalogueFn
+	setupModelCatalogueFn = func() (codebox.Catalogue, bool, error) {
+		cat := codebox.Catalogue{}
+		for _, choice := range codebox.CuratedAlbertModels() {
+			cat.Models = append(cat.Models, codebox.CatalogueModel{ID: choice.ID, Type: "text-generation"})
+		}
+		return cat, true, nil
+	}
 	run := huhRun
 	forms = &[]string{}
 	huhRun = func(form *huh.Form) error {
@@ -49,6 +57,7 @@ func stubCombinedRunEnvironment(t *testing.T, completed bool) (stateDir string, 
 		setupCredentialPresentFn = credentialPresent
 		hostGitIdentityFn = identity
 		wizardHuhFn = wizard
+		setupModelCatalogueFn = albertCatalogue
 		huhRun = run
 		combinedFirstRunInitFn = initRun
 	})
@@ -72,11 +81,19 @@ func TestCombinedFirstRunFreshMachineUsesSixScreenContract(t *testing.T) {
 	if providerTitle != "[2/6] Fournisseur et clé" {
 		t.Fatalf("provider title = %q", providerTitle)
 	}
-	if len(*forms) != 1 || !strings.Contains((*forms)[0], "[1/6] Bienvenue dans codebox") {
-		t.Fatalf("welcome forms = %v", *forms)
+	if len(*forms) != 3 || !strings.Contains((*forms)[0], "[1/6] Bienvenue dans codebox") ||
+		!strings.Contains((*forms)[1], "[2/6] Sélection des modèles à utiliser") ||
+		!strings.Contains((*forms)[2], "[2/6] Modèle par défaut") {
+		t.Fatalf("first-run forms = %v", *forms)
 	}
 	if !initOpts.Combined || !initOpts.Set["providers"] || len(initOpts.Providers) != 1 || initOpts.Providers[0].Kind != codebox.ProviderAlbert {
 		t.Fatalf("init options = %+v", *initOpts)
+	}
+	if !initOpts.Set["models"] || len(initOpts.Models) != len(codebox.CuratedAlbertModels()) {
+		t.Fatalf("project models = %v, want all %d curated Albert models", initOpts.Models, len(codebox.CuratedAlbertModels()))
+	}
+	if initOpts.DefaultModel != "albert/deepseek-v4-flash" {
+		t.Fatalf("project default model = %q, want albert/deepseek-v4-flash", initOpts.DefaultModel)
 	}
 	if _, err := os.Stat(codebox.SetupJournalPath(stateDir)); !os.IsNotExist(err) {
 		t.Fatalf("completed combined run must remove the setup journal: %v", err)

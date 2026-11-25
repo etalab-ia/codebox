@@ -685,13 +685,8 @@ func askInitAdvancedHuh(opts initOptions, answers codebox.InitAnswers) (codebox.
 				Description(fmt.Sprintf("Maximum sur ce poste : %s. 6 Go conseillés avec chrome-devtools. Vide ou 'défaut' rétablit la valeur par défaut. Échap : annuler cette modification.", codebox.FormatMemorySize(opts.maxMemoryMB))).
 				Validate(func(s string) error { _, _, err := parseGuestMemoryInput(s, opts.maxMemoryMB); return err }).Value(&input)
 		case "model":
-			input = answers.Model
-			field = huh.NewInput().Title("Modèle principal").
-				Description("Identifiant du modèle Albert ('codebox models' liste les modèles). Vide ou 'défaut' reprend le modèle défini dans setup. Échap : annuler cette modification.").
-				Validate(func(s string) error {
-					_, err := validateInitModelInput(answers.Root, s, initHarnessValue(answers))
-					return err
-				}).Value(&input)
+			input = canonicalAlbertModelRef(answers.Model)
+			field = newInitModelSelect(answers, &input)
 		case "small-model":
 			input = answers.SmallModel
 			field = newInitSmallModelSelect(answers.Root, &input, answers.Providers)
@@ -710,6 +705,23 @@ func askInitAdvancedHuh(opts initOptions, answers codebox.InitAnswers) (codebox.
 		}
 		if back {
 			continue
+		}
+		if choice == "model" && input == initCustomModelSentinel {
+			customInput := answers.Model
+			customField := huh.NewInput().Title("Modèle principal (identifiant personnalisé)").
+				Description("Identifiant du modèle ('codebox models' liste les modèles Albert). Vide ou 'défaut' reprend le modèle par défaut. Échap : annuler.").
+				Validate(func(s string) error {
+					_, err := validateInitModelInput(answers.Root, s, initHarnessValue(answers))
+					return err
+				}).Value(&customInput)
+			back, err = runInitAdvancedForm(huh.NewForm(huh.NewGroup(customField)))
+			if err != nil {
+				return answers, err
+			}
+			if back {
+				continue
+			}
+			input = customInput
 		}
 		switch choice {
 		case "isolation":
@@ -749,6 +761,51 @@ func askInitAdvancedHuh(opts initOptions, answers codebox.InitAnswers) (codebox.
 			answers.SkillsLocalOnlySet = true
 		}
 	}
+}
+
+const initCustomModelSentinel = "__codebox_custom_model__"
+
+func newInitModelSelect(answers codebox.InitAnswers, value *string) *huh.Select[string] {
+	options := []huh.Option[string]{
+		huh.NewOption("Modèle par défaut", ""),
+	}
+	seen := map[string]bool{"": true}
+	addOption := func(label, ref string) {
+		if ref == "" || seen[ref] {
+			return
+		}
+		seen[ref] = true
+		options = append(options, huh.NewOption(label, ref))
+	}
+	albertSelected := len(answers.Providers) == 0 || initProviderKindSelected(answers.Providers, codebox.ProviderAlbert)
+	if albertSelected {
+		for _, choice := range codebox.CuratedAlbertModels() {
+			addOption(choice.Name+" — "+choice.Description, choice.Ref())
+		}
+	}
+	for _, raw := range answers.Models {
+		ref := canonicalAlbertModelRef(raw)
+		if kind, id := codebox.ProviderModelID(ref); kind != "" && id != "" {
+			ref = codebox.ProviderModelRef(kind, id)
+		}
+		addOption(initModelDisplayName(ref), ref)
+	}
+	if cur := canonicalAlbertModelRef(answers.Model); cur != "" {
+		addOption(initModelDisplayName(cur)+" (actuel)", cur)
+	}
+	options = append(options, huh.NewOption("Saisir un identifiant personnalisé…", initCustomModelSentinel))
+	return huh.NewSelect[string]().
+		Title("Modèle principal").
+		Description("Choisissez le modèle principal du projet ou saisissez un identifiant personnalisé ('codebox models'). Échap : annuler.").
+		Options(options...).
+		Validate(func(s string) error {
+			if s == initCustomModelSentinel {
+				return nil
+			}
+			_, err := validateInitModelInput(answers.Root, s, initHarnessValue(answers))
+			return err
+		}).
+		Value(value)
 }
 
 func normalizeInitModelInput(value string) string {
@@ -802,7 +859,7 @@ func initRuntimeNotice(rt codebox.Runtime) string {
 	if rt == codebox.RuntimeTart || rt == codebox.RuntimeAgentVM {
 		notice = "Avec un dossier partagé, l'agent voit tous les fichiers du projet, y compris .env.\n"
 	}
-	if installed, hint := runtimeInstallHintFn(rt); !installed {
+	if installed, hint := runtimeInstallHintFn(rt); !installed && hint != "" {
 		notice += fmt.Sprintf("La machine choisie (%s) n'est pas installée. Installez-la : %s", rt, hint)
 	}
 	return strings.TrimSpace(notice)
