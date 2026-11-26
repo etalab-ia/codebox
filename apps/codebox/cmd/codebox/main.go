@@ -477,7 +477,7 @@ func run(args []string) (int, error) {
 	case "acp":
 		return acpCmd(d, cfg, rt, os.Stdin, acpOutput, os.Stderr)
 	case "attach":
-		return attachCmd(d, cfg, rt, instance, projectRoot)
+		return attachCmd(d, cfg, rt, instance, projectRoot, modelSelection)
 	case "doctor":
 		code, err := lifecycleCmd(d, rt, parsed.action, parsed.follow)
 		reportLocalModelServerDoctor(os.Stdout, cfg.Providers)
@@ -1376,12 +1376,17 @@ func configImportEnvCmd(path string) (int, error) {
 	return 0, nil
 }
 
-func attachCmd(d *codebox.Dispatcher, cfg codebox.Config, rt codebox.Runtime, instance, projectRoot string) (int, error) {
+var launchAlbertKeyCheckFn = codebox.CheckLaunchAlbertKey
+
+func attachCmd(d *codebox.Dispatcher, cfg codebox.Config, rt codebox.Runtime, instance, projectRoot, activeModel string) (int, error) {
 	b, err := d.Backend(rt)
 	if err != nil {
 		return 0, err
 	}
 	ctx := context.Background()
+	if err := launchAlbertKeyCheckFn(ctx, cfg, activeModel); err != nil {
+		return 1, err
+	}
 	if cfg.Isolation != codebox.IsolationFull {
 		if err := codebox.ValidateOpenCodeBackend(cfg); err != nil {
 			return 0, err

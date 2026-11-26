@@ -373,3 +373,106 @@ func TestSetupJournalSetPlatformsKeepsVerification(t *testing.T) {
 		t.Fatalf("verification lost on an unchanged platform: %+v", j.Platforms)
 	}
 }
+
+func TestCheckLaunchAlbertKey(t *testing.T) {
+	albertAt := func(base string) InferenceProvider {
+		return InferenceProvider{
+			Kind: ProviderAlbert, Name: "Albert API (État)", BaseURL: base,
+			CatalogueURL: base + "/models", CredentialKind: CredentialAlbert,
+			APIKeyEnv: "ALBERT_API_KEY", Host: "albert.api.etalab.gouv.fr",
+		}
+	}
+
+	t.Run("revoked stored key fails fast with auth guidance and redacts secret", func(t *testing.T) {
+		secret := "albert-revoked-secret-token"
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusUnauthorized)
+		}))
+		defer server.Close()
+
+		cfg := Config{Providers: []InferenceProvider{albertAt(server.URL)}}
+		read := func(context.Context, CredentialKind, string) (string, string, error) {
+			return secret, "keychain", nil
+		}
+		err := checkLaunchAlbertKeyWith(context.Background(), cfg, "albert/deepseek-v4-flash", read, func(ctx context.Context, p InferenceProvider, key string) CredentialProbe {
+			return ValidateProviderKey(ctx, server.Client(), p, key)
+		})
+		if err == nil {
+			t.Fatal("expected error for revoked Albert key")
+		}
+		if !strings.Contains(err.Error(), "refusée ou révoquée") || !strings.Contains(err.Error(), "codebox auth add albert") {
+			t.Fatalf("unexpected revoked key error: %v", err)
+		}
+		if strings.Contains(err.Error(), secret) {
+			t.Fatalf("error must never leak the secret value: %v", err)
+		}
+	})
+
+	t.Run("revoked env key mentions ALBERT_API_KEY", func(t *testing.T) {
+		secret := "albert-env-revoked-secret"
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusForbidden)
+		}))
+		defer server.Close()
+
+		cfg := Config{APIKey: secret, Providers: []InferenceProvider{albertAt(server.URL)}}
+		read := func(context.Context, CredentialKind, string) (string, string, error) {
+			return "", "", ErrCredentialNotFound
+		}
+		err := checkLaunchAlbertKeyWith(context.Background(), cfg, "", read, func(ctx context.Context, p InferenceProvider, key string) CredentialProbe {
+			return ValidateProviderKey(ctx, server.Client(), p, key)
+		})
+		if err == nil || !strings.Contains(err.Error(), "ALBERT_API_KEY") || strings.Contains(err.Error(), secret) {
+			t.Fatalf("unexpected revoked env key error: %v", err)
+		}
+	})
+
+	t.Run("valid key succeeds", func(t *testing.T) {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			_, _ = w.Write([]byte(`{"data":[{"id":"deepseek-v4-flash"}]}`))
+		}))
+		defer server.Close()
+
+		cfg := Config{APIKey: "good-key", Providers: []InferenceProvider{albertAt(server.URL)}}
+		read := func(context.Context, CredentialKind, string) (string, string, error) {
+			return "", "", ErrCredentialNotFound
+		}
+		if err := checkLaunchAlbertKeyWith(context.Background(), cfg, "albert/deepseek-v4-flash", read, func(ctx context.Context, p InferenceProvider, key string) CredentialProbe {
+			return ValidateProviderKey(ctx, server.Client(), p, key)
+		}); err != nil {
+			t.Fatalf("valid key = %v, want nil", err)
+		}
+	})
+
+	t.Run("5xx or unreachable endpoint stays non-blocking", func(t *testing.T) {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusServiceUnavailable)
+		}))
+		defer server.Close()
+
+		cfg := Config{APIKey: "some-key", Providers: []InferenceProvider{albertAt(server.URL)}}
+		read := func(context.Context, CredentialKind, string) (string, string, error) {
+			return "", "", ErrCredentialNotFound
+		}
+		if err := checkLaunchAlbertKeyWith(context.Background(), cfg, "albert/deepseek-v4-flash", read, func(ctx context.Context, p InferenceProvider, key string) CredentialProbe {
+			return ValidateProviderKey(ctx, server.Client(), p, key)
+		}); err != nil {
+			t.Fatalf("transient 503 must not block launch: %v", err)
+		}
+	})
+
+	t.Run("non-Albert active model skips probe", func(t *testing.T) {
+		probed := false
+		cfg := Config{APIKey: "revoked-key", Providers: []InferenceProvider{albertAt("http://127.0.0.1:1")}}
+		read := func(context.Context, CredentialKind, string) (string, string, error) {
+			return "revoked-key", "keychain", nil
+		}
+		err := checkLaunchAlbertKeyWith(context.Background(), cfg, "mistral/mistral-large-latest", read, func(context.Context, InferenceProvider, string) CredentialProbe {
+			probed = true
+			return CredentialProbe{Rejected: true}
+		})
+		if err != nil || probed {
+			t.Fatalf("non-Albert active model must skip Albert probe: err=%v probed=%v", err, probed)
+		}
+	})
+}

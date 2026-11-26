@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -458,4 +459,37 @@ func TestHandleInteractiveRecreateOnLaunchChecksDesiredPortsBeforeDestroy(t *tes
 	if recreateCalled {
 		t.Fatal("Recreate must not destroy the existing sandbox when desired ports conflict with another running project")
 	}
+}
+
+func TestAttachCmdFailsFastOnRevokedAlbertKey(t *testing.T) {
+	oldCheck := launchAlbertKeyCheckFn
+	t.Cleanup(func() { launchAlbertKeyCheckFn = oldCheck })
+
+	launchAlbertKeyCheckFn = func(context.Context, codebox.Config, string) error {
+		return errors.New("la clé Albert API enregistrée a été refusée ou révoquée (HTTP 401)")
+	}
+	started := false
+	b := &fakeRecreateConflictBackend{id: codebox.RuntimeMicrosandbox, own: "cb-proj-a"}
+	d := codebox.NewDispatcherWith(codebox.Config{Isolation: codebox.IsolationFull}, map[codebox.Runtime]codebox.Backend{
+		codebox.RuntimeMicrosandbox: &startTrackingBackend{fakeRecreateConflictBackend: b, started: &started},
+		codebox.RuntimeTart:         &fakeRecreateConflictBackend{id: codebox.RuntimeTart, own: "opencode-cb-proj-a"},
+		codebox.RuntimeAgentVM:      &fakeRecreateConflictBackend{id: codebox.RuntimeAgentVM, own: "opencode-cb-proj-a"},
+	})
+	code, err := attachCmd(d, codebox.Config{Isolation: codebox.IsolationFull}, codebox.RuntimeMicrosandbox, "cb-proj-a", t.TempDir(), "albert/deepseek-v4-flash")
+	if code != 1 || err == nil || !strings.Contains(err.Error(), "refusée ou révoquée") {
+		t.Fatalf("attachCmd with revoked key = code %d, err %v; want immediate rejection", code, err)
+	}
+	if started {
+		t.Fatal("revoked Albert key must fail before starting the sandbox")
+	}
+}
+
+type startTrackingBackend struct {
+	*fakeRecreateConflictBackend
+	started *bool
+}
+
+func (s *startTrackingBackend) Start(context.Context) error {
+	*s.started = true
+	return nil
 }
