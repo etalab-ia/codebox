@@ -314,6 +314,13 @@ func (m *MicrosandboxRuntime) AppliedPortMappings(ctx context.Context) ([]PortMa
 	return m.Client.AppliedPortMappings(ctx, m.InstanceName())
 }
 
+// InstancePortMappings reports the persisted port mappings for any named
+// Microsandbox instance, used by Dispatcher.Prepare to detect host port
+// collisions across concurrent projects (#519).
+func (m *MicrosandboxRuntime) InstancePortMappings(ctx context.Context, name string) ([]PortMapping, error) {
+	return m.Client.AppliedPortMappings(ctx, name)
+}
+
 func (m *MicrosandboxRuntime) ID() Runtime { return RuntimeMicrosandbox }
 
 // msbClient is the Microsandbox surface codebox uses, narrowed from the SDK

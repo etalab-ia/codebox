@@ -186,6 +186,19 @@ type instanceBackend interface {
 	StopInstance(ctx context.Context, name string) error
 }
 
+// instancePortsBackend is implemented by backends whose managed instances can
+// report their bound host ports by instance name (Microsandbox).
+type instancePortsBackend interface {
+	InstancePortMappings(ctx context.Context, name string) ([]PortMapping, error)
+}
+
+type instanceConflict struct {
+	name    string
+	runtime Runtime
+	backend instanceBackend
+	ports   []uint16
+}
+
 // StopAll stops every active managed instance on the host, across runtimes
 // and projects, mirroring `just stop --all`. The dispatcher's backends are
 // bound to the current project (P06), so their Stop is project-scoped and
@@ -269,16 +282,13 @@ func (d *Dispatcher) Stop(ctx context.Context) error {
 	return nil
 }
 
-// Prepare resolves conflicts before starting a runtime: it migrates a host
-// still carrying the removed Docker runtime's container, then, if a different
-// runtime is already active, prompts to stop it (interactive) or refuses.
-// Prepare detects conflicts before starting the requested runtime. Since
-// P06 the backends are project-scoped: d.Running reports only the current
-// project's instances, so a conflict in another project would be invisible
-// and two backends could run simultaneously. Conflicts are therefore
-// enumerated globally: every managed instance on the host, across runtimes
-// and projects. The user can still confirm and switch runtimes; the stop
-// applies to the conflicting instances by name.
+// Prepare resolves real conflicts before starting a runtime: it migrates a
+// host still carrying the removed Docker runtime's container, then checks for
+// instances that genuinely cannot coexist with this launch — either the same
+// project running on a different runtime, or another project's running
+// instance whose host-loopback port bindings overlap with this project's
+// requested ports (#519). Independent projects with disjoint host ports are
+// allowed to run concurrently without stopping each other.
 func (d *Dispatcher) Prepare(ctx context.Context, requested Runtime) error {
 	if err := d.clearLegacyDocker(ctx); err != nil {
 		return err
@@ -291,22 +301,47 @@ func (d *Dispatcher) Prepare(ctx context.Context, requested Runtime) error {
 		return nil
 	}
 
-	sort.Strings(conflicts)
-	names := strings.Join(conflicts, " ")
+	sort.Slice(conflicts, func(i, j int) bool { return conflicts[i].name < conflicts[j].name })
+	namesList := make([]string, len(conflicts))
+	portSet := make(map[uint16]bool)
+	for i, c := range conflicts {
+		namesList[i] = c.name
+		for _, p := range c.ports {
+			portSet[p] = true
+		}
+	}
+	names := strings.Join(namesList, " ")
+	portSuffix := ""
+	portHint := ""
+	if len(portSet) > 0 {
+		ports := make([]uint16, 0, len(portSet))
+		for p := range portSet {
+			ports = append(ports, p)
+		}
+		portSuffix = fmt.Sprintf(" (ports hôte en conflit : %s)", formatPortList(ports))
+		portHint = " Configurez des ports distincts avec 'codebox ports' ou lancez `codebox stop` avant de démarrer %s."
+	}
 	if !isTerminal(os.Stdin) {
+		if portHint != "" {
+			return fmt.Errorf("%s est déjà en cours d'exécution%s."+portHint, names, portSuffix, requested)
+		}
 		return fmt.Errorf("%s est déjà en cours d'exécution. Lancez `codebox stop` avant de démarrer %s.", names, requested)
 	}
-	fmt.Printf("%s est déjà en cours d'exécution. L'arrêter pour démarrer %s ? [o/N] ", names, requested)
+	fmt.Printf("%s est déjà en cours d'exécution%s. L'arrêter pour démarrer %s ? [o/N] ", names, portSuffix, requested)
 	reply, _ := bufio.NewReader(os.Stdin).ReadString('\n')
 	switch strings.ToLower(strings.TrimSpace(reply)) {
 	case "o", "oui", "y", "yes":
-		for _, name := range conflicts {
-			ib, ok := d.instanceBackendFor(name)
-			if !ok {
+		for _, c := range conflicts {
+			if c.backend != nil {
+				if err := c.backend.StopInstance(ctx, c.name); err != nil {
+					return err
+				}
 				continue
 			}
-			if err := ib.StopInstance(ctx, name); err != nil {
-				return err
+			if b, ok := d.backends[c.runtime]; ok {
+				if err := b.Stop(ctx); err != nil {
+					return err
+				}
 			}
 		}
 		return nil
@@ -315,22 +350,23 @@ func (d *Dispatcher) Prepare(ctx context.Context, requested Runtime) error {
 	}
 }
 
-// otherRunningInstances enumerates every managed instance running on the
-// host, across runtimes and projects, except the current project's instance
-// of the requested runtime (that is the instance Prepare is about to start;
-// reusing it is legitimate). Only the current project's own instance is
-// ignored: another project's instance of the SAME runtime is a conflict,
-// both for the one-active-instance policy and because the per-project
-// backends can contend for the same host ports.
-func (d *Dispatcher) otherRunningInstances(ctx context.Context, requested Runtime) ([]string, error) {
-	own := d.ownInstanceName(requested)
-	var conflicts []string
+// otherRunningInstances returns running managed instances that genuinely
+// conflict with starting requested for the current project:
+//   - the current project's own instance on a different runtime;
+//   - any other project's instance whose host-loopback port bindings overlap
+//     with the host ports requested will bind (or whose ports cannot be read
+//     when requested needs host ports).
+func (d *Dispatcher) otherRunningInstances(ctx context.Context, requested Runtime) ([]instanceConflict, error) {
+	ownRequested := d.ownInstanceName(requested)
+	wantPorts := d.desiredHostPorts(requested)
+	var conflicts []instanceConflict
 	for _, rt := range supportedRuntimes() {
 		b := d.backends[rt]
 		ib, ok := b.(instanceBackend)
 		if !ok {
 			// Backend without per-instance enumeration (none today outside
-			// tests): its project-scoped IsRunning is the only signal.
+			// tests): its project-scoped IsRunning reports this project's own
+			// instance on that runtime.
 			if rt == requested {
 				continue
 			}
@@ -339,7 +375,7 @@ func (d *Dispatcher) otherRunningInstances(ctx context.Context, requested Runtim
 				return nil, err
 			}
 			if running {
-				conflicts = append(conflicts, string(rt))
+				conflicts = append(conflicts, instanceConflict{name: string(rt), runtime: rt})
 			}
 			continue
 		}
@@ -350,16 +386,132 @@ func (d *Dispatcher) otherRunningInstances(ctx context.Context, requested Runtim
 			}
 			return nil, err
 		}
+		ownOnRT := d.ownInstanceName(rt)
 		for _, name := range instances {
-			if rt == requested && name == own {
+			if rt == requested && name == ownRequested {
 				// The current project's own instance of the requested
 				// runtime: not a conflict, Prepare reuses it.
 				continue
 			}
-			conflicts = append(conflicts, name)
+			if rt != requested && ownOnRT != "" && name == ownOnRT {
+				// Same project running on a different runtime.
+				conflicts = append(conflicts, instanceConflict{name: name, runtime: rt, backend: ib})
+				continue
+			}
+			if len(wantPorts) == 0 {
+				// Starting requested binds no host loopback ports, so another
+				// project's instance cannot collide with it.
+				continue
+			}
+			overlap, conflict := d.hostPortConflict(ctx, rt, b, name, wantPorts)
+			if conflict {
+				conflicts = append(conflicts, instanceConflict{name: name, runtime: rt, backend: ib, ports: overlap})
+			}
 		}
 	}
 	return conflicts, nil
+}
+
+// desiredHostPorts returns the host loopback TCP ports that starting requested
+// for the current project will bind.
+func (d *Dispatcher) desiredHostPorts(requested Runtime) map[uint16]bool {
+	ports := make(map[uint16]bool)
+	switch requested {
+	case RuntimeMicrosandbox:
+		if d.cfg.Isolation == IsolationBackend {
+			ports[uint16(DefaultPort)] = true
+		}
+		if !d.cfg.PortsConfigured {
+			for p := uint16(3000); p <= 3010; p++ {
+				ports[p] = true
+			}
+		} else {
+			for _, pm := range d.cfg.Ports {
+				if pm.Host > 0 {
+					ports[pm.Host] = true
+				}
+			}
+		}
+	case RuntimeAgentVM:
+		if d.cfg.Isolation == IsolationBackend {
+			ports[uint16(DefaultPort)] = true
+		}
+	case RuntimeTart:
+		// Tart VMs use their own NAT IP rather than static host loopback binds.
+	}
+	return ports
+}
+
+// hostPortConflict reports whether another project's running instance (rt, name)
+// collides with any host loopback port in wantPorts.
+func (d *Dispatcher) hostPortConflict(ctx context.Context, rt Runtime, b Backend, name string, wantPorts map[uint16]bool) ([]uint16, bool) {
+	switch rt {
+	case RuntimeTart:
+		return nil, false
+	case RuntimeAgentVM:
+		if wantPorts[uint16(DefaultPort)] {
+			return []uint16{uint16(DefaultPort)}, true
+		}
+		return nil, false
+	case RuntimeMicrosandbox:
+		ipb, ok := b.(instancePortsBackend)
+		if !ok {
+			// Cannot inspect ports on a fake backend; fail closed because
+			// wantPorts is non-empty.
+			return nil, true
+		}
+		applied, err := ipb.InstancePortMappings(ctx, name)
+		if err != nil {
+			// Fail closed when the running instance's applied ports cannot be
+			// verified and the new launch binds host ports.
+			return nil, true
+		}
+		var overlap []uint16
+		for _, pm := range applied {
+			if wantPorts[pm.Host] {
+				overlap = append(overlap, pm.Host)
+			}
+		}
+		if len(overlap) > 0 {
+			return overlap, true
+		}
+		return nil, false
+	default:
+		return nil, false
+	}
+}
+
+// formatPortList renders sorted unique ports, collapsing runs of 3+ contiguous
+// ports into start-end ranges (e.g. "3000-3010, 4096").
+func formatPortList(ports []uint16) string {
+	if len(ports) == 0 {
+		return ""
+	}
+	sorted := append([]uint16(nil), ports...)
+	sort.Slice(sorted, func(i, j int) bool { return sorted[i] < sorted[j] })
+	uniq := sorted[:0]
+	for _, p := range sorted {
+		if len(uniq) == 0 || uniq[len(uniq)-1] != p {
+			uniq = append(uniq, p)
+		}
+	}
+	var parts []string
+	for i := 0; i < len(uniq); {
+		j := i
+		for j+1 < len(uniq) && uniq[j+1] == uniq[j]+1 {
+			j++
+		}
+		switch {
+		case j-i >= 2:
+			parts = append(parts, fmt.Sprintf("%d-%d", uniq[i], uniq[j]))
+		case j-i == 1:
+			parts = append(parts, fmt.Sprintf("%d", uniq[i]), fmt.Sprintf("%d", uniq[j]))
+		default:
+			parts = append(parts, fmt.Sprintf("%d", uniq[i]))
+		}
+		i = j + 1
+	}
+	return strings.Join(parts, ", ")
 }
 
 // ownInstanceName returns the current project's instance name for a runtime,
@@ -372,32 +524,10 @@ func (d *Dispatcher) ownInstanceName(rt Runtime) string {
 		return b.VMName()
 	case *MicrosandboxRuntime:
 		return b.InstanceName()
+	case interface{ InstanceName() string }:
+		return b.InstanceName()
 	}
 	return ""
-}
-
-// instanceBackendFor returns the backend able to stop the named instance.
-func (d *Dispatcher) instanceBackendFor(name string) (instanceBackend, bool) {
-	for _, rt := range supportedRuntimes() {
-		ib, ok := d.backends[rt].(instanceBackend)
-		if !ok {
-			continue
-		}
-		if d.ownInstanceName(rt) == name {
-			return ib, true
-		}
-		// Names not bound to this project may belong to this runtime's
-		// global namespace; probe by enumeration.
-		instances, err := ib.RunningInstances(context.Background())
-		if err == nil {
-			for _, n := range instances {
-				if n == name {
-					return ib, true
-				}
-			}
-		}
-	}
-	return nil, false
 }
 
 // Check verifies the single running backend and reports its Albert provider

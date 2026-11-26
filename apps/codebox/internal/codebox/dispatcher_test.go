@@ -571,3 +571,150 @@ func TestDispatcherCheckDoesNotProbeLegacyPortRange(t *testing.T) {
 		t.Fatalf("legacy port range was probed: %q", out)
 	}
 }
+
+type fakeConcurrentMSBBackend struct {
+	fakeBackend
+	own        string
+	running    []string
+	portsByIns map[string][]PortMapping
+	portsErr   error
+}
+
+func (f *fakeConcurrentMSBBackend) InstanceName() string { return f.own }
+
+func (f *fakeConcurrentMSBBackend) RunningInstances(context.Context) ([]string, error) {
+	return append([]string(nil), f.running...), nil
+}
+
+func (f *fakeConcurrentMSBBackend) StopInstance(context.Context, string) error { return nil }
+
+func (f *fakeConcurrentMSBBackend) InstancePortMappings(_ context.Context, name string) ([]PortMapping, error) {
+	if f.portsErr != nil {
+		return nil, f.portsErr
+	}
+	return f.portsByIns[name], nil
+}
+
+func TestDispatcherPrepareConcurrentMicrosandboxProjects(t *testing.T) {
+	if isTerminal(os.Stdin) {
+		t.Skip("stdin is a TTY; non-interactive refusal path not testable here")
+	}
+
+	t.Run("disjoint configured ports run concurrently", func(t *testing.T) {
+		msb := &fakeConcurrentMSBBackend{
+			fakeBackend: fakeBackend{id: RuntimeMicrosandbox},
+			running:     []string{"cb-proj-a-11111"},
+			portsByIns: map[string][]PortMapping{
+				"cb-proj-a-11111": {{Host: 8080, Guest: 8080}},
+			},
+		}
+		cfg := Config{
+			Isolation:       IsolationFull,
+			PortsConfigured: true,
+			Ports:           []PortMapping{{Host: 8081, Guest: 8081}},
+		}
+		d := NewDispatcherWith(cfg, map[Runtime]Backend{
+			RuntimeMicrosandbox: msb,
+			RuntimeTart:         &fakeBackend{id: RuntimeTart},
+			RuntimeAgentVM:      &fakeBackend{id: RuntimeAgentVM},
+		})
+		if err := d.Prepare(context.Background(), RuntimeMicrosandbox); err != nil {
+			t.Fatalf("Prepare with disjoint host ports = %v, want nil", err)
+		}
+	})
+
+	t.Run("no configured ports runs concurrently even if other ports unreadable", func(t *testing.T) {
+		msb := &fakeConcurrentMSBBackend{
+			fakeBackend: fakeBackend{id: RuntimeMicrosandbox},
+			running:     []string{"cb-proj-a-11111"},
+			portsErr:    errors.New("unreadable"),
+		}
+		cfg := Config{
+			Isolation:       IsolationFull,
+			PortsConfigured: true,
+			Ports:           nil,
+		}
+		d := NewDispatcherWith(cfg, map[Runtime]Backend{
+			RuntimeMicrosandbox: msb,
+			RuntimeTart:         &fakeBackend{id: RuntimeTart},
+			RuntimeAgentVM:      &fakeBackend{id: RuntimeAgentVM},
+		})
+		if err := d.Prepare(context.Background(), RuntimeMicrosandbox); err != nil {
+			t.Fatalf("Prepare with zero host ports = %v, want nil", err)
+		}
+	})
+
+	t.Run("overlapping host ports report conflicting instance and port range", func(t *testing.T) {
+		legacyPorts := make([]PortMapping, 0, 11)
+		for p := uint16(3000); p <= 3010; p++ {
+			legacyPorts = append(legacyPorts, PortMapping{Host: p, Guest: p})
+		}
+		msb := &fakeConcurrentMSBBackend{
+			fakeBackend: fakeBackend{id: RuntimeMicrosandbox},
+			running:     []string{"cb-proj-a-11111"},
+			portsByIns: map[string][]PortMapping{
+				"cb-proj-a-11111": legacyPorts,
+			},
+		}
+		cfg := Config{Isolation: IsolationFull} // !PortsConfigured -> legacy 3000-3010
+		d := NewDispatcherWith(cfg, map[Runtime]Backend{
+			RuntimeMicrosandbox: msb,
+			RuntimeTart:         &fakeBackend{id: RuntimeTart},
+			RuntimeAgentVM:      &fakeBackend{id: RuntimeAgentVM},
+		})
+		err := d.Prepare(context.Background(), RuntimeMicrosandbox)
+		if err == nil {
+			t.Fatal("Prepare must reject overlapping host ports")
+		}
+		if !strings.Contains(err.Error(), "cb-proj-a-11111") || !strings.Contains(err.Error(), "3000-3010") || !strings.Contains(err.Error(), "codebox ports") {
+			t.Fatalf("unexpected port conflict message: %v", err)
+		}
+	})
+
+	t.Run("unreadable other ports fail closed when new launch binds host ports", func(t *testing.T) {
+		msb := &fakeConcurrentMSBBackend{
+			fakeBackend: fakeBackend{id: RuntimeMicrosandbox},
+			running:     []string{"cb-proj-a-11111"},
+			portsErr:    errors.New("unreadable"),
+		}
+		cfg := Config{
+			Isolation:       IsolationFull,
+			PortsConfigured: true,
+			Ports:           []PortMapping{{Host: 8080, Guest: 8080}},
+		}
+		d := NewDispatcherWith(cfg, map[Runtime]Backend{
+			RuntimeMicrosandbox: msb,
+			RuntimeTart:         &fakeBackend{id: RuntimeTart},
+			RuntimeAgentVM:      &fakeBackend{id: RuntimeAgentVM},
+		})
+		err := d.Prepare(context.Background(), RuntimeMicrosandbox)
+		if err == nil || !strings.Contains(err.Error(), "cb-proj-a-11111") {
+			t.Fatalf("expected fail-closed conflict on unreadable other ports, got %v", err)
+		}
+	})
+
+	t.Run("same project on another runtime still conflicts", func(t *testing.T) {
+		withGOOS(t, "darwin")
+		msb := &fakeConcurrentMSBBackend{
+			fakeBackend: fakeBackend{id: RuntimeMicrosandbox},
+			own:         "cb-proj-a-11111",
+			running:     []string{"cb-proj-a-11111"},
+			portsByIns: map[string][]PortMapping{
+				"cb-proj-a-11111": nil,
+			},
+		}
+		tart := &fakeConcurrentMSBBackend{
+			fakeBackend: fakeBackend{id: RuntimeTart},
+			own:         "opencode-cb-proj-a-11111",
+		}
+		d := NewDispatcherWith(Config{Isolation: IsolationFull, PortsConfigured: true}, map[Runtime]Backend{
+			RuntimeMicrosandbox: msb,
+			RuntimeTart:         tart,
+			RuntimeAgentVM:      &fakeBackend{id: RuntimeAgentVM},
+		})
+		err := d.Prepare(context.Background(), RuntimeTart)
+		if err == nil || !strings.Contains(err.Error(), "cb-proj-a-11111") {
+			t.Fatalf("expected same-project cross-runtime conflict, got %v", err)
+		}
+	})
+}
