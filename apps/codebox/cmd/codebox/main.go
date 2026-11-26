@@ -1503,7 +1503,7 @@ var launchRecreateRecoverFn = func(ctx context.Context, msb *codebox.Microsandbo
 		return
 	}
 	backupTarget := launchRecreateBackupPath(codebox.DefaultStateDir(), instance)
-	if patchPath, perr := msb.ExportGuestChanges(ctx, backupTarget); perr != nil {
+	if patchPath, perr := codebox.BackupGuestChangesForRecreate(ctx, msb, cfg.WorkspaceDir, unrecovered, backupTarget); perr != nil {
 		fmt.Fprintf(os.Stderr, "Sauvegarde automatique du patch impossible : %v\n", perr)
 	} else if patchPath != "" {
 		fmt.Fprintf(os.Stderr, "Sauvegarde automatique enregistrée : %s\n", patchPath)
