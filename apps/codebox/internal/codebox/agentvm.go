@@ -576,6 +576,26 @@ func (a *AgentVM) StopInstance(ctx context.Context, vm string) error {
 	return nil
 }
 
+// InstancePortMappings reports whether the named running AgentVM instance is
+// currently listening on DefaultPort (4096) for the OpenCode backend server.
+// Full-isolation AgentVMs do not launch the backend server, so they occupy no
+// static host port (#519).
+func (a *AgentVM) InstancePortMappings(ctx context.Context, name string) ([]PortMapping, error) {
+	hexPort := fmt.Sprintf("%04X", DefaultPort)
+	probe := fmt.Sprintf(`if awk '$4=="0A" && $2 ~ /:%s$/ {found=1} END {exit !found}' /proc/net/tcp /proc/net/tcp6 2>/dev/null; then echo listening; else echo idle; fi`, hexPort)
+	res, err := a.Runner.Run(ctx, "limactl", "shell", name, "sh", "-c", probe)
+	if err != nil {
+		return nil, err
+	}
+	if res.ExitCode != 0 {
+		return nil, fmt.Errorf("limactl shell %s : code %d", name, res.ExitCode)
+	}
+	if strings.TrimSpace(res.Stdout) == "listening" {
+		return []PortMapping{{Host: uint16(DefaultPort), Guest: uint16(DefaultPort)}}, nil
+	}
+	return nil, nil
+}
+
 // StopAll stops every running managed Lima instance, the explicit
 // all-instance operation (P06).
 func (a *AgentVM) StopAll(ctx context.Context) error {

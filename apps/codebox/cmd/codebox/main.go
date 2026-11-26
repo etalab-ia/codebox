@@ -1485,8 +1485,12 @@ func lifecycleCmd(d *codebox.Dispatcher, rt codebox.Runtime, action string, foll
 	// runtime's own instance, not another runtime's: leaving Prepare out
 	// would start a second environment while the first is still up,
 	// violating the one-active-instance policy.
-	if action == "start" || action == "restart" || action == "recreate" {
+	if action == "start" || action == "restart" {
 		if err := d.Prepare(ctx, rt); err != nil {
+			return 0, err
+		}
+	} else if action == "recreate" {
+		if err := d.PrepareForRecreate(ctx, rt); err != nil {
 			return 0, err
 		}
 	}

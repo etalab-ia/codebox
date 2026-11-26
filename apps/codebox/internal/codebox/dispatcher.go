@@ -282,18 +282,30 @@ func (d *Dispatcher) Stop(ctx context.Context) error {
 	return nil
 }
 
-// Prepare resolves real conflicts before starting a runtime: it migrates a
-// host still carrying the removed Docker runtime's container, then checks for
-// instances that genuinely cannot coexist with this launch — either the same
-// project running on a different runtime, or another project's running
-// instance whose host-loopback port bindings overlap with this project's
-// requested ports (#519). Independent projects with disjoint host ports are
-// allowed to run concurrently without stopping each other.
+// Prepare resolves real conflicts before starting or restarting a runtime: it
+// migrates a host still carrying the removed Docker runtime's container, then
+// checks for instances that genuinely cannot coexist with this launch — either
+// the same project running on a different runtime, or another project's
+// running instance whose host-loopback port bindings overlap with this
+// project's effective ports (persisted ports for an existing sandbox, or
+// desired ports for a new sandbox) (#519). Independent projects with disjoint
+// host ports are allowed to run concurrently without stopping each other.
 func (d *Dispatcher) Prepare(ctx context.Context, requested Runtime) error {
+	return d.prepare(ctx, requested, false)
+}
+
+// PrepareForRecreate resolves conflicts before an explicit recreate, where the
+// recreated instance will bind the manifest's desired host ports rather than
+// the old instance's persisted ports (#519).
+func (d *Dispatcher) PrepareForRecreate(ctx context.Context, requested Runtime) error {
+	return d.prepare(ctx, requested, true)
+}
+
+func (d *Dispatcher) prepare(ctx context.Context, requested Runtime, recreating bool) error {
 	if err := d.clearLegacyDocker(ctx); err != nil {
 		return err
 	}
-	conflicts, err := d.otherRunningInstances(ctx, requested)
+	conflicts, err := d.otherRunningInstances(ctx, requested, recreating)
 	if err != nil {
 		return err
 	}
@@ -356,9 +368,9 @@ func (d *Dispatcher) Prepare(ctx context.Context, requested Runtime) error {
 //   - any other project's instance whose host-loopback port bindings overlap
 //     with the host ports requested will bind (or whose ports cannot be read
 //     when requested needs host ports).
-func (d *Dispatcher) otherRunningInstances(ctx context.Context, requested Runtime) ([]instanceConflict, error) {
+func (d *Dispatcher) otherRunningInstances(ctx context.Context, requested Runtime, recreating bool) ([]instanceConflict, error) {
 	ownRequested := d.ownInstanceName(requested)
-	wantPorts := d.desiredHostPorts(requested)
+	wantPorts := d.launchHostPorts(ctx, requested, ownRequested, recreating)
 	var conflicts []instanceConflict
 	for _, rt := range supportedRuntimes() {
 		b := d.backends[rt]
@@ -412,8 +424,31 @@ func (d *Dispatcher) otherRunningInstances(ctx context.Context, requested Runtim
 	return conflicts, nil
 }
 
-// desiredHostPorts returns the host loopback TCP ports that starting requested
-// for the current project will bind.
+// launchHostPorts returns the host loopback TCP ports that this launch will
+// actually bind. For a non-recreating Microsandbox start/restart of an
+// existing instance, the sandbox's persisted port mappings are authoritative
+// because restart boots the existing configuration without reapplying manifest
+// port edits; for a recreate or a not-yet-created instance, desiredHostPorts
+// applies.
+func (d *Dispatcher) launchHostPorts(ctx context.Context, requested Runtime, own string, recreating bool) map[uint16]bool {
+	if !recreating && requested == RuntimeMicrosandbox && own != "" {
+		if ipb, ok := d.backends[requested].(instancePortsBackend); ok {
+			if applied, err := ipb.InstancePortMappings(ctx, own); err == nil {
+				ports := make(map[uint16]bool, len(applied))
+				for _, pm := range applied {
+					if pm.Host > 0 {
+						ports[pm.Host] = true
+					}
+				}
+				return ports
+			}
+		}
+	}
+	return d.desiredHostPorts(requested)
+}
+
+// desiredHostPorts returns the host loopback TCP ports that creating requested
+// from the current manifest configuration will bind.
 func (d *Dispatcher) desiredHostPorts(requested Runtime) map[uint16]bool {
 	ports := make(map[uint16]bool)
 	switch requested {
@@ -449,8 +484,23 @@ func (d *Dispatcher) hostPortConflict(ctx context.Context, rt Runtime, b Backend
 	case RuntimeTart:
 		return nil, false
 	case RuntimeAgentVM:
-		if wantPorts[uint16(DefaultPort)] {
+		if !wantPorts[uint16(DefaultPort)] {
+			return nil, false
+		}
+		ipb, ok := b.(instancePortsBackend)
+		if !ok {
+			// Cannot inspect whether the running AgentVM serves 4096; fail closed.
 			return []uint16{uint16(DefaultPort)}, true
+		}
+		applied, err := ipb.InstancePortMappings(ctx, name)
+		if err != nil {
+			// Fail closed when the AgentVM's backend state cannot be probed.
+			return []uint16{uint16(DefaultPort)}, true
+		}
+		for _, pm := range applied {
+			if wantPorts[pm.Host] {
+				return []uint16{pm.Host}, true
+			}
 		}
 		return nil, false
 	case RuntimeMicrosandbox:

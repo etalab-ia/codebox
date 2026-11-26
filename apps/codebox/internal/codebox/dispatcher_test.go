@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -592,13 +593,28 @@ func (f *fakeConcurrentMSBBackend) InstancePortMappings(_ context.Context, name 
 	if f.portsErr != nil {
 		return nil, f.portsErr
 	}
-	return f.portsByIns[name], nil
+	ports, ok := f.portsByIns[name]
+	if !ok {
+		return nil, os.ErrNotExist
+	}
+	return ports, nil
 }
 
 func TestDispatcherPrepareConcurrentMicrosandboxProjects(t *testing.T) {
-	if isTerminal(os.Stdin) {
-		t.Skip("stdin is a TTY; non-interactive refusal path not testable here")
+	// go test binds stdin to /dev/null (a char device on Unix), which makes
+	// isTerminal(os.Stdin) true. Replace stdin with a pipe so every
+	// non-interactive refusal subtest actually executes instead of skipping.
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
 	}
+	_ = w.Close()
+	origStdin := os.Stdin
+	os.Stdin = r
+	t.Cleanup(func() {
+		os.Stdin = origStdin
+		_ = r.Close()
+	})
 
 	t.Run("disjoint configured ports run concurrently", func(t *testing.T) {
 		msb := &fakeConcurrentMSBBackend{
@@ -717,4 +733,122 @@ func TestDispatcherPrepareConcurrentMicrosandboxProjects(t *testing.T) {
 			t.Fatalf("expected same-project cross-runtime conflict, got %v", err)
 		}
 	})
+
+	t.Run("restart checks persisted ports while recreate uses desired ports", func(t *testing.T) {
+		msb := &fakeConcurrentMSBBackend{
+			fakeBackend: fakeBackend{id: RuntimeMicrosandbox},
+			own:         "cb-proj-a-11111",
+			running:     []string{"cb-proj-b-22222"},
+			portsByIns: map[string][]PortMapping{
+				"cb-proj-a-11111": {{Host: 8080, Guest: 8080}}, // persisted on stopped sandbox A
+				"cb-proj-b-22222": {{Host: 8080, Guest: 8080}}, // currently running sandbox B
+			},
+		}
+		// Project A's manifest was updated to 8081, not yet recreated.
+		cfg := Config{
+			Isolation:       IsolationFull,
+			PortsConfigured: true,
+			Ports:           []PortMapping{{Host: 8081, Guest: 8081}},
+		}
+		d := NewDispatcherWith(cfg, map[Runtime]Backend{
+			RuntimeMicrosandbox: msb,
+			RuntimeTart:         &fakeBackend{id: RuntimeTart},
+			RuntimeAgentVM:      &fakeBackend{id: RuntimeAgentVM},
+		})
+		// Non-recreating Prepare (start/restart) must detect the persisted 8080 collision.
+		err := d.Prepare(context.Background(), RuntimeMicrosandbox)
+		if err == nil || !strings.Contains(err.Error(), "cb-proj-b-22222") || !strings.Contains(err.Error(), "8080") {
+			t.Fatalf("Prepare must detect persisted port 8080 conflict, got %v", err)
+		}
+		// PrepareForRecreate uses desired 8081, so it must succeed concurrently with B.
+		if err := d.PrepareForRecreate(context.Background(), RuntimeMicrosandbox); err != nil {
+			t.Fatalf("PrepareForRecreate with disjoint desired port 8081 = %v, want nil", err)
+		}
+	})
+
+	t.Run("full-mode AgentVM without 4096 listener allows concurrent backend Microsandbox", func(t *testing.T) {
+		withGOOS(t, "darwin")
+		msb := &fakeConcurrentMSBBackend{
+			fakeBackend: fakeBackend{id: RuntimeMicrosandbox},
+			own:         "cb-proj-a-11111",
+		}
+		idleAgentVM := &fakeConcurrentMSBBackend{
+			fakeBackend: fakeBackend{id: RuntimeAgentVM},
+			own:         "opencode-cb-proj-a-11111",
+			running:     []string{"opencode-cb-proj-b-22222"},
+			portsByIns: map[string][]PortMapping{
+				"opencode-cb-proj-b-22222": nil, // full mode: no 4096 listener
+			},
+		}
+		cfg := Config{
+			Isolation:       IsolationBackend,
+			PortsConfigured: true,
+			Ports:           nil,
+		}
+		d := NewDispatcherWith(cfg, map[Runtime]Backend{
+			RuntimeMicrosandbox: msb,
+			RuntimeTart:         &fakeBackend{id: RuntimeTart},
+			RuntimeAgentVM:      idleAgentVM,
+		})
+		if err := d.Prepare(context.Background(), RuntimeMicrosandbox); err != nil {
+			t.Fatalf("full-mode AgentVM not serving 4096 must not conflict with backend Microsandbox: %v", err)
+		}
+		// Once AgentVM actually listens on 4096, Prepare must detect the conflict.
+		idleAgentVM.portsByIns["opencode-cb-proj-b-22222"] = []PortMapping{{Host: uint16(DefaultPort), Guest: uint16(DefaultPort)}}
+		err := d.Prepare(context.Background(), RuntimeMicrosandbox)
+		if err == nil || !strings.Contains(err.Error(), "opencode-cb-proj-b-22222") || !strings.Contains(err.Error(), "4096") {
+			t.Fatalf("backend-mode AgentVM listening on 4096 must conflict, got %v", err)
+		}
+	})
+}
+
+func TestAgentVMInstancePortMappings(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		res       ExecResult
+		runErr    error
+		wantPorts int
+		wantErr   bool
+	}{
+		{name: "listening on 4096", res: ExecResult{Stdout: "listening\n"}, wantPorts: 1},
+		{name: "idle full mode", res: ExecResult{Stdout: "idle\n"}, wantPorts: 0},
+		{name: "limactl failure", res: ExecResult{ExitCode: 1}, wantErr: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			a := &AgentVM{Runner: stubRunner{res: tc.res, err: tc.runErr}}
+			ports, err := a.InstancePortMappings(context.Background(), "opencode-cb-b-22222")
+			if tc.wantErr {
+				if err == nil {
+					t.Fatal("expected error")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("InstancePortMappings: %v", err)
+			}
+			if len(ports) != tc.wantPorts {
+				t.Fatalf("ports = %v, want len %d", ports, tc.wantPorts)
+			}
+			if tc.wantPorts == 1 && ports[0].Host != uint16(DefaultPort) {
+				t.Fatalf("host port = %d, want %d", ports[0].Host, DefaultPort)
+			}
+		})
+	}
+}
+
+type stubRunner struct {
+	res ExecResult
+	err error
+}
+
+func (s stubRunner) Run(context.Context, string, ...string) (ExecResult, error) {
+	return s.res, s.err
+}
+
+func (s stubRunner) RunEnv(context.Context, []string, string, ...string) (ExecResult, error) {
+	return s.res, s.err
+}
+
+func (s stubRunner) RunStdin(context.Context, io.Reader, string, ...string) (ExecResult, error) {
+	return s.res, s.err
 }
