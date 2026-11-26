@@ -98,10 +98,10 @@ func workspaceCmd(args []string, cfg codebox.Config, instance string) (int, erro
 			return 1, err
 		}
 		if path == "" {
-			fmt.Println("L'espace de travail de la machine isolée n'a aucune modification à livrer.")
+			fmt.Println("L'espace de travail de la sandbox n'a aucune modification à livrer.")
 			return 0, nil
 		}
-		fmt.Printf("Modifications de la machine isolée écrites pour relecture : %s\nAppliquez-les avec 'git apply' après relecture, ou poussez-les via le workflow GitHub (P13).\n", path)
+		fmt.Printf("Modifications de la sandbox écrites pour relecture : %s\nAppliquez-les avec 'git apply' après relecture, ou poussez-les via le workflow GitHub (P13).\n", path)
 		return 0, nil
 	case "apply":
 		applyAll := false
@@ -141,13 +141,13 @@ func workspaceStatusCmd(sourceDir, instance string, records map[string]codebox.T
 	if err != nil {
 		return 1, err
 	}
-	fmt.Printf("Espace de travail scellé de la machine isolée pour %s\n\n", instance)
+	fmt.Printf("Espace de travail scellé de la sandbox pour %s\n\n", instance)
 	fmt.Print(man.Summary())
 	// The plan requires the user to SEE the filtered set, not just its size:
 	// a review screen that only counts files cannot be reviewed.
 	included := man.Included()
 	if len(included) > 0 {
-		fmt.Println("\nFranchiront la frontière vers la machine isolée :")
+		fmt.Println("\nFranchiront la frontière vers la sandbox :")
 		const maxListed = 200
 		for i, e := range included {
 			if i == maxListed {
@@ -168,7 +168,7 @@ func workspaceStatusCmd(sourceDir, instance string, records map[string]codebox.T
 			fmt.Printf("  %s (recorded %s)\n", rel, records[rel].RecordedAt)
 		}
 	}
-	fmt.Println("\nLe dossier du projet sur le poste n'est pas monté dans la machine isolée ; les fichiers ne franchissent la frontière que par ce transfert filtré.")
+	fmt.Println("\nLe dossier du projet sur le poste n'est pas monté dans la sandbox ; les fichiers ne franchissent la frontière que par ce transfert filtré.")
 	return 0, nil
 }
 
@@ -199,7 +199,7 @@ func workspaceAllowCmd(store codebox.TransferOptInStore, sourceDir, rawPath stri
 		return 1, fmt.Errorf("%s ne fait pas partie de l'ensemble de transfert de ce projet (les chemins sont relatifs à la racine du projet, séparés par des barres obliques)", rel)
 	}
 	if found.Included {
-		fmt.Printf("%s franchit déjà la frontière vers la machine isolée ; aucune décision nécessaire.\n", rel)
+		fmt.Printf("%s franchit déjà la frontière vers la sandbox ; aucune décision nécessaire.\n", rel)
 		return 0, nil
 	}
 	if !found.Overridable {

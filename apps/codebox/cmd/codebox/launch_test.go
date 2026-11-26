@@ -326,8 +326,8 @@ func TestHandleInteractiveRecreateOnLaunchRevalidatesExecutionTrustAfterRecovery
 	})
 	recreateErr := &codebox.ErrRecreateNeeded{
 		Instance: "cb-test-trust",
-		Reason:   "la mémoire de la machine isolée a changé",
-		Reasons:  []string{"la mémoire de la machine isolée a changé"},
+		Reason:   "la mémoire de la sandbox a changé",
+		Reasons:  []string{"la mémoire de la sandbox a changé"},
 	}
 
 	var code int

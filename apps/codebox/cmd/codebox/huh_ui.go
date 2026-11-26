@@ -308,7 +308,7 @@ func initVMStepTitle(opts initOptions) string {
 	if opts.Combined {
 		step = 4
 	}
-	return initStepPrefix(opts, step) + "Machine isolée"
+	return initStepPrefix(opts, step) + "Sandbox"
 }
 
 func initSkillsStepTitle(opts initOptions) string {
@@ -683,10 +683,10 @@ func askInitAdvancedHuh(opts initOptions, answers codebox.InitAnswers) (codebox.
 			options = append(options, huh.NewOption("Mode d'isolation : "+isolationDisplayName(iso), "isolation"))
 		}
 		if !opts.Set["cpus"] {
-			options = append(options, huh.NewOption(fmt.Sprintf("Processeurs de la machine isolée : %d", cpus), "cpus"))
+			options = append(options, huh.NewOption(fmt.Sprintf("Processeurs de la sandbox : %d", cpus), "cpus"))
 		}
 		if !opts.Set["memory-mb"] {
-			options = append(options, huh.NewOption("Mémoire de la machine isolée : "+codebox.FormatMemorySize(memory), "memory"))
+			options = append(options, huh.NewOption("Mémoire de la sandbox : "+codebox.FormatMemorySize(memory), "memory"))
 		}
 		if !opts.Set["model"] {
 			options = append(options, huh.NewOption("Modèle principal : "+initModelDisplayName(answers.Model), "model"))
@@ -733,18 +733,18 @@ func askInitAdvancedHuh(opts initOptions, answers codebox.InitAnswers) (codebox.
 		case "isolation":
 			input = string(iso)
 			field = huh.NewSelect[string]().Title("Mode d'isolation").
-				Description("complet : l'agent et son interface tournent dans la machine isolée. partiel : l'interface tourne sur votre poste, l'agent dans la machine isolée.").
+				Description("complet : l'agent et son interface tournent dans la sandbox. partiel : l'interface tourne sur votre poste, l'agent dans la sandbox.").
 				Options(huh.NewOption("complet (recommandé)", "full"), huh.NewOption("partiel", "backend")).
 				Validate(func(value string) error { return validateInitIsolationChoice(value, answers) }).
 				Value(&input)
 		case "cpus":
 			input = strconv.Itoa(cpus)
-			field = huh.NewInput().Title("Processeurs de la machine isolée").
+			field = huh.NewInput().Title("Processeurs de la sandbox").
 				Description(fmt.Sprintf("De 1 à %d. Vide ou 'défaut' rétablit la valeur par défaut. Échap : annuler cette modification.", opts.maxCPUs)).
 				Validate(func(s string) error { _, _, err := parseGuestCPUsInput(s, opts.maxCPUs); return err }).Value(&input)
 		case "memory":
 			input = codebox.FormatMemorySize(memory)
-			field = huh.NewInput().Title("Mémoire de la machine isolée").
+			field = huh.NewInput().Title("Mémoire de la sandbox").
 				Description(fmt.Sprintf("Maximum sur ce poste : %s. 6 Go conseillés avec chrome-devtools. Vide ou 'défaut' rétablit la valeur par défaut. Échap : annuler cette modification.", codebox.FormatMemorySize(opts.maxMemoryMB))).
 				Validate(func(s string) error { _, _, err := parseGuestMemoryInput(s, opts.maxMemoryMB); return err }).Value(&input)
 		case "model":
@@ -956,7 +956,7 @@ func newInitLocalServerSelect(providers []codebox.ProviderSettings, detected []c
 	options = append(options, huh.NewOption("Saisir un port ou une URL locale…", initLocalServerCustomSentinel))
 	return huh.NewSelect[string]().
 		Title("Serveur de modèles local").
-		Description("Ouvre uniquement le port local choisi vers la machine isolée (Microsandbox) pour les petits modèles (ex. titres de session). Changer ce réglage sur une machine existante exige une recréation.").
+		Description("Ouvre uniquement le port local choisi vers la sandbox (Microsandbox) pour les petits modèles (ex. titres de session). Changer ce réglage sur une machine existante exige une recréation.").
 		Options(options...).
 		Value(value)
 }
@@ -1343,7 +1343,7 @@ func askInitQuestionsHuh(opts initOptions, answers codebox.InitAnswers) (codebox
 			rootGroup = huh.NewGroup(
 				huh.NewInput().
 					Title("Racine du projet").
-					Description(fmt.Sprintf("Dossier qui contient le manifeste et la configuration de la machine isolée. Laissez vide pour conserver %s.", answers.Root)).
+					Description(fmt.Sprintf("Dossier qui contient le manifeste et la configuration de la sandbox. Laissez vide pour conserver %s.", answers.Root)).
 					Placeholder(answers.Root).
 					Value(&root),
 			).Title("Projet")

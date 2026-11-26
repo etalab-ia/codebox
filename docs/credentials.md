@@ -156,7 +156,7 @@ l'accès au dépôt et le rôle d'écriture du compte. Le checkout hôte n'est j
 la branche invitée est basée sur la branche par défaut du dépôt. **La préparation
 refuse tout fichier nouveau ou modifié de la copie filtrée par rapport à cette
 branche distante.** Elle liste les chemins concernés et ne crée ni commit
-automatique ni branche publiable. Copier un fichier dans la machine isolée
+automatique ni branche publiable. Copier un fichier dans la sandbox
 n'autorise pas sa publication sur GitHub, même si le filtre de secrets l'accepte.
 Les fichiers de configuration générés par `init` (`.codebox/project.json`,
 `.codebox/lock.json` et `AGENTS.md`) qui n'existent pas encore sur la branche

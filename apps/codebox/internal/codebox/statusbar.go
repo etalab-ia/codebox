@@ -181,7 +181,7 @@ func statusBarArchive(harness Harness, cfg Config) (archive []byte, versionDiges
 
 func guestStatusBarPathsPrelude(harness Harness) string {
 	common := "set -eu\n" +
-		"if [ -z \"${HOME:-}\" ]; then echo 'HOME n’est pas défini dans la machine isolée' >&2; exit 1; fi\n" +
+		"if [ -z \"${HOME:-}\" ]; then echo 'HOME n’est pas défini dans la sandbox' >&2; exit 1; fi\n" +
 		"config_home=${XDG_CONFIG_HOME:-\"$HOME/.config\"}\n" +
 		"case \"$config_home\" in /*) ;; *) echo 'XDG_CONFIG_HOME doit être un chemin absolu' >&2; exit 1 ;; esac\n"
 	if harness == HarnessPi {
@@ -237,11 +237,11 @@ func (m *MicrosandboxRuntime) installManagedStatusBar(ctx context.Context) error
 	}
 	archivePath := "/tmp/codebox-status-" + versionDigest[:16] + ".tar.gz"
 	if err := m.Client.WriteFile(ctx, m.InstanceName(), archivePath, archive); err != nil {
-		return fmt.Errorf("copie de la barre d'état gérée dans la machine isolée : %w", err)
+		return fmt.Errorf("copie de la barre d'état gérée dans la sandbox : %w", err)
 	}
 	script := guestStatusBarInstallScript(harness, archivePath, versionDigest, archiveSHA)
 	if err := m.guestShell(ctx, script); err != nil {
-		return fmt.Errorf("installation de la barre d'état gérée dans la machine isolée : %w", err)
+		return fmt.Errorf("installation de la barre d'état gérée dans la sandbox : %w", err)
 	}
 	return nil
 }
@@ -315,7 +315,7 @@ func readStagedStatusBarConfig(path string) []byte {
 // using the supplied canonical config.json payload.
 func InstallLocalStatusBarWithConfigJSON(home, xdgConfigHome string, harness Harness, configJSON []byte) error {
 	if strings.TrimSpace(home) == "" {
-		return fmt.Errorf("HOME n'est pas défini dans la machine isolée")
+		return fmt.Errorf("HOME n'est pas défini dans la sandbox")
 	}
 	configHome := strings.TrimSpace(xdgConfigHome)
 	if configHome == "" {

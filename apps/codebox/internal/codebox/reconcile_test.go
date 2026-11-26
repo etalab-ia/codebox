@@ -1032,11 +1032,11 @@ func TestReconcileNamesExactCreationFixedCauses(t *testing.T) {
 		joined := strings.Join(reasons, "\n")
 		for _, want := range []string{
 			"mode d'isolation a changé (full -> backend)",
-			"image de la machine isolée a changé",
+			"image de la sandbox a changé",
 			"agent a changé (opencode -> pi)",
 			"serveur de modèles local (port 11434) a été retiré",
 			"nombre de CPU a changé (2 -> 4)",
-			"mémoire de la machine isolée a changé (4096 Mo -> 8192 Mo)",
+			"mémoire de la sandbox a changé (4096 Mo -> 8192 Mo)",
 		} {
 			if !strings.Contains(joined, want) {
 				t.Errorf("missing expected reason %q in:\n%s", want, joined)

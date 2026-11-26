@@ -715,7 +715,7 @@ func TestCollectGuestChangesRefusesUnsealedWorkspace(t *testing.T) {
 		{
 			"unowned storage",
 			&fakeMSBClient{exists: true, owned: boolPtr(false)},
-			"n'est pas un stockage propre à la machine isolée",
+			"n'est pas un stockage propre à la sandbox",
 		},
 	}
 	for _, tc := range cases {

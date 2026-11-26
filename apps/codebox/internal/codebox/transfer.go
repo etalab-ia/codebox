@@ -208,7 +208,7 @@ func (m TransferManifest) Summary() string {
 	var b strings.Builder
 	included := m.Included()
 	excluded := m.Excluded()
-	fmt.Fprintf(&b, "Transfert vers la machine isolée scellée : %d fichier(s), %s\n", len(included), FormatByteSize(m.TotalBytes()))
+	fmt.Fprintf(&b, "Transfert vers la sandbox scellée : %d fichier(s), %s\n", len(included), FormatByteSize(m.TotalBytes()))
 	if m.GitManaged {
 		b.WriteString("Ensemble source : l'arbre de travail Git (fichiers suivis, non suivis et ignorés ; les métadonnées .git ne sont pas transférées).\n")
 	} else {
@@ -390,13 +390,13 @@ func classifyTransferCandidate(root, rel string, ignored, gitManaged bool, findi
 	name := filepath.Base(rel)
 	switch {
 	case info.Mode()&os.ModeSymlink != 0:
-		return exclude(TransferExclusionSymlink, "lien symbolique ; non transféré dans la machine isolée scellée", false)
+		return exclude(TransferExclusionSymlink, "lien symbolique ; non transféré dans la sandbox scellée", false)
 	case !info.Mode().IsRegular():
 		// A FIFO, socket or device node: reading it can block forever, and
 		// none of them carries project content worth transferring.
 		return exclude(TransferExclusionIrregular, "fichier non ordinaire (socket, périphérique ou FIFO) ; non transféré", false)
 	case name == ".git" || strings.HasPrefix(rel, ".git/"):
-		return exclude(TransferExclusionGitMetadata, "métadonnées Git ; le dépôt de la machine isolée est créé à l'intérieur de celle-ci", false)
+		return exclude(TransferExclusionGitMetadata, "métadonnées Git ; le dépôt de la sandbox est créé à l'intérieur de celle-ci", false)
 	case isDotenvName(name):
 		return exclude(TransferExclusionDotenv, "fichier .env (refusé par défaut)", true)
 	case len(findings) > 0:
@@ -405,7 +405,7 @@ func classifyTransferCandidate(root, rel string, ignored, gitManaged bool, findi
 		// scanner, issue #172).
 		return exclude(TransferExclusionSecret, fmt.Sprintf("secret détecté : %s", findings[0].RuleID), true)
 	case ignored:
-		return exclude(TransferExclusionGitIgnored, "ignoré par Git (état local ou dérivé) ; réintégrez-le explicitement si la machine isolée en a besoin", true)
+		return exclude(TransferExclusionGitIgnored, "ignoré par Git (état local ou dérivé) ; réintégrez-le explicitement si la sandbox en a besoin", true)
 	case info.Size() > opts.MaxFileBytes:
 		return exclude(TransferExclusionSizeCap, fmt.Sprintf("au-dessus de la limite de transfert par fichier (%s)", FormatByteSize(opts.MaxFileBytes)), false)
 	}

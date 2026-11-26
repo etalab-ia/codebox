@@ -77,7 +77,7 @@ func bindingsApproveCmd(path string, args []string) (int, error) {
 			return 1, fmt.Errorf("l'approbation GitHub exige un dossier de projet : %w", err)
 		}
 		if runtime, _ := projectRuntimeIsolation(project.Root); runtime != "" && runtime != codebox.RuntimeMicrosandbox {
-			return 1, fmt.Errorf("le workflow GitHub protégé de la machine isolée n'est disponible que pour les projets Microsandbox")
+			return 1, fmt.Errorf("le workflow GitHub protégé de la sandbox n'est disponible que pour les projets Microsandbox")
 		}
 		if _, err := githubInitPreflightFn(project.Root); err != nil {
 			return 1, err
@@ -113,7 +113,7 @@ func bindingsRevokeCmd(path, instance string, args []string) (int, error) {
 	}
 	switch {
 	case revoked && live:
-		fmt.Printf("Liaison %s révoquée sur l'instance en cours %s. Son environnement de machine isolée conserve le marqueur inerte jusqu'au prochain redémarrage.\n", kind, instance)
+		fmt.Printf("Liaison %s révoquée sur l'instance en cours %s. Son environnement de sandbox conserve le marqueur inerte jusqu'au prochain redémarrage.\n", kind, instance)
 	case revoked:
 		fmt.Printf("Liaison persistante %s effacée de %s (effective à son prochain démarrage).\n", kind, instance)
 	default:

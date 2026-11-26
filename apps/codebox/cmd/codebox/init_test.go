@@ -77,10 +77,10 @@ func TestPrintInitIntroShowsProjectAndSteps(t *testing.T) {
 		"Dossier : " + root,
 		"Microsandbox (recommandé) travaille sur une copie filtrée",
 		"vos fichiers .env",
-		"Les autres types de machine isolée",
+		"Les autres types de sandbox",
 		"réglages avancés.",
 		"1. Agent (harnais)",
-		"2. Machine isolée",
+		"2. Sandbox",
 		"3. Skills (facultatif)",
 		"4. MCP (facultatif)",
 		"5. GitHub (facultatif)",
@@ -2783,7 +2783,7 @@ func TestInitStepPrefixCounters(t *testing.T) {
 		if got := initHarnessStepTitle(opts); got != "[1/5] Agent (harnais)" {
 			t.Errorf("%s: harness title = %q", name, got)
 		}
-		if got := initVMStepTitle(opts); got != "[2/5] Machine isolée" {
+		if got := initVMStepTitle(opts); got != "[2/5] Sandbox" {
 			t.Errorf("%s: VM title = %q", name, got)
 		}
 		if got := initSkillsStepTitle(opts); got != "[3/5] " {

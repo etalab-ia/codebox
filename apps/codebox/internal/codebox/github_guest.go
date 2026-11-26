@@ -24,7 +24,7 @@ func (m *MicrosandboxRuntime) validateAppliedGitHubOrigin(bindings []resolvedBin
 		return fmt.Errorf("le flux de travail GitHub approuvé nécessite une origine GitHub.com prise en charge ; aucune modification du runtime n'a été effectuée")
 	}
 	if applied != nil && applied.GitHubOrigin != "" && applied.GitHubOrigin != remote.URL {
-		return fmt.Errorf("l'origine approuvée du projet diffère de l'origine GitHub de la machine isolée ; examinez et exportez les modifications de la machine isolée avant de la recréer. Aucune modification du runtime n'a été effectuée")
+		return fmt.Errorf("l'origine approuvée du projet diffère de l'origine GitHub de la sandbox ; examinez et exportez les modifications de la sandbox avant de la recréer. Aucune modification du runtime n'a été effectuée")
 	}
 	return nil
 }
@@ -56,7 +56,7 @@ func (m *MicrosandboxRuntime) validateExistingGitHubPublicationPolicy(ctx contex
 	marker, stderr, code, err := m.Client.ExecCapture(ctx, m.InstanceName(),
 		"cd "+shellQuote(msbGuestWorkspace)+" && git config --local --get codebox.github-workflow-origin")
 	if err != nil {
-		return fmt.Errorf("impossible de lire le marqueur du flux de travail GitHub de la machine isolée : %w", err)
+		return fmt.Errorf("impossible de lire le marqueur du flux de travail GitHub de la sandbox : %w", err)
 	}
 	if code == 1 || (code == 128 && strings.Contains(stderr, "can only be used inside a git repository")) {
 		// No repository yet, or no workflow marker: normal provisioning cases.
@@ -64,18 +64,18 @@ func (m *MicrosandboxRuntime) validateExistingGitHubPublicationPolicy(ctx contex
 		return nil
 	}
 	if code != 0 || strings.TrimSpace(marker) == "" {
-		return fmt.Errorf("impossible de lire le marqueur du flux de travail GitHub de la machine isolée (code %d) : %s", code, strings.TrimSpace(stderr))
+		return fmt.Errorf("impossible de lire le marqueur du flux de travail GitHub de la sandbox (code %d) : %s", code, strings.TrimSpace(stderr))
 	}
 	if strings.TrimSpace(marker) != m.cfg.GitHubRemote.URL {
-		return fmt.Errorf("le flux de travail GitHub de la machine isolée est initialisé pour une autre origine ; exportez les modifications de la machine isolée et examinez le changement de dépôt distant avant de recréer la machine isolée")
+		return fmt.Errorf("le flux de travail GitHub de la sandbox est initialisé pour une autre origine ; exportez les modifications de la sandbox et examinez le changement de dépôt distant avant de recréer la sandbox")
 	}
 	origin, err := m.guestOutput(ctx, "git remote get-url origin")
 	if err != nil {
-		return fmt.Errorf("le marqueur du flux de travail GitHub de la machine isolée existe mais son origine ne peut pas être lue : %w", err)
+		return fmt.Errorf("le marqueur du flux de travail GitHub de la sandbox existe mais son origine ne peut pas être lue : %w", err)
 	}
 	parsed, err := ParseGitHubRemote(strings.TrimSpace(origin))
 	if err != nil || parsed.URL != m.cfg.GitHubRemote.URL {
-		return fmt.Errorf("l'origine GitHub de la machine isolée diffère de l'origine approuvée du projet sur le poste ; refus de la réécrire")
+		return fmt.Errorf("l'origine GitHub de la sandbox diffère de l'origine approuvée du projet sur le poste ; refus de la réécrire")
 	}
 	policy, err := m.guestOutput(ctx, "git config --local --get codebox.github-workflow-snapshot-policy")
 	if err != nil || strings.TrimSpace(policy) != "remote-only-v1" {
@@ -95,21 +95,21 @@ func (m *MicrosandboxRuntime) configureGitHubWorkspace(ctx context.Context, bind
 		return fmt.Errorf("l'association GitHub est approuvée mais le projet n'a pas d'origine github.com prise en charge ; configurez l'origine ou révoquez l'association GitHub")
 	}
 	if err := m.guestShell(ctx, githubCLIInstallScript()); err != nil {
-		return fmt.Errorf("l'installation du CLI GitHub épinglé dans la machine isolée a échoué : %w", err)
+		return fmt.Errorf("l'installation du CLI GitHub épinglé dans la sandbox a échoué : %w", err)
 	}
 
 	marker, markerErr := m.guestOutput(ctx, "git config --local --get codebox.github-workflow-origin")
 	if markerErr == nil {
 		if strings.TrimSpace(marker) != m.cfg.GitHubRemote.URL {
-			return fmt.Errorf("le flux de travail GitHub de la machine isolée est initialisé pour une autre origine ; exportez les modifications de la machine isolée et examinez le changement de dépôt distant avant de recréer la machine isolée")
+			return fmt.Errorf("le flux de travail GitHub de la sandbox est initialisé pour une autre origine ; exportez les modifications de la sandbox et examinez le changement de dépôt distant avant de recréer la sandbox")
 		}
 		origin, err := m.guestOutput(ctx, "git remote get-url origin")
 		if err != nil {
-			return fmt.Errorf("le marqueur du flux de travail GitHub de la machine isolée existe mais son origine ne peut pas être lue : %w", err)
+			return fmt.Errorf("le marqueur du flux de travail GitHub de la sandbox existe mais son origine ne peut pas être lue : %w", err)
 		}
 		parsed, err := ParseGitHubRemote(strings.TrimSpace(origin))
 		if err != nil || parsed.URL != m.cfg.GitHubRemote.URL {
-			return fmt.Errorf("l'origine GitHub de la machine isolée diffère de l'origine approuvée du projet sur le poste ; refus de la réécrire")
+			return fmt.Errorf("l'origine GitHub de la sandbox diffère de l'origine approuvée du projet sur le poste ; refus de la réécrire")
 		}
 		policy, err := m.guestOutput(ctx, "git config --local --get codebox.github-workflow-snapshot-policy")
 		if err != nil || strings.TrimSpace(policy) != "remote-only-v1" {
@@ -121,16 +121,16 @@ func (m *MicrosandboxRuntime) configureGitHubWorkspace(ctx context.Context, bind
 	if origin, err := m.guestOutput(ctx, "git remote get-url origin"); err == nil && strings.TrimSpace(origin) != "" {
 		parsed, parseErr := ParseGitHubRemote(strings.TrimSpace(origin))
 		if parseErr != nil || parsed.URL != m.cfg.GitHubRemote.URL {
-			return fmt.Errorf("la machine isolée a déjà un dépôt distant d'origine différent ; examinez-le avant d'activer le flux de travail GitHub")
+			return fmt.Errorf("la sandbox a déjà un dépôt distant d'origine différent ; examinez-le avant d'activer le flux de travail GitHub")
 		}
-		return fmt.Errorf("la machine isolée a un dépôt distant d'origine mais aucun marqueur de flux de travail GitHub codebox ; refus de réinitialiser son historique de branches")
+		return fmt.Errorf("la sandbox a un dépôt distant d'origine mais aucun marqueur de flux de travail GitHub codebox ; refus de réinitialiser son historique de branches")
 	}
 	remotes, err := m.guestOutput(ctx, "git remote")
 	if err != nil {
-		return fmt.Errorf("impossible d'inspecter les dépôts distants Git de la machine isolée : %w", err)
+		return fmt.Errorf("impossible d'inspecter les dépôts distants Git de la sandbox : %w", err)
 	}
 	if strings.TrimSpace(remotes) != "" {
-		return fmt.Errorf("la machine isolée a un dépôt distant sans origine ; examinez sa configuration Git avant d'activer le flux de travail GitHub")
+		return fmt.Errorf("la sandbox a un dépôt distant sans origine ; examinez sa configuration Git avant d'activer le flux de travail GitHub")
 	}
 
 	// Validate the stored token and distinct permission layers before changing
@@ -139,7 +139,7 @@ func (m *MicrosandboxRuntime) configureGitHubWorkspace(ctx context.Context, bind
 		return fmt.Errorf("l'identifiant GitHub n'a pas été accepté par github.com ; il est peut-être expiré, révoqué ou en attente d'approbation d'organisation")
 	}
 	if _, err := m.guestOutput(ctx, "GH_PROMPT_DISABLED=1 gh auth setup-git --hostname github.com"); err != nil {
-		return fmt.Errorf("gh n'a pas pu configurer l'assistant d'identifiants Git HTTPS de la machine isolée")
+		return fmt.Errorf("gh n'a pas pu configurer l'assistant d'identifiants Git HTTPS de la sandbox")
 	}
 	branchOutput, err := m.guestOutput(ctx, "GH_PROMPT_DISABLED=1 gh repo view "+shellQuote(m.cfg.GitHubRemote.Repo)+" --json defaultBranchRef --jq .defaultBranchRef.name")
 	if err != nil {
@@ -173,7 +173,7 @@ func (m *MicrosandboxRuntime) configureGitHubWorkspace(ctx context.Context, bind
 	if err := m.recordRecoveryBase(ctx); err != nil {
 		return err
 	}
-	fmt.Printf("Flux de travail GitHub de la machine isolée prêt pour %s sur la branche %s. L'historique d'origine de la machine isolée est conservé sur %s-snapshot-backup. Poussez les commits relus de la machine isolée avec 'git push -u origin HEAD', puis ouvrez une PR en brouillon avec 'gh pr create --draft'.\n", m.cfg.GitHubRemote.Repo, branch, branch)
+	fmt.Printf("Flux de travail GitHub de la sandbox prêt pour %s sur la branche %s. L'historique d'origine de la sandbox est conservé sur %s-snapshot-backup. Poussez les commits relus de la sandbox avec 'git push -u origin HEAD', puis ouvrez une PR en brouillon avec 'gh pr create --draft'.\n", m.cfg.GitHubRemote.Repo, branch, branch)
 	return nil
 }
 
@@ -186,7 +186,7 @@ func (m *MicrosandboxRuntime) guestOutput(ctx context.Context, command string) (
 		return "", err
 	}
 	if code != 0 {
-		return "", fmt.Errorf("la commande dans la machine isolée s'est terminée avec le code %d", code)
+		return "", fmt.Errorf("la commande dans la sandbox s'est terminée avec le code %d", code)
 	}
 	return stdout, nil
 }

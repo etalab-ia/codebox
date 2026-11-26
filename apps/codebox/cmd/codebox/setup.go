@@ -203,10 +203,10 @@ const setupIntroScreen = "               _      _\n" +
 	"| (_| (_) | (_| |  __/ |_) | (_) >  <\n" +
 	" \\___\\___/ \\__,_|\\___|_.__/ \\___/_/\\_\\\n" +
 	`
-codebox : coder avec l'IA souveraine de l'État, dans une machine isolée.
+codebox : coder avec l'IA souveraine de l'État, dans une sandbox.
 
 Cette configuration se fait une seule fois sur ce poste.
-Durée : quelques minutes pour répondre aux questions. Espace disque : au moins 1 Go libre pour la machine isolée.
+Durée : quelques minutes pour répondre aux questions. Espace disque : au moins 1 Go libre pour la sandbox.
 
 3 étapes :
   1. Plateformes d'inférence (au moins une) : Albert API, Mistral AI ou une plateforme compatible OpenAI.
@@ -303,7 +303,7 @@ func setupWizardRun(fallback bool, in *bufio.Reader, validate func(context.Conte
 		res := setupPreflightFn(ctx)
 		j.Preflight = res
 		if res.Fatal {
-			fmt.Println("Ce poste ne peut pas exécuter la machine isolée de codebox :")
+			fmt.Println("Ce poste ne peut pas exécuter la sandbox de codebox :")
 			printPreflight(res)
 			_ = codebox.WriteSetupJournal(fs, stateDir, j)
 			return 1, fmt.Errorf("installation interrompue : corrigez les points ci-dessus, puis relancez 'codebox setup'")
@@ -1472,9 +1472,9 @@ func runSetupIdentityForm(fields []huh.Field) error {
 
 func setupRuntimeSummary(preflight codebox.SetupPreflight) string {
 	if preflight.RuntimeInstalled {
-		return "La machine isolée est déjà installée. codebox la vérifiera et la réutilisera, sans téléchargement."
+		return "La sandbox est déjà installée. codebox la vérifiera et la réutilisera, sans téléchargement."
 	}
-	return "codebox téléchargera et vérifiera la machine isolée si aucune installation valide n'est disponible.\nLa préparation au premier lancement se fait en trois temps : téléchargement, installation, puis démarrage. La durée dépend de votre connexion ; le contrôle bloque sous 1 Go libre."
+	return "codebox téléchargera et vérifiera la sandbox si aucune installation valide n'est disponible.\nLa préparation au premier lancement se fait en trois temps : téléchargement, installation, puis démarrage. La durée dépend de votre connexion ; le contrôle bloque sous 1 Go libre."
 }
 
 func identityPrompt(title, current string) string {
@@ -2297,7 +2297,7 @@ func githubScreenText(fallback bool) string {
 	}
 	return fmt.Sprintf(`[3/3] GitHub (facultatif)
 
-À quoi ça sert : l'agent travaille dans une machine isolée. Pour récupérer son travail,
+À quoi ça sert : l'agent travaille dans une sandbox. Pour récupérer son travail,
 il peut pousser ses modifications sur GitHub et ouvrir une pull request en brouillon,
 que vous relisez avant d'accepter les modifications.
 Sans GitHub, vous récupérez les modifications avec : codebox workspace apply

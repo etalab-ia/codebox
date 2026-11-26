@@ -90,17 +90,17 @@ func RecommendedDefaultGuestMemoryMB(hostMemoryMB int) int {
 // capacity. The setting is a hard ceiling, not a recommendation.
 func ValidateGuestResources(host HostResources, guestCPUs, guestMemoryMB int) error {
 	if host.CPUs <= 0 || host.MemoryMB <= 0 {
-		return fmt.Errorf("impossible d'appliquer la limite de ressources de la machine isolée : la capacité du poste n'a pas pu être détectée")
+		return fmt.Errorf("impossible d'appliquer la limite de ressources de la sandbox : la capacité du poste n'a pas pu être détectée")
 	}
 	if guestCPUs < 1 {
-		return fmt.Errorf("la demande de processeurs de la machine isolée doit être d'au moins 1, obtenu %d", guestCPUs)
+		return fmt.Errorf("la demande de processeurs de la sandbox doit être d'au moins 1, obtenu %d", guestCPUs)
 	}
 	if guestMemoryMB < 1 {
-		return fmt.Errorf("la demande de mémoire de la machine isolée doit être d'au moins 1 MiB, obtenu %d", guestMemoryMB)
+		return fmt.Errorf("la demande de mémoire de la sandbox doit être d'au moins 1 MiB, obtenu %d", guestMemoryMB)
 	}
 	maxCPUs := MaxGuestCPUs(host.CPUs)
 	if maxCPUs < 1 {
-		return fmt.Errorf("aucun processeur logique du poste n'est disponible pour la machine isolée")
+		return fmt.Errorf("aucun processeur logique du poste n'est disponible pour la sandbox")
 	}
 	if guestCPUs > maxCPUs {
 		return fmt.Errorf("la demande de %d processeurs dépasse la capacité détectée du poste (%d processeurs logiques)", guestCPUs, maxCPUs)
@@ -120,11 +120,11 @@ func GuestResourceWarnings(host HostResources, guestCPUs, guestMemoryMB int) []s
 	}
 	var warnings []string
 	if guestCPUs >= host.CPUs {
-		warnings = append(warnings, fmt.Sprintf("la machine isolée utilisera les %d processeurs logiques du poste ; les autres applications peuvent ralentir", host.CPUs))
+		warnings = append(warnings, fmt.Sprintf("la sandbox utilisera les %d processeurs logiques du poste ; les autres applications peuvent ralentir", host.CPUs))
 	}
 	if int64(guestMemoryMB)*100 >= int64(host.MemoryMB)*GuestMemoryWarningPercent {
 		percent := float64(guestMemoryMB) * 100 / float64(host.MemoryMB)
-		warnings = append(warnings, fmt.Sprintf("la mémoire de la machine isolée (%s) utilise %.1f %% de la mémoire détectée sur ce poste ; le système et la virtualisation risquent de manquer de marge", FormatMemorySize(guestMemoryMB), percent))
+		warnings = append(warnings, fmt.Sprintf("la mémoire de la sandbox (%s) utilise %.1f %% de la mémoire détectée sur ce poste ; le système et la virtualisation risquent de manquer de marge", FormatMemorySize(guestMemoryMB), percent))
 	}
 	return warnings
 }
@@ -191,7 +191,7 @@ func BrowserResourceGuidance(host HostResources, guestCPUs, guestMemoryMB int, d
 	if guestMemoryMB <= 0 {
 		guestMemoryMB = DefaultSandboxMemoryMB
 	}
-	message := fmt.Sprintf("Navigateur dans la machine isolée : %d vCPU, %d Mo de RAM, 8 Go de disque. Mesure P03 : environ 2,6 Go utilisés. Le pic de mémoire du navigateur n'a pas été mesuré : aucune augmentation de mémoire n'est justifiée.", guestCPUs, guestMemoryMB)
+	message := fmt.Sprintf("Navigateur dans la sandbox : %d vCPU, %d Mo de RAM, 8 Go de disque. Mesure P03 : environ 2,6 Go utilisés. Le pic de mémoire du navigateur n'a pas été mesuré : aucune augmentation de mémoire n'est justifiée.", guestCPUs, guestMemoryMB)
 	if host.CPUs > 0 {
 		message += fmt.Sprintf(" Poste : %d processeurs logiques", host.CPUs)
 	}

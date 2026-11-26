@@ -216,10 +216,10 @@ func validateSecretBindings(bindings []msbSecretBinding) error {
 	hostFor := map[string]CredentialKind{}
 	for _, b := range bindings {
 		if b.GuestEnv == "" || b.HostEnv == "" {
-			return fmt.Errorf("liaison %s : les noms de variables de la machine isolée et du poste sont requis", b.Kind)
+			return fmt.Errorf("liaison %s : les noms de variables de la sandbox et du poste sont requis", b.Kind)
 		}
 		if prev, dup := guestEnvs[b.GuestEnv]; dup {
-			return fmt.Errorf("les liaisons %s et %s partagent la variable de machine isolée %s", prev, b.Kind, b.GuestEnv)
+			return fmt.Errorf("les liaisons %s et %s partagent la variable de sandbox %s", prev, b.Kind, b.GuestEnv)
 		}
 		guestEnvs[b.GuestEnv] = b.Kind
 		if len(b.AllowHosts) == 0 {

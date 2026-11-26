@@ -33,7 +33,7 @@ func portsCommand(args []string) (int, error) {
 			return 0, nil
 		}
 		for _, p := range pm.Ports {
-			fmt.Printf("127.0.0.1:%d -> machine isolée:%d (TCP)\n", p.Host, p.Guest)
+			fmt.Printf("127.0.0.1:%d -> sandbox:%d (TCP)\n", p.Host, p.Guest)
 		}
 		return 0, nil
 	}
@@ -103,7 +103,7 @@ func portsCommand(args []string) (int, error) {
 	}
 	fmt.Printf("Enregistré %d correspondance(s) de port d'aperçu dans %s.\n", len(ports), path)
 	fmt.Println("Les changements ne s'appliquent qu'à la création de la machine Microsandbox ; un redémarrage ordinaire ne les appliquera pas.")
-	fmt.Println("Pour les appliquer, lancez 'codebox recreate --microsandbox' après avoir confirmé que les fichiers et sessions propres à la machine isolée peuvent être perdus.")
+	fmt.Println("Pour les appliquer, lancez 'codebox recreate --microsandbox' après avoir confirmé que les fichiers et sessions propres à la sandbox peuvent être perdus.")
 	return 0, nil
 }
 

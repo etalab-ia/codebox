@@ -365,7 +365,7 @@ func TestLocalOnlyInstructionPreflightRetriesAndExplainsRecovery(t *testing.T) {
 	if err == nil {
 		t.Fatal("versioned managed instructions should block local-only startup")
 	}
-	for _, expected := range []string{"workspace export", "workspace sync", "pendant que la machine isolée tourne", "codebox recreate"} {
+	for _, expected := range []string{"workspace export", "workspace sync", "pendant que la sandbox tourne", "codebox recreate"} {
 		if !strings.Contains(err.Error(), expected) {
 			t.Errorf("recovery error %q does not mention %q", err, expected)
 		}
@@ -3181,7 +3181,7 @@ func TestRecoverRefusesPersistedProjectSecretWithRemovedDestination(t *testing.T
 	if !strings.Contains(err.Error(), "ne sont pas toutes encore approuvées") {
 		t.Fatalf("refusal should name the destination mismatch, got: %v", err)
 	}
-	if !strings.Contains(err.Error(), "recréez la machine isolée") {
+	if !strings.Contains(err.Error(), "recréez la sandbox") {
 		t.Fatalf("refusal should tell the user to recreate the sandbox, got: %v", err)
 	}
 	if hasCall(client, "start ") {

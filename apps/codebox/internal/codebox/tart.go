@@ -216,7 +216,7 @@ func (t *Tart) StopAll(ctx context.Context) error {
 		return err
 	}
 	if len(vms) == 0 {
-		fmt.Println("Aucune machine isolée Tart codebox n'est en cours d'exécution.")
+		fmt.Println("Aucune sandbox Tart codebox n'est en cours d'exécution.")
 		return nil
 	}
 	var firstErr error
@@ -355,7 +355,7 @@ type guestOverlayWire struct {
 func encodeGuestOverlay(overlay ManagedOverlay) (string, error) {
 	data, err := json.Marshal(guestOverlayWire{Models: overlay.Models, Providers: overlay.Providers, AlbertEnabled: overlay.AlbertEnabled, SmallModel: overlay.SmallModel})
 	if err != nil {
-		return "", fmt.Errorf("encodage de la configuration des modèles de la machine isolée : %w", err)
+		return "", fmt.Errorf("encodage de la configuration des modèles de la sandbox : %w", err)
 	}
 	return string(data), nil
 }
@@ -431,7 +431,7 @@ func SecretsReader(password, apiKey string) io.Reader {
 func SecretsReaderWithKeys(password string, keys map[string]string) (io.Reader, error) {
 	data, err := json.Marshal(keys)
 	if err != nil {
-		return nil, fmt.Errorf("encodage des clés de fournisseur de la machine isolée : %w", err)
+		return nil, fmt.Errorf("encodage des clés de fournisseur de la sandbox : %w", err)
 	}
 	return strings.NewReader(password + "\n" + string(data) + "\n"), nil
 }
@@ -698,7 +698,7 @@ func (t *Tart) startVM(ctx context.Context) error {
 // #74); the warning stays so the choice is visible on every start.
 func (t *Tart) validateConfig(ctx context.Context) error {
 	if !t.Config.GuestCredentialsAcknowledged {
-		return fmt.Errorf("tart transmet les identifiants d'inférence à la machine isolée en clair, où n'importe quel processus (l'agent compris) peut les lire ; " +
+		return fmt.Errorf("tart transmet les identifiants d'inférence à la sandbox en clair, où n'importe quel processus (l'agent compris) peut les lire ; " +
 			"passez --acknowledge-guest-credentials pour l'accepter, ou utilisez --microsandbox, qui garde l'identifiant derrière le proxy de secrets")
 	}
 	if _, err := t.resolveProviderKeysFor(ctx); err != nil {
@@ -919,7 +919,7 @@ func (t *Tart) Restart(ctx context.Context) error {
 // Recreate is the explicit destructive rebuild of the VM (P07). It names the
 // loss before and after. No lifecycle path reaches it implicitly.
 func (t *Tart) Recreate(ctx context.Context) error {
-	fmt.Printf("Recréation de %s. Cela DÉTRUIT : les sessions de la machine isolée, les outils installés dans l'invité et les fichiers propres à l'invité.\n", t.VMName())
+	fmt.Printf("Recréation de %s. Cela DÉTRUIT : les sessions de la sandbox, les outils installés dans l'invité et les fichiers propres à l'invité.\n", t.VMName())
 	if err := t.RestartPreflights(ctx); err != nil {
 		return err
 	}
@@ -1042,7 +1042,7 @@ func (t *Tart) RunAgent(ctx context.Context) error {
 	}
 	resumeArgs, warn := OpenCodeResumeArgs(hasSessions, listErr, helpOutput, helpErr)
 	if warn {
-		WarnOpenCodeResumeUnavailable("dans la machine isolée Tart")
+		WarnOpenCodeResumeUnavailable("dans la sandbox Tart")
 	}
 	interactive := t.Interactive
 	if interactive == nil {

@@ -59,11 +59,11 @@ const guestSecretHeaderLineBytes = 31
 func assertGuestSecretHeaderDigest() {
 	line := []byte(guestSecretHeaderPrefix + "\n")
 	if len(line) != guestSecretHeaderLineBytes {
-		panic(fmt.Sprintf("l'en-tête de secret de la machine isolée fait %d octets au lieu de %d : mettez à jour guestSecretHeaderLineBytes", len(line), guestSecretHeaderLineBytes))
+		panic(fmt.Sprintf("l'en-tête de secret de la sandbox fait %d octets au lieu de %d : mettez à jour guestSecretHeaderLineBytes", len(line), guestSecretHeaderLineBytes))
 	}
 	sum := sha256.Sum256(line)
 	if got := hex.EncodeToString(sum[:]); got != guestSecretHeaderLineDigest {
-		panic(fmt.Sprintf("l'empreinte de l'en-tête de secret de la machine isolée est %s au lieu de la valeur épinglée %s : mettez à jour guestSecretHeaderLineDigest", got, guestSecretHeaderLineDigest))
+		panic(fmt.Sprintf("l'empreinte de l'en-tête de secret de la sandbox est %s au lieu de la valeur épinglée %s : mettez à jour guestSecretHeaderLineDigest", got, guestSecretHeaderLineDigest))
 	}
 }
 
@@ -350,7 +350,7 @@ func BuildGuestSecretFiles(deliveries []ProjectSecretDelivery) ([]GuestSecretFil
 			switch {
 			case d.GuestReadable():
 				if d.Value == nil {
-					return nil, fmt.Errorf("le composant %s, variable %s, est lisible par la machine isolée mais sa valeur n'a pas été résolue", component, d.Name)
+					return nil, fmt.Errorf("le composant %s, variable %s, est lisible par la sandbox mais sa valeur n'a pas été résolue", component, d.Name)
 				}
 				literal, err := dotenvLiteral(*d.Value)
 				if err != nil {
@@ -358,7 +358,7 @@ func BuildGuestSecretFiles(deliveries []ProjectSecretDelivery) ([]GuestSecretFil
 				}
 				b.WriteString(d.Name + "=" + literal + "\n")
 			case d.Marker == "":
-				return nil, fmt.Errorf("le composant %s, variable %s, n'a pas de marqueur pour la machine isolée", component, d.Name)
+				return nil, fmt.Errorf("le composant %s, variable %s, n'a pas de marqueur pour la sandbox", component, d.Name)
 			default:
 				b.WriteString(d.Name + "=" + d.Marker + "\n")
 			}
@@ -389,7 +389,7 @@ func guestWorkspaceDotenvPath(component string) (string, error) {
 	}
 	joined := path.Join(msbGuestWorkspace, component)
 	if !strings.HasPrefix(joined, msbGuestWorkspace+"/") {
-		return "", fmt.Errorf("le composant de secret de projet %q se résout hors de l'espace de travail de la machine isolée", component)
+		return "", fmt.Errorf("le composant de secret de projet %q se résout hors de l'espace de travail de la sandbox", component)
 	}
 	return joined, nil
 }
@@ -524,7 +524,7 @@ func ReadProjectSecretApplied(fs FS, stateDir, namespace string) (ProjectSecretA
 	}
 	for _, env := range record.Envs {
 		if env == "" || reservedGuestEnvs()[env] {
-			return ProjectSecretApplied{}, fmt.Errorf("l'inventaire des secrets de projet appliqués nomme une variable de machine isolée invalide")
+			return ProjectSecretApplied{}, fmt.Errorf("l'inventaire des secrets de projet appliqués nomme une variable de sandbox invalide")
 		}
 	}
 	for _, guestPath := range record.Files {
@@ -539,7 +539,7 @@ func ReadProjectSecretApplied(fs FS, stateDir, namespace string) (ProjectSecretA
 func WriteProjectSecretApplied(fs FS, stateDir, namespace string, applied ProjectSecretApplied) error {
 	for _, env := range applied.Envs {
 		if env == "" || reservedGuestEnvs()[env] {
-			return fmt.Errorf("refus d'enregistrer une variable de machine isolée invalide dans l'inventaire appliqué")
+			return fmt.Errorf("refus d'enregistrer une variable de sandbox invalide dans l'inventaire appliqué")
 		}
 	}
 	for _, guestPath := range applied.Files {
@@ -570,7 +570,7 @@ func WriteProjectSecretApplied(fs FS, stateDir, namespace string, applied Projec
 // step into an arbitrary delete inside the guest.
 func validateManagedGuestPath(guestPath string) error {
 	if !strings.HasPrefix(guestPath, msbGuestWorkspace+"/") || strings.Contains(guestPath, "..") {
-		return fmt.Errorf("le fichier de secret de projet enregistré %q n'est pas dans l'espace de travail de la machine isolée", guestPath)
+		return fmt.Errorf("le fichier de secret de projet enregistré %q n'est pas dans l'espace de travail de la sandbox", guestPath)
 	}
 	return nil
 }
@@ -581,7 +581,7 @@ func validateManagedGuestPath(guestPath string) error {
 // path the plan classified as managed.
 func (m *MicrosandboxRuntime) publishGuestSecretFiles(ctx context.Context, plan GuestSecretPublishPlan) error {
 	if len(plan.Conflicts) > 0 {
-		return fmt.Errorf("refus de publier les fichiers de secrets de projet : %s est déjà présent%s dans la machine isolée sans avoir été écrit par codebox ; "+
+		return fmt.Errorf("refus de publier les fichiers de secrets de projet : %s est déjà présent%s dans la sandbox sans avoir été écrit par codebox ; "+
 			"mettez ces fichiers de côté, ou cessez de générer ce composant, puis relancez",
 			strings.Join(plan.Conflicts, ", "), plural(len(plan.Conflicts)))
 	}
@@ -760,7 +760,7 @@ func (m *MicrosandboxRuntime) observeGuestSecretFile(ctx context.Context, guestP
 		}
 	case 3:
 	default:
-		return obs, fmt.Errorf("impossible d'inspecter le fichier existant de la machine isolée %s (code %d) : %s", guestPath, code, strings.TrimSpace(stderr))
+		return obs, fmt.Errorf("impossible d'inspecter le fichier existant de la sandbox %s (code %d) : %s", guestPath, code, strings.TrimSpace(stderr))
 	}
 	return obs, nil
 }

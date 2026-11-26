@@ -381,11 +381,11 @@ func (w InitWizard) Plan(answers InitAnswers) (InitPlan, error) {
 	plan.Answers.Runtime = rt
 	if answers.GitHubWorkflow {
 		if rt != RuntimeMicrosandbox {
-			return plan, fmt.Errorf("le flux GitHub protégé de la machine isolée exige le runtime microsandbox")
+			return plan, fmt.Errorf("le flux GitHub protégé de la sandbox exige le runtime microsandbox")
 		}
 		remote, err := ParseGitHubRemote(answers.GitHubRemote.URL)
 		if err != nil || remote != answers.GitHubRemote {
-			return plan, fmt.Errorf("le flux GitHub de la machine isolée exige un remote origin GitHub.com")
+			return plan, fmt.Errorf("le flux GitHub de la sandbox exige un remote origin GitHub.com")
 		}
 		plan.Answers.GitHubRemote = remote
 	}
@@ -897,18 +897,18 @@ func FormatInteractiveInitReview(plan InitPlan) string {
 		}
 	}
 
-	b.WriteString("\nL'initialisation ne démarre ni ne redémarre de machine isolée.\n")
-	b.WriteString("Au premier lancement : téléchargement de la machine isolée, puis installation et démarrage. La durée dépend de votre connexion.\n")
+	b.WriteString("\nL'initialisation ne démarre ni ne redémarre de sandbox.\n")
+	b.WriteString("Au premier lancement : téléchargement de la sandbox, puis installation et démarrage. La durée dépend de votre connexion.\n")
 	if len(a.Skills) > 0 {
-		b.WriteString("Les skills sont installés dans la machine isolée au premier lancement.\n")
+		b.WriteString("Les skills sont installés dans la sandbox au premier lancement.\n")
 	}
 	if HasBrowserMCPSelection(a.MCPConnectors) {
 		b.WriteString(BrowserDownloadNote + "\n")
 	}
 	if initPlanMayRequireRecreate(plan) {
-		b.WriteString("Certains réglages (navigateur, serveur de modèles local, agent, isolation ou ressources) sont fixés à la création : sur une machine isolée existante, le prochain lancement proposera de sauvegarder le travail puis de la recréer.\n")
+		b.WriteString("Certains réglages (navigateur, serveur de modèles local, agent, isolation ou ressources) sont fixés à la création : sur une sandbox existante, le prochain lancement proposera de sauvegarder le travail puis de la recréer.\n")
 	} else if len(a.MCPConnectors) > 0 {
-		b.WriteString("Les changements de MCP prennent effet au prochain lancement ; cela peut redémarrer la machine isolée sans effacer son contenu.\n")
+		b.WriteString("Les changements de MCP prennent effet au prochain lancement ; cela peut redémarrer la sandbox sans effacer son contenu.\n")
 	}
 	return b.String()
 }
@@ -967,7 +967,7 @@ func formatLocalServerSummary(providers []ProviderSettings) string {
 			return name
 		}
 		if resolved.LocalPort > 0 {
-			return fmt.Sprintf("%s (%s ; port hôte %d ouvert vers la machine isolée)", resolved.Name, resolved.BaseURL, resolved.LocalPort)
+			return fmt.Sprintf("%s (%s ; port hôte %d ouvert vers la sandbox)", resolved.Name, resolved.BaseURL, resolved.LocalPort)
 		}
 		return fmt.Sprintf("%s (%s)", resolved.Name, resolved.BaseURL)
 	}
@@ -1026,7 +1026,7 @@ func FormatInitInstructionsDiff(plan InitPlan) string {
 	before, _ := managedSkillZone(plan.InstructionsBefore)
 	after, _ := managedSkillZone(plan.InstructionsAfter)
 	b.WriteString("Diff de la section codebox dans AGENTS.md (tout le texte hors de cette section est conservé à l'identique) :\n")
-	b.WriteString("Si le filtre de copie exclut AGENTS.md, une autorisation fichier par fichier sera nécessaire pour le transmettre à la machine isolée.\n")
+	b.WriteString("Si le filtre de copie exclut AGENTS.md, une autorisation fichier par fichier sera nécessaire pour le transmettre à la sandbox.\n")
 	if before == "" {
 		b.WriteString("  actuel : aucune section de skills gérée par codebox\n")
 	} else {
@@ -1049,9 +1049,9 @@ func FormatInitReview(plan InitPlan) string {
 	fmt.Fprintf(&b, "  projet       %s\n", a.Root)
 	fmt.Fprintf(&b, "  partage      %s runtime, isolation %s\n", a.Runtime, a.Isolation)
 	if a.Isolation == IsolationFull {
-		b.WriteString("               l'agent, son TUI et ses identifiants s'exécutent dans la machine isolée\n")
+		b.WriteString("               l'agent, son TUI et ses identifiants s'exécutent dans la sandbox\n")
 	} else {
-		b.WriteString("               l'agent s'exécute dans la machine isolée et le TUI s'y attache depuis ce poste\n")
+		b.WriteString("               l'agent s'exécute dans la sandbox et le TUI s'y attache depuis ce poste\n")
 	}
 	if a.Model != "" {
 		fmt.Fprintf(&b, "  modèle       %s\n", a.Model)
@@ -1066,7 +1066,7 @@ func FormatInitReview(plan InitPlan) string {
 	if localSummary := formatLocalServerSummary(a.Providers); localSummary != "" {
 		fmt.Fprintf(&b, "  serveur local %s\n", localSummary)
 	}
-	fmt.Fprintf(&b, "  ressources   %d processeurs, %s (fixés à la création de la machine isolée)\n", plan.GuestCPUs, FormatMemorySize(plan.GuestMemoryMB))
+	fmt.Fprintf(&b, "  ressources   %d processeurs, %s (fixés à la création de la sandbox)\n", plan.GuestCPUs, FormatMemorySize(plan.GuestMemoryMB))
 	if a.BrowserResourceGuidance != "" {
 		fmt.Fprintf(&b, "  conseil      %s\n", a.BrowserResourceGuidance)
 	}
@@ -1146,27 +1146,27 @@ func FormatInitReview(plan InitPlan) string {
 	}
 	b.WriteString("\nTéléchargements et activation :\n")
 	if len(plan.SkillEntries) > 0 {
-		b.WriteString("  Les archives des skills sélectionnés sont résolues et vérifiées dans le cache du poste pour ces révisions ; la machine isolée les installe à son prochain lancement.\n")
+		b.WriteString("  Les archives des skills sélectionnés sont résolues et vérifiées dans le cache du poste pour ces révisions ; la sandbox les installe à son prochain lancement.\n")
 	} else if len(a.Skills) > 0 {
-		b.WriteString("  Les révisions de skills existantes sont conservées ; la machine isolée les réconcilie à son prochain lancement.\n")
+		b.WriteString("  Les révisions de skills existantes sont conservées ; la sandbox les réconcilie à son prochain lancement.\n")
 	} else {
 		b.WriteString("  Aucune archive de skill de projet n'est sélectionnée.\n")
 	}
 	if HasBrowserMCPSelection(a.MCPConnectors) {
-		b.WriteString("  Le profil de navigateur Debian épinglé par empreinte et les paquets MCP sélectionnés se téléchargent dans la machine isolée au premier lancement ; aucun navigateur du poste n'est utilisé.\n")
-		b.WriteString("  DevTools n'écoute que sur la boucle locale de la machine isolée. Passer à cette image, ou la quitter, sur une machine isolée existante exige une recréation explicite ; init ne recrée jamais de machine isolée.\n")
+		b.WriteString("  Le profil de navigateur Debian épinglé par empreinte et les paquets MCP sélectionnés se téléchargent dans la sandbox au premier lancement ; aucun navigateur du poste n'est utilisé.\n")
+		b.WriteString("  DevTools n'écoute que sur la boucle locale de la sandbox. Passer à cette image, ou la quitter, sur une sandbox existante exige une recréation explicite ; init ne recrée jamais de sandbox.\n")
 	}
-	b.WriteString("  L'initialisation ne démarre ni ne redémarre de machine isolée.\n")
+	b.WriteString("  L'initialisation ne démarre ni ne redémarre de sandbox.\n")
 	if initPlanMayRequireRecreate(plan) {
-		b.WriteString("  Certains réglages (navigateur, serveur de modèles local, agent, isolation ou ressources) sont fixés à la création : sur une machine isolée existante, le prochain lancement proposera de sauvegarder le travail puis de la recréer.\n")
+		b.WriteString("  Certains réglages (navigateur, serveur de modèles local, agent, isolation ou ressources) sont fixés à la création : sur une sandbox existante, le prochain lancement proposera de sauvegarder le travail puis de la recréer.\n")
 	} else {
-		b.WriteString("  Les changements de MCP gérés prennent effet au prochain lancement, ce qui peut redémarrer la machine isolée sans effacer son contenu.\n")
+		b.WriteString("  Les changements de MCP gérés prennent effet au prochain lancement, ce qui peut redémarrer la sandbox sans effacer son contenu.\n")
 	}
 	if a.Runtime == RuntimeMicrosandbox {
-		b.WriteString("\nLa machine isolée reçoit une copie filtrée du projet : fichiers .env, fichiers ignorés,\n" +
+		b.WriteString("\nLa sandbox reçoit une copie filtrée du projet : fichiers .env, fichiers ignorés,\n" +
 			"liens symboliques et fichiers signalés par la détection de secrets sont exclus par défaut ('codebox workspace status').\n")
 	} else {
-		b.WriteString("\nCe runtime MONTE le projet dans la machine isolée : tout son contenu y est lisible,\n" +
+		b.WriteString("\nCe runtime MONTE le projet dans la sandbox : tout son contenu y est lisible,\n" +
 			"y compris les secrets qu'il contient (un fichier .env bloque le démarrage).\n")
 	}
 	for _, warning := range plan.Warnings {
@@ -1180,7 +1180,7 @@ func FormatInitReview(plan InitPlan) string {
 		before, _ := managedSkillZone(plan.InstructionsBefore)
 		after, _ := managedSkillZone(plan.InstructionsAfter)
 		b.WriteString("\nDiff de la section gérée d'AGENTS.md (tout le texte hors de ce bloc est conservé octet pour octet) :\n")
-		b.WriteString("Si le filtre de copie marque AGENTS.md comme ignoré ou de type secret, il n'atteindra la machine isolée qu'après une autorisation fichier par fichier.\n")
+		b.WriteString("Si le filtre de copie marque AGENTS.md comme ignoré ou de type secret, il n'atteindra la sandbox qu'après une autorisation fichier par fichier.\n")
 		if before == "" {
 			b.WriteString("  actuel : aucune section de skills gérée\n")
 		} else {

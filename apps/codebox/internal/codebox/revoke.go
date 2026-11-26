@@ -58,7 +58,7 @@ type ErrRevocationBlocked struct {
 
 func (e *ErrRevocationBlocked) Error() string {
 	return fmt.Sprintf("l'identifiant %q est détenu en clair par des instances en cours d'exécution %v ; "+
-		"arrêtez-les d'abord (codebox stop) — supprimer l'identifiant stocké ne peut pas révoquer la copie que la machine isolée détient déjà",
+		"arrêtez-les d'abord (codebox stop) — supprimer l'identifiant stocké ne peut pas révoquer la copie que la sandbox détient déjà",
 		e.Kind, e.Instances)
 }
 

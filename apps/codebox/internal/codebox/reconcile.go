@@ -385,7 +385,7 @@ func PlanReconcile(applied *InstanceState, desired DesiredState, facts Reconcile
 
 func formatCreationFixedReasons(reasons []string) string {
 	if len(reasons) == 0 {
-		return "le niveau d'isolation, l'image, le profil de la machine isolée, le harnais d'agent, le port du serveur de modèles local, la provenance de l'espace de travail, la taille de la machine isolée ou les ports publiés Microsandbox ont changé ; ces éléments sont fixés à la création"
+		return "le niveau d'isolation, l'image, le profil de la sandbox, le harnais d'agent, le port du serveur de modèles local, la provenance de l'espace de travail, la taille de la sandbox ou les ports publiés Microsandbox ont changé ; ces éléments sont fixés à la création"
 	}
 	if len(reasons) == 1 {
 		return reasons[0] + " (élément fixé à la création)"
@@ -405,7 +405,7 @@ type ErrRecreateNeeded struct {
 
 func (e *ErrRecreateNeeded) Error() string {
 	return fmt.Sprintf("%s ne peut pas appliquer ce changement sur place : %s. "+
-		"La recréation est destructive et fait perdre les sessions de la machine isolée, les outils installés dans la machine isolée et les fichiers propres à la machine isolée. "+
+		"La recréation est destructive et fait perdre les sessions de la sandbox, les outils installés dans la sandbox et les fichiers propres à la sandbox. "+
 		"Pour récupérer d'abord le travail de l'agent : 'codebox workspace recover' puis 'codebox workspace apply'. "+
 		"Lancez ensuite 'codebox recreate --microsandbox' si cela est acceptable",
 		e.Instance, e.Reason)
@@ -792,10 +792,10 @@ func creationFixedReasons(applied *InstanceState, desired DesiredState) []string
 		reasons = append(reasons, fmt.Sprintf("le mode d'isolation a changé (%s -> %s)", applied.Isolation, desired.Isolation))
 	}
 	if applied.Image != desired.Image {
-		reasons = append(reasons, "l'image de la machine isolée a changé (mise à jour de codebox ou du navigateur)")
+		reasons = append(reasons, "l'image de la sandbox a changé (mise à jour de codebox ou du navigateur)")
 	}
 	if applied.GuestProfile != desired.GuestProfile {
-		reasons = append(reasons, "le profil de la machine isolée a changé (mise à jour de codebox, de Pi ou du navigateur)")
+		reasons = append(reasons, "le profil de la sandbox a changé (mise à jour de codebox, de Pi ou du navigateur)")
 	}
 	if prevHarness := appliedHarness(applied.Harness); prevHarness != desired.Harness {
 		reasons = append(reasons, fmt.Sprintf("l'agent a changé (%s -> %s)", prevHarness, desired.Harness))
@@ -818,7 +818,7 @@ func creationFixedReasons(applied *InstanceState, desired DesiredState) []string
 		reasons = append(reasons, fmt.Sprintf("le nombre de CPU a changé (%d -> %d)", applied.CPUs, desired.CPUs))
 	}
 	if applied.MemoryMB != 0 && applied.MemoryMB != desired.MemoryMB {
-		reasons = append(reasons, fmt.Sprintf("la mémoire de la machine isolée a changé (%d Mo -> %d Mo)", applied.MemoryMB, desired.MemoryMB))
+		reasons = append(reasons, fmt.Sprintf("la mémoire de la sandbox a changé (%d Mo -> %d Mo)", applied.MemoryMB, desired.MemoryMB))
 	}
 	if portMappingsChanged(applied.PortsConfigured, applied.Ports, desired.Ports, desired.PortsConfigured) {
 		reasons = append(reasons, "les ports publiés Microsandbox ont changé")
@@ -1013,7 +1013,7 @@ func joinOps(ops []ReconcileOp) string {
 // destructive Clean, and no reconcile plan reaches it implicitly
 // (NeedsRecreate is surfaced as an error, never executed).
 func (m *MicrosandboxRuntime) Recreate(ctx context.Context) error {
-	lossSummary := "les sessions de la machine isolée, les outils installés dans la machine isolée et les fichiers propres à la machine isolée"
+	lossSummary := "les sessions de la sandbox, les outils installés dans la sandbox et les fichiers propres à la sandbox"
 	fmt.Printf("Recréation de %s. Cela DÉTRUIT : %s.\n", m.InstanceName(), lossSummary)
 	if err := m.validateConfig(); err != nil {
 		return err

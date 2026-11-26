@@ -342,16 +342,16 @@ func authRemoveCmd(args []string) (int, error) {
 		return 1, err
 	}
 	for _, name := range report.LiveRevoked {
-		fmt.Printf("Identifiant %q révoqué sur la machine isolée en cours d'exécution %s.\n", kind, name)
+		fmt.Printf("Identifiant %q révoqué sur la sandbox en cours d'exécution %s.\n", kind, name)
 	}
 	for _, name := range report.StoppedCleared {
 		fmt.Printf("Référence persistante de %q effacée de %s (effective à son prochain démarrage).\n", kind, name)
 	}
 	if len(report.Revolved) > 0 {
-		fmt.Printf("Liaisons de la machine isolée révoquées : %s.\n", strings.Join(report.Revolved, ", "))
+		fmt.Printf("Liaisons de la sandbox révoquées : %s.\n", strings.Join(report.Revolved, ", "))
 	}
 	if report.PlaceholderDangles {
-		fmt.Fprintf(os.Stderr, "Attention : une machine isolée en cours d'exécution conserve dans son environnement le marqueur %s désormais inerte jusqu'à son redémarrage ; les requêtes vers l'hôte auparavant autorisé échoueront, mais la chaîne du marqueur elle-même est divulguée. Redémarrez l'instance pour l'effacer.\n", kind)
+		fmt.Fprintf(os.Stderr, "Attention : une sandbox en cours d'exécution conserve dans son environnement le marqueur %s désormais inerte jusqu'à son redémarrage ; les requêtes vers l'hôte auparavant autorisé échoueront, mais la chaîne du marqueur elle-même est divulguée. Redémarrez l'instance pour l'effacer.\n", kind)
 	}
 	if len(report.Pending) > 0 {
 		fmt.Fprintf(os.Stderr, "Remarque : la source de %q n'a pas pu être confirmée pour %v ; leurs liaisons ont été révoquées plutôt que laissées en place. Redémarrez-les ou recréez-les pour supprimer toute référence orpheline.\n", kind, report.Pending)

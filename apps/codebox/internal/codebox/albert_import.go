@@ -431,7 +431,7 @@ func (p AlbertCodeImport) Format() string {
 		return b.String()
 	}
 	fmt.Fprintf(&b, "Sources détectées : %s\n", strings.Join(p.SourceFiles, ", "))
-	fmt.Fprintf(&b, "Cible : Microsandbox, isolation complète (clone scellé dans la machine isolée)\n")
+	fmt.Fprintf(&b, "Cible : Microsandbox, isolation complète (clone scellé dans la sandbox)\n")
 	if p.Model != "" {
 		fmt.Fprintf(&b, "Modèle : %s\n", p.Model)
 	}
@@ -447,7 +447,7 @@ func (p AlbertCodeImport) Format() string {
 	if p.SkillCatalogueUnavailable {
 		fmt.Fprintf(&b, "Skills hérités non résolus (catalogue indisponible) : %s\n", strings.Join(p.SkillNames, ", "))
 	} else if p.HasSkillsFile && len(p.SkillNames) > 0 {
-		b.WriteString("Les noms de skills hérités sont résolus vers le catalogue officiel épinglé actuel ; les anciennes installations dans la machine isolée ne sont pas copiées.\n")
+		b.WriteString("Les noms de skills hérités sont résolus vers le catalogue officiel épinglé actuel ; les anciennes installations dans la sandbox ne sont pas copiées.\n")
 	}
 	if p.ManagedAgentsPresent {
 		b.WriteString("AGENTS.md : zone gérée Albert Code reconnue ; le fichier source sera conservé.\n")
@@ -470,7 +470,7 @@ func (p AlbertCodeImport) Format() string {
 	for _, item := range p.ReviewItems {
 		fmt.Fprintf(&b, "À vérifier : %s\n", item)
 	}
-	b.WriteString("L'ancienne machine isolée, ses sessions, les fichiers non suivis et les outils installés ne sont pas transférés. La machine isolée reçoit un clone filtré par les règles de transfert par défaut (refus) ; .env n'est pas copié. Les fichiers de configuration hérités et .git/info/exclude ne sont pas modifiés.\n")
+	b.WriteString("L'ancienne sandbox, ses sessions, les fichiers non suivis et les outils installés ne sont pas transférés. La sandbox reçoit un clone filtré par les règles de transfert par défaut (refus) ; .env n'est pas copié. Les fichiers de configuration hérités et .git/info/exclude ne sont pas modifiés.\n")
 	return b.String()
 }
 

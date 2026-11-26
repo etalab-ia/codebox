@@ -205,7 +205,7 @@ func secretsBindingsListCmd(args []string) (int, error) {
 		for _, b := range record.Bindings {
 			if b.GuestReadable() {
 				guestReadable++
-				fmt.Printf("  %s#%s -> LISIBLE DANS LA MACHINE ISOLÉE (écrit dans %s)\n", b.Component, b.Name, b.Component)
+				fmt.Printf("  %s#%s -> LISIBLE DANS LA SANDBOX (écrit dans %s)\n", b.Component, b.Name, b.Component)
 				fmt.Printf("      la valeur réelle est livrée sous forme de fichier ; l'agent et tout ce qu'il exécute peuvent la lire\n")
 				continue
 			}
@@ -213,7 +213,7 @@ func secretsBindingsListCmd(args []string) (int, error) {
 			fmt.Printf("      destinations : %s (approbation locale au poste, jamais versionnée)\n", strings.Join(b.Destinations, ", "))
 		}
 		if guestReadable > 0 {
-			fmt.Printf("  %d liaison(s) livrent une valeur réelle dans la machine isolée ; un instantané pris pendant la livraison les capture.\n", guestReadable)
+			fmt.Printf("  %d liaison(s) livrent une valeur réelle dans la sandbox ; un instantané pris pendant la livraison les capture.\n", guestReadable)
 		}
 	}
 	if record.Pending != "" {
@@ -242,7 +242,7 @@ func secretsBindingsApproveCmd(args []string) (int, error) {
 		return 2, fmt.Errorf("au moins une --destination est requise : approuver une destination est ce qui autorise la substitution de la valeur vers celle-ci")
 	}
 	if guestReadable && len(opts.Destin) > 0 {
-		return 2, fmt.Errorf("--delivery guest n'accepte pas --destination : la valeur est lue dans la machine isolée, elle n'est pas substituée vers un poste")
+		return 2, fmt.Errorf("--delivery guest n'accepte pas --destination : la valeur est lue dans la sandbox, elle n'est pas substituée vers un poste")
 	}
 	if guestReadable && opts.GuestEnv != "" {
 		return 2, fmt.Errorf("--delivery guest n'accepte pas --guest-env : la valeur est livrée sous forme de fichier, pas comme marqueur d'environnement")
@@ -290,23 +290,23 @@ func secretsBindingsApproveCmd(args []string) (int, error) {
 			return 1, fmt.Errorf("impossible de lire %s (%s) pour vérifier qu'elle peut être livrée : %w", binding.Name, binding.Component, err)
 		}
 		if err := codebox.CheckGuestReadableValue(value); err != nil {
-			return 1, fmt.Errorf("%s (%s) ne peut pas être livrée comme valeur dotenv lisible dans la machine isolée : %w\n"+
+			return 1, fmt.Errorf("%s (%s) ne peut pas être livrée comme valeur dotenv lisible dans la sandbox : %w\n"+
 				"Utilisez la livraison proxy par défaut si l'application joint le service par le réseau, ou attendez la livraison en fichier autonome pour celle-ci.",
 				binding.Name, binding.Component, err)
 		}
 	}
 	if guestReadable {
-		fmt.Printf("Approbation de %s#%s pour %s en LISIBLE DANS LA MACHINE ISOLÉE (écrit dans %s)\n",
+		fmt.Printf("Approbation de %s#%s pour %s en LISIBLE DANS LA SANDBOX (écrit dans %s)\n",
 			binding.Component, binding.Name, binding.Profile, binding.Component)
-		fmt.Println("Ce n'est pas le mode protégé. La valeur réelle est écrite dans la machine isolée pour qu'une application puisse la lire localement, ce qui signifie :")
-		fmt.Println("  - tout ce qui tourne dans cette machine isolée, y compris l'agent, peut lire la valeur ;")
-		fmt.Println("  - elle reste lisible aussi longtemps que la machine isolée la détient ;")
+		fmt.Println("Ce n'est pas le mode protégé. La valeur réelle est écrite dans la sandbox pour qu'une application puisse la lire localement, ce qui signifie :")
+		fmt.Println("  - tout ce qui tourne dans cette sandbox, y compris l'agent, peut lire la valeur ;")
+		fmt.Println("  - elle reste lisible aussi longtemps que la sandbox la détient ;")
 		fmt.Println("  - un instantané pris pendant qu'elle est livrée la capture, et la supprimer ensuite ne nettoie pas cet instantané.")
 		fmt.Println("Réservez ce mode aux valeurs qu'une application doit consommer localement (un mot de passe de base de données, une clé de signature). Protégez plutôt par la livraison par défaut tout ce qui est joint par le réseau.")
 	} else {
 		fmt.Printf("Approbation de %s#%s pour %s -> variable invitée %s, destinations : %s\n",
 			binding.Component, binding.Name, binding.Profile, binding.GuestEnv, strings.Join(binding.Destinations, ", "))
-		fmt.Println("La valeur reste dans le trousseau ; seul son marqueur entre dans la machine isolée, et il n'est substitué que vers ces destinations.")
+		fmt.Println("La valeur reste dans le trousseau ; seul son marqueur entre dans la sandbox, et il n'est substitué que vers ces destinations.")
 	}
 	// Validate before writing. Approving used to record the binding and switch
 	// the active profile first, then check that it resolves — so a binding that
@@ -339,7 +339,7 @@ func secretsBindingsApproveCmd(args []string) (int, error) {
 	if !opts.ConfirmYes {
 		description := "La valeur reste dans le trousseau ; cela enregistre quelle variable invitée ou quel fichier la reçoit."
 		if guestReadable {
-			description = "Cela rend la valeur réelle lisible dans la machine isolée, où tout processus, y compris l'agent, peut la lire."
+			description = "Cela rend la valeur réelle lisible dans la sandbox, où tout processus, y compris l'agent, peut la lire."
 		}
 		confirm, err := projectSecretsConfirmFn("Approuver cette liaison ?", description, false)
 		if err != nil {
@@ -368,7 +368,7 @@ func secretsBindingsApproveCmd(args []string) (int, error) {
 	if _, _, err := store.ApprovedDeliveries(); err != nil {
 		return 1, fmt.Errorf("l'approbation a été enregistrée mais ne se résout pas : %w", err)
 	}
-	fmt.Println("Approuvé. Cela prend effet au prochain démarrage de la machine isolée de ce projet.")
+	fmt.Println("Approuvé. Cela prend effet au prochain démarrage de la sandbox de ce projet.")
 	return 0, nil
 }
 
@@ -406,10 +406,10 @@ func secretsBindingsRevokeCmd(args []string) (int, error) {
 	}
 	fmt.Printf("Liaison de secret de projet %s#%s révoquée. La valeur importée reste dans le trousseau.\n", opts.Component, opts.Name)
 	if wasGuestReadable {
-		fmt.Println("La valeur réelle reste lisible dans la machine isolée en cours jusqu'à ce que le prochain démarrage applique la révocation. Lancez 'codebox start' (il réconcilie la livraison) ou 'codebox restart'.")
+		fmt.Println("La valeur réelle reste lisible dans la sandbox en cours jusqu'à ce que le prochain démarrage applique la révocation. Lancez 'codebox start' (il réconcilie la livraison) ou 'codebox restart'.")
 		fmt.Println("Un instantané pris pendant qu'elle était livrée la détient toujours ; révoquer ici ne peut pas atteindre cette copie.")
 	} else {
-		fmt.Println("Lancez 'codebox restart' (ou 'codebox start') pour la désinscrire de la machine isolée en cours : l'inscription proxy est retirée à la prochaine application, et la machine isolée conserve un marqueur inerte jusqu'à son redémarrage.")
+		fmt.Println("Lancez 'codebox restart' (ou 'codebox start') pour la désinscrire de la sandbox en cours : l'inscription proxy est retirée à la prochaine application, et la sandbox conserve un marqueur inerte jusqu'à son redémarrage.")
 	}
 	return 0, nil
 }

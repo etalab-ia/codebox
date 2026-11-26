@@ -60,7 +60,7 @@ Dans le dossier d'un projet, lance simplement :
 codebox
 ```
 
-Au premier lancement, un assistant court (accueil, plateforme et clé, agent, machine isolée, skills, MCP) configure le poste et le projet en une seule passe, puis démarre la microVM **Microsandbox en isolation `full`** : l'agent, sa TUI et ses identifiants tournent dans la microVM, dont l'espace de travail est scellé (aucun fichier de l'hôte n'y est monté). Le runtime Microsandbox est téléchargé et vérifié automatiquement au démarrage.
+Au premier lancement, un assistant court (accueil, plateforme et clé, agent, sandbox, skills, MCP) configure le poste et le projet en une seule passe, puis démarre la microVM **Microsandbox en isolation `full`** : l'agent, sa TUI et ses identifiants tournent dans la microVM, dont l'espace de travail est scellé (aucun fichier de l'hôte n'y est monté). Le runtime Microsandbox est téléchargé et vérifié automatiquement au démarrage.
 
 | Commande | Rôle |
 |---|---|
@@ -77,7 +77,7 @@ Choisis Albert API (recommandé), Mistral AI ou une plateforme compatible OpenAI
 
 **OpenCode** (recommandé) est l'agent principal, avec ses greffons et MCP. **Pi** est un agent terminal plus léger compatible avec les MCP distants.
 
-### Machine isolée
+### Sandbox
 
 **Microsandbox** (recommandé) travaille sur une copie filtrée du projet (`.env`, fichiers ignorés et secrets exclus par défaut). **Tart** (macOS, expérimental) et **agent-vm** (macOS/Linux, expérimental) partagent directement le dossier du projet avec la VM. Détails : [docs/plateformes.md](docs/plateformes.md).
 

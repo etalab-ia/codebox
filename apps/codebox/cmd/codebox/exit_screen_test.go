@@ -149,7 +149,7 @@ func TestFormatApplyList(t *testing.T) {
 		{Rel: "README.md", Status: 'A', Additions: 84, Deletions: 0},
 	}
 	if got, want := formatApplyList(two, nil, nil),
-		"Modifications de l'agent dans la machine isolée : 2 fichiers\n\n"+
+		"Modifications de l'agent dans la sandbox : 2 fichiers\n\n"+
 			"  ~ src/app.js +12 \u22123\n"+
 			"  + README.md  +84 \u22120\n"; got != want {
 		t.Errorf("formatApplyList =\n%q\nwant\n%q", got, want)
@@ -157,7 +157,7 @@ func TestFormatApplyList(t *testing.T) {
 
 	recovered := map[string]bool{"src/app.js": true}
 	if got, want := formatApplyList(two, recovered, nil),
-		"Modifications de l'agent dans la machine isolée : 2 fichiers\n\n"+
+		"Modifications de l'agent dans la sandbox : 2 fichiers\n\n"+
 			"  ~ src/app.js +12 \u22123   (déjà récupéré)\n"+
 			"  + README.md  +84 \u22120\n"; got != want {
 		t.Errorf("formatApplyList(recovered) =\n%q\nwant\n%q", got, want)
@@ -165,7 +165,7 @@ func TestFormatApplyList(t *testing.T) {
 
 	refused := map[string]string{"README.md": "hors du projet"}
 	if got, want := formatApplyList(two, nil, refused),
-		"Modifications de l'agent dans la machine isolée : 2 fichiers\n\n"+
+		"Modifications de l'agent dans la sandbox : 2 fichiers\n\n"+
 			"  ~ src/app.js +12 \u22123\n"+
 			"  + README.md  +84 \u22120   (exclu : hors du projet)\n"; got != want {
 		t.Errorf("formatApplyList(refused) =\n%q\nwant\n%q", got, want)
@@ -173,14 +173,14 @@ func TestFormatApplyList(t *testing.T) {
 
 	binary := []codebox.GuestChange{{Rel: "logo.png", Status: 'A', Binary: true}}
 	if got, want := formatApplyList(binary, nil, nil),
-		"Modifications de l'agent dans la machine isolée : 1 fichier\n\n"+
+		"Modifications de l'agent dans la sandbox : 1 fichier\n\n"+
 			"  + logo.png binaire\n"; got != want {
 		t.Errorf("formatApplyList(binary) =\n%q\nwant\n%q", got, want)
 	}
 
 	synthetic := []codebox.GuestChange{{Rel: "src/app.js", Status: 'M', Synthetic: true}}
 	if got, want := formatApplyList(synthetic, nil, nil),
-		"Modifications de l'agent dans la machine isolée : 1 fichier\n\n"+
+		"Modifications de l'agent dans la sandbox : 1 fichier\n\n"+
 			"  ~ src/app.js rétabli\n"; got != want {
 		t.Errorf("formatApplyList(synthetic) =\n%q\nwant\n%q", got, want)
 	}
@@ -244,7 +244,7 @@ func TestExitStopQuestionCostLines(t *testing.T) {
 			out := captureStdout(t, func() {
 				exitStopQuestion(context.Background(), b, tc.cfg, tc.rt, tc.d)
 			})
-			if !strings.Contains(out, "\nArrêter la machine isolée ?\n") {
+			if !strings.Contains(out, "\nArrêter la sandbox ?\n") {
 				t.Errorf("question missing from:\n%s", out)
 			}
 			if !strings.Contains(out, tc.keepLine) {
@@ -271,10 +271,10 @@ func TestExitScreenStopAnswerStopsTheMachine(t *testing.T) {
 		exitScreen(context.Background(), d, codebox.Config{MemoryMB: 4096}, codebox.RuntimeMicrosandbox, "inst")
 	})
 	want := "\nSession terminée.\n" +
-		"\nArrêter la machine isolée ?\n" +
+		"\nArrêter la sandbox ?\n" +
 		"  Non (recommandé) : la reprise est immédiate ; elle garde 4 Go de mémoire réservés.\n" +
 		"  Oui : la mémoire est libérée ; la prochaine reprise prend environ 30 secondes.\n" +
-		"La machine isolée est arrêtée.\n" +
+		"La sandbox est arrêtée.\n" +
 		"Pour reprendre cette session : codebox\n"
 	if out != want {
 		t.Errorf("exitScreen output =\n%q\nwant\n%q", out, want)
@@ -292,13 +292,13 @@ func TestExitScreenAnswers(t *testing.T) {
 		stops   bool
 		closing string
 	}{
-		{"empty keeps", "\n", false, "La machine isolée reste démarrée.\n"},
-		{"n keeps", "n\n", false, "La machine isolée reste démarrée.\n"},
-		{"N keeps", "N\n", false, "La machine isolée reste démarrée.\n"},
-		{"anything else keeps", "peut-être\n", false, "La machine isolée reste démarrée.\n"},
-		{"o stops", "o\n", true, "La machine isolée est arrêtée.\n"},
-		{"OUI stops", " OUI \n", true, "La machine isolée est arrêtée.\n"},
-		{"yes stops", "yes\n", true, "La machine isolée est arrêtée.\n"},
+		{"empty keeps", "\n", false, "La sandbox reste démarrée.\n"},
+		{"n keeps", "n\n", false, "La sandbox reste démarrée.\n"},
+		{"N keeps", "N\n", false, "La sandbox reste démarrée.\n"},
+		{"anything else keeps", "peut-être\n", false, "La sandbox reste démarrée.\n"},
+		{"o stops", "o\n", true, "La sandbox est arrêtée.\n"},
+		{"OUI stops", " OUI \n", true, "La sandbox est arrêtée.\n"},
+		{"yes stops", "yes\n", true, "La sandbox est arrêtée.\n"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -339,7 +339,7 @@ func TestExitScreenStopFailureIsReported(t *testing.T) {
 	if !strings.Contains(out, "Pour reprendre cette session : codebox") {
 		t.Errorf("resume line missing from stdout:\n%s", out)
 	}
-	if strings.Contains(out, "La machine isolée est arrêtée.") || strings.Contains(out, "La machine isolée reste démarrée.") {
+	if strings.Contains(out, "La sandbox est arrêtée.") || strings.Contains(out, "La sandbox reste démarrée.") {
 		t.Errorf("a stop verdict was printed despite the failure:\n%s", out)
 	}
 	if b.stopped {
@@ -357,7 +357,7 @@ func TestExitScreenNonTTYSkipsTheQuestions(t *testing.T) {
 		exitScreen(context.Background(), d, codebox.Config{}, codebox.RuntimeMicrosandbox, "inst")
 	})
 	want := "\nSession terminée.\n" +
-		"La machine isolée reste démarrée ; lancez 'codebox stop' pour l'arrêter.\n" +
+		"La sandbox reste démarrée ; lancez 'codebox stop' pour l'arrêter.\n" +
 		"Pour reprendre cette session : codebox\n"
 	if out != want {
 		t.Errorf("exitScreen output =\n%q\nwant\n%q", out, want)
@@ -456,7 +456,7 @@ func TestGuestBranchLine(t *testing.T) {
 		{
 			"created but never pushed",
 			codebox.GuestBranchStatus{Branch: "my-fix"},
-			"Branche créée dans la machine isolée mais non poussée : my-fix",
+			"Branche créée dans la sandbox mais non poussée : my-fix",
 		},
 	}
 	for _, tc := range cases {

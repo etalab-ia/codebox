@@ -43,11 +43,11 @@ func run(args []string) (int, error) {
 	if len(args) > 0 && args[0] == codebox.GuestBootstrapCommand {
 		overlay, err := codebox.DecodeGuestOverlay(argOr(args, codebox.GuestBootstrapModelsArgIndex, ""))
 		if err != nil {
-			return 2, fmt.Errorf("configuration de modèle d'amorçage de la machine isolée invalide : %w", err)
+			return 2, fmt.Errorf("configuration de modèle d'amorçage de la sandbox invalide : %w", err)
 		}
 		mcps, err := parseGuestMCPIDs(argOr(args, codebox.GuestBootstrapMCPArgIndex, ""))
 		if err != nil {
-			return 2, fmt.Errorf("sélection MCP d'amorçage de la machine isolée invalide : %w", err)
+			return 2, fmt.Errorf("sélection MCP d'amorçage de la sandbox invalide : %w", err)
 		}
 		cfg := codebox.GuestConfig{
 			Port:     argOr(args, 1, ""),
@@ -74,11 +74,11 @@ func run(args []string) (int, error) {
 	if len(args) > 0 && args[0] == codebox.GuestSecretsCommand {
 		overlay, err := codebox.DecodeGuestOverlay(argOr(args, codebox.GuestSecretsModelsArgIndex, ""))
 		if err != nil {
-			return 2, fmt.Errorf("configuration de modèle de la machine isolée invalide : %w", err)
+			return 2, fmt.Errorf("configuration de modèle de la sandbox invalide : %w", err)
 		}
 		mcps, err := parseGuestMCPIDs(argOr(args, codebox.GuestSecretsMCPArgIndex, ""))
 		if err != nil {
-			return 2, fmt.Errorf("sélection MCP de la machine isolée invalide : %w", err)
+			return 2, fmt.Errorf("sélection MCP de la sandbox invalide : %w", err)
 		}
 		// The model selection (P10) is the one managed field the in-guest
 		// secrets file must reflect; argv carries no secrets, and the
@@ -268,7 +268,7 @@ func run(args []string) (int, error) {
 		if isLaunchAction(parsed.action) {
 			return 1, resErr
 		}
-		fmt.Fprintf(os.Stderr, "Attention : %v ; utilisation du dimensionnement de machine isolée par défaut\n", resErr)
+		fmt.Fprintf(os.Stderr, "Attention : %v ; utilisation du dimensionnement de sandbox par défaut\n", resErr)
 	}
 	if isLaunchAction(parsed.action) && runtimeUsesMicrosandbox(parsed.runtime, manifestRuntime) {
 		cfg, resErr = enforceHostResourceLimits(cfg, projectRoot, launch)
@@ -1554,12 +1554,12 @@ var attachIsTTYFn = isTTY
 // sandbox during `codebox` launch (#507). Tests replace this seam.
 var confirmLaunchRecreateFn = func(reason string) (bool, error) {
 	desc := "Cause : " + reason + "\n" +
-		"La recréation supprime les sessions de l'agent, les outils installés dans la machine isolée et les fichiers non appliqués dans votre dossier, puis relance l'agent automatiquement."
+		"La recréation supprime les sessions de l'agent, les outils installés dans la sandbox et les fichiers non appliqués dans votre dossier, puis relance l'agent automatiquement."
 	if wizardHuhFn() {
-		return huhConfirm("Recréer la machine isolée maintenant ?", desc, false)
+		return huhConfirm("Recréer la sandbox maintenant ?", desc, false)
 	}
 	fmt.Fprintln(os.Stderr, desc)
-	fmt.Fprint(os.Stderr, "Recréer la machine isolée et démarrer l'agent ? (o/N) ")
+	fmt.Fprint(os.Stderr, "Recréer la sandbox et démarrer l'agent ? (o/N) ")
 	reply, _ := bufio.NewReader(os.Stdin).ReadString('\n')
 	switch strings.ToLower(strings.TrimSpace(reply)) {
 	case "o", "oui", "y", "yes":
@@ -1595,11 +1595,11 @@ var launchRecreateRecoverFn = func(ctx context.Context, msb *codebox.Microsandbo
 	}
 	unrecovered, uerr := codebox.UnrecoveredGuestChanges(ctx, msb)
 	if uerr != nil {
-		fmt.Fprintf(os.Stderr, "Impossible de vérifier les modifications de la machine isolée : %v\n", uerr)
+		fmt.Fprintf(os.Stderr, "Impossible de vérifier les modifications de la sandbox : %v\n", uerr)
 		return
 	}
 	if len(unrecovered) == 0 {
-		fmt.Fprintln(os.Stderr, "Aucune modification non récupérée dans la machine isolée.")
+		fmt.Fprintln(os.Stderr, "Aucune modification non récupérée dans la sandbox.")
 		return
 	}
 	backupTarget := launchRecreateBackupPath(codebox.DefaultStateDir(), instance)
@@ -1624,7 +1624,7 @@ var launchRecreateRunFn = func(ctx context.Context, msb *codebox.MicrosandboxRun
 // yes/no confirmation, and recreates the sandbox so attachCmd can launch the
 // agent directly (#507).
 func handleInteractiveRecreateOnLaunch(ctx context.Context, d *codebox.Dispatcher, msb *codebox.MicrosandboxRuntime, cfg codebox.Config, instance, projectRoot string, recreateErr *codebox.ErrRecreateNeeded) (int, error) {
-	fmt.Fprintf(os.Stderr, "\nLa machine isolée (%s) doit être recréée : %s.\n", recreateErr.Instance, recreateErr.Reason)
+	fmt.Fprintf(os.Stderr, "\nLa sandbox (%s) doit être recréée : %s.\n", recreateErr.Instance, recreateErr.Reason)
 
 	// Automatically inspect and back up sealed-workspace work before asking
 	// for recreate confirmation. Never write directly into the host checkout
@@ -1681,7 +1681,7 @@ var launchNowFn = time.Now
 
 func startWithLaunchReport(ctx context.Context, d *codebox.Dispatcher, b codebox.Backend) error {
 	if d.Launch != nil && d.Launch.Terminal {
-		fmt.Fprintf(os.Stderr, "Démarrage de la machine isolée pour %s…\n", d.Launch.ProjectName)
+		fmt.Fprintf(os.Stderr, "Démarrage de la sandbox pour %s…\n", d.Launch.ProjectName)
 	}
 	begun := launchNowFn()
 	if err := codebox.StartOrReconcile(ctx, b); err != nil {
@@ -1714,7 +1714,7 @@ var confirmRecreateFn = confirmDestructiveRecreate
 // explicit replacement is `codebox clean --<runtime>` followed by start,
 // which names the instance and the loss in its own output.
 func confirmDestructiveRecreate(rt codebox.Runtime) (int, error) {
-	fmt.Fprintf(os.Stderr, "Attention : recreate --%s reconstruit de zéro l'environnement %s et DÉTRUIT : les sessions de la machine isolée, les outils installés dans la machine isolée et les fichiers propres à la machine isolée.\n", rt, rt)
+	fmt.Fprintf(os.Stderr, "Attention : recreate --%s reconstruit de zéro l'environnement %s et DÉTRUIT : les sessions de la sandbox, les outils installés dans la sandbox et les fichiers propres à la sandbox.\n", rt, rt)
 	if rt == codebox.RuntimeMicrosandbox {
 		fmt.Fprintln(os.Stderr, "Pour récupérer d'abord le travail de l'agent : 'codebox workspace recover' puis 'codebox workspace apply'.")
 	}
@@ -1722,7 +1722,7 @@ func confirmDestructiveRecreate(rt codebox.Runtime) (int, error) {
 		return 1, fmt.Errorf("recreate est destructeur et exige une confirmation interactive ; lancez 'codebox clean --%s' puis 'codebox start --%s' si vous voulez vraiment recréer", rt, rt)
 	}
 	if wizardHuhFn() {
-		confirmed, err := huhConfirm(fmt.Sprintf("Recréer la machine isolée (%s) ?", rt), "Les sessions, outils installés et fichiers propres à la machine isolée seront supprimés.", false)
+		confirmed, err := huhConfirm(fmt.Sprintf("Recréer la sandbox (%s) ?", rt), "Les sessions, outils installés et fichiers propres à la sandbox seront supprimés.", false)
 		if err != nil {
 			return 1, err
 		}
@@ -1777,15 +1777,15 @@ func exitCodeOf(err error) int {
 }
 
 func usage() {
-	fmt.Println(`codebox — gérer la machine isolée OpenCode
+	fmt.Println(`codebox — gérer la sandbox OpenCode
 
 Usage :
   codebox [commande] [--microsandbox | --tart | --agent-vm] [--isolation backend | full]
 
 Lancez codebox sans commande pour démarrer le runtime sélectionné. Sur un
 poste non configuré, la valeur par défaut est Microsandbox/full : l'agent et
-l'interface OpenCode native tournent dans la machine isolée. L'isolation
-backend est une option explicite qui exécute le backend dans la machine isolée
+l'interface OpenCode native tournent dans la sandbox. L'isolation
+backend est une option explicite qui exécute le backend dans la sandbox
 et attache l'interface du poste.
 
 Commandes :
@@ -1795,12 +1795,12 @@ Commandes :
              instances codebox)
   check      Vérifier le backend actif et le fournisseur Albert
   restart    Arrêter puis démarrer l'instance du projet courant (non destructif)
-  recreate   Reconstruire de zéro la machine isolée sélectionnée (destructif ;
+  recreate   Reconstruire de zéro la sandbox sélectionnée (destructif ;
              demande confirmation)
   logs       Afficher les journaux du runtime sélectionné et quitter
              (logs --follow pour les suivre)
   shell      Ouvrir un shell dans le runtime sélectionné
-  clean      Supprimer la machine isolée sélectionnée et son état local
+  clean      Supprimer la sandbox sélectionnée et son état local
   doctor     Vérifier l'installation du runtime sélectionné
   config     Afficher la configuration gérée (explain)
   auth       Gérer les identifiants globaux (add, status, remove)
@@ -1810,9 +1810,9 @@ Commandes :
              approve)
   mcp        Vérifier les points d'accès MCP distants configurés (status)
   init       Configurer ce projet : mode de partage, modèle, ressources de la
-             machine isolée, MCP distants et référence d'identifiant.
+             sandbox, MCP distants et référence d'identifiant.
              Interactif par défaut ; voir 'codebox init --help' pour les options.
-  workspace  Gérer l'espace de travail scellé de la machine isolée : ce qui
+  workspace  Gérer l'espace de travail scellé de la sandbox : ce qui
              franchit la frontière, les ré-inclusions par fichier, le
              rafraîchissement et l'export relu (status, sync, allow, deny,
              export). Le dossier du projet sur le poste n'est jamais monté.
@@ -1830,7 +1830,7 @@ Sélection du runtime :
   monté). Passez --microsandbox, --tart ou --agent-vm, ou définissez RUNTIME,
   pour la remplacer ; un flag explicite l'emporte toujours. --isolation backend
   sélectionne le mode historique où l'interface tourne sur le poste. Tart et
-  agent-vm montent le dossier, transmettent l'identifiant à la machine isolée en
+  agent-vm montent le dossier, transmettent l'identifiant à la sandbox en
   clair et exigent --acknowledge-guest-credentials pour démarrer.
 
   Un .env du dossier de travail n'est pas chargé implicitement ; les variables
@@ -1839,8 +1839,8 @@ Sélection du runtime :
 
 Isolation :
   --isolation full (défaut) : tout l'agent, interface comprise, tourne dans la
-  machine isolée ; le poste n'est qu'un terminal de passage.
-  --isolation backend : l'agent tourne comme serveur dans la machine isolée et
+  sandbox ; le poste n'est qu'un terminal de passage.
+  --isolation backend : l'agent tourne comme serveur dans la sandbox et
   l'interface s'y attache depuis le poste. ISOLATION est utilisée quand aucun
   flag n'est fourni ; le flag l'emporte toujours. La façon dont chaque runtime
   gère l'identifiant dans chaque mode est décrite ci-dessus.`)
@@ -1875,7 +1875,7 @@ func applyProjectSandboxResources(cfg codebox.Config, projectRoot string) (codeb
 		switch {
 		case pm.CPUs == 0:
 		case pm.CPUs < 0 || pm.CPUs > codebox.MaxSandboxCPUs:
-			return cfg, fmt.Errorf("le manifeste du projet demande %d processeurs ; le runtime de la machine isolée accepte 1 à %d", pm.CPUs, codebox.MaxSandboxCPUs)
+			return cfg, fmt.Errorf("le manifeste du projet demande %d processeurs ; le runtime de la sandbox accepte 1 à %d", pm.CPUs, codebox.MaxSandboxCPUs)
 		default:
 			cfg.CPUs = pm.CPUs
 		}
@@ -1884,7 +1884,7 @@ func applyProjectSandboxResources(cfg codebox.Config, projectRoot string) (codeb
 		switch {
 		case pm.MemoryMB == 0:
 		case pm.MemoryMB < 0 || pm.MemoryMB > codebox.MaxSandboxMemoryMB:
-			return cfg, fmt.Errorf("le manifeste du projet demande %d MiB ; le runtime de la machine isolée accepte 1 à %d", pm.MemoryMB, codebox.MaxSandboxMemoryMB)
+			return cfg, fmt.Errorf("le manifeste du projet demande %d MiB ; le runtime de la sandbox accepte 1 à %d", pm.MemoryMB, codebox.MaxSandboxMemoryMB)
 		default:
 			cfg.MemoryMB = pm.MemoryMB
 		}
@@ -1899,10 +1899,10 @@ func applyProjectSandboxResources(cfg codebox.Config, projectRoot string) (codeb
 func enforceHostResourceLimits(cfg codebox.Config, projectRoot string, reports ...*codebox.LaunchUX) (codebox.Config, error) {
 	host, err := detectHostResourcesFn()
 	if err != nil {
-		return cfg, fmt.Errorf("impossible de déterminer la capacité CPU et mémoire du poste ; impossible d'appliquer la limite de ressources de la machine isolée : %v", err)
+		return cfg, fmt.Errorf("impossible de déterminer la capacité CPU et mémoire du poste ; impossible d'appliquer la limite de ressources de la sandbox : %v", err)
 	}
 	if host.CPUs <= 0 || host.MemoryMB <= 0 {
-		return cfg, fmt.Errorf("la détection des ressources du poste a renvoyé une capacité CPU ou mémoire incomplète ; impossible d'appliquer la limite de ressources de la machine isolée")
+		return cfg, fmt.Errorf("la détection des ressources du poste a renvoyé une capacité CPU ou mémoire incomplète ; impossible d'appliquer la limite de ressources de la sandbox")
 	}
 	pm, manifestErr := codebox.ReadProjectManifest(codebox.DefaultFS, codebox.ProjectManifestPath(projectRoot))
 	manifestPresent := manifestErr == nil
@@ -1924,10 +1924,10 @@ func enforceHostResourceLimits(cfg codebox.Config, projectRoot string, reports .
 	maxCPUs := codebox.MaxGuestCPUs(host.CPUs)
 	maxMemoryMB := codebox.MaxGuestMemoryMB(host.MemoryMB)
 	if maxCPUs < 1 {
-		return cfg, fmt.Errorf("la détection des ressources du poste ne signale aucun processeur logique disponible pour la machine isolée")
+		return cfg, fmt.Errorf("la détection des ressources du poste ne signale aucun processeur logique disponible pour la sandbox")
 	}
 	if maxMemoryMB < 1 {
-		return cfg, fmt.Errorf("la mémoire du poste est trop faible pour allouer la mémoire de la machine isolée")
+		return cfg, fmt.Errorf("la mémoire du poste est trop faible pour allouer la mémoire de la sandbox")
 	}
 	if !cpuExplicit && cfg.CPUs > codebox.RecommendedDefaultGuestCPUs(host.CPUs) {
 		cfg.CPUs = codebox.RecommendedDefaultGuestCPUs(host.CPUs)

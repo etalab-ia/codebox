@@ -36,11 +36,11 @@ func GitHubOriginForProject(ctx context.Context, root string) (GitHubRemote, err
 	cmd.Env = append(os.Environ(), "GIT_OPTIONAL_LOCKS=0")
 	out, err := cmd.Output()
 	if err != nil {
-		return GitHubRemote{}, fmt.Errorf("le projet n'a pas de dépôt distant d'origine lisible ; configurez une origine GitHub.com pour activer le flux de travail GitHub de la machine isolée")
+		return GitHubRemote{}, fmt.Errorf("le projet n'a pas de dépôt distant d'origine lisible ; configurez une origine GitHub.com pour activer le flux de travail GitHub de la sandbox")
 	}
 	lines := strings.Split(strings.TrimSpace(string(out)), "\n")
 	if len(lines) != 1 || strings.TrimSpace(lines[0]) == "" {
-		return GitHubRemote{}, fmt.Errorf("le projet doit avoir exactement une URL d'origine pour activer le flux de travail GitHub de la machine isolée")
+		return GitHubRemote{}, fmt.Errorf("le projet doit avoir exactement une URL d'origine pour activer le flux de travail GitHub de la sandbox")
 	}
 	return ParseGitHubRemote(strings.TrimSpace(lines[0]))
 }
@@ -359,7 +359,7 @@ version=%s
 case "$(uname -m)" in
   x86_64|amd64) arch=amd64; digest=%s ;;
   aarch64|arm64) arch=arm64; digest=%s ;;
-  *) echo "GitHub CLI %s indisponible pour l'architecture de la machine isolée $(uname -m)" >&2; exit 1 ;;
+  *) echo "GitHub CLI %s indisponible pour l'architecture de la sandbox $(uname -m)" >&2; exit 1 ;;
 esac
 binary=/usr/local/bin/gh
 if [ -x "$binary" ] && "$binary" --version 2>/dev/null | grep -q "^gh version $version"; then
@@ -387,7 +387,7 @@ codebox_install_gh
 func GitHubBranchName(instance string) (string, error) {
 	var nonce [4]byte
 	if _, err := rand.Read(nonce[:]); err != nil {
-		return "", fmt.Errorf("création d'un nom de branche unique dans la machine isolée : %w", err)
+		return "", fmt.Errorf("création d'un nom de branche unique dans la sandbox : %w", err)
 	}
 	name := safeFileName(instance)
 	if len(name) > 60 {
@@ -407,8 +407,8 @@ func githubSnapshotBranchScript(workspace string, remote GitHubRemote, baseBranc
 	baseRef := "refs/heads/" + baseBranch
 	backupBranch := branch + "-snapshot-backup"
 	return "set -eu; cd " + shellQuote(workspace) +
-		"; if [ -n \"$(git status --porcelain --untracked-files=all)\" ]; then echo 'la copie de travail de la machine isolée contient des modifications ; exportez-les ou relisez-les avant toute activation du flux de travail GitHub' >&2; exit 1; fi" +
-		"; if [ -n \"$(git ls-files --others --ignored --exclude-standard)\" ]; then echo 'la copie de travail de la machine isolée contient des fichiers ignorés ; relisez-les avant toute activation du flux de travail GitHub' >&2; exit 1; fi" +
+		"; if [ -n \"$(git status --porcelain --untracked-files=all)\" ]; then echo 'la copie de travail de la sandbox contient des modifications ; exportez-les ou relisez-les avant toute activation du flux de travail GitHub' >&2; exit 1; fi" +
+		"; if [ -n \"$(git ls-files --others --ignored --exclude-standard)\" ]; then echo 'la copie de travail de la sandbox contient des fichiers ignorés ; relisez-les avant toute activation du flux de travail GitHub' >&2; exit 1; fi" +
 		"; tmp=$(mktemp -d /tmp/codebox-github-index.XXXXXX)" +
 		"; temp_config=''; trap 'rm -rf \"$tmp\"; if [ -n \"$temp_config\" ]; then rm -f \"$temp_config\"; fi' EXIT HUP INT TERM" +
 		"; git ls-files --stage -z > \"$tmp/snapshot\"" +

@@ -150,7 +150,7 @@ func RunGuestBootstrap(ctx context.Context, cfg GuestConfig) error {
 	// The curl installer drops the binary in ~/.opencode/bin; guestPath already
 	// includes it, so a fresh resolve picks it up.
 	if _, err := g.resolve("opencode"); err != nil {
-		return fmt.Errorf("opencode n'est pas disponible dans le PATH à l'intérieur de la machine isolée")
+		return fmt.Errorf("opencode n'est pas disponible dans le PATH à l'intérieur de la sandbox")
 	}
 
 	// Best-effort git identity and safe.directory, matching the shell behavior.
@@ -269,7 +269,7 @@ func applyMTU(ctx context.Context, cfg GuestConfig, env []string, mtu string) er
 	}
 	iface := parseDefaultInterface(res.Stdout)
 	if iface == "" {
-		return fmt.Errorf("impossible de déterminer l'interface réseau par défaut de la machine isolée pour TART_MTU")
+		return fmt.Errorf("impossible de déterminer l'interface réseau par défaut de la sandbox pour TART_MTU")
 	}
 	res, err = cfg.Runner.RunEnv(ctx, env, "sudo", "-n", "ifconfig", iface, "mtu", mtu)
 	if err != nil {
@@ -278,7 +278,7 @@ func applyMTU(ctx context.Context, cfg GuestConfig, env []string, mtu string) er
 	if res.ExitCode != 0 {
 		return fmt.Errorf("impossible d'appliquer TART_MTU=%s à %s (sudo sans mot de passe requis)", mtu, iface)
 	}
-	fmt.Fprintf(cfg.Stdout, "Réseau de la machine isolée : %s MTU=%s\n", iface, mtu)
+	fmt.Fprintf(cfg.Stdout, "Réseau de la sandbox : %s MTU=%s\n", iface, mtu)
 	return nil
 }
 
@@ -312,7 +312,7 @@ func readSecrets(stdin io.Reader) (string, map[string]string, error) {
 		raw := trimLine(line)
 		if strings.HasPrefix(strings.TrimSpace(raw), "{") {
 			if err := json.Unmarshal([]byte(raw), &keys); err != nil {
-				return "", nil, fmt.Errorf("analyse des clés de fournisseur de la machine isolée : %w", err)
+				return "", nil, fmt.Errorf("analyse des clés de fournisseur de la sandbox : %w", err)
 			}
 		} else if raw != "" {
 			keys[msbAPISecretEnv] = raw
@@ -397,7 +397,7 @@ func (g *guest) ensureOpencode(ctx context.Context) error {
 		}
 	}
 	if !probe() {
-		return fmt.Errorf("la machine isolée doit fournir OpenCode v%s après l'installation ; vérifiez le PATH de la machine isolée", OpenCodeVersion)
+		return fmt.Errorf("la sandbox doit fournir OpenCode v%s après l'installation ; vérifiez le PATH de la sandbox", OpenCodeVersion)
 	}
 	return nil
 }
@@ -468,7 +468,7 @@ func RunGuestPrepare(ctx context.Context, cfg GuestConfig) error {
 		return err
 	}
 	if _, err := g.resolve("opencode"); err != nil {
-		return fmt.Errorf("opencode n'est pas disponible dans le PATH à l'intérieur de la machine isolée")
+		return fmt.Errorf("opencode n'est pas disponible dans le PATH à l'intérieur de la sandbox")
 	}
 
 	// Best-effort git identity and safe.directory, matching the bootstrap.

@@ -971,7 +971,7 @@ func TestCombinedHuhDefaultsAreEmptyAndNumbered(t *testing.T) {
 		want string
 	}{
 		{got: initHarnessStepTitle(opts), want: "[3/6] Agent (harnais)"},
-		{got: initVMStepTitle(opts), want: "[4/6] Machine isolée"},
+		{got: initVMStepTitle(opts), want: "[4/6] Sandbox"},
 		{got: initSkillsStepTitle(opts), want: "[5/6] "},
 		{got: initMCPStepTitle(opts), want: "[6/6] MCP (facultatif)"},
 	} {

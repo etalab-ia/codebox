@@ -230,10 +230,10 @@ func validateProjectSecretBindingSet(set projectSecretBindingSet, namespace stri
 			// describe an authorization the binding does not use, and a guest
 			// variable would name a placeholder that is never exposed.
 			if len(b.Destinations) > 0 {
-				return fmt.Errorf("la liaison %s lisible par la machine isolée ne doit pas déclarer de destinations : la valeur est lue localement, pas substituée vers un hôte", b.Name)
+				return fmt.Errorf("la liaison %s lisible par la sandbox ne doit pas déclarer de destinations : la valeur est lue localement, pas substituée vers un hôte", b.Name)
 			}
 			if b.GuestEnv != "" {
-				return fmt.Errorf("la liaison %s lisible par la machine isolée ne doit pas déclarer de variable de machine isolée : la valeur est livrée sous forme de fichier", b.Name)
+				return fmt.Errorf("la liaison %s lisible par la sandbox ne doit pas déclarer de variable de sandbox : la valeur est livrée sous forme de fichier", b.Name)
 			}
 			if byIdentity[b.identity()] {
 				return fmt.Errorf("les liaisons de secrets de projet contiennent une entrée en double pour %s", b.Name)
@@ -242,13 +242,13 @@ func validateProjectSecretBindingSet(set projectSecretBindingSet, namespace stri
 			continue
 		}
 		if b.GuestEnv == "" || !isGuestEnvName(b.GuestEnv) {
-			return fmt.Errorf("la liaison de secret de projet %s a un nom de variable de machine isolée invalide", b.Name)
+			return fmt.Errorf("la liaison de secret de projet %s a un nom de variable de sandbox invalide", b.Name)
 		}
 		if reserved[b.GuestEnv] {
-			return fmt.Errorf("la liaison de secret de projet %s masquerait la variable de machine isolée réservée %s", b.Name, b.GuestEnv)
+			return fmt.Errorf("la liaison de secret de projet %s masquerait la variable de sandbox réservée %s", b.Name, b.GuestEnv)
 		}
 		if prev, dup := byGuestEnv[b.GuestEnv]; dup {
-			return fmt.Errorf("les liaisons de secrets de projet %s et %s partagent la variable de machine isolée %s", prev, b.Name, b.GuestEnv)
+			return fmt.Errorf("les liaisons de secrets de projet %s et %s partagent la variable de sandbox %s", prev, b.Name, b.GuestEnv)
 		}
 		byGuestEnv[b.GuestEnv] = b.Name
 		if byIdentity[b.identity()] {
