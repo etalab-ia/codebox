@@ -330,6 +330,35 @@ func TestLoadConfigEnvDoesNotApplyDotenvImplicitly(t *testing.T) {
 	}
 }
 
+func TestLoadConfigEnvQuietDoesNotApplyDotenvOrWarn(t *testing.T) {
+	dir := t.TempDir()
+	wd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	const probeKey = "CODEBOX_MODEL"
+	if _, present := os.LookupEnv(probeKey); present {
+		t.Skipf("%s is set in this environment; the absence check needs it unset", probeKey)
+	}
+	if err := os.WriteFile(filepath.Join(dir, ".env"), []byte(probeKey+"=from-dotenv\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chdir(dir); err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = os.Chdir(wd) }()
+
+	stderr := captureStderr(t, func() {
+		_ = LoadConfigEnvQuiet()
+	})
+	if stderr != "" {
+		t.Fatalf("LoadConfigEnvQuiet must not emit a .env warning, got %q", stderr)
+	}
+	if value, present := os.LookupEnv(probeKey); present {
+		t.Fatalf("LoadConfigEnvQuiet must not apply .env to the environment, got %s=%q", probeKey, value)
+	}
+}
+
 func TestLoadConfigEnvTrimsAlbertAPIKey(t *testing.T) {
 	t.Setenv("ALBERT_API_KEY", "  environment-secret \n")
 	cfg := LoadConfigEnv()

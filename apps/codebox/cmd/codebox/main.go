@@ -142,7 +142,7 @@ func run(args []string) (int, error) {
 		return statsCmd(parsed.statsArgs)
 	}
 
-	cfg := codebox.LoadConfigEnv()
+	cfg := codebox.LoadConfigEnvQuiet()
 	cfg.GuestCredentialsAcknowledged = parsed.ackGuestCreds
 	if parsed.version {
 		printBuildInfo()
@@ -188,13 +188,19 @@ func run(args []string) (int, error) {
 	// built (P12): the launch would otherwise pick every default silently, and
 	// the choices it made would be invisible until someone read the review.
 	// Read-only actions are never gated on it.
+	ranInteractiveWizard := false
 	if projErr == nil && isLaunchAction(parsed.action) {
+		manifestExisted := projectManifestExistsAt(projectRoot)
 		// configured is belt-and-braces: every false path also returns an
 		// error, but a future caller must not read "no error" as "go ahead".
 		configured, code, err := offerProjectInit(projectRoot, parsed)
 		if err != nil || !configured {
 			return code, err
 		}
+		ranInteractiveWizard = !manifestExisted && projectManifestExistsAt(projectRoot)
+	}
+	if parsed.action != "init" && parsed.action != "help" && parsed.action != "version" && !ranInteractiveWizard {
+		codebox.WarnIgnoredDotenv(os.Stderr)
 	}
 	if projErr == nil && isLaunchAction(parsed.action) {
 		packages, skillIDs, managed, localOnly, err := codebox.LoadProjectSkillState(codebox.DefaultFS, projectRoot, codebox.DefaultStateDir(), instance)

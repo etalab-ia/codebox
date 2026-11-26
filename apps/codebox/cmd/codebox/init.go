@@ -447,6 +447,7 @@ func initRun(opts initOptions, in *bufio.Reader, tty bool) (code int, err error)
 	// configured, not of whatever directory the caller happens to run from,
 	// and it resolves the root the same way the engine will (a path inside a
 	// worktree refers to the worktree's manifest).
+	conciseCombined := opts.Combined && !opts.Advanced && tty && !opts.Yes
 	wizardHostResources := codebox.HostResources{}
 	wizard := codebox.InitWizard{
 		HostResources: &wizardHostResources,
@@ -475,6 +476,9 @@ func initRun(opts initOptions, in *bufio.Reader, tty bool) (code int, err error)
 			}
 			return validateInitSmallModelInputForProviders(root, model, answers.Providers)
 		},
+	}
+	if conciseCombined {
+		wizard.Print = func(string) {}
 	}
 	// Flags are validated before any question: a typo on the command line must
 	// not send the user through six prompts to learn about it.
@@ -747,16 +751,31 @@ func initRun(opts initOptions, in *bufio.Reader, tty bool) (code int, err error)
 		fmt.Println("Accord GitHub enregistré pour ce projet sur ce poste ; il n'est pas écrit dans le projet.")
 	}
 	if interactiveReview {
-		// The interactive recap lands after the write (#333): the wizard
-		// applies directly, so this is the summary of what was done.
-		fmt.Print(codebox.FormatInteractiveInitReview(plan))
+		if conciseCombined {
+			for _, warning := range plan.Warnings {
+				fmt.Fprintf(os.Stderr, "Attention : %s\n", warning)
+			}
+			if plan.Answers.BrowserResourceGuidance != "" {
+				fmt.Fprintf(os.Stderr, "Conseil : %s\n", plan.Answers.BrowserResourceGuidance)
+			}
+		} else {
+			// The interactive recap lands after the write (#333): the wizard
+			// applies directly, so this is the summary of what was done.
+			fmt.Print(codebox.FormatInteractiveInitReview(plan))
+		}
 	}
 	recordInitStats(plan.Answers)
 	// The trailer is advice for the standalone command. When the launch flow
 	// drives the setup, the launch is already continuing: telling the user to
 	// run it would describe a step the code does not need.
 	if opts.FromLaunch {
-		fmt.Println("\nProjet configuré. Poursuite du lancement…")
+		if conciseCombined {
+			fmt.Println("Projet configuré.")
+		} else {
+			fmt.Println("\nProjet configuré. Poursuite du lancement…")
+		}
+	} else if conciseCombined {
+		fmt.Println("Projet configuré.\nLancez l'agent : codebox")
 	} else {
 		fmt.Println("\nProjet configuré.\nLancez l'agent : codebox")
 	}
