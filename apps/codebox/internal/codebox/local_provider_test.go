@@ -3,10 +3,12 @@ package codebox
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -392,20 +394,32 @@ func TestDiagnosticsReportsLocalModelServerReachability(t *testing.T) {
 }
 
 func TestDetectLocalModelServersProbesConcurrently(t *testing.T) {
-	// Ports 11434 and 1234 accept connections and stall until their per-probe
-	// context expires (1.5s each); sequential probing would exhaust the 2s
-	// shared deadline before port 8080 (llama.cpp) is even tried.
+	// Ports 11434 and 1234 accept connections and stall until port 8080 is
+	// reached (proving concurrent execution) or their probe context expires.
+	// With sequential probing, 11434 (1.5s) + 1234 (0.5s) exhaust the 2s shared
+	// deadline before 8080 is called, and the context-expiry check below fails
+	// the request deterministically.
+	probe8080Reached := make(chan struct{})
+	var closeOnce sync.Once
 	client := &http.Client{
 		Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+			if err := req.Context().Err(); err != nil {
+				return nil, err
+			}
 			if req.URL.Host == "localhost:8080" {
+				closeOnce.Do(func() { close(probe8080Reached) })
 				return &http.Response{
 					StatusCode: http.StatusOK,
 					Header:     http.Header{"Content-Type": []string{"application/json"}},
 					Body:       io.NopCloser(strings.NewReader(`{"data":[{"id":"qwen2.5:3b"}]}`)),
 				}, nil
 			}
-			<-req.Context().Done()
-			return nil, req.Context().Err()
+			select {
+			case <-probe8080Reached:
+				return nil, errors.New("stalled local server")
+			case <-req.Context().Done():
+				return nil, req.Context().Err()
+			}
 		}),
 	}
 
