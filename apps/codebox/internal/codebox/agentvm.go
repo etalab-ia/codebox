@@ -576,13 +576,13 @@ func (a *AgentVM) StopInstance(ctx context.Context, vm string) error {
 	return nil
 }
 
-// InstancePortMappings reports whether the named running AgentVM instance is
-// currently listening on DefaultPort (4096) for the OpenCode backend server.
-// Full-isolation AgentVMs do not launch the backend server, so they occupy no
-// static host port (#519).
+// InstancePortMappings reports TCP ports currently listening inside the named
+// running AgentVM instance (which Lima dynamically forwards to the host,
+// including DefaultPort 4096 in backend mode and dev preview ports like 3000)
+// (#519). Guest SSH (port 22) is excluded because Lima does not forward it to
+// host port 22.
 func (a *AgentVM) InstancePortMappings(ctx context.Context, name string) ([]PortMapping, error) {
-	hexPort := fmt.Sprintf("%04X", DefaultPort)
-	probe := fmt.Sprintf(`if awk '$4=="0A" && $2 ~ /:%s$/ {found=1} END {exit !found}' /proc/net/tcp /proc/net/tcp6 2>/dev/null; then echo listening; else echo idle; fi`, hexPort)
+	const probe = `if [ ! -r /proc/net/tcp ]; then exit 1; fi; awk '$4=="0A" {print $2}' /proc/net/tcp; if [ -r /proc/net/tcp6 ]; then awk '$4=="0A" {print $2}' /proc/net/tcp6; fi`
 	res, err := a.Runner.Run(ctx, "limactl", "shell", name, "sh", "-c", probe)
 	if err != nil {
 		return nil, err
@@ -590,10 +590,22 @@ func (a *AgentVM) InstancePortMappings(ctx context.Context, name string) ([]Port
 	if res.ExitCode != 0 {
 		return nil, fmt.Errorf("limactl shell %s : code %d", name, res.ExitCode)
 	}
-	if strings.TrimSpace(res.Stdout) == "listening" {
-		return []PortMapping{{Host: uint16(DefaultPort), Guest: uint16(DefaultPort)}}, nil
+	seen := make(map[uint16]bool)
+	var ports []PortMapping
+	for _, field := range strings.Fields(res.Stdout) {
+		idx := strings.LastIndexByte(field, ':')
+		if idx < 0 || idx+1 >= len(field) {
+			continue
+		}
+		p, err := strconv.ParseUint(field[idx+1:], 16, 16)
+		if err != nil || p == 0 || p == 22 || seen[uint16(p)] {
+			continue
+		}
+		seen[uint16(p)] = true
+		ports = append(ports, PortMapping{Host: uint16(p), Guest: uint16(p)})
 	}
-	return nil, nil
+	sort.Slice(ports, func(i, j int) bool { return ports[i].Host < ports[j].Host })
+	return ports, nil
 }
 
 // StopAll stops every running managed Lima instance, the explicit

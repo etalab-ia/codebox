@@ -483,27 +483,7 @@ func (d *Dispatcher) hostPortConflict(ctx context.Context, rt Runtime, b Backend
 	switch rt {
 	case RuntimeTart:
 		return nil, false
-	case RuntimeAgentVM:
-		if !wantPorts[uint16(DefaultPort)] {
-			return nil, false
-		}
-		ipb, ok := b.(instancePortsBackend)
-		if !ok {
-			// Cannot inspect whether the running AgentVM serves 4096; fail closed.
-			return []uint16{uint16(DefaultPort)}, true
-		}
-		applied, err := ipb.InstancePortMappings(ctx, name)
-		if err != nil {
-			// Fail closed when the AgentVM's backend state cannot be probed.
-			return []uint16{uint16(DefaultPort)}, true
-		}
-		for _, pm := range applied {
-			if wantPorts[pm.Host] {
-				return []uint16{pm.Host}, true
-			}
-		}
-		return nil, false
-	case RuntimeMicrosandbox:
+	case RuntimeMicrosandbox, RuntimeAgentVM:
 		ipb, ok := b.(instancePortsBackend)
 		if !ok {
 			// Cannot inspect ports on a fake backend; fail closed because
@@ -512,8 +492,8 @@ func (d *Dispatcher) hostPortConflict(ctx context.Context, rt Runtime, b Backend
 		}
 		applied, err := ipb.InstancePortMappings(ctx, name)
 		if err != nil {
-			// Fail closed when the running instance's applied ports cannot be
-			// verified and the new launch binds host ports.
+			// Fail closed when the running instance's forwarded ports cannot
+			// be verified and the new launch binds host ports.
 			return nil, true
 		}
 		var overlap []uint16

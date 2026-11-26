@@ -800,6 +800,32 @@ func TestDispatcherPrepareConcurrentMicrosandboxProjects(t *testing.T) {
 			t.Fatalf("backend-mode AgentVM listening on 4096 must conflict, got %v", err)
 		}
 	})
+
+	t.Run("AgentVM preview port 3000 conflicts with default full-mode Microsandbox", func(t *testing.T) {
+		withGOOS(t, "darwin")
+		msb := &fakeConcurrentMSBBackend{
+			fakeBackend: fakeBackend{id: RuntimeMicrosandbox},
+			own:         "cb-proj-a-11111",
+		}
+		previewAgentVM := &fakeConcurrentMSBBackend{
+			fakeBackend: fakeBackend{id: RuntimeAgentVM},
+			own:         "opencode-cb-proj-a-11111",
+			running:     []string{"opencode-cb-proj-b-22222"},
+			portsByIns: map[string][]PortMapping{
+				"opencode-cb-proj-b-22222": {{Host: 3000, Guest: 3000}},
+			},
+		}
+		// Full mode with !PortsConfigured -> requests legacy 3000-3010 (not 4096).
+		d := NewDispatcherWith(Config{Isolation: IsolationFull}, map[Runtime]Backend{
+			RuntimeMicrosandbox: msb,
+			RuntimeTart:         &fakeBackend{id: RuntimeTart},
+			RuntimeAgentVM:      previewAgentVM,
+		})
+		err := d.Prepare(context.Background(), RuntimeMicrosandbox)
+		if err == nil || !strings.Contains(err.Error(), "opencode-cb-proj-b-22222") || !strings.Contains(err.Error(), "3000") {
+			t.Fatalf("AgentVM listening on preview port 3000 must conflict with default full-mode Microsandbox, got %v", err)
+		}
+	})
 }
 
 func TestAgentVMInstancePortMappings(t *testing.T) {
@@ -807,11 +833,11 @@ func TestAgentVMInstancePortMappings(t *testing.T) {
 		name      string
 		res       ExecResult
 		runErr    error
-		wantPorts int
+		wantPorts []uint16
 		wantErr   bool
 	}{
-		{name: "listening on 4096", res: ExecResult{Stdout: "listening\n"}, wantPorts: 1},
-		{name: "idle full mode", res: ExecResult{Stdout: "idle\n"}, wantPorts: 0},
+		{name: "listening on 3000 and 4096 skips ssh 22", res: ExecResult{Stdout: "00000000:0016\n00000000:0BB8\n0100007F:1000\n00000000:0BB8\n"}, wantPorts: []uint16{3000, 4096}},
+		{name: "idle full mode (only ssh 22)", res: ExecResult{Stdout: "00000000:0016\n"}, wantPorts: nil},
 		{name: "limactl failure", res: ExecResult{ExitCode: 1}, wantErr: true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -826,11 +852,13 @@ func TestAgentVMInstancePortMappings(t *testing.T) {
 			if err != nil {
 				t.Fatalf("InstancePortMappings: %v", err)
 			}
-			if len(ports) != tc.wantPorts {
-				t.Fatalf("ports = %v, want len %d", ports, tc.wantPorts)
+			if len(ports) != len(tc.wantPorts) {
+				t.Fatalf("ports = %v, want %v", ports, tc.wantPorts)
 			}
-			if tc.wantPorts == 1 && ports[0].Host != uint16(DefaultPort) {
-				t.Fatalf("host port = %d, want %d", ports[0].Host, DefaultPort)
+			for i, want := range tc.wantPorts {
+				if ports[i].Host != want {
+					t.Fatalf("ports[%d].Host = %d, want %d", i, ports[i].Host, want)
+				}
 			}
 		})
 	}
