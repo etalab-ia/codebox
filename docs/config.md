@@ -653,6 +653,23 @@ réécrit vers `http://host.microsandbox.internal:<port>/v1` et la politique
 réseau n'ouvre que cet hôte et ce port TCP précis (jamais l'ensemble du groupe
 `host`). Tart et agent-vm ne sont pas pris en charge.
 
+Configuration et retrait :
+
+- **En interactif** : `codebox init --advanced` propose « Serveur de modèles
+  local » (détection des serveurs actifs, saisie d'un port/URL, ou désactivation)
+  et liste les modèles locaux exposés dans « Petit modèle ». Le récapitulatif
+  affiche le serveur configuré et le port hôte ouvert.
+- **En ligne de commande** : `codebox init --replace --local-server auto --small-model local/<modèle> --yes`
+  (ou un port/URL) pour l'activer ; `codebox init --replace --local-server none --yes`
+  pour le retirer à la fois de `.codebox/project.json` et de l'approbation locale
+  `~/.config/codebox/settings.json`. Rétablir `--small-model default` retire
+  également le fournisseur `local` orphelin du manifeste projet.
+- **Vérification de disponibilité** : au lancement et dans `codebox doctor`, un
+  avertissement non bloquant signale si le serveur local configuré ne répond pas.
+  Ajouter, modifier ou retirer le port du serveur local sur une machine isolée
+  existante exige une recréation (proposée au prochain lancement avec sauvegarde
+  préalable du travail).
+
 **Qualifié : Ollama + Microsandbox** (qualification native validée sur macOS
 arm64). LM Studio et llama.cpp exposent la même API et devraient fonctionner,
 sans garantie.

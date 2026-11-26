@@ -304,6 +304,7 @@ func run(args []string) (int, error) {
 		if err := validateSmallModelProviderConnection(cfg.Providers, smallModelSelection); err != nil {
 			return 1, err
 		}
+		warnIfLocalModelServerUnreachable(cfg.Providers, launch)
 	}
 	var albertModels []codebox.AlbertModelConfig
 	if providersContain(cfg.Providers, codebox.ProviderAlbert) {
@@ -1002,6 +1003,33 @@ func resolveProviderSettingsAt(projectRoot string) ([]codebox.ProviderSettings, 
 		}
 	}
 	return settings, nil
+}
+
+// probeLocalModelServerFn is the launch-time probe seam for configured
+// host-local model servers (Ollama, LM Studio, llama.cpp). Tests replace it so
+// launch checks stay hermetic and never touch the host loopback.
+var probeLocalModelServerFn = func(ctx context.Context, baseURL string) ([]string, error) {
+	return codebox.ProbeLocalModelServer(ctx, nil, baseURL)
+}
+
+func warnIfLocalModelServerUnreachable(providers []codebox.InferenceProvider, launch *codebox.LaunchUX) {
+	for _, p := range providers {
+		if p.Kind != codebox.ProviderLocal {
+			continue
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		_, err := probeLocalModelServerFn(ctx, p.BaseURL)
+		cancel()
+		if err == nil {
+			continue
+		}
+		msg := fmt.Sprintf("le serveur de modèles local %s (%s) ne répond pas ; démarrez-le pour utiliser les modèles locaux (ex. titres de session) ou retirez-le avec 'codebox init --advanced' ou 'codebox init --replace --local-server none --yes'", p.Name, p.BaseURL)
+		if launch != nil && launch.Terminal {
+			launch.AddWarning("%s", msg)
+		} else {
+			fmt.Fprintf(os.Stderr, "Attention : %s\n", msg)
+		}
+	}
 }
 
 func projectManifestModels(projectRoot string) []string {

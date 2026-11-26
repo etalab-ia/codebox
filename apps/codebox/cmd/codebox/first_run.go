@@ -206,27 +206,44 @@ func firstRunProviderDefaults(ctx context.Context, opts initOptions, j *codebox.
 			userProviders = append(userProviders, us.Providers...)
 		}
 		if opts.Set["local-server"] {
-			local, err := resolveInitLocalServer(ctx, opts.LocalServer)
-			if err != nil {
-				return nil, err
-			}
-			if len(userProviders) == 0 {
-				userProviders = codebox.DefaultProviderSettings()
-			}
-			filtered := make([]codebox.ProviderSettings, 0, len(userProviders)+1)
-			for _, provider := range userProviders {
-				if provider.Kind != codebox.ProviderLocal {
-					filtered = append(filtered, provider)
+			if isClearLocalServerValue(opts.LocalServer) {
+				filteredUser := make([]codebox.ProviderSettings, 0, len(userProviders))
+				for _, provider := range userProviders {
+					if provider.Kind != codebox.ProviderLocal {
+						filteredUser = append(filteredUser, provider)
+					}
 				}
-			}
-			userProviders = append(filtered, local)
-			filteredSettings := make([]codebox.ProviderSettings, 0, len(settings)+1)
-			for _, provider := range settings {
-				if provider.Kind != codebox.ProviderLocal {
-					filteredSettings = append(filteredSettings, provider)
+				userProviders = filteredUser
+				filteredSettings := make([]codebox.ProviderSettings, 0, len(settings))
+				for _, provider := range settings {
+					if provider.Kind != codebox.ProviderLocal {
+						filteredSettings = append(filteredSettings, provider)
+					}
 				}
+				settings = filteredSettings
+			} else {
+				local, err := resolveInitLocalServer(ctx, opts.LocalServer)
+				if err != nil {
+					return nil, err
+				}
+				if len(userProviders) == 0 {
+					userProviders = codebox.DefaultProviderSettings()
+				}
+				filtered := make([]codebox.ProviderSettings, 0, len(userProviders)+1)
+				for _, provider := range userProviders {
+					if provider.Kind != codebox.ProviderLocal {
+						filtered = append(filtered, provider)
+					}
+				}
+				userProviders = append(filtered, local)
+				filteredSettings := make([]codebox.ProviderSettings, 0, len(settings)+1)
+				for _, provider := range settings {
+					if provider.Kind != codebox.ProviderLocal {
+						filteredSettings = append(filteredSettings, provider)
+					}
+				}
+				settings = append(filteredSettings, local)
 			}
-			settings = append(filteredSettings, local)
 		}
 		if err := codebox.ValidateProjectProviders(settings, userProviders); err != nil {
 			return nil, fmt.Errorf("la plateforme du projet ne peut pas être approuvée avant de réutiliser un identifiant : %w", err)

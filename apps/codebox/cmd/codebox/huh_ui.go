@@ -10,6 +10,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"time"
 	"unsafe"
 
 	"charm.land/bubbles/v2/viewport"
@@ -538,19 +539,76 @@ func initSmallModelDisplayName(answers codebox.InitAnswers) string {
 	return "même modèle que le modèle principal (" + initModelDisplayName(answers.Model) + ")"
 }
 
+const (
+	initCustomLocalSmallModelSentinel = "__codebox_custom_local_small_model__"
+	initLocalServerNoneSentinel       = "__codebox_local_server_none__"
+	initLocalServerCustomSentinel     = "__codebox_local_server_custom__"
+)
+
+func initLocalServerDisplayName(providers []codebox.ProviderSettings) string {
+	for _, p := range providers {
+		if p.Kind != codebox.ProviderLocal {
+			continue
+		}
+		name := strings.TrimSpace(p.Name)
+		if name == "" {
+			name = "Serveur local"
+		}
+		if base := strings.TrimSpace(p.BaseURL); base != "" {
+			return fmt.Sprintf("%s (%s)", name, base)
+		}
+		return name
+	}
+	return "aucun"
+}
+
+func localProviderSetting(providers []codebox.ProviderSettings) (codebox.ProviderSettings, bool) {
+	for _, p := range providers {
+		if p.Kind == codebox.ProviderLocal {
+			return p, true
+		}
+	}
+	return codebox.ProviderSettings{}, false
+}
+
 func newInitSmallModelSelect(root string, value *string, providers []codebox.ProviderSettings) *huh.Select[string] {
 	options := []huh.Option[string]{
 		huh.NewOption("Même modèle que le modèle principal (défaut)", ""),
 		huh.NewOption("Ministral 3 8B — petit modèle généraliste", codebox.MinistralSmallModelRef),
 	}
-	if *value != "" && *value != codebox.MinistralSmallModelRef {
+	seen := map[string]bool{
+		"":                             true,
+		codebox.MinistralSmallModelRef: true,
+	}
+	if localPS, hasLocal := localProviderSetting(providers); hasLocal && strings.TrimSpace(localPS.BaseURL) != "" {
+		probeCtx, cancel := context.WithTimeout(context.Background(), 1500*time.Millisecond)
+		models, err := probeLocalModelServerFn(probeCtx, localPS.BaseURL)
+		cancel()
+		if err == nil {
+			for _, id := range models {
+				ref := "local/" + id
+				if !seen[ref] {
+					seen[ref] = true
+					options = append(options, huh.NewOption(fmt.Sprintf("%s (%s)", id, localPS.Name), ref))
+				}
+			}
+		}
+	}
+	if *value != "" && !seen[*value] {
+		seen[*value] = true
 		options = append(options, huh.NewOption(initModelDisplayName(*value)+" (déjà configuré)", *value))
+	}
+	if _, hasLocal := localProviderSetting(providers); hasLocal {
+		options = append(options, huh.NewOption("Saisir un modèle local (local/<nom>)…", initCustomLocalSmallModelSentinel))
 	}
 	return huh.NewSelect[string]().
 		Title("Petit modèle").
 		Description("Utilisé pour générer les titres de session. Le choix par défaut suit toujours le modèle principal. Ministral nécessite une connexion à Albert API.").
 		Options(options...).
 		Validate(func(s string) error {
+			if s == initCustomLocalSmallModelSentinel {
+				return nil
+			}
 			_, err := validateInitSmallModelInputForProviders(root, s, providers)
 			return err
 		}).
@@ -643,12 +701,16 @@ func askInitAdvancedHuh(opts initOptions, answers codebox.InitAnswers) (codebox.
 			}
 			options = append(options, huh.NewOption("Stockage des skills : "+storage, "skills-storage"))
 		}
+		if !opts.Set["local-server"] && effectiveInitRuntime(answers) == codebox.RuntimeMicrosandbox {
+			options = append(options, huh.NewOption("Serveur de modèles local : "+initLocalServerDisplayName(answers.Providers), "local-server"))
+		}
 		options = append(options, huh.NewOption("Terminer", "back"))
 		if len(options) == 1 {
 			choice = "back"
 		}
 		description := "Ces valeurs conviennent à la plupart des projets. Modifiez-les seulement si besoin.\n\n" +
 			"Petit modèle : sert aux titres de session.\n" +
+			"Serveur local : Ollama, LM Studio ou llama.cpp sur ce poste (Microsandbox ; exige une recréation si le port change).\n" +
 			"6 Go conseillés avec chrome-devtools.\n\n" +
 			modelWarning +
 			"\n" + smallModelWarning +
@@ -665,6 +727,7 @@ func askInitAdvancedHuh(opts initOptions, answers codebox.InitAnswers) (codebox.
 		}
 		var field huh.Field
 		var input string
+		var detectedLocal []codebox.LocalServerCandidate
 		skillStorageInput := answers.SkillsLocalOnly
 		switch choice {
 		case "isolation":
@@ -696,6 +759,15 @@ func askInitAdvancedHuh(opts initOptions, answers codebox.InitAnswers) (codebox.
 				Description("Avec le projet : elles sont versionnées avec le projet. Sur ce poste uniquement : rien n'est ajouté au dépôt.").
 				Options(huh.NewOption("Avec le projet", false), huh.NewOption("Sur ce poste uniquement", true)).
 				Value(&skillStorageInput)
+		case "local-server":
+			detectCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+			detectedLocal = detectLocalModelServersFn(detectCtx, nil)
+			cancel()
+			input = initLocalServerNoneSentinel
+			if cur, ok := localProviderSetting(answers.Providers); ok && strings.TrimSpace(cur.BaseURL) != "" {
+				input = strings.TrimSpace(cur.BaseURL)
+			}
+			field = newInitLocalServerSelect(answers.Providers, detectedLocal, &input)
 		default:
 			return answers, fmt.Errorf("réglage avancé inconnu : %q", choice)
 		}
@@ -722,6 +794,50 @@ func askInitAdvancedHuh(opts initOptions, answers codebox.InitAnswers) (codebox.
 				continue
 			}
 			input = customInput
+		}
+		if choice == "small-model" && input == initCustomLocalSmallModelSentinel {
+			customSmall := strings.TrimPrefix(answers.SmallModel, "local/")
+			if codebox.ModelRefProvider(answers.SmallModel) != codebox.ProviderLocal {
+				customSmall = ""
+			}
+			customField := huh.NewInput().Title("Petit modèle local").
+				Description("Nom du modèle exposé par votre serveur local (ex. qwen2.5:3b ou local/qwen2.5:3b). Échap : annuler.").
+				Validate(func(s string) error {
+					trimmed := strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(s), "local/"))
+					if trimmed == "" {
+						return fmt.Errorf("indiquez un nom de modèle local")
+					}
+					return nil
+				}).Value(&customSmall)
+			back, err = runInitAdvancedForm(huh.NewForm(huh.NewGroup(customField)))
+			if err != nil {
+				return answers, err
+			}
+			if back {
+				continue
+			}
+			trimmed := strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(customSmall), "local/"))
+			input = "local/" + trimmed
+		}
+		if choice == "local-server" && input == initLocalServerCustomSentinel {
+			customServer := ""
+			if cur, ok := localProviderSetting(answers.Providers); ok {
+				customServer = cur.BaseURL
+			}
+			customField := huh.NewInput().Title("Serveur de modèles local").
+				Description("Port local (ex. 11434 pour Ollama, 1234 pour LM Studio) ou URL http://localhost:<port>/v1. Échap : annuler.").
+				Validate(func(s string) error {
+					_, err := resolveInitLocalServer(context.Background(), s)
+					return err
+				}).Value(&customServer)
+			back, err = runInitAdvancedForm(huh.NewForm(huh.NewGroup(customField)))
+			if err != nil {
+				return answers, err
+			}
+			if back {
+				continue
+			}
+			input = strings.TrimSpace(customServer)
 		}
 		switch choice {
 		case "isolation":
@@ -759,8 +875,90 @@ func askInitAdvancedHuh(opts initOptions, answers codebox.InitAnswers) (codebox.
 		case "skills-storage":
 			answers.SkillsLocalOnly = skillStorageInput
 			answers.SkillsLocalOnlySet = true
+		case "local-server":
+			if input == initLocalServerNoneSentinel {
+				filtered := make([]codebox.ProviderSettings, 0, len(answers.Providers))
+				for _, p := range answers.Providers {
+					if p.Kind == codebox.ProviderLocal {
+						continue
+					}
+					filtered = append(filtered, p)
+				}
+				answers.Providers = filtered
+				if codebox.ModelRefProvider(answers.SmallModel) == codebox.ProviderLocal {
+					answers.SmallModel = ""
+				}
+				answers.LocalServerCleared = true
+				answers.LocalServerApproved = false
+			} else {
+				var localPS codebox.ProviderSettings
+				matched := false
+				for _, cand := range detectedLocal {
+					if cand.BaseURL == input {
+						localPS = codebox.ProviderSettings{
+							Kind:    codebox.ProviderLocal,
+							Name:    cand.Name,
+							BaseURL: cand.BaseURL,
+						}
+						matched = true
+						break
+					}
+				}
+				if !matched {
+					resolved, err := resolveInitLocalServer(context.Background(), input)
+					if err != nil {
+						return answers, err
+					}
+					localPS = resolved
+				}
+				base := answers.Providers
+				if len(base) == 0 {
+					base = codebox.DefaultProviderSettings()
+				}
+				filtered := make([]codebox.ProviderSettings, 0, len(base)+1)
+				for _, p := range base {
+					if p.Kind == codebox.ProviderLocal {
+						continue
+					}
+					filtered = append(filtered, p)
+				}
+				answers.Providers = append(filtered, localPS)
+				answers.LocalServerApproved = true
+				answers.LocalServerCleared = false
+			}
 		}
 	}
+}
+
+func newInitLocalServerSelect(providers []codebox.ProviderSettings, detected []codebox.LocalServerCandidate, value *string) *huh.Select[string] {
+	options := []huh.Option[string]{
+		huh.NewOption("Aucun (désactivé — retire le serveur du projet et de ce poste)", initLocalServerNoneSentinel),
+	}
+	seen := map[string]bool{}
+	for _, cand := range detected {
+		if seen[cand.BaseURL] {
+			continue
+		}
+		seen[cand.BaseURL] = true
+		label := fmt.Sprintf("%s — %s", cand.Name, cand.BaseURL)
+		if len(cand.Models) > 0 {
+			label = fmt.Sprintf("%s — %s (%d modèle(s))", cand.Name, cand.BaseURL, len(cand.Models))
+		}
+		options = append(options, huh.NewOption(label, cand.BaseURL))
+	}
+	if cur, ok := localProviderSetting(providers); ok && strings.TrimSpace(cur.BaseURL) != "" && !seen[cur.BaseURL] {
+		name := strings.TrimSpace(cur.Name)
+		if name == "" {
+			name = "Serveur local"
+		}
+		options = append(options, huh.NewOption(fmt.Sprintf("%s — %s (actuel)", name, cur.BaseURL), cur.BaseURL))
+	}
+	options = append(options, huh.NewOption("Saisir un port ou une URL locale…", initLocalServerCustomSentinel))
+	return huh.NewSelect[string]().
+		Title("Serveur de modèles local").
+		Description("Ouvre uniquement le port local choisi vers la machine isolée (Microsandbox) pour les petits modèles (ex. titres de session). Changer ce réglage sur une machine existante exige une recréation.").
+		Options(options...).
+		Value(value)
 }
 
 const initCustomModelSentinel = "__codebox_custom_model__"

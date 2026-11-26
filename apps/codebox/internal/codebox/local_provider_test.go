@@ -292,3 +292,99 @@ func TestComposeConfigContentSkipsLocalForDefaultMainModel(t *testing.T) {
 		t.Fatalf("default main model = %v, want mistral/mistral-large-latest (must skip local)", parsed["model"])
 	}
 }
+
+func TestInitReviewsShowLocalModelServerAndPort(t *testing.T) {
+	localPS := ProviderSettings{Kind: ProviderLocal, Name: "Ollama", BaseURL: "http://localhost:11434/v1"}
+	plan := InitPlan{
+		Answers: InitAnswers{
+			Root:       "/tmp/project",
+			Runtime:    RuntimeMicrosandbox,
+			Isolation:  IsolationFull,
+			SmallModel: "local/qwen2.5:3b",
+			Providers:  []ProviderSettings{{Kind: ProviderAlbert}, localPS},
+		},
+		GuestCPUs:     2,
+		GuestMemoryMB: 4096,
+		ManifestPath:  "/tmp/project/.codebox/project.json",
+		LockPath:      "/tmp/project/.codebox/lock.json",
+		ExistingManifest: &ProjectManifest{
+			SchemaVersion: 8,
+			Providers:     []ProviderSettings{{Kind: ProviderAlbert}, localPS},
+		},
+	}
+	interactive := FormatInteractiveInitReview(plan)
+	for _, want := range []string{"Serveur local", "Ollama", "http://localhost:11434/v1", "port hôte 11434"} {
+		if !strings.Contains(interactive, want) {
+			t.Fatalf("interactive review missing %q:\n%s", want, interactive)
+		}
+	}
+	plain := FormatInitReview(plan)
+	for _, want := range []string{"serveur local", "Ollama", "http://localhost:11434/v1", "port hôte 11434"} {
+		if !strings.Contains(plain, want) {
+			t.Fatalf("plain review missing %q:\n%s", want, plain)
+		}
+	}
+	summary := formatManifestSummary(*plan.ExistingManifest)
+	if !strings.Contains(summary, "Ollama") || !strings.Contains(summary, "11434") {
+		t.Fatalf("manifest summary missing local server details:\n%s", summary)
+	}
+}
+
+func TestDiagnosticsReportsLocalModelServerReachability(t *testing.T) {
+	root := t.TempDir()
+	stateDir := t.TempDir()
+	if err := WriteProjectManifest(DefaultFS, ProjectManifestPath(root), ProjectManifest{
+		SchemaVersion: 8,
+		Runtime:       string(RuntimeMicrosandbox),
+		SmallModel:    "local/qwen2.5:3b",
+		Providers: []ProviderSettings{
+			{Kind: ProviderAlbert},
+			{Kind: ProviderLocal, Name: "Ollama", BaseURL: "http://localhost:11434/v1"},
+		},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	preflight := SetupPreflight{Platform: "darwin/arm64", VirtualizationOK: true}
+	findItem := func(report DiagnosticsReport) *DiagnosticItem {
+		for _, sec := range report.Sections {
+			for i := range sec.Items {
+				if sec.Items[i].Name == "Serveur de modèles local" {
+					return &sec.Items[i]
+				}
+			}
+		}
+		return nil
+	}
+
+	okReport := (Diagnostics{
+		Preflight:  &preflight,
+		StateDir:   stateDir,
+		ProjectDir: root,
+		LookPath:   func(string) (string, error) { return "/usr/bin/true", nil },
+		Run:        func(context.Context, string, ...string) (ExecResult, error) { return ExecResult{Stdout: "1.0.0"}, nil },
+		ReadAlbert: func(context.Context) (string, error) { return "", ErrCredentialNotFound },
+		ProbeLocalServer: func(context.Context, string) ([]string, error) {
+			return []string{"qwen2.5:3b"}, nil
+		},
+	}).Collect(context.Background())
+	okItem := findItem(okReport)
+	if okItem == nil || okItem.Status != DiagnosticOK || !strings.Contains(okItem.Detail, "joignable") {
+		t.Fatalf("reachable local server diagnostic = %+v, want DiagnosticOK", okItem)
+	}
+
+	warnReport := (Diagnostics{
+		Preflight:  &preflight,
+		StateDir:   stateDir,
+		ProjectDir: root,
+		LookPath:   func(string) (string, error) { return "/usr/bin/true", nil },
+		Run:        func(context.Context, string, ...string) (ExecResult, error) { return ExecResult{Stdout: "1.0.0"}, nil },
+		ReadAlbert: func(context.Context) (string, error) { return "", ErrCredentialNotFound },
+		ProbeLocalServer: func(context.Context, string) ([]string, error) {
+			return nil, context.DeadlineExceeded
+		},
+	}).Collect(context.Background())
+	warnItem := findItem(warnReport)
+	if warnItem == nil || warnItem.Status != DiagnosticWarn || !strings.Contains(warnItem.Detail, "--local-server none") {
+		t.Fatalf("unreachable local server diagnostic = %+v, want DiagnosticWarn with removal remedy", warnItem)
+	}
+}

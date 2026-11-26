@@ -89,6 +89,11 @@ type InitAnswers struct {
 	Harness string
 	// Advanced records that the user opened the advanced settings.
 	Advanced bool
+	// LocalServerApproved / LocalServerCleared record explicit interactive
+	// changes to the host-local model server so initRun can update host
+	// approval in settings.json accordingly (never persisted in project.json).
+	LocalServerApproved bool
+	LocalServerCleared  bool
 }
 
 // InitWizard validates project setup answers and writes what they imply.
@@ -855,6 +860,9 @@ func FormatInteractiveInitReview(plan InitPlan) string {
 	if a.SmallModel != "" {
 		row("Petit modèle", initReviewModelName(a.SmallModel))
 	}
+	if localSummary := formatLocalServerSummary(a.Providers); localSummary != "" {
+		row("Serveur local", localSummary)
+	}
 	credential := "clé Albert API globale (jamais sa valeur)"
 	if plan.Expert && a.CredentialRef != "" {
 		credential = fmt.Sprintf("référence %q (jamais sa valeur)", a.CredentialRef)
@@ -938,6 +946,30 @@ func localProviderBaseURL(providers []ProviderSettings) string {
 		if p.Kind == ProviderLocal {
 			return strings.TrimSpace(p.BaseURL)
 		}
+	}
+	return ""
+}
+
+func formatLocalServerSummary(providers []ProviderSettings) string {
+	for _, p := range providers {
+		if p.Kind != ProviderLocal {
+			continue
+		}
+		resolved, err := ResolveProvider(p)
+		if err != nil {
+			name := strings.TrimSpace(p.Name)
+			if name == "" {
+				name = "Serveur local"
+			}
+			if strings.TrimSpace(p.BaseURL) != "" {
+				return fmt.Sprintf("%s (%s)", name, strings.TrimSpace(p.BaseURL))
+			}
+			return name
+		}
+		if resolved.LocalPort > 0 {
+			return fmt.Sprintf("%s (%s ; port hôte %d ouvert vers la machine isolée)", resolved.Name, resolved.BaseURL, resolved.LocalPort)
+		}
+		return fmt.Sprintf("%s (%s)", resolved.Name, resolved.BaseURL)
 	}
 	return ""
 }
@@ -1030,6 +1062,9 @@ func FormatInitReview(plan InitPlan) string {
 		fmt.Fprintf(&b, "  petit modèle %s\n", a.SmallModel)
 	} else {
 		b.WriteString("  petit modèle identique au modèle principal\n")
+	}
+	if localSummary := formatLocalServerSummary(a.Providers); localSummary != "" {
+		fmt.Fprintf(&b, "  serveur local %s\n", localSummary)
 	}
 	fmt.Fprintf(&b, "  ressources   %d processeurs, %s (fixés à la création de la machine isolée)\n", plan.GuestCPUs, FormatMemorySize(plan.GuestMemoryMB))
 	if a.BrowserResourceGuidance != "" {
@@ -1195,6 +1230,7 @@ func formatManifestSummary(pm ProjectManifest) string {
 	add("isolation", pm.Isolation)
 	add("modèle", pm.Model)
 	add("petit modèle", pm.SmallModel)
+	add("serveur local", formatLocalServerSummary(pm.Providers))
 	if pm.CPUs > 0 {
 		add("processeurs", fmt.Sprintf("%d", pm.CPUs))
 	}

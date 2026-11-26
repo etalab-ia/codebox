@@ -716,7 +716,12 @@ func initRun(opts initOptions, in *bufio.Reader, tty bool) (code int, err error)
 		}
 		return 1, err
 	}
-	if opts.Set["local-server"] {
+	if plan.Answers.LocalServerCleared || (opts.Set["local-server"] && isClearLocalServerValue(opts.LocalServer)) {
+		if err := removeLocalServerFromUserSettings(); err != nil {
+			return 1, fmt.Errorf("la configuration du projet a été écrite, mais le serveur local n'a pas pu être retiré des réglages de ce poste : %w", err)
+		}
+		fmt.Println("Serveur de modèles local retiré du projet et des réglages de ce poste.")
+	} else if opts.Set["local-server"] || plan.Answers.LocalServerApproved {
 		for _, p := range plan.Answers.Providers {
 			if p.Kind == codebox.ProviderLocal {
 				if err := approveLocalServerInUserSettings(p); err != nil {
@@ -1025,8 +1030,22 @@ func resolveInitProviders(opts initOptions, answers codebox.InitAnswers) (codebo
 		return answers, fmt.Errorf("impossible de lire les plateformes configurées : %w", err)
 	}
 	var explicitLocal *codebox.ProviderSettings
+	clearLocal := opts.Set["local-server"] && isClearLocalServerValue(opts.LocalServer)
 	effectiveUserSettings := append([]codebox.ProviderSettings(nil), userSettings...)
-	if opts.Set["local-server"] {
+	if clearLocal {
+		filteredUser := make([]codebox.ProviderSettings, 0, len(effectiveUserSettings))
+		for _, p := range effectiveUserSettings {
+			if p.Kind == codebox.ProviderLocal {
+				continue
+			}
+			filteredUser = append(filteredUser, p)
+		}
+		effectiveUserSettings = filteredUser
+		answers.LocalServerCleared = true
+		if answers.SmallModel != "" && codebox.ModelRefProvider(answers.SmallModel) == codebox.ProviderLocal {
+			answers.SmallModel = ""
+		}
+	} else if opts.Set["local-server"] {
 		localPS, err := resolveInitLocalServer(context.Background(), opts.LocalServer)
 		if err != nil {
 			return answers, err
@@ -1076,7 +1095,16 @@ func resolveInitProviders(opts initOptions, answers codebox.InitAnswers) (codebo
 		}
 		answers.Providers = providerSettingsOf(providers)
 	} else {
-		if explicitLocal != nil {
+		if clearLocal {
+			filtered := make([]codebox.ProviderSettings, 0, len(answers.Providers))
+			for _, p := range answers.Providers {
+				if p.Kind == codebox.ProviderLocal {
+					continue
+				}
+				filtered = append(filtered, p)
+			}
+			answers.Providers = filtered
+		} else if explicitLocal != nil {
 			filtered := make([]codebox.ProviderSettings, 0, len(answers.Providers)+1)
 			for _, p := range answers.Providers {
 				if p.Kind == codebox.ProviderLocal {
@@ -1085,6 +1113,21 @@ func resolveInitProviders(opts initOptions, answers codebox.InitAnswers) (codebo
 				filtered = append(filtered, p)
 			}
 			answers.Providers = append(filtered, *explicitLocal)
+		}
+		// Clearing --small-model to default without --local-server must not leave an
+		// orphaned ProviderLocal in the versioned project manifest (#510), and must
+		// prune it before ValidateProjectProviders so cloned manifests can drop it.
+		if !opts.Set["local-server"] && opts.Set["small-model"] && answers.SmallModel == "" && codebox.ModelRefProvider(answers.Model) != codebox.ProviderLocal {
+			filtered := make([]codebox.ProviderSettings, 0, len(answers.Providers))
+			for _, p := range answers.Providers {
+				if p.Kind == codebox.ProviderLocal {
+					continue
+				}
+				filtered = append(filtered, p)
+			}
+			if len(filtered) > 0 {
+				answers.Providers = filtered
+			}
 		}
 		if err := codebox.ValidateProjectProviders(answers.Providers, effectiveUserSettings); err != nil {
 			return answers, fmt.Errorf("impossible de résoudre les plateformes du projet : %w", err)
@@ -1104,13 +1147,18 @@ func resolveInitProviders(opts initOptions, answers codebox.InitAnswers) (codebo
 	return answers, nil
 }
 
+func isClearLocalServerValue(raw string) bool {
+	v := strings.ToLower(strings.TrimSpace(raw))
+	return v == "none" || v == "aucun" || v == "off"
+}
+
 // detectLocalModelServersFn is the probe seam for `--local-server auto`.
 var detectLocalModelServersFn = codebox.DetectLocalModelServers
 
 func resolveInitLocalServer(ctx context.Context, raw string) (codebox.ProviderSettings, error) {
 	v := strings.TrimSpace(raw)
 	if v == "" {
-		return codebox.ProviderSettings{}, fmt.Errorf("--local-server exige 'auto', un port (ex. 11434) ou une URL http://localhost:<port>/v1")
+		return codebox.ProviderSettings{}, fmt.Errorf("--local-server exige 'auto', 'none', un port (ex. 11434) ou une URL http://localhost:<port>/v1")
 	}
 	if strings.EqualFold(v, "auto") {
 		found := detectLocalModelServersFn(ctx, nil)
@@ -1173,6 +1221,34 @@ func approveLocalServerInUserSettings(localPS codebox.ProviderSettings) error {
 		updated = append(updated, p)
 	}
 	updated = append(updated, localPS)
+	us.Providers = updated
+	return codebox.WriteUserSettings(codebox.DefaultFS, path, us)
+}
+
+func removeLocalServerFromUserSettings() error {
+	path, err := codebox.UserSettingsPath()
+	if err != nil {
+		return err
+	}
+	us, err := codebox.ReadUserSettings(codebox.DefaultFS, path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return err
+	}
+	updated := make([]codebox.ProviderSettings, 0, len(us.Providers))
+	removed := false
+	for _, p := range us.Providers {
+		if p.Kind == codebox.ProviderLocal {
+			removed = true
+			continue
+		}
+		updated = append(updated, p)
+	}
+	if !removed {
+		return nil
+	}
 	us.Providers = updated
 	return codebox.WriteUserSettings(codebox.DefaultFS, path, us)
 }
@@ -1257,13 +1333,19 @@ func validateInitOptions(opts initOptions) error {
 		if err != nil {
 			return err
 		}
-		if opts.Set["local-server"] && rt != codebox.RuntimeMicrosandbox {
+		if opts.Set["local-server"] && !isClearLocalServerValue(opts.LocalServer) && rt != codebox.RuntimeMicrosandbox {
 			return fmt.Errorf("--local-server n'est pris en charge qu'avec Microsandbox")
 		}
 	}
-	if opts.Set["local-server"] && !strings.EqualFold(strings.TrimSpace(opts.LocalServer), "auto") {
-		if _, err := resolveInitLocalServer(context.Background(), opts.LocalServer); err != nil {
-			return err
+	if opts.Set["local-server"] {
+		if isClearLocalServerValue(opts.LocalServer) {
+			if opts.Set["small-model"] && codebox.ModelRefProvider(normalizeInitModelInput(opts.SmallModel)) == codebox.ProviderLocal {
+				return fmt.Errorf("la désactivation du serveur local (--local-server) est incompatible avec un petit modèle local (--small-model)")
+			}
+		} else if !strings.EqualFold(strings.TrimSpace(opts.LocalServer), "auto") {
+			if _, err := resolveInitLocalServer(context.Background(), opts.LocalServer); err != nil {
+				return err
+			}
 		}
 	}
 	if opts.Set["isolation"] {
@@ -2356,7 +2438,9 @@ Options :
                           ministral-3-8b-instruct-2512 ou local/<modèle>) ;
                           vide ou 'default' suit le modèle principal
   --local-server <val>    serveur local OpenAI-compatible (Microsandbox uniquement) :
-                          'auto' (ports 11434, 1234, 8080), un port ou http://localhost:<port>/v1
+                          'auto' (ports 11434, 1234, 8080), un port, http://localhost:<port>/v1
+                          ou 'none' pour le retirer du projet et de ce poste
+  --advanced              ouvrir les réglages avancés (modèle, petit modèle, serveur local, ressources)
   --cpus <n>              processeurs de la machine isolée (maximum : la capacité détectée du poste)
   --memory-mb <size>      mémoire de la machine isolée en MiB ou GiB (ex. 4096, 4G, 2.5G ; maximum : la RAM détectée du poste)
   --credential-ref <ref>  référence d'identifiant Albert du projet (par défaut : la référence globale)
