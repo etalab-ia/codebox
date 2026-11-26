@@ -465,7 +465,9 @@ func TestAttachCmdFailsFastOnRevokedAlbertKey(t *testing.T) {
 	oldCheck := launchAlbertKeyCheckFn
 	t.Cleanup(func() { launchAlbertKeyCheckFn = oldCheck })
 
-	launchAlbertKeyCheckFn = func(context.Context, codebox.Config, string) error {
+	var checkedModel string
+	launchAlbertKeyCheckFn = func(_ context.Context, _ codebox.Config, activeModel string) error {
+		checkedModel = activeModel
 		return errors.New("la clé Albert API enregistrée a été refusée ou révoquée (HTTP 401)")
 	}
 	started := false
@@ -476,15 +478,78 @@ func TestAttachCmdFailsFastOnRevokedAlbertKey(t *testing.T) {
 		codebox.RuntimeTart:         &fakeRecreateConflictBackend{id: codebox.RuntimeTart, own: "opencode-cb-proj-a"},
 		codebox.RuntimeAgentVM:      &fakeRecreateConflictBackend{id: codebox.RuntimeAgentVM, own: "opencode-cb-proj-a"},
 	})
-	code, err := attachCmd(d, codebox.Config{Isolation: codebox.IsolationFull}, codebox.RuntimeMicrosandbox, "cb-proj-a", t.TempDir(), "albert/deepseek-v4-flash")
+	code, err := attachCmd(d, codebox.Config{Isolation: codebox.IsolationFull}, codebox.RuntimeMicrosandbox, "cb-proj-a", t.TempDir(), codebox.ManagedOverlay{Model: "albert/deepseek-v4-flash"})
 	if code != 1 || err == nil || !strings.Contains(err.Error(), "refusée ou révoquée") {
 		t.Fatalf("attachCmd with revoked key = code %d, err %v; want immediate rejection", code, err)
+	}
+	if checkedModel != "albert/deepseek-v4-flash" {
+		t.Fatalf("checkedModel = %q, want albert/deepseek-v4-flash", checkedModel)
 	}
 	if !started {
 		t.Fatal("start/reconcile must still run before rejecting the key so pending secret revocations are applied")
 	}
 	if agentRan {
 		t.Fatal("revoked Albert key must prevent launching the agent TUI")
+	}
+}
+
+func TestAttachCmdPassesEffectiveOverlayModelToAlbertKeyCheck(t *testing.T) {
+	oldCheck := launchAlbertKeyCheckFn
+	t.Cleanup(func() { launchAlbertKeyCheckFn = oldCheck })
+
+	var checkedModel string
+	launchAlbertKeyCheckFn = func(ctx context.Context, cfg codebox.Config, activeModel string) error {
+		checkedModel = activeModel
+		return codebox.CheckLaunchAlbertKey(ctx, cfg, activeModel)
+	}
+	started := false
+	agentRan := false
+	albertProbed := false
+	albertSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		albertProbed = true
+		w.WriteHeader(http.StatusUnauthorized)
+	}))
+	defer albertSrv.Close()
+	b := &fakeRecreateConflictBackend{id: codebox.RuntimeMicrosandbox, own: "cb-proj-a"}
+	// Albert and Mistral are both connected, no explicit model is chosen, and
+	// only Mistral models are enabled in the overlay. EffectiveOverlay selects
+	// Mistral so a revoked Albert key must not be probed or block launch.
+	cfg := codebox.Config{
+		Isolation: codebox.IsolationFull,
+		APIKey:    "revoked-albert-key",
+		Providers: []codebox.InferenceProvider{
+			{Kind: codebox.ProviderAlbert, Name: "Albert API (État)", BaseURL: albertSrv.URL, CatalogueURL: albertSrv.URL + "/models", CredentialKind: codebox.CredentialAlbert, APIKeyEnv: "ALBERT_API_KEY"},
+			{Kind: codebox.ProviderMistral, Name: "Mistral AI", BaseURL: "https://api.mistral.ai/v1"},
+		},
+	}
+	overlay := codebox.ManagedOverlay{
+		Model:         "",
+		AlbertEnabled: false,
+		Providers: []codebox.ProviderOverlay{{
+			Kind:      string(codebox.ProviderMistral),
+			Name:      "Mistral AI",
+			BaseURL:   "https://api.mistral.ai/v1",
+			APIKeyEnv: codebox.MistralAPIKeyEnv,
+			Models:    []codebox.ProviderModelConfig{{ID: "mistral-large-latest", Name: "Mistral Large"}},
+		}},
+	}
+	d := codebox.NewDispatcherWith(cfg, map[codebox.Runtime]codebox.Backend{
+		codebox.RuntimeMicrosandbox: &startTrackingBackend{fakeRecreateConflictBackend: b, started: &started, agentRan: &agentRan},
+		codebox.RuntimeTart:         &fakeRecreateConflictBackend{id: codebox.RuntimeTart, own: "opencode-cb-proj-a"},
+		codebox.RuntimeAgentVM:      &fakeRecreateConflictBackend{id: codebox.RuntimeAgentVM, own: "opencode-cb-proj-a"},
+	})
+	code, err := attachCmd(d, cfg, codebox.RuntimeMicrosandbox, "cb-proj-a", t.TempDir(), overlay)
+	if code != 0 || err != nil {
+		t.Fatalf("attachCmd with Mistral effective fallback = code %d, err %v; want success", code, err)
+	}
+	if albertProbed {
+		t.Fatal("Albert endpoint must not be probed when EffectiveOverlay resolves to Mistral")
+	}
+	if checkedModel != "mistral/mistral-large-latest" {
+		t.Fatalf("checkedModel = %q, want mistral/mistral-large-latest", checkedModel)
+	}
+	if !started || !agentRan {
+		t.Fatalf("expected start and agent launch to proceed: started=%v agentRan=%v", started, agentRan)
 	}
 }
 

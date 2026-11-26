@@ -475,4 +475,40 @@ func TestCheckLaunchAlbertKey(t *testing.T) {
 			t.Fatalf("non-Albert active model must skip Albert probe: err=%v probed=%v", err, probed)
 		}
 	})
+
+	t.Run("effective overlay fallback to Mistral skips Albert probe even when Albert is connected", func(t *testing.T) {
+		probed := false
+		overlay := ManagedOverlay{
+			Model:         "",
+			AlbertEnabled: false,
+			Providers: []ProviderOverlay{{
+				Kind:      string(ProviderMistral),
+				Name:      "Mistral AI",
+				BaseURL:   "https://api.mistral.ai/v1",
+				APIKeyEnv: MistralAPIKeyEnv,
+				Models:    []ProviderModelConfig{{ID: "mistral-large-latest", Name: "Mistral Large"}},
+			}},
+		}
+		effectiveModel := overlay.EffectiveOverlay().Model
+		if ModelRefProvider(effectiveModel) != ProviderMistral {
+			t.Fatalf("effective fallback model = %q, want mistral provider", effectiveModel)
+		}
+		cfg := Config{
+			APIKey: "revoked-albert-key",
+			Providers: []InferenceProvider{
+				albertAt("http://127.0.0.1:1"),
+				{Kind: ProviderMistral, Name: "Mistral AI", BaseURL: "https://api.mistral.ai/v1"},
+			},
+		}
+		read := func(context.Context, CredentialKind, string) (string, string, error) {
+			return "revoked-albert-key", "keychain", nil
+		}
+		err := checkLaunchAlbertKeyWith(context.Background(), cfg, effectiveModel, read, func(context.Context, InferenceProvider, string) CredentialProbe {
+			probed = true
+			return CredentialProbe{Rejected: true, Detail: "HTTP 401"}
+		})
+		if err != nil || probed {
+			t.Fatalf("Mistral effective fallback must skip Albert probe: err=%v probed=%v", err, probed)
+		}
+	})
 }

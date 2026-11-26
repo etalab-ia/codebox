@@ -477,7 +477,7 @@ func run(args []string) (int, error) {
 	case "acp":
 		return acpCmd(d, cfg, rt, os.Stdin, acpOutput, os.Stderr)
 	case "attach":
-		return attachCmd(d, cfg, rt, instance, projectRoot, modelSelection)
+		return attachCmd(d, cfg, rt, instance, projectRoot, overlay)
 	case "doctor":
 		code, err := lifecycleCmd(d, rt, parsed.action, parsed.follow)
 		reportLocalModelServerDoctor(os.Stdout, cfg.Providers)
@@ -1378,7 +1378,7 @@ func configImportEnvCmd(path string) (int, error) {
 
 var launchAlbertKeyCheckFn = codebox.CheckLaunchAlbertKey
 
-func attachCmd(d *codebox.Dispatcher, cfg codebox.Config, rt codebox.Runtime, instance, projectRoot, activeModel string) (int, error) {
+func attachCmd(d *codebox.Dispatcher, cfg codebox.Config, rt codebox.Runtime, instance, projectRoot string, overlay codebox.ManagedOverlay) (int, error) {
 	b, err := d.Backend(rt)
 	if err != nil {
 		return 0, err
@@ -1411,7 +1411,7 @@ func attachCmd(d *codebox.Dispatcher, cfg codebox.Config, rt codebox.Runtime, in
 			return 0, err
 		}
 	}
-	if err := launchAlbertKeyCheckFn(ctx, cfg, activeModel); err != nil {
+	if err := launchAlbertKeyCheckFn(ctx, cfg, overlay.EffectiveOverlay().Model); err != nil {
 		return 1, err
 	}
 	if msb, ok := b.(*codebox.MicrosandboxRuntime); ok {
