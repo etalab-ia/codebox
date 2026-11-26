@@ -655,3 +655,66 @@ func TestProjectSecretsCannotShadowAProviderVariable(t *testing.T) {
 		}
 	}
 }
+
+func TestGitHubBindingAllowsPlaceholderForInferenceHosts(t *testing.T) {
+	providers, err := ResolveProviders([]ProviderSettings{
+		{Kind: ProviderAlbert},
+		{Kind: ProviderMistral},
+		{Kind: ProviderLocal, Name: "Ollama", BaseURL: "http://localhost:11434/v1"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	bindings := msbSecretBindingsFor(providers)
+	if err := validateSecretBindings(bindings); err != nil {
+		t.Fatalf("validateSecretBindings: %v", err)
+	}
+	var gh *msbSecretBinding
+	for i := range bindings {
+		if bindings[i].Kind == CredentialGithub {
+			gh = &bindings[i]
+			break
+		}
+	}
+	if gh == nil {
+		t.Fatal("missing github binding")
+	}
+	wantAllow := []string{"github.com", "api.github.com", "raw.githubusercontent.com"}
+	if strings.Join(gh.AllowHosts, ",") != strings.Join(wantAllow, ",") {
+		t.Fatalf("github AllowHosts = %v, want %v", gh.AllowHosts, wantAllow)
+	}
+	wantPlaceholder := []string{"albert.api.etalab.gouv.fr", "api.mistral.ai"}
+	if strings.Join(gh.AllowPlaceholderFor, ",") != strings.Join(wantPlaceholder, ",") {
+		t.Fatalf("github AllowPlaceholderFor = %v, want %v", gh.AllowPlaceholderFor, wantPlaceholder)
+	}
+
+	// SDK modify & live-rotate options must forward AllowPlaceholderFor.
+	next := msbNextStartOptions(nil, []msbSecretBinding{*gh}, nil)
+	if got := next.Secrets["GITHUB_TOKEN"].AllowPlaceholderFor; strings.Join(got, ",") != strings.Join(wantPlaceholder, ",") {
+		t.Fatalf("msbNextStartOptions AllowPlaceholderFor = %v, want %v", got, wantPlaceholder)
+	}
+	live := msbRotateLiveOptions([]msbSecretBinding{*gh})
+	if got := live.Secrets["GITHUB_TOKEN"].AllowPlaceholderFor; strings.Join(got, ",") != strings.Join(wantPlaceholder, ",") {
+		t.Fatalf("msbRotateLiveOptions AllowPlaceholderFor = %v, want %v", got, wantPlaceholder)
+	}
+
+	// bindingsRevision must change when AllowPlaceholderFor changes so existing
+	// sandboxes refresh their proxy policy on next start.
+	without := []resolvedBinding{{msbSecretBinding: msbSecretBinding{Kind: CredentialGithub, GuestEnv: "GITHUB_TOKEN", HostEnv: "CODEBOX_HOST_GITHUB_TOKEN", AllowHosts: wantAllow}, source: bindingSourceStore, store: "native"}}
+	with := []resolvedBinding{{msbSecretBinding: *gh, source: bindingSourceStore, store: "native"}}
+	if bindingsRevision(without) == bindingsRevision(with) {
+		t.Fatal("bindingsRevision must reflect AllowPlaceholderFor changes")
+	}
+
+	// Validation must reject non-DNS placeholder hosts and overlap with AllowHosts.
+	badDNS := *gh
+	badDNS.AllowPlaceholderFor = []string{"*.example.com"}
+	if err := validateSecretBindings([]msbSecretBinding{badDNS}); err == nil {
+		t.Fatal("wildcard AllowPlaceholderFor must be rejected")
+	}
+	overlap := *gh
+	overlap.AllowPlaceholderFor = []string{"github.com"}
+	if err := validateSecretBindings([]msbSecretBinding{overlap}); err == nil {
+		t.Fatal("overlapping AllowHosts and AllowPlaceholderFor must be rejected")
+	}
+}

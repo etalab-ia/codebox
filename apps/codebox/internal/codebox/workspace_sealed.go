@@ -282,22 +282,43 @@ func guestRecoveryRefreshScript(workspace, archivePath, base, gitName, gitEmail 
 	return "set -eu; cd " + shellQuote(workspace) +
 		"; REAL_INDEX=$(git rev-parse --git-path index)" +
 		"; SAVED_INDEX=$(mktemp /tmp/codebox-original-index.XXXXXX)" +
+		"; BASE_TMP=$(mktemp -d /tmp/codebox-refresh-base.XXXXXX)" +
 		"; cp \"$REAL_INDEX\" \"$SAVED_INDEX\"" +
 		// The restored index still describes the pre-refresh worktree, but the
 		// tar extraction has already replaced files in place with whole-second
 		// mtimes. With a current index mtime, git trusts that stale stat data
 		// and skips re-reading changed files; backdating the index marks every
 		// restored entry racily clean, forcing content re-reads.
-		"; restore_index() { if [ -n \"$SAVED_INDEX\" ]; then cp \"$SAVED_INDEX\" \"$REAL_INDEX\"; git update-index -q --really-refresh || true; touch -t 200001010000 \"$REAL_INDEX\"; rm -f \"$SAVED_INDEX\"; SAVED_INDEX=; fi; }" +
+		"; restore_index() { rm -rf \"$BASE_TMP\"; if [ -n \"$SAVED_INDEX\" ]; then cp \"$SAVED_INDEX\" \"$REAL_INDEX\"; git update-index -q --really-refresh || true; touch -t 200001010000 \"$REAL_INDEX\"; rm -f \"$SAVED_INDEX\"; SAVED_INDEX=; fi; }" +
 		"; trap restore_index EXIT HUP INT TERM" +
 		"; ORIGINAL_HEAD=$(git rev-parse HEAD)" +
+		"; LOCAL_INIT_BACKUP=$(git config --local --get codebox.github-local-init-backup 2>/dev/null || true)" +
+		"; EFFECTIVE_BASE=" + shellQuote(base) +
+		"; if [ -n \"$LOCAL_INIT_BACKUP\" ]; then" +
+		" GIT_INDEX_FILE=\"$BASE_TMP/idx\" git read-tree " + shellQuote(base) + ";" +
+		" init_added=0;" +
+		" for p in " + guestExcludedInitPaths + "; do" +
+		" if ! git cat-file -e " + shellQuote(base) + ":\"$p\" 2>/dev/null && git cat-file -e \"$LOCAL_INIT_BACKUP:$p\" 2>/dev/null; then" +
+		" info=$(git ls-tree \"$LOCAL_INIT_BACKUP\" -- \"$p\");" +
+		" mode=$(printf '%s' \"$info\" | awk '{print $1}');" +
+		" oid=$(printf '%s' \"$info\" | awk '{print $3}');" +
+		" GIT_INDEX_FILE=\"$BASE_TMP/idx\" git update-index --add --cacheinfo \"$mode,$oid,$p\";" +
+		" init_added=1;" +
+		" fi; done;" +
+		" if [ \"$init_added\" -eq 1 ]; then" +
+		" EFFECTIVE_BASE=$(GIT_INDEX_FILE=\"$BASE_TMP/idx\" git write-tree);" +
+		" fi; fi" +
 		"; git add -A" +
+		"; if [ -n \"$LOCAL_INIT_BACKUP\" ]; then" +
+		" for p in " + guestExcludedInitPaths + "; do" +
+		" if ! git cat-file -e \"HEAD:$p\" 2>/dev/null && git cat-file -e \"$LOCAL_INIT_BACKUP:$p\" 2>/dev/null && [ -e \"$p\" ]; then" +
+		" git add -f -- \"$p\"; fi; done; fi" +
 		"; TREE=$(git write-tree)" +
 		"; BACKUP=$(git -c user.name=" + shellQuote(gitName) + " -c user.email=" + shellQuote(gitEmail) +
 		" commit-tree \"$TREE\" -p HEAD -m " + shellQuote("codebox : sauvegarde de récupération avant actualisation") + ")" +
 		"; rollback() { git reset --hard \"$BACKUP\" && git clean -fd && git reset --mixed \"$ORIGINAL_HEAD\"; }" +
 		// Capture guest paths before extraction can overwrite any of them.
-		"; git diff --name-only --diff-filter=ADMT --no-renames -z " + shellQuote(base) + " > " + shellQuote(changedPath) +
+		"; git diff --name-only --diff-filter=ADMT --no-renames -z \"$EFFECTIVE_BASE\" \"$BACKUP\" > " + shellQuote(changedPath) +
 		"; rm -rf " + shellQuote(incomingPath) + "; mkdir " + shellQuote(incomingPath) +
 		"; if ! tar -xzf " + shellQuote(archivePath) + " -C " + shellQuote(incomingPath) +
 		"; then rollback; printf '%s\\n' 'L’instantané du poste actualisé n’a pas pu être lu. L’état d’avant l’actualisation a été restauré.' >&2; exit 1; fi" +
@@ -307,12 +328,17 @@ func guestRecoveryRefreshScript(workspace, archivePath, base, gitName, gitEmail 
 		// Additive extraction leaves guest content in place when the archive
 		// omits a path. Restore omitted paths to their base state, or remove
 		// additions, so leftover guest content cannot prove its own recovery.
-		"; if ! INCOMING=" + shellQuote(incomingPath) + " BASE=" + shellQuote(base) + " xargs -0 -n 50 sh -c 'set -e; for file do if [ ! -e \"$INCOMING/$file\" ] && [ ! -L \"$INCOMING/$file\" ]; then if git cat-file -e \"$BASE:$file\" 2>/dev/null; then git restore --source=\"$BASE\" --worktree -- \":(literal)$file\"; else rm -f -- \"$file\"; fi; fi; done' sh < " + shellQuote(changedPath) +
+		"; if ! INCOMING=" + shellQuote(incomingPath) + " BASE=\"$EFFECTIVE_BASE\" xargs -0 -n 50 sh -c 'set -e; for file do if [ ! -e \"$INCOMING/$file\" ] && [ ! -L \"$INCOMING/$file\" ]; then if git cat-file -e \"$BASE:$file\" 2>/dev/null; then git restore --source=\"$BASE\" --worktree -- \":(literal)$file\"; else rm -f -- \"$file\"; fi; fi; done' sh < " + shellQuote(changedPath) +
 		"; then rollback; rm -rf " + shellQuote(incomingPath) + "; printf '%s\\n' 'Les modifications de la machine isolée n’ont pas pu être comparées à l’instantané actualisé du poste. L’état d’avant l’actualisation a été restauré.' >&2; exit 1; fi" +
 		// The comparison base describes the refreshed host tree before guest
 		// work is reapplied. Later edits to refreshed files therefore remain
 		// visible while outstanding guest work stays distinguishable.
 		"; git add -A" +
+		"; if [ -n \"$LOCAL_INIT_BACKUP\" ]; then" +
+		" for p in " + guestExcludedInitPaths + "; do" +
+		" if ! git cat-file -e \"HEAD:$p\" 2>/dev/null && git cat-file -e \"$LOCAL_INIT_BACKUP:$p\" 2>/dev/null; then" +
+		" if [ -e \"$p\" ]; then git add -f -- \"$p\"; else git rm --cached --quiet --ignore-unmatch -- \"$p\"; fi;" +
+		" fi; done; fi" +
 		"; HOST_TREE=$(git write-tree)" +
 		"; REFRESH_BASE=$(git -c user.name=" + shellQuote(gitName) + " -c user.email=" + shellQuote(gitEmail) +
 		" commit-tree \"$HOST_TREE\" -p " + shellQuote(base) + " -m " + shellQuote("codebox : instantané de comparaison de récupération actualisé") + ")" +
@@ -320,11 +346,16 @@ func guestRecoveryRefreshScript(workspace, archivePath, base, gitName, gitEmail 
 		// Apply each file independently: a host may already contain some, but
 		// not all, of the guest changes. Skip recovered content, then use a
 		// three-way apply so independent host edits survive alongside guest work.
-		"; if ! BASE=" + shellQuote(base) + " BACKUP=\"$BACKUP\" xargs -0 -n 50 sh -c " + shellQuote(applyProgram) + " sh < " + shellQuote(changedPath) +
+		"; if ! BASE=\"$EFFECTIVE_BASE\" BACKUP=\"$BACKUP\" xargs -0 -n 50 sh -c " + shellQuote(applyProgram) + " sh < " + shellQuote(changedPath) +
 		"; then rollback; rm -rf " + shellQuote(incomingPath) + "; exit 1; fi" +
 		"; rm -f " + shellQuote(changedPath) + " && rm -rf " + shellQuote(incomingPath) +
 		"; git update-ref " + shellQuote(guestRecoveryBaseRef) + " \"$REFRESH_BASE\"" +
-		"; if git add -A -N && git diff --quiet \"$REFRESH_BASE\" --; then printf '%s\\n' " + guestRecoveryAdvanceMarker + "; fi" +
+		"; if [ -n \"$LOCAL_INIT_BACKUP\" ]; then git config --local codebox.github-local-init-backup \"$REFRESH_BASE\"; fi" +
+		"; git add -A -N" +
+		"; if [ -n \"$LOCAL_INIT_BACKUP\" ]; then" +
+		" for p in " + guestExcludedInitPaths + "; do" +
+		" if ! git cat-file -e \"HEAD:$p\" 2>/dev/null && [ -e \"$p\" ]; then git add -f -N -- \"$p\"; fi; done; fi" +
+		"; if git diff --quiet \"$REFRESH_BASE\" --; then printf '%s\\n' " + guestRecoveryAdvanceMarker + "; fi" +
 		"; printf '%s%s\\n' " + shellQuote(guestRecoveryBasePrefix) + " \"$REFRESH_BASE\""
 }
 
@@ -473,13 +504,71 @@ func (m *MicrosandboxRuntime) guestWorkspaceProvisioned(ctx context.Context) (bo
 	return strings.TrimSpace(stdout) == "yes", nil
 }
 
+// guestExcludedInitPaths lists the codebox-generated init files that GitHub
+// branch preparation keeps readable in /workspace under .git/info/exclude when
+// absent from the remote default branch (#509).
+const guestExcludedInitPaths = ".codebox/project.json .codebox/lock.json AGENTS.md"
+
+// guestWorkingTreeDirtyScript checks git status plus any agent modification or
+// deletion to excluded local init files against their restored snapshot backup,
+// so workspace sync never overwrites agent edits to AGENTS.md (#509).
+func guestWorkingTreeDirtyScript(workspace string) string {
+	return "cd " + shellQuote(workspace) +
+		" && git status --porcelain" +
+		" && backup=$(git config --local --get codebox.github-local-init-backup 2>/dev/null || true)" +
+		" && if [ -n \"$backup\" ]; then" +
+		" for p in " + guestExcludedInitPaths + "; do" +
+		" if ! git cat-file -e \"HEAD:$p\" 2>/dev/null && git cat-file -e \"$backup:$p\" 2>/dev/null; then" +
+		" if [ ! -e \"$p\" ]; then printf ' D %s\\n' \"$p\";" +
+		" elif [ \"$(git hash-object \"$p\")\" != \"$(git rev-parse \"$backup:$p\")\" ]; then printf ' M %s\\n' \"$p\"; fi;" +
+		" fi; done; fi"
+}
+
+// guestDiffCommand produces a git diff against baseRef while also tracking any
+// agent edit or deletion to excluded local init files using a temporary index,
+// leaving the guest's live .git/index untouched so those files remain
+// unpublishable on GitHub (#509). baseRefToken must already be safe for shell
+// interpolation (e.g. "HEAD", a validated hex SHA, or a shellQuote'd ref).
+func guestDiffCommand(workspace, baseRefToken, extraFlags string) string {
+	return "cd " + shellQuote(workspace) +
+		" && git add -A -N" +
+		" && backup=$(git config --local --get codebox.github-local-init-backup 2>/dev/null || true)" +
+		" && if [ -n \"$backup\" ]; then" +
+		" tmp=$(mktemp -d /tmp/codebox-diff.XXXXXX); trap 'rm -rf \"$tmp\"' EXIT HUP INT TERM;" +
+		" cp \"$(git rev-parse --git-path index)\" \"$tmp/idx\";" +
+		" base_ref=" + baseRefToken + ";" +
+		" GIT_INDEX_FILE=\"$tmp/base_idx\" git read-tree \"$base_ref\";" +
+		" added=0;" +
+		" for p in " + guestExcludedInitPaths + "; do" +
+		" if ! git cat-file -e \"HEAD:$p\" 2>/dev/null && git cat-file -e \"$backup:$p\" 2>/dev/null; then" +
+		" if git cat-file -e \"$base_ref:$p\" 2>/dev/null; then" +
+		" info=$(git ls-tree \"$base_ref\" -- \"$p\");" +
+		" mode=$(printf '%s' \"$info\" | awk '{print $1}');" +
+		" oid=$(printf '%s' \"$info\" | awk '{print $3}');" +
+		" GIT_INDEX_FILE=\"$tmp/idx\" git update-index --add --cacheinfo \"$mode,$oid,$p\";" +
+		" else" +
+		" info=$(git ls-tree \"$backup\" -- \"$p\");" +
+		" mode=$(printf '%s' \"$info\" | awk '{print $1}');" +
+		" oid=$(printf '%s' \"$info\" | awk '{print $3}');" +
+		" GIT_INDEX_FILE=\"$tmp/base_idx\" git update-index --add --cacheinfo \"$mode,$oid,$p\";" +
+		" GIT_INDEX_FILE=\"$tmp/idx\" git update-index --add --cacheinfo \"$mode,$oid,$p\";" +
+		" fi;" +
+		" added=1;" +
+		" fi; done;" +
+		" if [ \"$added\" -eq 1 ]; then" +
+		" base_tree=$(GIT_INDEX_FILE=\"$tmp/base_idx\" git write-tree);" +
+		" GIT_INDEX_FILE=\"$tmp/idx\" git diff \"$base_tree\" " + extraFlags + ";" +
+		" else git diff " + baseRefToken + " " + extraFlags + "; fi;" +
+		" else git diff " + baseRefToken + " " + extraFlags + "; fi"
+}
+
 // guestWorkingTreeDirty returns the guest's porcelain status, or "" when the
 // tree is clean. A guest without a repository (or with an unreadable one) is
 // reported as an error rather than as clean: reading a failure as "nothing to
 // lose" is how a refresh would overwrite work.
 func (m *MicrosandboxRuntime) guestWorkingTreeDirty(ctx context.Context) (string, error) {
 	stdout, stderr, code, err := m.Client.ExecCapture(ctx, m.InstanceName(),
-		"cd "+shellQuote(msbGuestWorkspace)+" && git status --porcelain")
+		guestWorkingTreeDirtyScript(msbGuestWorkspace))
 	if err != nil {
 		return "", err
 	}
@@ -542,7 +631,7 @@ func (m *MicrosandboxRuntime) ExportGuestChanges(ctx context.Context, outPath st
 	// diff runs against the recovery base, not HEAD, so work the agent
 	// already committed is exported too (#313); --binary carries binary
 	// content.
-	cmd := "cd " + shellQuote(msbGuestWorkspace) + " && git add -A -N && git diff " + m.guestDiffBase() + " --binary"
+	cmd := guestDiffCommand(msbGuestWorkspace, m.guestDiffBase(), "--binary")
 	stdout, stderr, code, err := m.Client.ExecCapture(ctx, m.InstanceName(), cmd)
 	if err != nil {
 		return "", err

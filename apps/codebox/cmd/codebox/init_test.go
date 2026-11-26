@@ -2782,3 +2782,60 @@ func TestSeedInitAnswersFromManifestKeepsTheHarness(t *testing.T) {
 		t.Fatalf("a project change carried the previous harness over: %q", empty.Harness)
 	}
 }
+
+type stubInitGitHubStore struct {
+	kind   string
+	stored map[codebox.CredentialKind]string
+}
+
+func (s *stubInitGitHubStore) Kind() string                 { return s.kind }
+func (s *stubInitGitHubStore) Verify(context.Context) error { return nil }
+func (s *stubInitGitHubStore) Put(_ context.Context, kind codebox.CredentialKind, value string) error {
+	if s.stored == nil {
+		s.stored = map[codebox.CredentialKind]string{}
+	}
+	s.stored[kind] = value
+	return nil
+}
+
+// TestInitGitHubAddWizardStoresWithoutEmptyStateDirOrJournal pins #509: adding
+// a GitHub token inside `codebox init` must populate StateDir (avoiding
+// `mkdir : no such file or directory`), record the credential store in StateDir
+// rather than CWD, and skip writing setup-journal.json so standalone init never
+// reopens setup on the next launch.
+func TestInitGitHubAddWizardStoresWithoutEmptyStateDirOrJournal(t *testing.T) {
+	stateDir := t.TempDir()
+	cwd := t.TempDir()
+	t.Setenv("XDG_STATE_HOME", stateDir)
+	t.Chdir(cwd)
+
+	w := initGitHubAddWizard()
+	if w.StateDir == "" {
+		t.Fatal("initGitHubAddWizard left StateDir empty")
+	}
+	if !w.SkipJournal {
+		t.Fatal("initGitHubAddWizard must set SkipJournal")
+	}
+	store := &stubInitGitHubStore{kind: "keychain"}
+	w.Store = func(context.Context) (codebox.SetupStore, error) { return store, nil }
+
+	if err := w.PutCredential(context.Background(), codebox.CredentialGithub, "github_pat_test_value"); err != nil {
+		t.Fatalf("PutCredential failed: %v", err)
+	}
+	if store.stored[codebox.CredentialGithub] != "github_pat_test_value" {
+		t.Fatalf("token was not stored: %+v", store.stored)
+	}
+	if got := codebox.RecordedCredentialStoreForKind(w.StateDir, codebox.CredentialGithub); got != "keychain" {
+		t.Fatalf("recorded store = %q, want keychain", got)
+	}
+	if _, err := os.Stat(filepath.Join(w.StateDir, "setup-journal.json")); !os.IsNotExist(err) {
+		t.Fatalf("standalone init GitHub token add must not create setup-journal.json: err=%v", err)
+	}
+	entries, err := os.ReadDir(cwd)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 0 {
+		t.Fatalf("PutCredential created stray files in CWD: %v", entries)
+	}
+}

@@ -44,6 +44,11 @@ type msbSecretBinding struct {
 	// credential can never be substituted toward another binding's
 	// destination.
 	AllowHosts []string
+	// AllowPlaceholderFor lists hosts that may receive the unchanged, inert
+	// placeholder (never the real secret) when substitution does not apply.
+	// Used so GITHUB_TOKEN's placeholder in agent tool outputs or prompts does
+	// not trigger a proxy 403 when sent to configured inference providers (#509).
+	AllowPlaceholderFor []string
 	// Optional bindings are inert until the project approves them explicitly
 	// (host-local bindings.json); global storage alone never binds.
 	Optional bool
@@ -93,6 +98,14 @@ func msbSecretBindingsFor(providers []InferenceProvider) []msbSecretBinding {
 		resolved, _ = ResolveProviders(nil)
 	}
 	out := make([]msbSecretBinding, 0, len(resolved)+2)
+	githubHosts := []string{"github.com", "api.github.com", "raw.githubusercontent.com"}
+	githubHostSet := map[string]bool{
+		"github.com":                true,
+		"api.github.com":            true,
+		"raw.githubusercontent.com": true,
+	}
+	placeholderSeen := map[string]bool{}
+	var githubPlaceholderHosts []string
 	for _, p := range resolved {
 		if p.NoKey {
 			continue
@@ -104,14 +117,20 @@ func msbSecretBindingsFor(providers []InferenceProvider) []msbSecretBinding {
 			AllowHosts: []string{p.Host},
 			Provider:   true,
 		})
+		if p.Host != "" && !githubHostSet[p.Host] && !placeholderSeen[p.Host] {
+			placeholderSeen[p.Host] = true
+			githubPlaceholderHosts = append(githubPlaceholderHosts, p.Host)
+		}
 	}
+	sort.Strings(githubPlaceholderHosts)
 	return append(out,
 		msbSecretBinding{
-			Kind:       CredentialGithub,
-			GuestEnv:   "GITHUB_TOKEN",
-			HostEnv:    "CODEBOX_HOST_GITHUB_TOKEN",
-			AllowHosts: []string{"github.com", "api.github.com", "raw.githubusercontent.com"},
-			Optional:   true,
+			Kind:                CredentialGithub,
+			GuestEnv:            "GITHUB_TOKEN",
+			HostEnv:             "CODEBOX_HOST_GITHUB_TOKEN",
+			AllowHosts:          githubHosts,
+			AllowPlaceholderFor: githubPlaceholderHosts,
+			Optional:            true,
 		},
 		msbSecretBinding{
 			Kind:       CredentialContext7,
@@ -205,6 +224,7 @@ func validateSecretBindings(bindings []msbSecretBinding) error {
 		if len(b.AllowHosts) == 0 {
 			return fmt.Errorf("liaison %s : au moins un hôte autorisé est requis", b.Kind)
 		}
+		allowSet := make(map[string]bool, len(b.AllowHosts))
 		for _, host := range b.AllowHosts {
 			if !isDNSName(host) {
 				return fmt.Errorf("liaison %s : %q n'est pas un nom DNS", b.Kind, host)
@@ -213,6 +233,15 @@ func validateSecretBindings(bindings []msbSecretBinding) error {
 				return fmt.Errorf("les liaisons %s et %s autorisent toutes deux l'hôte %s : un identifiant ne doit avoir qu'une seule destination", prev, b.Kind, host)
 			}
 			hostFor[host] = b.Kind
+			allowSet[host] = true
+		}
+		for _, host := range b.AllowPlaceholderFor {
+			if !isDNSName(host) {
+				return fmt.Errorf("liaison %s : l'hôte de passage du marqueur %q n'est pas un nom DNS", b.Kind, host)
+			}
+			if allowSet[host] {
+				return fmt.Errorf("liaison %s : l'hôte %s figure à la fois dans les destinations substituées et dans les hôtes de passage du marqueur", b.Kind, host)
+			}
 		}
 	}
 	return nil
@@ -438,7 +467,13 @@ func bindingsRevision(bindings []resolvedBinding) string {
 	for _, b := range sorted {
 		hosts := append([]string(nil), b.AllowHosts...)
 		sort.Strings(hosts)
-		for _, part := range append([]string{string(b.Kind), string(b.source), b.GuestEnv, b.Placeholder, b.store, b.storeEntry(), b.projectIdentity()}, hosts...) {
+		placeholderHosts := append([]string(nil), b.AllowPlaceholderFor...)
+		sort.Strings(placeholderHosts)
+		parts := append([]string{string(b.Kind), string(b.source), b.GuestEnv, b.Placeholder, b.store, b.storeEntry(), b.projectIdentity()}, hosts...)
+		for _, host := range placeholderHosts {
+			parts = append(parts, "placeholder-for:"+host)
+		}
+		for _, part := range parts {
 			_, _ = h.Write([]byte(part))
 			_, _ = h.Write([]byte{0})
 		}

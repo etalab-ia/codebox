@@ -1734,3 +1734,76 @@ func TestPrepareApplyReviewMarksRecoveredAndRefused(t *testing.T) {
 		t.Fatalf("applicable = %+v, want exactly README.md", applicable)
 	}
 }
+
+func TestUnrecoveredGuestChangesForExitSkipsAlreadyPushedFiles(t *testing.T) {
+	t.Run("all changes pushed returns empty", func(t *testing.T) {
+		client := sealedFakeMSB()
+		client.execCaptureResults = []fakeMSBExecCaptureResult{
+			{stdout: "yes"},
+			{stdout: applyNumstatTwo},
+			{stdout: applyDiffTwoSections},
+			{stdout: ""}, // git diff refs/remotes/origin/codebox/test --numstat -z: nothing differs from pushed branch
+		}
+		m, _ := applyTestRuntime(t, client)
+		out, err := UnrecoveredGuestChangesForExit(context.Background(), m, GuestBranchStatus{Branch: "codebox/test", Pushed: true})
+		if err != nil {
+			t.Fatalf("UnrecoveredGuestChangesForExit: %v", err)
+		}
+		if len(out) != 0 {
+			t.Fatalf("pushed files must not be re-offered on exit: %+v", out)
+		}
+	})
+
+	t.Run("only unpushed changes remain", func(t *testing.T) {
+		client := sealedFakeMSB()
+		client.execCaptureResults = []fakeMSBExecCaptureResult{
+			{stdout: "yes"},
+			{stdout: applyNumstatTwo},
+			{stdout: applyDiffTwoSections},
+			{stdout: "1\t0\tREADME.md\x00"}, // src/app.js is pushed, README.md changed after push
+		}
+		m, _ := applyTestRuntime(t, client)
+		out, err := UnrecoveredGuestChangesForExit(context.Background(), m, GuestBranchStatus{Branch: "codebox/test", Pushed: true})
+		if err != nil {
+			t.Fatalf("UnrecoveredGuestChangesForExit: %v", err)
+		}
+		if len(out) != 1 || out[0].Rel != "README.md" {
+			t.Fatalf("unrecovered = %+v, want only unpushed README.md", out)
+		}
+	})
+
+	t.Run("unpushed branch keeps all changes", func(t *testing.T) {
+		client := sealedFakeMSB()
+		client.execCaptureResults = []fakeMSBExecCaptureResult{
+			{stdout: "yes"},
+			{stdout: applyNumstatTwo},
+			{stdout: applyDiffTwoSections},
+		}
+		m, _ := applyTestRuntime(t, client)
+		out, err := UnrecoveredGuestChangesForExit(context.Background(), m, GuestBranchStatus{Branch: "codebox/test", Pushed: false})
+		if err != nil {
+			t.Fatalf("UnrecoveredGuestChangesForExit: %v", err)
+		}
+		if len(out) != 2 {
+			t.Fatalf("unpushed branch must keep all changes: %+v", out)
+		}
+	})
+
+	t.Run("origin diff failure fails safe and keeps changes", func(t *testing.T) {
+		client := sealedFakeMSB()
+		client.execCaptureResults = []fakeMSBExecCaptureResult{
+			{stdout: "yes"},
+			{stdout: applyNumstatTwo},
+			{stdout: applyDiffTwoSections},
+			{code: 128, stderr: "unknown revision"},
+		}
+		m, _ := applyTestRuntime(t, client)
+		out, err := UnrecoveredGuestChangesForExit(context.Background(), m, GuestBranchStatus{Branch: "codebox/test", Pushed: true})
+		if err != nil {
+			t.Fatalf("UnrecoveredGuestChangesForExit: %v", err)
+		}
+		if len(out) != 2 {
+			t.Fatalf("diff error must fail safe and keep all changes: %+v", out)
+		}
+	})
+}

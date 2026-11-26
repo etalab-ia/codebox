@@ -158,8 +158,21 @@ refuse tout fichier nouveau ou modifié de la copie filtrée par rapport à cett
 branche distante.** Elle liste les chemins concernés et ne crée ni commit
 automatique ni branche publiable. Copier un fichier dans la machine isolée
 n'autorise pas sa publication sur GitHub, même si le filtre de secrets l'accepte.
-Cela vaut aussi pour `.codebox/project.json`, `.codebox/lock.json` et
-`AGENTS.md` créés par `init`, et pour le contenu de commits locaux non poussés.
+Les fichiers de configuration générés par `init` (`.codebox/project.json`,
+`.codebox/lock.json` et `AGENTS.md`) qui n'existent pas encore sur la branche
+distante restent lisibles dans l'espace de travail invité mais sont exclus de
+l'index Git invité via `.git/info/exclude` : ils ne bloquent pas le premier
+lancement et ne deviennent jamais publiables automatiquement. En revanche, si
+l'un de ces fichiers existe déjà sur la branche distante avec un contenu
+différent, ou si d'autres fichiers locaux ne sont pas encore poussés, la
+préparation refuse et indique de les commiter et pousser sur le poste avant de
+relancer `codebox`.
+
+Pour éviter que la simple mention du marqueur inerte `$MSB_GITHUB_TOKEN` dans
+une sortie de commande ne déclenche un blocage `secret_policy_denied` vers le
+fournisseur d'inférence, la liaison `github` autorise uniquement le passage du
+marqueur inchangé (`AllowPlaceholderFor`) vers les hôtes d'inférence configurés ;
+la valeur réelle du jeton n'est jamais substituée ailleurs que vers GitHub.
 
 Relis les fichiers sur ton poste et décide séparément de leur publication.
 La préparation GitHub exige actuellement une copie sans ajout ni modification
