@@ -2,7 +2,7 @@ import { Plugin } from "@opencode/plugin/tui";
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { For, createEffect, createMemo, createSignal, onCleanup } from "solid-js";
+import { For, Show, createEffect, createMemo, createSignal, onCleanup } from "solid-js";
 import {
   buildStatusLines,
   estimateTokens,
@@ -331,12 +331,41 @@ export default Plugin.define({
       },
     });
 
+    // Replace OpenCode's built-in sidebar.footer to suppress its "Getting started"
+    // card advertising free models and 75+ unmanaged providers via /connect (#523),
+    // while keeping the compact workspace/branch location line.
+    const unslotSidebarFooter = context.ui.slot({
+      replace: "sidebar.footer",
+      render: () => {
+        const locationLabel = createMemo(() => {
+          const dir = context.location?.directory;
+          if (!dir) return "";
+          const formatted = context.ui.format?.path ? context.ui.format.path(dir) : dir;
+          const branch = context.data.location.vcs.info(context.location)?.branch?.current;
+          return branch ? `${formatted}:${branch}` : formatted;
+        });
+
+        return (
+          <Show when={locationLabel()}>
+            {(label) => (
+              <box id="sidebar.footer.location">
+                <text wrapMode="none" truncate style={{ fg: context.theme.text.muted }}>
+                  {label()}
+                </text>
+              </box>
+            )}
+          </Show>
+        );
+      },
+    });
+
     return () => {
       clearInterval(pollTimer);
       clearInterval(windowTimer);
       unsubStepStarted();
       unsubStepEnded();
       unslot();
+      unslotSidebarFooter();
     };
   },
 });

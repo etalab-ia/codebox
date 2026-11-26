@@ -99,6 +99,9 @@ func TestStatusBarArchiveContentsAndDeterminism(t *testing.T) {
 			if parsed.ProviderNames["albert"] != "Albert API" || parsed.ProviderNames["openai-compatible"] != "Scaleway" {
 				t.Errorf("providerNames = %#v", parsed.ProviderNames)
 			}
+			if tc.harness == HarnessOpenCode && !bytes.Contains(files["tui.tsx"], []byte(`replace: "sidebar.footer"`)) {
+				t.Errorf("OpenCode status plugin must replace sidebar.footer to suppress Getting started panel")
+			}
 		})
 	}
 }

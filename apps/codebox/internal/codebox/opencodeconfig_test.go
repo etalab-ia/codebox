@@ -53,6 +53,92 @@ func TestComposeConfigContentDefaults(t *testing.T) {
 	}
 }
 
+func TestComposeConfigContentRestrictsProvidersAndConnectPolicy(t *testing.T) {
+	extractPolicies := func(t *testing.T, content string) []map[string]any {
+		t.Helper()
+		var parsed map[string]any
+		if err := json.Unmarshal([]byte(content), &parsed); err != nil {
+			t.Fatalf("invalid composed JSON: %v", err)
+		}
+		raw, ok := parsed["policies"].([]any)
+		if !ok {
+			t.Fatalf("policies missing or wrong type: %#v", parsed["policies"])
+		}
+		out := make([]map[string]any, 0, len(raw))
+		for _, item := range raw {
+			m, ok := item.(map[string]any)
+			if !ok {
+				t.Fatalf("policy entry wrong type: %#v", item)
+			}
+			out = append(out, m)
+		}
+		return out
+	}
+
+	assertAllowedProviders := func(t *testing.T, policies []map[string]any, want ...string) {
+		t.Helper()
+		if len(policies) != len(want)+2 {
+			t.Fatalf("policies len = %d, want %d: %#v", len(policies), len(want)+2, policies)
+		}
+		if policies[0]["action"] != "provider.use" || policies[0]["resource"] != "*" || policies[0]["effect"] != "deny" {
+			t.Fatalf("first policy must deny all providers, got %#v", policies[0])
+		}
+		for i, id := range want {
+			p := policies[i+1]
+			if p["action"] != "provider.use" || p["resource"] != id || p["effect"] != "allow" {
+				t.Fatalf("policy[%d] = %#v, want allow provider.use %q", i+1, p, id)
+			}
+		}
+		last := policies[len(policies)-1]
+		if last["action"] != "integration.connect" || last["resource"] != "*" || last["effect"] != "deny" {
+			t.Fatalf("last policy must deny integration.connect *, got %#v", last)
+		}
+	}
+
+	t.Run("default allows only albert", func(t *testing.T) {
+		content, err := ComposeConfigContent(ManagedOverlay{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		assertAllowedProviders(t, extractPolicies(t, content), "albert")
+	})
+
+	t.Run("non-albert provider only denies albert", func(t *testing.T) {
+		content, err := ComposeConfigContent(ManagedOverlay{
+			Model: "mistral/mistral-large-latest",
+			Providers: []ProviderOverlay{{
+				Kind: "mistral", Name: "Mistral AI", BaseURL: "https://api.mistral.ai/v1", APIKeyEnv: MistralAPIKeyEnv,
+				Models: []ProviderModelConfig{{ID: "mistral-large-latest", Name: "Mistral Large"}},
+			}},
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		assertAllowedProviders(t, extractPolicies(t, content), "mistral")
+	})
+
+	t.Run("multiple configured providers stay sorted", func(t *testing.T) {
+		content, err := ComposeConfigContent(ManagedOverlay{
+			AlbertEnabled: true,
+			Model:         "albert/deepseek-v4-flash",
+			Providers: []ProviderOverlay{
+				{
+					Kind: "mistral", Name: "Mistral AI", BaseURL: "https://api.mistral.ai/v1", APIKeyEnv: MistralAPIKeyEnv,
+					Models: []ProviderModelConfig{{ID: "mistral-large-latest", Name: "Mistral Large"}},
+				},
+				{
+					Kind: "local", Name: "Serveur local", BaseURL: "http://127.0.0.1:11434/v1",
+					Models: []ProviderModelConfig{{ID: "qwen", Name: "Qwen"}},
+				},
+			},
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		assertAllowedProviders(t, extractPolicies(t, content), "albert", "local", "mistral")
+	})
+}
+
 func TestComposeConfigContentRestrictsAlbertModelsToSelection(t *testing.T) {
 	choice := CuratedAlbertModels()[1]
 	content, err := ComposeConfigContent(ManagedOverlay{
