@@ -273,7 +273,7 @@ func TestWarnIfLocalModelServerUnreachableNonBlocking(t *testing.T) {
 		return nil, errors.New("connection refused")
 	}
 	warnIfLocalModelServerUnreachable([]codebox.InferenceProvider{localProv}, launch)
-	if warnings := launch.Warnings(); len(warnings) != 1 || !strings.Contains(warnings[0], "Ollama") || !strings.Contains(warnings[0], "--local-server none") {
+	if warnings := launch.Warnings(); len(warnings) != 1 || !strings.Contains(warnings[0], "Ollama") || !strings.Contains(warnings[0], "--local-server aucun") {
 		t.Fatalf("unreachable local server warnings = %v, want actionable French warning", warnings)
 	}
 
@@ -284,6 +284,21 @@ func TestWarnIfLocalModelServerUnreachableNonBlocking(t *testing.T) {
 	warnIfLocalModelServerUnreachable([]codebox.InferenceProvider{localProv}, launchOK)
 	if warnings := launchOK.Warnings(); len(warnings) != 0 {
 		t.Fatalf("reachable local server emitted unexpected warnings: %v", warnings)
+	}
+
+	var doctorOut strings.Builder
+	reportLocalModelServerDoctor(&doctorOut, []codebox.InferenceProvider{localProv})
+	if !strings.Contains(doctorOut.String(), "joignable (1 modèle(s) ; port hôte 11434)") {
+		t.Fatalf("doctor reachable output = %q", doctorOut.String())
+	}
+
+	doctorOut.Reset()
+	probeLocalModelServerFn = func(context.Context, string) ([]string, error) {
+		return nil, errors.New("connection refused")
+	}
+	reportLocalModelServerDoctor(&doctorOut, []codebox.InferenceProvider{localProv})
+	if !strings.Contains(doctorOut.String(), "Ollama") || !strings.Contains(doctorOut.String(), "--local-server aucun") {
+		t.Fatalf("doctor unreachable output = %q", doctorOut.String())
 	}
 }
 

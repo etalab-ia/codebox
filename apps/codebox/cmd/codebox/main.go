@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -477,7 +478,11 @@ func run(args []string) (int, error) {
 		return acpCmd(d, cfg, rt, os.Stdin, acpOutput, os.Stderr)
 	case "attach":
 		return attachCmd(d, cfg, rt, instance, projectRoot)
-	case "start", "logs", "shell", "restart", "recreate", "clean", "doctor":
+	case "doctor":
+		code, err := lifecycleCmd(d, rt, parsed.action, parsed.follow)
+		reportLocalModelServerDoctor(os.Stdout, cfg.Providers)
+		return code, err
+	case "start", "logs", "shell", "restart", "recreate", "clean":
 		return lifecycleCmd(d, rt, parsed.action, parsed.follow)
 	default:
 		return 2, fmt.Errorf("Argument inconnu : %s", parsed.action)
@@ -1012,6 +1017,10 @@ var probeLocalModelServerFn = func(ctx context.Context, baseURL string) ([]strin
 	return codebox.ProbeLocalModelServer(ctx, nil, baseURL)
 }
 
+func localModelServerUnreachableMessage(p codebox.InferenceProvider) string {
+	return fmt.Sprintf("le serveur de modèles local %s (%s) ne répond pas ; démarrez-le pour utiliser les modèles locaux (ex. titres de session) ou retirez-le avec 'codebox init --advanced' ou 'codebox init --replace --local-server aucun --yes'", p.Name, p.BaseURL)
+}
+
 func warnIfLocalModelServerUnreachable(providers []codebox.InferenceProvider, launch *codebox.LaunchUX) {
 	for _, p := range providers {
 		if p.Kind != codebox.ProviderLocal {
@@ -1023,12 +1032,28 @@ func warnIfLocalModelServerUnreachable(providers []codebox.InferenceProvider, la
 		if err == nil {
 			continue
 		}
-		msg := fmt.Sprintf("le serveur de modèles local %s (%s) ne répond pas ; démarrez-le pour utiliser les modèles locaux (ex. titres de session) ou retirez-le avec 'codebox init --advanced' ou 'codebox init --replace --local-server none --yes'", p.Name, p.BaseURL)
+		msg := localModelServerUnreachableMessage(p)
 		if launch != nil && launch.Terminal {
 			launch.AddWarning("%s", msg)
 		} else {
 			fmt.Fprintf(os.Stderr, "Attention : %s\n", msg)
 		}
+	}
+}
+
+func reportLocalModelServerDoctor(w io.Writer, providers []codebox.InferenceProvider) {
+	for _, p := range providers {
+		if p.Kind != codebox.ProviderLocal {
+			continue
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		models, err := probeLocalModelServerFn(ctx, p.BaseURL)
+		cancel()
+		if err != nil {
+			fmt.Fprintf(w, "Attention : %s\n", localModelServerUnreachableMessage(p))
+			continue
+		}
+		fmt.Fprintf(w, "Serveur de modèles local : %s (%s) — joignable (%d modèle(s) ; port hôte %d)\n", p.Name, p.BaseURL, len(models), p.LocalPort)
 	}
 }
 
