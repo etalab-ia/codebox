@@ -1,5 +1,35 @@
 # Changelog
 
+## [0.22.0](https://github.com/etalab-ia/codebox/compare/codebox-v0.21.0...codebox-v0.22.0) (2026-11-26)
+
+
+### Features
+
+* **local-server:** expose local server in advanced UI, show in summaries, warn when unreachable, and support clean removal ([9d067f9](https://github.com/etalab-ia/codebox/commit/9d067f9cf7bfda90fa6099cfda5bb17ce4be8567))
+* **local-server:** expose local server in advanced UI, show in summaries, warn when unreachable, and support clean removal ([d51a560](https://github.com/etalab-ia/codebox/commit/d51a5608ae7be84ed172d3de6c6d5ade5718f25d)), closes [#510](https://github.com/etalab-ia/codebox/issues/510)
+
+
+### Bug Fixes
+
+* **dns:** detect broken guest/hotspot DNS early and support CODEBOX_DNS_NAMESERVERS ([89fd0b3](https://github.com/etalab-ia/codebox/commit/89fd0b3290ad6740cd9bae7847603ee309c03e7e))
+* **dns:** detect broken guest/hotspot DNS early and support CODEBOX_DNS_NAMESERVERS ([13e3bb4](https://github.com/etalab-ia/codebox/commit/13e3bb431a188220ade9c7fa1221426e9d65f64d)), closes [#508](https://github.com/etalab-ia/codebox/issues/508)
+* **dns:** probe the provider selected by the active model ([1cc5a65](https://github.com/etalab-ia/codebox/commit/1cc5a65dc035c44a222353638e277c094fd6ae07))
+* **dns:** treat guest DNS probe timeouts as resolution failures ([b36ff77](https://github.com/etalab-ia/codebox/commit/b36ff7767f7d25e9f8b0706b655eb2030378b89e))
+* **doctor:** report local model server status in codebox doctor ([f7e4ad6](https://github.com/etalab-ia/codebox/commit/f7e4ad68e23f9b817e2d981ad2b4edb35ee12516))
+* **github:** preserve dirty-guard and recovery diff tracking for excluded init files ([b3078aa](https://github.com/etalab-ia/codebox/commit/b3078aa9f963e1d0c468efdfe83d1ae79d9175e3))
+* **github:** preserve excluded init file edits across forced workspace sync ([bfbf359](https://github.com/etalab-ia/codebox/commit/bfbf35993cec1c6b383d097a73f1b65aed9bef0b))
+* **github:** unblock first run, token storage, placeholder policy, and exit recovery ([f5ddb48](https://github.com/etalab-ia/codebox/commit/f5ddb48e6e8d42365a844b6cf9effb31d3e740a1))
+* **github:** unblock first run, token storage, placeholder policy, and exit recovery ([542fb5e](https://github.com/etalab-ia/codebox/commit/542fb5eac23bf49c93bc7d99716f240fa65060ce)), closes [#509](https://github.com/etalab-ia/codebox/issues/509)
+* **local-server:** probe standard local model server ports concurrently ([a8c42ca](https://github.com/etalab-ia/codebox/commit/a8c42ca0d6eaffa587391455ae760e2acda8ee99))
+* **recreate:** include synthetic recovered-file reversals in automatic backup ([95e2297](https://github.com/etalab-ia/codebox/commit/95e2297cfe03419947fd40ad1f5f6a47b021cf09))
+* **recreate:** name exact cause, save workspace, and launch agent after recreate ([9b8141f](https://github.com/etalab-ia/codebox/commit/9b8141fa6841147b0bcf8681d738550e4c3163f6)), closes [#507](https://github.com/etalab-ia/codebox/issues/507)
+* **recreate:** preserve prior backup patches and make launch recreate test hermetic ([005e663](https://github.com/etalab-ia/codebox/commit/005e663098cb03daa1872a9eb2bda4fd2fed8175))
+* **security:** revalidate execution-input trust after recreate recovery ([48380a8](https://github.com/etalab-ia/codebox/commit/48380a839468a62d6ebd99ab8d9b678c74ccd5cb))
+* **wizard:** launch bare codebox from installers, add step [2/6] models, and fix init --advanced ([6e31069](https://github.com/etalab-ia/codebox/commit/6e310691b53cdd26e003a4a6c868dd21d361f557)), closes [#506](https://github.com/etalab-ia/codebox/issues/506)
+* **wizard:** preserve saved custom Albert default in model picker ([a07ba3c](https://github.com/etalab-ia/codebox/commit/a07ba3c9f99270867d043fb9a3cbd0d278cb3ffe))
+* **wizard:** preserve saved default model when provider catalogue is unavailable ([d541c2c](https://github.com/etalab-ia/codebox/commit/d541c2c2b36f874219136276e1561243e2ee14e2))
+* **wizard:** respect project-wide model selection and reject non-chat automatic defaults ([fdcf19c](https://github.com/etalab-ia/codebox/commit/fdcf19c9e1efa82bdba0ad69c243bf6603bae9cb))
+
 ## [0.21.0](https://github.com/etalab-ia/codebox/compare/codebox-v0.20.0...codebox-v0.21.0) (2026-11-24)
 
 
