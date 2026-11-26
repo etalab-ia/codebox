@@ -3,10 +3,12 @@ package codebox
 import (
 	"context"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	msb "github.com/superradcompany/microsandbox/sdk/go"
 )
@@ -386,5 +388,32 @@ func TestDiagnosticsReportsLocalModelServerReachability(t *testing.T) {
 	warnItem := findItem(warnReport)
 	if warnItem == nil || warnItem.Status != DiagnosticWarn || !strings.Contains(warnItem.Detail, "--local-server none") {
 		t.Fatalf("unreachable local server diagnostic = %+v, want DiagnosticWarn with removal remedy", warnItem)
+	}
+}
+
+func TestDetectLocalModelServersProbesConcurrently(t *testing.T) {
+	// Ports 11434 and 1234 accept connections and stall until their per-probe
+	// context expires (1.5s each); sequential probing would exhaust the 2s
+	// shared deadline before port 8080 (llama.cpp) is even tried.
+	client := &http.Client{
+		Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+			if req.URL.Host == "localhost:8080" {
+				return &http.Response{
+					StatusCode: http.StatusOK,
+					Header:     http.Header{"Content-Type": []string{"application/json"}},
+					Body:       io.NopCloser(strings.NewReader(`{"data":[{"id":"qwen2.5:3b"}]}`)),
+				}, nil
+			}
+			<-req.Context().Done()
+			return nil, req.Context().Err()
+		}),
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	found := DetectLocalModelServers(ctx, client)
+	if len(found) != 1 || found[0].Port != 8080 || found[0].Name != "llama.cpp" || len(found[0].Models) != 1 || found[0].Models[0] != "qwen2.5:3b" {
+		t.Fatalf("DetectLocalModelServers with stalled earlier ports = %+v, want llama.cpp on 8080", found)
 	}
 }

@@ -13,6 +13,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -649,22 +650,34 @@ func ProbeLocalModelServer(ctx context.Context, client *http.Client, baseURL str
 }
 
 // DetectLocalModelServers probes the standard local model server ports
-// (11434 Ollama, 1234 LM Studio, 8080 llama.cpp) and returns each reachable
-// server with its exposed model IDs.
+// (11434 Ollama, 1234 LM Studio, 8080 llama.cpp) concurrently and returns each
+// reachable server with its exposed model IDs in canonical port order.
 func DetectLocalModelServers(ctx context.Context, client *http.Client) []LocalServerCandidate {
+	results := make([]*LocalServerCandidate, len(DefaultLocalServerPorts))
+	var wg sync.WaitGroup
+	for i, entry := range DefaultLocalServerPorts {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			baseURL := fmt.Sprintf("http://localhost:%d/v1", entry.Port)
+			models, err := ProbeLocalModelServer(ctx, client, baseURL)
+			if err != nil {
+				return
+			}
+			results[i] = &LocalServerCandidate{
+				Name:    entry.Name,
+				Port:    entry.Port,
+				BaseURL: baseURL,
+				Models:  models,
+			}
+		}()
+	}
+	wg.Wait()
 	var found []LocalServerCandidate
-	for _, entry := range DefaultLocalServerPorts {
-		baseURL := fmt.Sprintf("http://localhost:%d/v1", entry.Port)
-		models, err := ProbeLocalModelServer(ctx, client, baseURL)
-		if err != nil {
-			continue
+	for _, cand := range results {
+		if cand != nil {
+			found = append(found, *cand)
 		}
-		found = append(found, LocalServerCandidate{
-			Name:    entry.Name,
-			Port:    entry.Port,
-			BaseURL: baseURL,
-			Models:  models,
-		})
 	}
 	return found
 }
