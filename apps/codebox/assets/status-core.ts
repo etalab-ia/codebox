@@ -307,6 +307,22 @@ export function formatTokens(n: number): string {
   return String(safe);
 }
 
+export function formatCompactCount(n: number): string {
+  const safe = Math.max(0, Math.round(n));
+  if (safe >= 999_500) {
+    const millions = (safe / 1_000_000).toFixed(1);
+    return `${millions.endsWith(".0") ? millions.slice(0, -2) : millions.replace(".", ",")}M`;
+  }
+  if (safe >= 10_000) {
+    return `${Math.round(safe / 1_000)}k`;
+  }
+  if (safe >= 1_000) {
+    const thousands = (safe / 1_000).toFixed(1);
+    return `${thousands.endsWith(".0") ? thousands.slice(0, -2) : thousands.replace(".", ",")}k`;
+  }
+  return String(safe);
+}
+
 export function formatGramsCO2(kg: number): string {
   const grams = Math.max(0, kg * 1_000);
   const raw = grams >= 10 ? grams.toFixed(0) : grams.toFixed(1);
@@ -692,14 +708,27 @@ export function buildStatusLines(input: StatusRenderInput): StatusLine[] {
     if (account.rpm.limit === null) {
       rpmPart = [
         { text: "RPM ", tone: "muted" },
-        { text: `${localRpm}/∞`, tone: "accent" },
+        { text: formatCompactCount(localRpm), tone: "accent" },
+        { text: " (illimité)", tone: "muted" },
       ];
     } else {
       const used = (account.rpm.used ?? 0) + pendingReq;
-      rpmPart = gaugeSegments("RPM", used, account.rpm.limit, "accent", `${used}/${account.rpm.limit}`);
+      rpmPart = gaugeSegments(
+        "RPM",
+        used,
+        account.rpm.limit,
+        "accent",
+        `${formatCompactCount(used)}/${formatCompactCount(account.rpm.limit)}`,
+      );
     }
   } else {
-    rpmPart = gaugeSegments("RPM", localRpm, pub.rpm, "accent", `${localRpm}/${pub.rpm}`);
+    rpmPart = gaugeSegments(
+      "RPM",
+      localRpm,
+      pub.rpm,
+      "accent",
+      `${formatCompactCount(localRpm)}/${formatCompactCount(pub.rpm)}`,
+    );
   }
 
   let tpmPart: StatusSegment[];
@@ -707,7 +736,8 @@ export function buildStatusLines(input: StatusRenderInput): StatusLine[] {
     if (account.tpm.limit === null) {
       tpmPart = [
         { text: "TPM ", tone: "muted" },
-        { text: `${formatTokens(localTpm)}/∞`, tone: "accent" },
+        { text: formatTokens(localTpm), tone: "accent" },
+        { text: " (illimité)", tone: "muted" },
       ];
     } else {
       const used = (account.tpm.used ?? 0) + pendingTok;
@@ -735,7 +765,7 @@ export function buildStatusLines(input: StatusRenderInput): StatusLine[] {
 
   const line2 = joinParts([contextPart, rpmPart, tpmPart]);
 
-  // Line 3: Session tokens & CO2 │ Jour requests/RPD & CO2 (or usage Albert indisponible)
+  // Line 3: Session tokens & CO2 │ Jour (compte) requests/RPD & CO2 (or usage Albert indisponible)
   const sessionPart: StatusSegment[] = [
     { text: "Session ", tone: "muted" },
     { text: `${formatTokens(sessionTotal)} tok`, tone: "base" },
@@ -754,14 +784,20 @@ export function buildStatusLines(input: StatusRenderInput): StatusLine[] {
     if (account?.rpd) {
       if (account.rpd.limit === null) {
         jourPart = [
-          { text: "Jour ", tone: "muted" },
-          { text: `${usage.requests} req`, tone: "base" },
+          { text: "Jour (compte) ", tone: "muted" },
+          { text: `${formatCompactCount(usage.requests)} req`, tone: "base" },
           co2Suffix,
         ];
       } else {
         const used = (account.rpd.used ?? 0) + pendingReq;
         jourPart = [
-          ...gaugeSegments("Jour", used, account.rpd.limit, "accent", `${used}/${account.rpd.limit} req`),
+          ...gaugeSegments(
+            "Jour (compte)",
+            used,
+            account.rpd.limit,
+            "accent",
+            `${formatCompactCount(used)}/${formatCompactCount(account.rpd.limit)} req`,
+          ),
           co2Suffix,
         ];
       }
@@ -774,20 +810,32 @@ export function buildStatusLines(input: StatusRenderInput): StatusLine[] {
         }
       }
       jourPart = [
-        ...gaugeSegments("Jour", modelReq, pub.rpd, "accent", `${modelReq}/${pub.rpd} req`),
+        ...gaugeSegments(
+          "Jour (compte)",
+          modelReq,
+          pub.rpd,
+          "accent",
+          `${formatCompactCount(modelReq)}/${formatCompactCount(pub.rpd)} req`,
+        ),
         co2Suffix,
       ];
     } else {
       jourPart = [
-        { text: "Jour ", tone: "muted" },
-        { text: `${usage.requests} req`, tone: "base" },
+        { text: "Jour (compte) ", tone: "muted" },
+        { text: `${formatCompactCount(usage.requests)} req`, tone: "base" },
         co2Suffix,
       ];
     }
   } else if (account?.rpd && account.rpd.limit !== null) {
     // /v1/limits succeeded before /v1/me/usage completed: show RPD progress right away.
     const used = (account.rpd.used ?? 0) + pendingReq;
-    jourPart = gaugeSegments("Jour", used, account.rpd.limit, "accent", `${used}/${account.rpd.limit} req`);
+    jourPart = gaugeSegments(
+      "Jour (compte)",
+      used,
+      account.rpd.limit,
+      "accent",
+      `${formatCompactCount(used)}/${formatCompactCount(account.rpd.limit)} req`,
+    );
   }
 
   const line3 = joinParts([sessionPart, jourPart]);

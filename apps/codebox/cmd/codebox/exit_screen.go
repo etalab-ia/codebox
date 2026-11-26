@@ -62,7 +62,7 @@ func guestBranchLine(status codebox.GuestBranchStatus) string {
 	case status.Pushed:
 		return fmt.Sprintf("Branche poussée : %s", status.Branch)
 	case status.Branch != "":
-		return fmt.Sprintf("Branche créée dans la machine isolée mais non poussée : %s", status.Branch)
+		return fmt.Sprintf("Branche créée dans la sandbox mais non poussée : %s", status.Branch)
 	default:
 		return ""
 	}
@@ -76,7 +76,7 @@ func exitRecoveryBlock(ctx context.Context, m *codebox.MicrosandboxRuntime, inst
 	status, err := m.GuestBranchStatus(ctx)
 	if err != nil {
 		status = codebox.GuestBranchStatus{}
-		fmt.Fprintln(os.Stderr, "Impossible de lire les branches de la machine isolée ; l'état du push et de la pull request n'a pas pu être vérifié.")
+		fmt.Fprintln(os.Stderr, "Impossible de lire les branches de la sandbox ; l'état du push et de la pull request n'a pas pu être vérifié.")
 	} else if line := guestBranchLine(status); line != "" {
 		fmt.Println(line)
 	}
@@ -90,7 +90,7 @@ func exitRecoveryBlock(ctx context.Context, m *codebox.MicrosandboxRuntime, inst
 	if err != nil {
 		// A read failure must not read as "nothing to recover": the work is
 		// still in the isolated machine, and only the reading failed.
-		fmt.Fprintln(os.Stderr, "Impossible de lire les modifications de la machine isolée ; lancez 'codebox workspace apply' pour les vérifier.")
+		fmt.Fprintln(os.Stderr, "Impossible de lire les modifications de la sandbox ; lancez 'codebox workspace apply' pour les vérifier.")
 		return
 	}
 	if len(unrecovered) == 0 {
@@ -101,7 +101,7 @@ func exitRecoveryBlock(ctx context.Context, m *codebox.MicrosandboxRuntime, inst
 		noun, agree = "fichiers", "s"
 	}
 	if !exitIsTTYFn() {
-		fmt.Printf("L'agent a modifié %d %s dans la machine isolée, non récupéré%s dans votre dossier. Lancez 'codebox workspace apply' pour les récupérer.\n", len(unrecovered), noun, agree)
+		fmt.Printf("L'agent a modifié %d %s dans la sandbox, non récupéré%s dans votre dossier. Lancez 'codebox workspace apply' pour les récupérer.\n", len(unrecovered), noun, agree)
 		return
 	}
 	choice, err := exitRecoveryChoiceFn(len(unrecovered))
@@ -123,7 +123,7 @@ var exitRecoveryChoiceFn = func(count int) (string, error) {
 	}
 	err := huhRun(huh.NewForm(huh.NewGroup(
 		huh.NewSelect[string]().
-			Title(fmt.Sprintf("L'agent a modifié %d %s dans la machine isolée, non récupéré%s dans votre dossier.", count, noun, agree)).
+			Title(fmt.Sprintf("L'agent a modifié %d %s dans la sandbox, non récupéré%s dans votre dossier.", count, noun, agree)).
 			Options(
 				huh.NewOption("Les récupérer maintenant (codebox workspace apply)", "apply"),
 				huh.NewOption("Plus tard", "later"),
@@ -137,7 +137,7 @@ var exitRecoveryChoiceFn = func(count int) (string, error) {
 // is immediate, at the price of the reserved memory.
 func exitStopQuestion(ctx context.Context, b codebox.Backend, cfg codebox.Config, rt codebox.Runtime, d *codebox.Dispatcher) {
 	if !exitIsTTYFn() {
-		fmt.Println("La machine isolée reste démarrée ; lancez 'codebox stop' pour l'arrêter.")
+		fmt.Println("La sandbox reste démarrée ; lancez 'codebox stop' pour l'arrêter.")
 		return
 	}
 	keep := "Non (recommandé) : la reprise est immédiate"
@@ -151,19 +151,19 @@ func exitStopQuestion(ctx context.Context, b codebox.Backend, cfg codebox.Config
 	}
 	stop += "."
 	if wizardHuhFn() {
-		stopNow, err := huhConfirm("Arrêter la machine isolée ?", keep+"\n"+stop, false)
+		stopNow, err := huhConfirm("Arrêter la sandbox ?", keep+"\n"+stop, false)
 		if err == nil && stopNow {
 			if err := b.Stop(ctx); err != nil {
 				fmt.Fprintf(os.Stderr, "L'arrêt a échoué : %v\n", err)
 				return
 			}
-			fmt.Println("La machine isolée est arrêtée.")
+			fmt.Println("La sandbox est arrêtée.")
 		} else {
-			fmt.Println("La machine isolée reste démarrée.")
+			fmt.Println("La sandbox reste démarrée.")
 		}
 		return
 	}
-	fmt.Println("\nArrêter la machine isolée ?")
+	fmt.Println("\nArrêter la sandbox ?")
 	fmt.Println("  " + keep)
 	fmt.Println("  " + stop)
 	switch strings.ToLower(strings.TrimSpace(exitStopPromptFn())) {
@@ -172,9 +172,9 @@ func exitStopQuestion(ctx context.Context, b codebox.Backend, cfg codebox.Config
 			fmt.Fprintf(os.Stderr, "L'arrêt a échoué : %v\n", err)
 			return
 		}
-		fmt.Println("La machine isolée est arrêtée.")
+		fmt.Println("La sandbox est arrêtée.")
 	default:
-		fmt.Println("La machine isolée reste démarrée.")
+		fmt.Println("La sandbox reste démarrée.")
 	}
 }
 

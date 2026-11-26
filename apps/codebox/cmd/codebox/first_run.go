@@ -54,7 +54,7 @@ func combinedFirstRun(opts initOptions, in *bufio.Reader) (int, error) {
 		res := setupPreflightFn(ctx)
 		j.Preflight = res
 		if res.Fatal {
-			fmt.Println("Ce poste ne peut pas exécuter la machine isolée de codebox :")
+			fmt.Println("Ce poste ne peut pas exécuter la sandbox de codebox :")
 			printPreflight(res)
 			_ = codebox.WriteSetupJournal(fs, stateDir, j)
 			return 1, fmt.Errorf("installation interrompue : corrigez les points ci-dessus, puis relancez 'codebox'")

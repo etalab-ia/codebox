@@ -41,7 +41,7 @@ func runWorkspaceApply(rt *codebox.MicrosandboxRuntime, sourceDir, instance stri
 		fmt.Fprintln(os.Stderr, warning)
 	}
 	if len(review.Changes) == 0 {
-		fmt.Println("L'agent n'a pas modifié de fichiers dans la machine isolée.")
+		fmt.Println("L'agent n'a pas modifié de fichiers dans la sandbox.")
 		return 0, nil
 	}
 	fmt.Print(formatApplyList(review.Changes, review.Recovered, review.Refused))
@@ -129,7 +129,7 @@ func formatApplyList(changes []codebox.GuestChange, recovered map[string]bool, r
 	if len(changes) > 1 {
 		noun = "fichiers"
 	}
-	fmt.Fprintf(&b, "Modifications de l'agent dans la machine isolée : %d %s\n\n", len(changes), noun)
+	fmt.Fprintf(&b, "Modifications de l'agent dans la sandbox : %d %s\n\n", len(changes), noun)
 	width := 0
 	for _, c := range changes {
 		if len(c.Rel) > width {

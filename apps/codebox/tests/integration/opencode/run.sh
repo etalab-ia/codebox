@@ -132,6 +132,11 @@ try {
         const models = (await json('/api/model')).data;
         assert.ok(!logs().includes('configuration normalization diagnostic'),`configuration diagnostics: ${logs()}`);
         assert.ok(Array.isArray(providers)); assert.ok(Array.isArray(models));
+        assert.deepEqual(
+          providers.map(x=>x.id).sort(),
+          Object.keys(input.providers).sort(),
+          `unexpected unmanaged providers exposed by OpenCode: ${JSON.stringify(providers.map(x=>x.id))}`
+        );
         for (const [id,p] of Object.entries(input.providers)) {
           assert.ok(providers.some(x=>x.id===id),`missing provider ${id}`);
           for (const [mid,m] of Object.entries(p.models || {})) {

@@ -47,5 +47,10 @@
     { "action": "websearch", "resource": "*", "effect": "allow" },
     { "action": "skill", "resource": "*", "effect": "allow" },
     { "action": "subagent", "resource": "*", "effect": "allow" }
+  ],
+  "policies": [
+    { "action": "provider.use", "resource": "*", "effect": "deny" },
+    { "action": "provider.use", "resource": "albert", "effect": "allow" },
+    { "action": "integration.connect", "resource": "*", "effect": "deny" }
   ]
 }

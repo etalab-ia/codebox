@@ -331,7 +331,7 @@ func ResolveProjectSkillsAtRevision(ctx context.Context, ids []string, revision 
 		}
 		totalBytes += int64(len(archive))
 		if totalBytes > maxSkillSetBytes {
-			return nil, nil, fmt.Errorf("les skills sélectionnés dépassent la limite totale de %d octets du cache et de la machine isolée", maxSkillSetBytes)
+			return nil, nil, fmt.Errorf("les skills sélectionnés dépassent la limite totale de %d octets du cache et de la sandbox", maxSkillSetBytes)
 		}
 		digest := sha256.Sum256(archive)
 		lock := SkillLock{Repository: projectSkillsRepository, Revision: revision, SHA256: hex.EncodeToString(digest[:])}
@@ -373,7 +373,7 @@ func LoadLockedSkillPackages(ids []string, locks map[string]SkillLock) ([]SkillP
 		}
 		totalBytes += int64(len(archive))
 		if totalBytes > maxSkillSetBytes {
-			return nil, fmt.Errorf("les skills sélectionnés dépassent la limite totale de %d octets du cache et de la machine isolée", maxSkillSetBytes)
+			return nil, fmt.Errorf("les skills sélectionnés dépassent la limite totale de %d octets du cache et de la sandbox", maxSkillSetBytes)
 		}
 		if err := validateNormalizedSkillArchive(archive, name); err != nil {
 			return nil, fmt.Errorf("archive en cache du skill %s : %w", id, err)

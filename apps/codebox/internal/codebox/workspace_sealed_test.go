@@ -473,7 +473,7 @@ func TestWorkspaceOpsRefuseUnprovenProvenance(t *testing.T) {
 	if err == nil {
 		t.Fatal("an unproven workspace must be refused")
 	}
-	if !strings.Contains(err.Error(), "n'est pas un stockage propre à la machine isolée") {
+	if !strings.Contains(err.Error(), "n'est pas un stockage propre à la sandbox") {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }

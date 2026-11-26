@@ -41,7 +41,7 @@ func mcpCommand(args []string) (int, error) {
 	failed := false
 	for _, id := range ids {
 		if browser, ok := codebox.BrowserMCPByID(id); ok {
-			fmt.Fprintf(os.Stdout, "%-16s local à la machine isolée, configuré (%s@%s) ; non sondé depuis le poste\n", id, browser.Package, browser.Version)
+			fmt.Fprintf(os.Stdout, "%-16s local à la sandbox, configuré (%s@%s) ; non sondé depuis le poste\n", id, browser.Package, browser.Version)
 			continue
 		}
 		if reason, removed := codebox.RemovedMCPIDs[id]; removed {

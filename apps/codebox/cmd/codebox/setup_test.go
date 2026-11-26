@@ -867,7 +867,7 @@ func TestSetupIntroScreenContent(t *testing.T) {
 		"___ ___   __| | ___| |__   _____  __",
 		"codebox : coder avec l'IA souveraine",
 		"Cette configuration se fait une seule fois sur ce poste.",
-		"Durée : quelques minutes pour répondre aux questions. Espace disque : au moins 1 Go libre pour la machine isolée.",
+		"Durée : quelques minutes pour répondre aux questions. Espace disque : au moins 1 Go libre pour la sandbox.",
 		"3 étapes :",
 		"1. Plateformes d'inférence (au moins une)",
 		"2. Sélection des modèles à utiliser.",

@@ -7,6 +7,7 @@ import {
   estimateTokens,
   fetchAlbertLimits,
   fetchAlbertUsage,
+  formatCompactCount,
   formatGramsCO2,
   formatTokens,
   getPublicAlbertLimits,
@@ -58,7 +59,7 @@ test("Albert 3-line layout with OpenGateLLM 0.9.3 /v1/limits matches design", ()
   assert.equal(plain.length, 3);
   assert.equal(plain[0], "Albert API · gpt-oss-120b · medium │ mon-projet (main)");
   assert.equal(plain[1], "Contexte ███░░░░░░░ 31% │ RPM ██░░░░░░░░ 12/50 │ TPM ████████░░ 200k/246k");
-  assert.equal(plain[2], "Session 481k tok · ≈ 0,1 gCO2e │ Jour ███░░░░░░░ 167/500 req · 4,8 gCO2e");
+  assert.equal(plain[2], "Session 481k tok · ≈ 0,1 gCO2e │ Jour (compte) ███░░░░░░░ 167/500 req · 4,8 gCO2e");
   assert.ok(!plain[1].includes("(grille publique)"));
 });
 
@@ -135,7 +136,7 @@ test("Pre-0.9.3 fallback uses public plan table, local 60s window, and marks (gr
   const plain = renderPlainLines(lines);
   assert.equal(plain.length, 3);
   assert.match(plain[1], /RPM ██░░░░░░░░ 2\/10 │ TPM ███░░░░░░░ 40k\/128k \(grille publique\)$/);
-  assert.match(plain[2], /Jour 42 req · 1,2 gCO2e$/);
+  assert.match(plain[2], /Jour \(compte\) 42 req · 1,2 gCO2e$/);
 });
 
 test("Usage failure shows usage Albert indisponible in error tone on line 3", () => {
@@ -215,8 +216,8 @@ test("Unlimited limits (value: null) render without gauge bar and do not break R
       config: { projectName: "mon-projet" },
     }),
   );
-  assert.equal(plain[1], "Contexte ░░░░░░░░░░ 0% │ RPM 1/∞ │ TPM 2k/∞");
-  assert.equal(plain[2], "Session 0 tok │ Jour 12 req · 2,5 gCO2e");
+  assert.equal(plain[1], "Contexte ░░░░░░░░░░ 0% │ RPM 1 (illimité) │ TPM 2k (illimité)");
+  assert.equal(plain[2], "Session 0 tok │ Jour (compte) 12 req · 2,5 gCO2e");
 });
 
 test("Optimistic local requests after fetchedAt move RPM/TPM immediately without double counting", () => {
@@ -250,7 +251,7 @@ test("Optimistic local requests after fetchedAt move RPM/TPM immediately without
     }),
   );
   assert.match(plain[1], /RPM ██░░░░░░░░ 11\/50 │ TPM ████░░░░░░ 110k\/246k$/);
-  assert.match(plain[2], /Jour ░░░░░░░░░░ 21\/500 req/);
+  assert.match(plain[2], /Jour \(compte\) ░░░░░░░░░░ 21\/500 req/);
 });
 
 test("Security: refuses non-Albert hosts and never follows redirects with Authorization", async () => {
@@ -402,6 +403,14 @@ test("Helper formatting, folder resolution, provider names, and env overrides", 
   assert.equal(shortModelName(""), "aucun modèle");
   assert.equal(formatTokens(481_000), "481k");
   assert.equal(formatTokens(1_250_000), "1,3M");
+  assert.equal(formatCompactCount(5), "5");
+  assert.equal(formatCompactCount(500), "500");
+  assert.equal(formatCompactCount(1_000), "1k");
+  assert.equal(formatCompactCount(1_500), "1,5k");
+  assert.equal(formatCompactCount(10_000), "10k");
+  assert.equal(formatCompactCount(999_500), "1M");
+  assert.equal(formatCompactCount(1_000_000), "1M");
+  assert.equal(formatCompactCount(1_500_000), "1,5M");
   assert.equal(formatGramsCO2(0.0001), "0,1");
   assert.equal(formatGramsCO2(0.0048), "4,8");
   assert.equal(formatGramsCO2(0.0124), "12");
@@ -569,8 +578,8 @@ test("Fallback RPD omits quota gauge for aggregate usage buckets and scopes per-
   assert.equal(aggregateUsage.requestsByModel, undefined);
   const aggLines = buildStatusLines({ ...baseInput, dailyUsage: aggregateUsage });
   const aggPlain = renderPlainLines(aggLines);
-  assert.match(aggPlain[2], /Jour 1500 req · 4,8 gCO2e$/);
-  assert.ok(!aggPlain[2].includes("/1000"));
+  assert.match(aggPlain[2], /Jour \(compte\) 1,5k req · 4,8 gCO2e$/);
+  assert.ok(!aggPlain[2].includes("/1k"));
   assert.ok(!aggLines[2].some((s) => s.tone === "error"));
 
   // Mixed payload (one entry missing model): also treated as aggregate without gauge.
@@ -581,17 +590,17 @@ test("Fallback RPD omits quota gauge for aggregate usage buckets and scopes per-
     ],
   });
   assert.equal(mixedUsage.requestsByModel, undefined);
-  assert.match(renderPlainLines(buildStatusLines({ ...baseInput, dailyUsage: mixedUsage }))[2], /Jour 1510 req · 4,8 gCO2e$/);
+  assert.match(renderPlainLines(buildStatusLines({ ...baseInput, dailyUsage: mixedUsage }))[2], /Jour \(compte\) 1,5k req · 4,8 gCO2e$/);
 
-  // Per-model usage with 1500 DeepSeek requests and 0 GPT-OSS requests: GPT-OSS gauge stays at 0/1000.
+  // Per-model usage with 1500 DeepSeek requests and 0 GPT-OSS requests: GPT-OSS gauge stays at 0/1k.
   const deepseekOnly = parseUsageResponse({
     data: [{ model: "deepseek-ai/DeepSeek-V4-Flash-0731", requests: 1500, completion_tokens: 200_000, impacts: { kgCO2eq: 0.0048 } }],
   });
   const zeroGptLines = buildStatusLines({ ...baseInput, dailyUsage: deepseekOnly });
-  assert.match(renderPlainLines(zeroGptLines)[2], /Jour ░░░░░░░░░░ 0\/1000 req · 4,8 gCO2e$/);
+  assert.match(renderPlainLines(zeroGptLines)[2], /Jour \(compte\) ░░░░░░░░░░ 0\/1k req · 4,8 gCO2e$/);
   assert.ok(!zeroGptLines[2].some((s) => s.tone === "error"));
 
-  // Per-model usage with both models: GPT-OSS gauge counts only GPT-OSS requests (42/1000).
+  // Per-model usage with both models: GPT-OSS gauge counts only GPT-OSS requests (42/1k).
   const multiModel = parseUsageResponse({
     data: [
       { model: "deepseek-ai/DeepSeek-V4-Flash-0731", requests: 1500, completion_tokens: 150_000, impacts: { kgCO2eq: 0.0038 } },
@@ -600,7 +609,7 @@ test("Fallback RPD omits quota gauge for aggregate usage buckets and scopes per-
   });
   assert.match(
     renderPlainLines(buildStatusLines({ ...baseInput, dailyUsage: multiModel }))[2],
-    /Jour ░░░░░░░░░░ 42\/1000 req · 4,8 gCO2e$/,
+    /Jour \(compte\) ░░░░░░░░░░ 42\/1k req · 4,8 gCO2e$/,
   );
 });
 
@@ -661,5 +670,35 @@ test("Albert RPM/TPM and optimistic counters exclude requests from other provide
     }),
   );
   assert.match(accountPlain[1], /RPM ██░░░░░░░░ 12\/50 │ TPM █████░░░░░ 115k\/246k$/);
-  assert.match(accountPlain[2], /Jour ░░░░░░░░░░ 22\/500 req · 1,0 gCO2e$/);
+  assert.match(accountPlain[2], /Jour \(compte\) ░░░░░░░░░░ 22\/500 req · 1,0 gCO2e$/);
+});
+
+test("Large RPD limits (e.g. 1_000_000) format compactly and label account scope (#522)", () => {
+  const now = 1_700_000_000_000;
+  const plain = renderPlainLines(
+    buildStatusLines({
+      providerID: "albert",
+      modelDisplayID: "deepseek-v4-flash",
+      apiModelID: "deepseek-ai/DeepSeek-V4-Flash-0731",
+      cwd: "/workspace",
+      contextWindow: 131_072,
+      lastContextTokens: 0,
+      sessionInputTokens: 1_000,
+      sessionOutputTokens: 200,
+      requests: [],
+      now,
+      accountLimits: {
+        model: "deepseek-ai/DeepSeek-V4-Flash-0731",
+        rpm: { limit: 1_000, used: 2, remaining: 998 },
+        tpm: { limit: null, used: null, remaining: null },
+        rpd: { limit: 1_000_000, used: 5, remaining: 999_995 },
+        fetchedAt: now - 1_000,
+      },
+      limitsChecked: true,
+      dailyUsage: { requests: 5, kgCO2eq: 0.0002, completionTokens: 200 },
+      config: { projectName: "mon-projet" },
+    }),
+  );
+  assert.equal(plain[1], "Contexte ░░░░░░░░░░ 0% │ RPM ░░░░░░░░░░ 2/1k │ TPM 0 (illimité)");
+  assert.equal(plain[2], "Session 1k tok · ≈ 0,2 gCO2e │ Jour (compte) ░░░░░░░░░░ 5/1M req · 0,2 gCO2e");
 });

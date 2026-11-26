@@ -314,7 +314,7 @@ func ValidateProjectSecretsManifest(s *ProjectSecretsManifest) error {
 		case "", "proxy":
 		case "guest":
 			if len(hint.Destinations) > 0 || hint.GuestEnv != "" {
-				return fmt.Errorf("liaison de secrets de projet %s (%s) : la livraison vers la machine isolée ne doit déclarer ni destinations ni guestEnv", hint.Name, hint.Component)
+				return fmt.Errorf("liaison de secrets de projet %s (%s) : la livraison vers la sandbox ne doit déclarer ni destinations ni guestEnv", hint.Name, hint.Component)
 			}
 		default:
 			return fmt.Errorf("liaison de secrets de projet %s (%s) : livraison non prise en charge %q", hint.Name, hint.Component, hint.Delivery)

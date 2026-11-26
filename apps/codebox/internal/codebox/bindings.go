@@ -10,6 +10,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 )
 
 // This file implements the P09 binding model: named credentials bound into a
@@ -215,10 +216,10 @@ func validateSecretBindings(bindings []msbSecretBinding) error {
 	hostFor := map[string]CredentialKind{}
 	for _, b := range bindings {
 		if b.GuestEnv == "" || b.HostEnv == "" {
-			return fmt.Errorf("liaison %s : les noms de variables de la machine isolée et du poste sont requis", b.Kind)
+			return fmt.Errorf("liaison %s : les noms de variables de la sandbox et du poste sont requis", b.Kind)
 		}
 		if prev, dup := guestEnvs[b.GuestEnv]; dup {
-			return fmt.Errorf("les liaisons %s et %s partagent la variable de machine isolée %s", prev, b.Kind, b.GuestEnv)
+			return fmt.Errorf("les liaisons %s et %s partagent la variable de sandbox %s", prev, b.Kind, b.GuestEnv)
 		}
 		guestEnvs[b.GuestEnv] = b.Kind
 		if len(b.AllowHosts) == 0 {
@@ -821,6 +822,67 @@ func ResolveProviderKeysWith(read credentialReader, ctx context.Context, cfg Con
 func ResolveProviderKey(ctx context.Context, cfg Config, provider InferenceProvider) (string, error) {
 	v, _, _, _, err := resolveProviderWith(readStoredWith, ctx, cfg, provider, "")
 	return v, err
+}
+
+const launchAlbertKeyCheckTimeout = 5 * time.Second
+
+// CheckLaunchAlbertKey validates the resolved Albert API key before launching
+// an agent whose active model uses Albert (#520). An explicit HTTP 401/403
+// rejection fails fast with an actionable French error pointing to
+// 'codebox auth add albert'. Network outages, timeouts, 5xx, missing keys
+// (handled by runtime validation), and non-Albert active models return nil so
+// offline or non-Albert workflows are never blocked.
+func CheckLaunchAlbertKey(ctx context.Context, cfg Config, activeModel string) error {
+	return checkLaunchAlbertKeyWith(ctx, cfg, activeModel, readStoredWith, func(pCtx context.Context, provider InferenceProvider, key string) CredentialProbe {
+		return ValidateProviderKey(pCtx, nil, provider, key)
+	})
+}
+
+func checkLaunchAlbertKeyWith(
+	ctx context.Context,
+	cfg Config,
+	activeModel string,
+	read credentialReader,
+	probe func(context.Context, InferenceProvider, string) CredentialProbe,
+) error {
+	if trimmed := strings.TrimSpace(activeModel); trimmed != "" && ModelRefProvider(trimmed) != ProviderAlbert {
+		return nil
+	}
+	providers := cfg.Providers
+	if len(providers) == 0 {
+		resolved, err := ResolveProviders(nil)
+		if err != nil {
+			return nil
+		}
+		providers = resolved
+	}
+	var albert InferenceProvider
+	found := false
+	for _, p := range providers {
+		if p.Kind == ProviderAlbert {
+			albert = p
+			found = true
+			break
+		}
+	}
+	if !found {
+		return nil
+	}
+	key, source, _, _, err := resolveProviderWith(read, ctx, cfg, albert, "")
+	if err != nil || strings.TrimSpace(key) == "" {
+		return nil
+	}
+	probeCtx, cancel := context.WithTimeout(ctx, launchAlbertKeyCheckTimeout)
+	defer cancel()
+	result := probe(probeCtx, albert, key)
+	if !result.Rejected {
+		return nil
+	}
+	detail := strings.ReplaceAll(strings.TrimSpace(result.Detail), key, "[redacted]")
+	if source == bindingSourceEnv {
+		return fmt.Errorf("la clé Albert API fournie par ALBERT_API_KEY a été refusée ou révoquée (%s) ; mettez à jour ALBERT_API_KEY ou enregistrez une nouvelle clé avec 'codebox auth add albert'", detail)
+	}
+	return fmt.Errorf("la clé Albert API enregistrée a été refusée ou révoquée (%s) ; enregistrez une nouvelle clé avec 'codebox auth add albert'", detail)
 }
 
 // withHostSecrets publishes each resolved value under its binding's host

@@ -170,11 +170,44 @@ func ComposeConfigContent(o ManagedOverlay) (string, error) {
 		}
 	}
 	merged := deepMergeMaps(base, overlay)
+	merged["policies"] = managedProviderPolicies(merged["providers"])
 	out, err := json.Marshal(merged)
 	if err != nil {
 		return "", err
 	}
 	return string(out), nil
+}
+
+// managedProviderPolicies restricts OpenCode to the providers configured by
+// codebox and blocks unmanaged /connect provider onboarding (#523).
+func managedProviderPolicies(rawProviders any) []map[string]any {
+	providers, _ := rawProviders.(map[string]any)
+	ids := make([]string, 0, len(providers))
+	for id := range providers {
+		if strings.TrimSpace(id) != "" {
+			ids = append(ids, id)
+		}
+	}
+	sort.Strings(ids)
+	policies := make([]map[string]any, 0, len(ids)+2)
+	policies = append(policies, map[string]any{
+		"action":   "provider.use",
+		"resource": "*",
+		"effect":   "deny",
+	})
+	for _, id := range ids {
+		policies = append(policies, map[string]any{
+			"action":   "provider.use",
+			"resource": id,
+			"effect":   "allow",
+		})
+	}
+	policies = append(policies, map[string]any{
+		"action":   "integration.connect",
+		"resource": "*",
+		"effect":   "deny",
+	})
+	return policies
 }
 
 // deepMergeMaps merges src over dst recursively, map values merging and all

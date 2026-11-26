@@ -79,7 +79,7 @@ l'invité ; confirmer la perte avant de l'exécuter.
 
 Le premier `codebox` dans un projet, comme `codebox init` en interactif, utilise
 un parcours combiné de six écrans : accueil, plateforme/clé et modèles, agent,
-machine isolée, skills, puis MCP. Le choix de la plateforme et des modèles est
+sandbox, skills, puis MCP. Le choix de la plateforme et des modèles est
 fait pour chaque projet (les cinq modèles Albert recommandés sont cochés par
 défaut, avec DeepSeek V4 Flash comme modèle principal) ; les clés déjà
 enregistrées sur le poste sont réutilisables sans être resaisies. Aucune skill
@@ -236,7 +236,7 @@ Un `.env.example` reste dans le dépôt comme **gabarit documentaire** : il list
 - `--microsandbox`, `--tart` ou `--agent-vm` prime sur `RUNTIME`.
 - `--isolation backend|full` prime sur `ISOLATION` ; un flag explicite reste utilisable même si `ISOLATION` contient une valeur invalide.
 - Sans `WORKSPACE_DIR`, le **répertoire de travail est la racine du projet**. Pour Tart et agent-vm, cela change ce qui est monté : le montage devient le projet lui-même au lieu de `./workspace`, et donc la porte de sécurité de ces runtimes (qui refusent un workspace contenant un `.env`, puisqu'ils le montent) porte désormais sur le projet. En Microsandbox il n'y a pas de montage : changer la source prend effet au `workspace sync` suivant, sans recréation.
-- Le **dimensionnement de l'invité** (`CODEBOX_CPUS`, `CODEBOX_MEMORY_MB`) est figé à la création du sandbox : le runtime ne redimensionne pas un invité en cours. Une valeur enregistrée dans le manifeste du projet qui change est donc signalée comme nécessitant une recréation, jamais ignorée en silence.
+- Le **dimensionnement de l'invité** (`CODEBOX_CPUS`, `CODEBOX_MEMORY_MB`) est figé à la création de la sandbox : le runtime ne redimensionne pas un invité en cours. Une valeur enregistrée dans le manifeste du projet qui change est donc signalée comme nécessitant une recréation, jamais ignorée en silence.
 - Le dimensionnement CPU et mémoire est plafonné à **100 % de la capacité hôte détectée** pendant l'initialisation et avant chaque lancement, y compris pour les valeurs provenant d'un manifeste ou de variables d'environnement. La revue avertit si l'invité utilise tous les processeurs logiques ou au moins 80 % de la mémoire hôte ; Apply confirme ces choix. Un parcours non interactif à risque exige `--yes`. Si un seul CPU entier est disponible, il est choisi automatiquement et le TUI l'indique.
 - Le niveau d'isolation est figé à la création du sandbox Microsandbox : ses scripts de démarrage sont persistés et ne peuvent pas être réécrits. Basculer `ISOLATION` sur un sandbox existant est refusé avec un message ; `codebox recreate --microsandbox` le recrée dans le mode demandé.
 - Une modification des identifiants HTTP nécessite `codebox stop`, puis un nouveau lancement pour redémarrer le backend avec les nouvelles valeurs.
@@ -437,7 +437,7 @@ valeur gérée gagne) : si la config projet définit `model` différemment, les
 deux valeurs sont affichées (l'inverse serait un écrasement invisible).
 
 Dans `codebox init`, le récapitulatif interactif présente en français les
-skills, les MCP, GitHub, la machine isolée et le modèle. Il indique pour chaque
+skills, les MCP, GitHub, la sandbox et le modèle. Il indique pour chaque
 MCP distant si son initialisation MCP répond : un service injoignable affiche
 un avertissement mais n'empêche pas **Appliquer**. La liste des fichiers créés
 ou modifiés distingue ceux du projet de ceux conservés sur ce poste. La touche
@@ -451,7 +451,7 @@ remplacement affiche aussi les valeurs de la configuration existante avant
 Le mode `init --yes` conserve la revue détaillée, notamment les révisions et
 empreintes sha256 des skills.
 
-Les réglages avancés couvrent le type de machine isolée, l'isolation, les
+Les réglages avancés couvrent le type de sandbox, l'isolation, les
 processeurs, la mémoire et les modèles. Ces réglages ne sont pas
 demandés dans le parcours par défaut. Chaque
 modification validée est conservée lorsque vous revenez au récapitulatif avec
@@ -480,7 +480,7 @@ reste disponible.
 
 ### Harnais de l'agent
 
-Le harnais est le logiciel d'agent exécuté dans la machine isolée. `init`
+Le harnais est le logiciel d'agent exécuté dans la sandbox. `init`
 l'enregistre dans le champ `harness` du manifeste projet et le lancement le
 relit ; `CODEBOX_HARNESS` reste prioritaire pour un essai ponctuel.
 
@@ -489,7 +489,7 @@ relit ; `CODEBOX_HARNESS` reste prioritaire pour un essai ponctuel.
   installé dans l'invité à une version épinglée par codebox.
 
 Pi n'a pas de mode serveur : il exige l'isolation complète, où l'agent, sa
-configuration et ses sessions restent dans la machine isolée. L'assistant refuse
+configuration et ses sessions restent dans la sandbox. L'assistant refuse
 la combinaison Pi et isolation partielle, et le lancement la refuse aussi. Sa
 configuration (`models.json`, `settings.json`, `mcp.json`) est écrite dans
 `~/.pi/agent` de l'invité à partir des mêmes plateformes d'inférence et des
@@ -498,7 +498,7 @@ navigateur `chrome-devtools` reste propre à OpenCode. Les skills de projet sont
 installés dans `~/.pi/agent/skills`.
 
 Le script de préparation d'un invité est figé à sa création, comme son image :
-changer de harnais recrée donc la machine isolée, ce qui détruit les sessions et
+changer de harnais recrée donc la sandbox, ce qui détruit les sessions et
 les fichiers propres à l'invité. Un projet qui reste sur OpenCode garde sa
 révision et n'est pas recréé.
 
@@ -666,7 +666,7 @@ Configuration et retrait :
   également le fournisseur `local` orphelin du manifeste projet.
 - **Vérification de disponibilité** : au lancement et dans `codebox doctor`, un
   avertissement non bloquant signale si le serveur local configuré ne répond pas.
-  Ajouter, modifier ou retirer le port du serveur local sur une machine isolée
+  Ajouter, modifier ou retirer le port du serveur local sur une sandbox
   existante exige une recréation (proposée au prochain lancement avec sauvegarde
   préalable du travail).
 
@@ -674,10 +674,10 @@ Configuration et retrait :
 arm64). LM Studio et llama.cpp exposent la même API et devraient fonctionner,
 sans garantie.
 
-## DNS dans la machine isolée (`CODEBOX_DNS_NAMESERVERS`, Microsandbox)
+## DNS dans la sandbox (`CODEBOX_DNS_NAMESERVERS`, Microsandbox)
 
 Par défaut, Microsandbox lit les serveurs DNS du poste **au démarrage** de la
-machine isolée. Sur certains partages de connexion (par exemple iPhone), le
+sandbox. Sur certains partages de connexion (par exemple iPhone), le
 poste n'expose qu'un résolveur IPv6 lien-local (`fe80::…%en0`), que
 Microsandbox `v0.8.1` ne sait pas encore relayer.
 

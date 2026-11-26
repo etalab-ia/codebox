@@ -226,7 +226,7 @@ func CheckWorkspaceGate(ctx context.Context, dir string) error {
 		return nil
 	}
 	var b strings.Builder
-	b.WriteString("démarrage refusé : l'espace de travail est monté dans la machine isolée et contient des secrets.\n")
+	b.WriteString("démarrage refusé : l'espace de travail est monté dans la sandbox et contient des secrets.\n")
 	for _, f := range res.DotenvFiles {
 		fmt.Fprintf(&b, "  fichier dotenv : %s\n", f)
 	}

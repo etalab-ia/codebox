@@ -165,7 +165,7 @@ func updateCmd(args []string, projectRoot string) (int, error) {
 		return 1, err
 	}
 	fmt.Printf("Mise à jour de %d skills de projet et de leurs instructions gérées.\n", len(plan.Changes))
-	fmt.Println("Cette commande ne modifie ni ne recrée les paquets de la machine isolée ni ses images d'exécution.")
+	fmt.Println("Cette commande ne modifie ni ne recrée les paquets de la sandbox ni ses images d'exécution.")
 	return 0, nil
 }
 

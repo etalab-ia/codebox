@@ -160,19 +160,19 @@ func printInitIntro(root string, in *bufio.Reader) bool {
 	fmt.Printf(`Configuration du projet : %s
 Dossier : %s
 
-codebox va préparer une machine isolée pour ce projet.
+codebox va préparer une sandbox pour ce projet.
 Microsandbox (recommandé) travaille sur une copie filtrée : vos fichiers .env
 et les fichiers ignorés par git ne sont pas copiés.
 
 5 étapes :
-  1. Agent (harnais) : le moteur qui travaille dans la machine isolée.
-  2. Machine isolée : le type d'environnement qui exécute l'agent.
+  1. Agent (harnais) : le moteur qui travaille dans la sandbox.
+  2. Sandbox : le type d'environnement qui exécute l'agent.
   3. Skills (facultatif) : des savoir-faire pour l'agent (sécurité, accessibilité…).
   4. MCP (facultatif) : des services que l'agent peut interroger (data.gouv.fr, chrome-devtools…).
   5. GitHub (facultatif) : autoriser l'agent à proposer ses modifications sur ce dépôt.
 
 Les réglages techniques (ressources, isolation…) ont des valeurs par défaut.
-Les autres types de machine isolée et le partage du dossier qu'ils impliquent
+Les autres types de sandbox et le partage du dossier qu'ils impliquent
 sont expliqués dans les réglages avancés.
 
 La configuration est enregistrée à la fin de ces étapes, puis le projet démarre.
@@ -447,6 +447,7 @@ func initRun(opts initOptions, in *bufio.Reader, tty bool) (code int, err error)
 	// configured, not of whatever directory the caller happens to run from,
 	// and it resolves the root the same way the engine will (a path inside a
 	// worktree refers to the worktree's manifest).
+	conciseCombined := opts.Combined && !opts.Advanced && tty && !opts.Yes
 	wizardHostResources := codebox.HostResources{}
 	wizard := codebox.InitWizard{
 		HostResources: &wizardHostResources,
@@ -476,6 +477,9 @@ func initRun(opts initOptions, in *bufio.Reader, tty bool) (code int, err error)
 			return validateInitSmallModelInputForProviders(root, model, answers.Providers)
 		},
 	}
+	if conciseCombined {
+		wizard.Print = func(string) {}
+	}
 	// Flags are validated before any question: a typo on the command line must
 	// not send the user through six prompts to learn about it.
 	if err := validateInitOptions(opts); err != nil {
@@ -483,10 +487,10 @@ func initRun(opts initOptions, in *bufio.Reader, tty bool) (code int, err error)
 	}
 	hostResources, hostErr := detectHostResourcesFn()
 	if hostErr != nil {
-		return 1, fmt.Errorf("impossible de déterminer la capacité du poste en processeurs et en mémoire ; impossible d'appliquer la limite de ressources de la machine isolée : %v", hostErr)
+		return 1, fmt.Errorf("impossible de déterminer la capacité du poste en processeurs et en mémoire ; impossible d'appliquer la limite de ressources de la sandbox : %v", hostErr)
 	}
 	if hostResources.CPUs <= 0 || hostResources.MemoryMB <= 0 {
-		return 1, fmt.Errorf("la détection des ressources du poste a renvoyé une capacité incomplète en processeurs ou en mémoire ; impossible d'appliquer la limite de ressources de la machine isolée")
+		return 1, fmt.Errorf("la détection des ressources du poste a renvoyé une capacité incomplète en processeurs ou en mémoire ; impossible d'appliquer la limite de ressources de la sandbox")
 	}
 	wizardHostResources = hostResources
 	opts.hostCPUs = hostResources.CPUs
@@ -494,10 +498,10 @@ func initRun(opts initOptions, in *bufio.Reader, tty bool) (code int, err error)
 	opts.maxCPUs = codebox.MaxGuestCPUs(hostResources.CPUs)
 	opts.maxMemoryMB = codebox.MaxGuestMemoryMB(hostResources.MemoryMB)
 	if opts.maxCPUs < 1 {
-		return 1, fmt.Errorf("la détection des ressources du poste n'a trouvé aucun processeur logique à allouer à la machine isolée")
+		return 1, fmt.Errorf("la détection des ressources du poste n'a trouvé aucun processeur logique à allouer à la sandbox")
 	}
 	if opts.maxMemoryMB < 1 {
-		return 1, fmt.Errorf("la mémoire du poste est trop faible pour allouer de la mémoire à la machine isolée")
+		return 1, fmt.Errorf("la mémoire du poste est trop faible pour allouer de la mémoire à la sandbox")
 	}
 	if opts.Set["cpus"] && opts.CPUs > opts.maxCPUs {
 		return 2, fmt.Errorf("--cpus %d dépasse la capacité détectée du poste : %d processeurs logiques", opts.CPUs, opts.maxCPUs)
@@ -510,7 +514,7 @@ func initRun(opts initOptions, in *bufio.Reader, tty bool) (code int, err error)
 			answers.CPUs = 0
 		}
 		if tty && !opts.Yes {
-			fmt.Println("Un seul processeur complet est disponible pour la machine isolée ; 1 processeur a été sélectionné automatiquement.")
+			fmt.Println("Un seul processeur complet est disponible pour la sandbox ; 1 processeur a été sélectionné automatiquement.")
 		}
 	}
 	var plan codebox.InitPlan
@@ -733,9 +737,9 @@ func initRun(opts initOptions, in *bufio.Reader, tty bool) (code int, err error)
 	}
 	if revokeContext7 {
 		if context7Revoked && context7Live {
-			fmt.Println("Approbation de l'identifiant Context7 révoquée et retirée de la machine isolée en cours d'exécution.")
+			fmt.Println("Approbation de l'identifiant Context7 révoquée et retirée de la sandbox en cours d'exécution.")
 		} else if context7Revoked {
-			fmt.Println("Approbation de l'identifiant Context7 révoquée et retirée de la machine isolée arrêtée.")
+			fmt.Println("Approbation de l'identifiant Context7 révoquée et retirée de la sandbox arrêtée.")
 		} else {
 			fmt.Println("Approbation de l'identifiant Context7 révoquée sur ce poste.")
 		}
@@ -747,16 +751,31 @@ func initRun(opts initOptions, in *bufio.Reader, tty bool) (code int, err error)
 		fmt.Println("Accord GitHub enregistré pour ce projet sur ce poste ; il n'est pas écrit dans le projet.")
 	}
 	if interactiveReview {
-		// The interactive recap lands after the write (#333): the wizard
-		// applies directly, so this is the summary of what was done.
-		fmt.Print(codebox.FormatInteractiveInitReview(plan))
+		if conciseCombined {
+			for _, warning := range plan.Warnings {
+				fmt.Fprintf(os.Stderr, "Attention : %s\n", warning)
+			}
+			if plan.Answers.BrowserResourceGuidance != "" {
+				fmt.Fprintf(os.Stderr, "Conseil : %s\n", plan.Answers.BrowserResourceGuidance)
+			}
+		} else {
+			// The interactive recap lands after the write (#333): the wizard
+			// applies directly, so this is the summary of what was done.
+			fmt.Print(codebox.FormatInteractiveInitReview(plan))
+		}
 	}
 	recordInitStats(plan.Answers)
 	// The trailer is advice for the standalone command. When the launch flow
 	// drives the setup, the launch is already continuing: telling the user to
 	// run it would describe a step the code does not need.
 	if opts.FromLaunch {
-		fmt.Println("\nProjet configuré. Poursuite du lancement…")
+		if conciseCombined {
+			fmt.Println("Projet configuré.")
+		} else {
+			fmt.Println("\nProjet configuré. Poursuite du lancement…")
+		}
+	} else if conciseCombined {
+		fmt.Println("Projet configuré.\nLancez l'agent : codebox")
 	} else {
 		fmt.Println("\nProjet configuré.\nLancez l'agent : codebox")
 	}
@@ -1375,7 +1394,7 @@ func validateInitOptions(opts initOptions) error {
 // blank answer keeps the current choice.
 func askHarnessStepLine(in *bufio.Reader, opts initOptions, answers codebox.InitAnswers) (codebox.InitAnswers, error) {
 	fmt.Printf("\n%s\n", initHarnessStepTitle(opts))
-	fmt.Println("OpenCode : agent historique, avec ses greffons et ses MCP. Pi : agent en terminal plus léger, dans la même machine isolée.")
+	fmt.Println("OpenCode : agent historique, avec ses greffons et ses MCP. Pi : agent en terminal plus léger, dans la même sandbox.")
 	current := effectiveInitHarness(answers)
 	for {
 		answer, ok := promptLine(in, "  harnais ["+current+"] (opencode/pi) : ")
@@ -1766,8 +1785,8 @@ func askInitAdvancedLine(in *bufio.Reader, opts initOptions, answers codebox.Ini
 	if !opts.Set["isolation"] {
 		fmt.Println()
 		fmt.Println("Mode d'isolation :")
-		fmt.Println("  complet : l'agent et son interface tournent dans la machine isolée")
-		fmt.Println("  partiel : l'interface tourne sur votre poste, l'agent dans la machine isolée")
+		fmt.Println("  complet : l'agent et son interface tournent dans la sandbox")
+		fmt.Println("  partiel : l'interface tourne sur votre poste, l'agent dans la sandbox")
 		current := answers.Isolation
 		if current == "" {
 			current = codebox.IsolationFull
@@ -2441,8 +2460,8 @@ Options :
                           'auto' (ports 11434, 1234, 8080), un port, http://localhost:<port>/v1
                           ou 'none' pour le retirer du projet et de ce poste
   --advanced              ouvrir les réglages avancés (modèle, petit modèle, serveur local, ressources)
-  --cpus <n>              processeurs de la machine isolée (maximum : la capacité détectée du poste)
-  --memory-mb <size>      mémoire de la machine isolée en MiB ou GiB (ex. 4096, 4G, 2.5G ; maximum : la RAM détectée du poste)
+  --cpus <n>              processeurs de la sandbox (maximum : la capacité détectée du poste)
+  --memory-mb <size>      mémoire de la sandbox en MiB ou GiB (ex. 4096, 4G, 2.5G ; maximum : la RAM détectée du poste)
   --credential-ref <ref>  référence d'identifiant Albert du projet (par défaut : la référence globale)
   --provider <kind>       plateforme du projet, répétable : albert, mistral ou
                           openai-compatible ; utilise une connexion enregistrée sur le poste

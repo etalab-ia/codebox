@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -244,12 +245,12 @@ func TestDispatcherCheckReportsConfiguredPortReachability(t *testing.T) {
 	if checkErr != nil {
 		t.Fatalf("a dead preview port must not fail check: %v", checkErr)
 	}
-	reachable := "port " + strconv.Itoa(live) + " (machine isolée 8080) : joignable (200 OK)"
+	reachable := "port " + strconv.Itoa(live) + " (sandbox 8080) : joignable (200 OK)"
 	if !strings.Contains(out, reachable) {
 		t.Fatalf("reachable port was not reported: %q", out)
 	}
-	unreachable := "port " + strconv.Itoa(int(dead)) + " (machine isolée 8081) : aucune réponse de la redirection du poste"
-	if !strings.Contains(out, unreachable) || !strings.Contains(out, "doit se lier à 0.0.0.0 dans la machine isolée") {
+	unreachable := "port " + strconv.Itoa(int(dead)) + " (sandbox 8081) : aucune réponse de la redirection du poste"
+	if !strings.Contains(out, unreachable) || !strings.Contains(out, "doit se lier à 0.0.0.0 dans la sandbox") {
 		t.Fatalf("unreachable port hint was not reported: %q", out)
 	}
 }
@@ -373,24 +374,24 @@ func TestDispatcherCheckProbesOnlyAppliedPortMappings(t *testing.T) {
 	if checkErr != nil {
 		t.Fatal(checkErr)
 	}
-	if got := "port " + strconv.Itoa(livePort) + " (machine isolée 8080) : joignable (200 OK)"; !strings.Contains(out, got) {
+	if got := "port " + strconv.Itoa(livePort) + " (sandbox 8080) : joignable (200 OK)"; !strings.Contains(out, got) {
 		t.Fatalf("applied mapping was not probed: %q", out)
 	}
-	if got := "port " + strconv.Itoa(int(dead)) + " (machine isolée 8082) : aucune réponse de la redirection du poste"; !strings.Contains(out, got) {
+	if got := "port " + strconv.Itoa(int(dead)) + " (sandbox 8082) : aucune réponse de la redirection du poste"; !strings.Contains(out, got) {
 		t.Fatalf("applied dead mapping was not probed: %q", out)
 	}
-	if got := "port " + strconv.Itoa(unrelatedPort) + " (machine isolée 8081) : configuré mais non transmis par la machine isolée en cours d'exécution ; lancez 'codebox recreate --microsandbox' pour l'appliquer."; !strings.Contains(out, got) {
+	if got := "port " + strconv.Itoa(unrelatedPort) + " (sandbox 8081) : configuré mais non transmis par la sandbox en cours d'exécution ; lancez 'codebox recreate --microsandbox' pour l'appliquer."; !strings.Contains(out, got) {
 		t.Fatalf("pending mapping was not reported as pending: %q", out)
 	}
-	if strings.Contains(out, "port "+strconv.Itoa(unrelatedPort)+" (machine isolée 8081) : joignable") {
+	if strings.Contains(out, "port "+strconv.Itoa(unrelatedPort)+" (sandbox 8081) : joignable") {
 		t.Fatalf("a mapping without a forward must not be reported reachable: %q", out)
 	}
-	if got := "port " + strconv.Itoa(int(stale)) + " (machine isolée 3000) : encore transmis jusqu'à la recréation de la machine isolée"; !strings.Contains(out, got) {
+	if got := "port " + strconv.Itoa(int(stale)) + " (sandbox 3000) : encore transmis jusqu'à la recréation de la sandbox"; !strings.Contains(out, got) {
 		t.Fatalf("stale applied mapping was not reported: %q", out)
 	}
 	// Match the reported line shape, not the bare digits: an ephemeral port
 	// such as 40967 contains "4096" and made this assertion fail at random.
-	if strings.Contains(out, fmt.Sprintf("port %d (machine isolée %d):", DefaultPort, DefaultPort)) {
+	if strings.Contains(out, fmt.Sprintf("port %d (sandbox %d):", DefaultPort, DefaultPort)) {
 		t.Fatalf("the OpenCode server forward must not be reported as a preview mapping: %q", out)
 	}
 }
@@ -436,10 +437,10 @@ func TestDispatcherCheckPortProbeBudgetBoundsStalledChecks(t *testing.T) {
 	if elapsed := time.Since(start); elapsed > 2*time.Second {
 		t.Fatalf("three stalled probes took %s; the budget did not bind", elapsed)
 	}
-	if got := fmt.Sprintf("port %d (machine isolée 8080) : aucune réponse de la redirection du poste", hangPort); !strings.Contains(out, got) {
+	if got := fmt.Sprintf("port %d (sandbox 8080) : aucune réponse de la redirection du poste", hangPort); !strings.Contains(out, got) {
 		t.Fatalf("first stalled mapping was not probed: %q", out)
 	}
-	if got := fmt.Sprintf("port %d (machine isolée 8082) : non testé ; le budget de test des ports", hangPort); !strings.Contains(out, got) {
+	if got := fmt.Sprintf("port %d (sandbox 8082) : non testé ; le budget de test des ports", hangPort); !strings.Contains(out, got) {
 		t.Fatalf("mapping beyond the budget was not reported as not probed: %q", out)
 	}
 }
@@ -469,7 +470,7 @@ func TestDispatcherCheckSkipsPortProbesWhenAppliedMappingsUnreadable(t *testing.
 	if checkErr != nil {
 		t.Fatal(checkErr)
 	}
-	if !strings.Contains(out, "impossible de lire les mappages appliqués de la machine isolée en cours d'exécution") {
+	if !strings.Contains(out, "impossible de lire les mappages appliqués de la sandbox en cours d'exécution") {
 		t.Fatalf("missing applied-mappings failure note: %q", out)
 	}
 	if strings.Contains(out, "aucune réponse de la redirection du poste") {
@@ -506,12 +507,12 @@ func TestDispatcherCheckReportsStaleForwardAfterLastMappingRemoved(t *testing.T)
 	if checkErr != nil {
 		t.Fatal(checkErr)
 	}
-	if got := "port " + strconv.Itoa(int(stale)) + " (machine isolée 3000) : encore transmis jusqu'à la recréation de la machine isolée"; !strings.Contains(out, got) {
+	if got := "port " + strconv.Itoa(int(stale)) + " (sandbox 3000) : encore transmis jusqu'à la recréation de la sandbox"; !strings.Contains(out, got) {
 		t.Fatalf("stale forward after the last mapping was removed was not reported: %q", out)
 	}
 	// See the note in TestDispatcherCheckProbesOnlyAppliedPortMappings: the
 	// bare digits match unrelated ephemeral ports by coincidence.
-	if strings.Contains(out, fmt.Sprintf("port %d (machine isolée %d):", DefaultPort, DefaultPort)) {
+	if strings.Contains(out, fmt.Sprintf("port %d (sandbox %d):", DefaultPort, DefaultPort)) {
 		t.Fatalf("the OpenCode server forward must not be reported as a preview mapping: %q", out)
 	}
 }
@@ -546,7 +547,7 @@ func TestDispatcherCheckTreatsRedirectAnswerAsReachable(t *testing.T) {
 	if checkErr != nil {
 		t.Fatalf("a redirecting preview port must not fail check: %v", checkErr)
 	}
-	if !strings.Contains(out, "port "+strconv.Itoa(live)+" (machine isolée 8080) : joignable (302 Found)") {
+	if !strings.Contains(out, "port "+strconv.Itoa(live)+" (sandbox 8080) : joignable (302 Found)") {
 		t.Fatalf("redirect answer was not reported as reachable: %q", out)
 	}
 }
@@ -570,4 +571,312 @@ func TestDispatcherCheckDoesNotProbeLegacyPortRange(t *testing.T) {
 	if strings.Contains(out, "redirection du poste") || strings.Contains(out, "joignable (") {
 		t.Fatalf("legacy port range was probed: %q", out)
 	}
+}
+
+type fakeConcurrentMSBBackend struct {
+	fakeBackend
+	own        string
+	running    []string
+	portsByIns map[string][]PortMapping
+	portsErr   error
+}
+
+func (f *fakeConcurrentMSBBackend) InstanceName() string { return f.own }
+
+func (f *fakeConcurrentMSBBackend) RunningInstances(context.Context) ([]string, error) {
+	return append([]string(nil), f.running...), nil
+}
+
+func (f *fakeConcurrentMSBBackend) StopInstance(context.Context, string) error { return nil }
+
+func (f *fakeConcurrentMSBBackend) InstancePortMappings(_ context.Context, name string) ([]PortMapping, error) {
+	if f.portsErr != nil {
+		return nil, f.portsErr
+	}
+	ports, ok := f.portsByIns[name]
+	if !ok {
+		return nil, os.ErrNotExist
+	}
+	return ports, nil
+}
+
+func TestDispatcherPrepareConcurrentMicrosandboxProjects(t *testing.T) {
+	// go test binds stdin to /dev/null (a char device on Unix), which makes
+	// isTerminal(os.Stdin) true. Replace stdin with a pipe so every
+	// non-interactive refusal subtest actually executes instead of skipping.
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = w.Close()
+	origStdin := os.Stdin
+	os.Stdin = r
+	t.Cleanup(func() {
+		os.Stdin = origStdin
+		_ = r.Close()
+	})
+
+	t.Run("disjoint configured ports run concurrently", func(t *testing.T) {
+		msb := &fakeConcurrentMSBBackend{
+			fakeBackend: fakeBackend{id: RuntimeMicrosandbox},
+			running:     []string{"cb-proj-a-11111"},
+			portsByIns: map[string][]PortMapping{
+				"cb-proj-a-11111": {{Host: 8080, Guest: 8080}},
+			},
+		}
+		cfg := Config{
+			Isolation:       IsolationFull,
+			PortsConfigured: true,
+			Ports:           []PortMapping{{Host: 8081, Guest: 8081}},
+		}
+		d := NewDispatcherWith(cfg, map[Runtime]Backend{
+			RuntimeMicrosandbox: msb,
+			RuntimeTart:         &fakeBackend{id: RuntimeTart},
+			RuntimeAgentVM:      &fakeBackend{id: RuntimeAgentVM},
+		})
+		if err := d.Prepare(context.Background(), RuntimeMicrosandbox); err != nil {
+			t.Fatalf("Prepare with disjoint host ports = %v, want nil", err)
+		}
+	})
+
+	t.Run("no configured ports runs concurrently even if other ports unreadable", func(t *testing.T) {
+		msb := &fakeConcurrentMSBBackend{
+			fakeBackend: fakeBackend{id: RuntimeMicrosandbox},
+			running:     []string{"cb-proj-a-11111"},
+			portsErr:    errors.New("unreadable"),
+		}
+		cfg := Config{
+			Isolation:       IsolationFull,
+			PortsConfigured: true,
+			Ports:           nil,
+		}
+		d := NewDispatcherWith(cfg, map[Runtime]Backend{
+			RuntimeMicrosandbox: msb,
+			RuntimeTart:         &fakeBackend{id: RuntimeTart},
+			RuntimeAgentVM:      &fakeBackend{id: RuntimeAgentVM},
+		})
+		if err := d.Prepare(context.Background(), RuntimeMicrosandbox); err != nil {
+			t.Fatalf("Prepare with zero host ports = %v, want nil", err)
+		}
+	})
+
+	t.Run("overlapping host ports report conflicting instance and port range", func(t *testing.T) {
+		legacyPorts := make([]PortMapping, 0, 11)
+		for p := uint16(3000); p <= 3010; p++ {
+			legacyPorts = append(legacyPorts, PortMapping{Host: p, Guest: p})
+		}
+		msb := &fakeConcurrentMSBBackend{
+			fakeBackend: fakeBackend{id: RuntimeMicrosandbox},
+			running:     []string{"cb-proj-a-11111"},
+			portsByIns: map[string][]PortMapping{
+				"cb-proj-a-11111": legacyPorts,
+			},
+		}
+		cfg := Config{Isolation: IsolationFull} // !PortsConfigured -> legacy 3000-3010
+		d := NewDispatcherWith(cfg, map[Runtime]Backend{
+			RuntimeMicrosandbox: msb,
+			RuntimeTart:         &fakeBackend{id: RuntimeTart},
+			RuntimeAgentVM:      &fakeBackend{id: RuntimeAgentVM},
+		})
+		err := d.Prepare(context.Background(), RuntimeMicrosandbox)
+		if err == nil {
+			t.Fatal("Prepare must reject overlapping host ports")
+		}
+		if !strings.Contains(err.Error(), "cb-proj-a-11111") || !strings.Contains(err.Error(), "3000-3010") || !strings.Contains(err.Error(), "codebox ports") {
+			t.Fatalf("unexpected port conflict message: %v", err)
+		}
+	})
+
+	t.Run("unreadable other ports fail closed when new launch binds host ports", func(t *testing.T) {
+		msb := &fakeConcurrentMSBBackend{
+			fakeBackend: fakeBackend{id: RuntimeMicrosandbox},
+			running:     []string{"cb-proj-a-11111"},
+			portsErr:    errors.New("unreadable"),
+		}
+		cfg := Config{
+			Isolation:       IsolationFull,
+			PortsConfigured: true,
+			Ports:           []PortMapping{{Host: 8080, Guest: 8080}},
+		}
+		d := NewDispatcherWith(cfg, map[Runtime]Backend{
+			RuntimeMicrosandbox: msb,
+			RuntimeTart:         &fakeBackend{id: RuntimeTart},
+			RuntimeAgentVM:      &fakeBackend{id: RuntimeAgentVM},
+		})
+		err := d.Prepare(context.Background(), RuntimeMicrosandbox)
+		if err == nil || !strings.Contains(err.Error(), "cb-proj-a-11111") {
+			t.Fatalf("expected fail-closed conflict on unreadable other ports, got %v", err)
+		}
+	})
+
+	t.Run("same project on another runtime still conflicts", func(t *testing.T) {
+		withGOOS(t, "darwin")
+		msb := &fakeConcurrentMSBBackend{
+			fakeBackend: fakeBackend{id: RuntimeMicrosandbox},
+			own:         "cb-proj-a-11111",
+			running:     []string{"cb-proj-a-11111"},
+			portsByIns: map[string][]PortMapping{
+				"cb-proj-a-11111": nil,
+			},
+		}
+		tart := &fakeConcurrentMSBBackend{
+			fakeBackend: fakeBackend{id: RuntimeTart},
+			own:         "opencode-cb-proj-a-11111",
+		}
+		d := NewDispatcherWith(Config{Isolation: IsolationFull, PortsConfigured: true}, map[Runtime]Backend{
+			RuntimeMicrosandbox: msb,
+			RuntimeTart:         tart,
+			RuntimeAgentVM:      &fakeBackend{id: RuntimeAgentVM},
+		})
+		err := d.Prepare(context.Background(), RuntimeTart)
+		if err == nil || !strings.Contains(err.Error(), "cb-proj-a-11111") {
+			t.Fatalf("expected same-project cross-runtime conflict, got %v", err)
+		}
+	})
+
+	t.Run("restart checks persisted ports while recreate uses desired ports", func(t *testing.T) {
+		msb := &fakeConcurrentMSBBackend{
+			fakeBackend: fakeBackend{id: RuntimeMicrosandbox},
+			own:         "cb-proj-a-11111",
+			running:     []string{"cb-proj-b-22222"},
+			portsByIns: map[string][]PortMapping{
+				"cb-proj-a-11111": {{Host: 8080, Guest: 8080}}, // persisted on stopped sandbox A
+				"cb-proj-b-22222": {{Host: 8080, Guest: 8080}}, // currently running sandbox B
+			},
+		}
+		// Project A's manifest was updated to 8081, not yet recreated.
+		cfg := Config{
+			Isolation:       IsolationFull,
+			PortsConfigured: true,
+			Ports:           []PortMapping{{Host: 8081, Guest: 8081}},
+		}
+		d := NewDispatcherWith(cfg, map[Runtime]Backend{
+			RuntimeMicrosandbox: msb,
+			RuntimeTart:         &fakeBackend{id: RuntimeTart},
+			RuntimeAgentVM:      &fakeBackend{id: RuntimeAgentVM},
+		})
+		// Non-recreating Prepare (start/restart) must detect the persisted 8080 collision.
+		err := d.Prepare(context.Background(), RuntimeMicrosandbox)
+		if err == nil || !strings.Contains(err.Error(), "cb-proj-b-22222") || !strings.Contains(err.Error(), "8080") {
+			t.Fatalf("Prepare must detect persisted port 8080 conflict, got %v", err)
+		}
+		// PrepareForRecreate uses desired 8081, so it must succeed concurrently with B.
+		if err := d.PrepareForRecreate(context.Background(), RuntimeMicrosandbox); err != nil {
+			t.Fatalf("PrepareForRecreate with disjoint desired port 8081 = %v, want nil", err)
+		}
+	})
+
+	t.Run("full-mode AgentVM without 4096 listener allows concurrent backend Microsandbox", func(t *testing.T) {
+		withGOOS(t, "darwin")
+		msb := &fakeConcurrentMSBBackend{
+			fakeBackend: fakeBackend{id: RuntimeMicrosandbox},
+			own:         "cb-proj-a-11111",
+		}
+		idleAgentVM := &fakeConcurrentMSBBackend{
+			fakeBackend: fakeBackend{id: RuntimeAgentVM},
+			own:         "opencode-cb-proj-a-11111",
+			running:     []string{"opencode-cb-proj-b-22222"},
+			portsByIns: map[string][]PortMapping{
+				"opencode-cb-proj-b-22222": nil, // full mode: no 4096 listener
+			},
+		}
+		cfg := Config{
+			Isolation:       IsolationBackend,
+			PortsConfigured: true,
+			Ports:           nil,
+		}
+		d := NewDispatcherWith(cfg, map[Runtime]Backend{
+			RuntimeMicrosandbox: msb,
+			RuntimeTart:         &fakeBackend{id: RuntimeTart},
+			RuntimeAgentVM:      idleAgentVM,
+		})
+		if err := d.Prepare(context.Background(), RuntimeMicrosandbox); err != nil {
+			t.Fatalf("full-mode AgentVM not serving 4096 must not conflict with backend Microsandbox: %v", err)
+		}
+		// Once AgentVM actually listens on 4096, Prepare must detect the conflict.
+		idleAgentVM.portsByIns["opencode-cb-proj-b-22222"] = []PortMapping{{Host: uint16(DefaultPort), Guest: uint16(DefaultPort)}}
+		err := d.Prepare(context.Background(), RuntimeMicrosandbox)
+		if err == nil || !strings.Contains(err.Error(), "opencode-cb-proj-b-22222") || !strings.Contains(err.Error(), "4096") {
+			t.Fatalf("backend-mode AgentVM listening on 4096 must conflict, got %v", err)
+		}
+	})
+
+	t.Run("AgentVM preview port 3000 conflicts with default full-mode Microsandbox", func(t *testing.T) {
+		withGOOS(t, "darwin")
+		msb := &fakeConcurrentMSBBackend{
+			fakeBackend: fakeBackend{id: RuntimeMicrosandbox},
+			own:         "cb-proj-a-11111",
+		}
+		previewAgentVM := &fakeConcurrentMSBBackend{
+			fakeBackend: fakeBackend{id: RuntimeAgentVM},
+			own:         "opencode-cb-proj-a-11111",
+			running:     []string{"opencode-cb-proj-b-22222"},
+			portsByIns: map[string][]PortMapping{
+				"opencode-cb-proj-b-22222": {{Host: 3000, Guest: 3000}},
+			},
+		}
+		// Full mode with !PortsConfigured -> requests legacy 3000-3010 (not 4096).
+		d := NewDispatcherWith(Config{Isolation: IsolationFull}, map[Runtime]Backend{
+			RuntimeMicrosandbox: msb,
+			RuntimeTart:         &fakeBackend{id: RuntimeTart},
+			RuntimeAgentVM:      previewAgentVM,
+		})
+		err := d.Prepare(context.Background(), RuntimeMicrosandbox)
+		if err == nil || !strings.Contains(err.Error(), "opencode-cb-proj-b-22222") || !strings.Contains(err.Error(), "3000") {
+			t.Fatalf("AgentVM listening on preview port 3000 must conflict with default full-mode Microsandbox, got %v", err)
+		}
+	})
+}
+
+func TestAgentVMInstancePortMappings(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		res       ExecResult
+		runErr    error
+		wantPorts []uint16
+		wantErr   bool
+	}{
+		{name: "listening on 3000 and 4096 skips ssh 22", res: ExecResult{Stdout: "00000000:0016\n00000000:0BB8\n0100007F:1000\n00000000:0BB8\n"}, wantPorts: []uint16{3000, 4096}},
+		{name: "idle full mode (only ssh 22)", res: ExecResult{Stdout: "00000000:0016\n"}, wantPorts: nil},
+		{name: "limactl failure", res: ExecResult{ExitCode: 1}, wantErr: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			a := &AgentVM{Runner: stubRunner{res: tc.res, err: tc.runErr}}
+			ports, err := a.InstancePortMappings(context.Background(), "opencode-cb-b-22222")
+			if tc.wantErr {
+				if err == nil {
+					t.Fatal("expected error")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("InstancePortMappings: %v", err)
+			}
+			if len(ports) != len(tc.wantPorts) {
+				t.Fatalf("ports = %v, want %v", ports, tc.wantPorts)
+			}
+			for i, want := range tc.wantPorts {
+				if ports[i].Host != want {
+					t.Fatalf("ports[%d].Host = %d, want %d", i, ports[i].Host, want)
+				}
+			}
+		})
+	}
+}
+
+type stubRunner struct {
+	res ExecResult
+	err error
+}
+
+func (s stubRunner) Run(context.Context, string, ...string) (ExecResult, error) {
+	return s.res, s.err
+}
+
+func (s stubRunner) RunEnv(context.Context, []string, string, ...string) (ExecResult, error) {
+	return s.res, s.err
+}
+
+func (s stubRunner) RunStdin(context.Context, io.Reader, string, ...string) (ExecResult, error) {
+	return s.res, s.err
 }

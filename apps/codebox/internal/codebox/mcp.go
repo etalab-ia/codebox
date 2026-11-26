@@ -59,7 +59,7 @@ var RemovedMCPIDs = map[string]string{
 // box is checked. Figures await Luis's final values; the disk figure is the P03
 // measurement already cited by BrowserResourceGuidance and the memory figure is
 // the default guest allocation.
-const BrowserDownloadNote = "Le navigateur est téléchargé dans la machine isolée au premier lancement (environ 2,6 Go). Prévoyez au moins 4 Go de mémoire."
+const BrowserDownloadNote = "Le navigateur est téléchargé dans la sandbox au premier lancement (environ 2,6 Go). Prévoyez au moins 4 Go de mémoire."
 
 // DefaultFreshMCPIDs is the pre-checked selection for a fresh initialization
 // (no manifest, no flag): data-gouv is offered by default (#168).
@@ -111,7 +111,7 @@ func MCPConnectors() []MCPConnector {
 var browserMPCCatalogue = map[string]BrowserMCP{
 	"chrome-devtools": {
 		ID: "chrome-devtools", Name: "chrome-devtools",
-		Description: "navigateur dans la machine isolée, pour tester une application web : console, réseau, performances",
+		Description: "navigateur dans la sandbox, pour tester une application web : console, réseau, performances",
 		Package:     "chrome-devtools-mcp", Version: "1.10.1", Command: "chrome-devtools-mcp",
 		// Both opt-outs are mandatory, not tuning (#370). Upstream enables
 		// them by default: usage statistics go to Google's Clearcut endpoint,

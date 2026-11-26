@@ -380,14 +380,14 @@ func (a *AgentVM) ensureOpenCode(ctx context.Context) error {
 		return nil
 	}
 	if a.Config.AgentVMTemplate != DefaultAgentVMTemplate {
-		return fmt.Errorf("un template agent-vm personnalisé requiert OpenCode v%s ; installez @opencode/cli@%s dans la machine isolée avant de démarrer codebox", OpenCodeVersion, OpenCodeVersion)
+		return fmt.Errorf("un template agent-vm personnalisé requiert OpenCode v%s ; installez @opencode/cli@%s dans la sandbox avant de démarrer codebox", OpenCodeVersion, OpenCodeVersion)
 	}
 	fmt.Println("Mise à jour d'OpenCode géré dans agent-vm (les sessions sont conservées)...")
 	if err := a.guestRun(ctx, "sh", "-c", "curl -fsSL https://opencode.ai/v2/install | bash -s -- --version "+OpenCodeVersion+" --no-modify-path"); err != nil {
 		return err
 	}
 	if !probe() {
-		return fmt.Errorf("agent-vm doit fournir OpenCode v%s après l'installation ; vérifiez le PATH de la machine isolée", OpenCodeVersion)
+		return fmt.Errorf("agent-vm doit fournir OpenCode v%s après l'installation ; vérifiez le PATH de la sandbox", OpenCodeVersion)
 	}
 	return nil
 }
@@ -440,7 +440,7 @@ func (a *AgentVM) launchBackend(ctx context.Context) error {
 // #74); the warning stays so the choice is visible on every start.
 func (a *AgentVM) validateConfig(ctx context.Context) error {
 	if !a.Config.GuestCredentialsAcknowledged {
-		return fmt.Errorf("agent-vm transmet les identifiants d'inférence à la machine isolée en clair, où n'importe quel processus (l'agent compris) peut les lire ; " +
+		return fmt.Errorf("agent-vm transmet les identifiants d'inférence à la sandbox en clair, où n'importe quel processus (l'agent compris) peut les lire ; " +
 			"passez --acknowledge-guest-credentials pour l'accepter, ou utilisez --microsandbox, qui garde l'identifiant derrière le proxy de secrets")
 	}
 	if _, err := ResolveProviderKeysWith(readStoredWith, ctx, a.Config, ""); err != nil {
@@ -576,6 +576,38 @@ func (a *AgentVM) StopInstance(ctx context.Context, vm string) error {
 	return nil
 }
 
+// InstancePortMappings reports TCP ports currently listening inside the named
+// running AgentVM instance (which Lima dynamically forwards to the host,
+// including DefaultPort 4096 in backend mode and dev preview ports like 3000)
+// (#519). Guest SSH (port 22) is excluded because Lima does not forward it to
+// host port 22.
+func (a *AgentVM) InstancePortMappings(ctx context.Context, name string) ([]PortMapping, error) {
+	const probe = `if [ ! -r /proc/net/tcp ]; then exit 1; fi; awk '$4=="0A" {print $2}' /proc/net/tcp; if [ -r /proc/net/tcp6 ]; then awk '$4=="0A" {print $2}' /proc/net/tcp6; fi`
+	res, err := a.Runner.Run(ctx, "limactl", "shell", name, "sh", "-c", probe)
+	if err != nil {
+		return nil, err
+	}
+	if res.ExitCode != 0 {
+		return nil, fmt.Errorf("limactl shell %s : code %d", name, res.ExitCode)
+	}
+	seen := make(map[uint16]bool)
+	var ports []PortMapping
+	for _, field := range strings.Fields(res.Stdout) {
+		idx := strings.LastIndexByte(field, ':')
+		if idx < 0 || idx+1 >= len(field) {
+			continue
+		}
+		p, err := strconv.ParseUint(field[idx+1:], 16, 16)
+		if err != nil || p == 0 || p == 22 || seen[uint16(p)] {
+			continue
+		}
+		seen[uint16(p)] = true
+		ports = append(ports, PortMapping{Host: uint16(p), Guest: uint16(p)})
+	}
+	sort.Slice(ports, func(i, j int) bool { return ports[i].Host < ports[j].Host })
+	return ports, nil
+}
+
 // StopAll stops every running managed Lima instance, the explicit
 // all-instance operation (P06).
 func (a *AgentVM) StopAll(ctx context.Context) error {
@@ -584,7 +616,7 @@ func (a *AgentVM) StopAll(ctx context.Context) error {
 		return err
 	}
 	if len(vms) == 0 {
-		fmt.Println("Aucune machine isolée agent-vm codebox n'est en cours d'exécution.")
+		fmt.Println("Aucune sandbox agent-vm codebox n'est en cours d'exécution.")
 		return nil
 	}
 	var firstErr error
@@ -693,7 +725,7 @@ func (a *AgentVM) Restart(ctx context.Context) error {
 // Recreate is the explicit destructive rebuild of the VM (P07). It names the
 // loss before and after. No lifecycle path reaches it implicitly.
 func (a *AgentVM) Recreate(ctx context.Context) error {
-	fmt.Printf("Recréation de %s. Cela DÉTRUIT : les sessions de la machine isolée, les outils installés dans l'invité et les fichiers propres à l'invité.\n", a.VMName())
+	fmt.Printf("Recréation de %s. Cela DÉTRUIT : les sessions de la sandbox, les outils installés dans l'invité et les fichiers propres à l'invité.\n", a.VMName())
 	if err := a.RestartPreflights(ctx); err != nil {
 		return err
 	}
@@ -801,7 +833,7 @@ func (a *AgentVM) RunAgent(ctx context.Context) error {
 	}
 	resumeArgs, warn := OpenCodeResumeArgs(hasSessions, listErr, helpOutput, helpErr)
 	if warn {
-		WarnOpenCodeResumeUnavailable("dans la machine isolée agent-vm")
+		WarnOpenCodeResumeUnavailable("dans la sandbox agent-vm")
 	}
 	resumeFlag := strings.Join(resumeArgs, " ")
 	if resumeFlag != "" {

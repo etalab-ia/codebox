@@ -120,8 +120,8 @@ func printSecretsUsage() {
 	fmt.Println("       codebox secrets bindings list | approve <profile> <component> <NAME> --destination <host> | revoke <profile> <component> <NAME>")
 	fmt.Println("       codebox secrets profile <name> | --clear")
 	fmt.Println("       codebox secrets login [--terminal] | logout | check | init | push | members <list|add|remove>")
-	fmt.Println("L'aperçu est en lecture seule. --apply enregistre les valeurs littérales dans le périmètre projet/profil/fichier sélectionné ; il n'approuve ni ne livre aucune valeur à la machine isolée.")
-	fmt.Println("Approuver une liaison (secrets bindings approve) est l'étape distincte, locale au poste, qui autorise le proxy de la machine isolée à exposer une valeur importée vers des destinations précises.")
+	fmt.Println("L'aperçu est en lecture seule. --apply enregistre les valeurs littérales dans le périmètre projet/profil/fichier sélectionné ; il n'approuve ni ne livre aucune valeur à la sandbox.")
+	fmt.Println("Approuver une liaison (secrets bindings approve) est l'étape distincte, locale au poste, qui autorise le proxy de la sandbox à exposer une valeur importée vers des destinations précises.")
 	fmt.Println("Les secrets de développement partagés passent par ProConnect et le codebox-server ; les secrets de production sont hors périmètre.")
 	fmt.Println("Sans --file, un terminal interactif propose une découverte bornée des fichiers dotenv. Un usage non interactif doit nommer chaque --file.")
 }

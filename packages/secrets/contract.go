@@ -442,10 +442,10 @@ func ValidateBindingHints(hints []BindingHint) error {
 		switch h.NormalizedDelivery() {
 		case DeliveryGuest:
 			if len(h.Destinations) > 0 {
-				return fmt.Errorf("la liaison lisible par la machine isolée %s (%s) ne doit pas déclarer de destinations", h.Name, h.Component)
+				return fmt.Errorf("la liaison lisible par la sandbox %s (%s) ne doit pas déclarer de destinations", h.Name, h.Component)
 			}
 			if h.GuestEnv != "" {
-				return fmt.Errorf("la liaison lisible par la machine isolée %s (%s) ne doit pas déclarer de guestEnv", h.Name, h.Component)
+				return fmt.Errorf("la liaison lisible par la sandbox %s (%s) ne doit pas déclarer de guestEnv", h.Name, h.Component)
 			}
 		case DeliveryProxy:
 			effectiveEnv := h.GuestEnv

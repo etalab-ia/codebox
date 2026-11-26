@@ -277,7 +277,7 @@ func TestInitHuhEmptySkillsAcceptedOnceAcrossMCPRetry(t *testing.T) {
 		switch {
 		case strings.Contains(view, "Agent (harnais)"):
 			// Harness step: keep the default and move on.
-		case strings.Contains(view, "Machine isolée"):
+		case strings.Contains(view, "Sandbox"):
 			// VM step: keep the default and move on.
 		case strings.Contains(view, "Aucun MCP sélectionné"):
 			mcpConfirmations++

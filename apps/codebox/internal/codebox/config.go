@@ -3,6 +3,7 @@ package codebox
 import (
 	"bufio"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -179,16 +180,13 @@ const (
 	MaxSandboxMemoryMB = 1<<31 - 1
 )
 
-// LoadConfigEnv resolves configuration from the process environment.
-//
-// It no longer loads a .env implicitly (P12). The implicit load made the
-// launch depend on an untracked file in the working directory — the exact kind
-// of file that carries secrets and that the sealed workspace exists to keep
-// out of the guest — and it made behaviour differ between two invocations of
-// the same binary. Exported variables are still honoured, and a .env left in
-// place is reported with the explicit command that imports it, so the change
-// is visible rather than silent.
-func LoadConfigEnv() Config {
+// WarnIgnoredDotenv reports a present .env file that codebox deliberately does
+// not load automatically (P12). Callers that launch an interactive onboarding
+// wizard can defer or omit this notice so it does not appear before the wizard.
+func WarnIgnoredDotenv(w io.Writer) {
+	if w == nil {
+		w = os.Stderr
+	}
 	// Detect without applying: the user is told the file was not read and how
 	// to adopt it, instead of discovering the difference from behaviour.
 	for _, dir := range dotenvDirs() {
@@ -196,7 +194,7 @@ func LoadConfigEnv() Config {
 		info, err := os.Stat(path)
 		if err != nil {
 			if !os.IsNotExist(err) {
-				fmt.Fprintf(os.Stderr, "Attention : %s n'a pas pu être inspecté (%v) ; il n'est de toute façon pas lu, car codebox ne charge plus .env automatiquement.\n", path, err)
+				fmt.Fprintf(w, "Attention : %s n'a pas pu être inspecté (%v) ; il n'est de toute façon pas lu, car codebox ne charge plus .env automatiquement.\n", path, err)
 			}
 			continue
 		}
@@ -211,18 +209,38 @@ func LoadConfigEnv() Config {
 		if abs, err := filepath.Abs(path); err == nil {
 			shown = abs
 		}
-		fmt.Fprintf(os.Stderr, "Attention : %s n'a pas été lu : codebox ne charge plus .env automatiquement.\n"+
+		fmt.Fprintf(w, "Attention : %s n'a pas été lu : codebox ne charge plus .env automatiquement.\n"+
 			"      Les variables exportées restent prises en compte. Pour voir son contenu et où va\n"+
 			"      chaque valeur : 'codebox config import-env %s' (aperçu seulement ; la clé Albert\n"+
 			"      se range dans le magasin d'identifiants : 'codebox auth add albert').\n", shown, shown)
 		break
 	}
+}
+
+// LoadConfigEnvQuiet resolves configuration from the process environment
+// without printing the ignored-.env notice. Like LoadConfigEnv, it never reads
+// a .env file implicitly.
+func LoadConfigEnvQuiet() Config {
 	if _, ok := os.LookupEnv("WORKSPACE_DIR"); !ok {
 		if _, legacy := os.LookupEnv("PROJECT_DIR"); legacy {
 			fmt.Fprintln(os.Stderr, "Attention : PROJECT_DIR est déprécié ; utilisez WORKSPACE_DIR à la place.")
 		}
 	}
 	return LoadConfig(os.LookupEnv)
+}
+
+// LoadConfigEnv resolves configuration from the process environment.
+//
+// It no longer loads a .env implicitly (P12). The implicit load made the
+// launch depend on an untracked file in the working directory — the exact kind
+// of file that carries secrets and that the sealed workspace exists to keep
+// out of the guest — and it made behaviour differ between two invocations of
+// the same binary. Exported variables are still honoured, and a .env left in
+// place is reported with the explicit command that imports it, so the change
+// is visible rather than silent.
+func LoadConfigEnv() Config {
+	WarnIgnoredDotenv(os.Stderr)
+	return LoadConfigEnvQuiet()
 }
 
 // parseStartTimeout parses CODEBOX_START_TIMEOUT, a whole number of seconds.

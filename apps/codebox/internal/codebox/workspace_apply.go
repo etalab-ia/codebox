@@ -92,7 +92,7 @@ func (m *MicrosandboxRuntime) CollectGuestChanges(ctx context.Context) ([]GuestC
 		return nil, err
 	}
 	if code != 0 {
-		return nil, fmt.Errorf("la machine isolée n'a pas pu lister ses modifications (code %d) : %s", code, strings.TrimSpace(stderr))
+		return nil, fmt.Errorf("la sandbox n'a pas pu lister ses modifications (code %d) : %s", code, strings.TrimSpace(stderr))
 	}
 	stats := parseNumstatZ(numstatOut)
 	diffOut, stderr, code, err := m.Client.ExecCapture(ctx, m.InstanceName(),
@@ -101,7 +101,7 @@ func (m *MicrosandboxRuntime) CollectGuestChanges(ctx context.Context) ([]GuestC
 		return nil, err
 	}
 	if code != 0 {
-		return nil, fmt.Errorf("la machine isolée n'a pas pu produire un diff (code %d) : %s", code, strings.TrimSpace(stderr))
+		return nil, fmt.Errorf("la sandbox n'a pas pu produire un diff (code %d) : %s", code, strings.TrimSpace(stderr))
 	}
 	if len(stats) == 0 && strings.TrimSpace(diffOut) == "" {
 		// The diff is empty, but a guest that reverted a file recovered
@@ -112,7 +112,7 @@ func (m *MicrosandboxRuntime) CollectGuestChanges(ctx context.Context) ([]GuestC
 	}
 	sections := splitDiffSections(diffOut)
 	if len(sections) != len(stats) {
-		return nil, fmt.Errorf("l'espace de travail de la machine isolée a changé pendant sa lecture (%d fichiers listés, %d dans le patch) ; relancez la commande", len(stats), len(sections))
+		return nil, fmt.Errorf("l'espace de travail de la sandbox a changé pendant sa lecture (%d fichiers listés, %d dans le patch) ; relancez la commande", len(stats), len(sections))
 	}
 	changes := make([]GuestChange, 0, len(sections))
 	for i, section := range sections {
@@ -201,19 +201,19 @@ func (m *MicrosandboxRuntime) guestContentDigests(ctx context.Context, rels []st
 		return nil, err
 	}
 	if code != 0 {
-		return nil, fmt.Errorf("la machine isolée n'a pas pu lire les fichiers récupérés (code %d) : %s", code, strings.TrimSpace(stderr))
+		return nil, fmt.Errorf("la sandbox n'a pas pu lire les fichiers récupérés (code %d) : %s", code, strings.TrimSpace(stderr))
 	}
 	var lines []string
 	if trimmed := strings.TrimSpace(stdout); trimmed != "" {
 		lines = strings.Split(trimmed, "\n")
 	}
 	if len(lines) != len(rels) {
-		return nil, fmt.Errorf("l'espace de travail de la machine isolée a changé pendant sa lecture (%d fichiers demandés, %d répondus) ; relancez la commande", len(rels), len(lines))
+		return nil, fmt.Errorf("l'espace de travail de la sandbox a changé pendant sa lecture (%d fichiers demandés, %d répondus) ; relancez la commande", len(rels), len(lines))
 	}
 	for i, rel := range rels {
 		digest := strings.TrimSpace(lines[i])
 		if digest == "" {
-			return nil, fmt.Errorf("la machine isolée n'a renvoyé aucune empreinte pour %s", rel)
+			return nil, fmt.Errorf("la sandbox n'a renvoyé aucune empreinte pour %s", rel)
 		}
 		out[rel] = digest
 	}
@@ -485,7 +485,7 @@ func (m *MicrosandboxRuntime) GuestBranchStatus(ctx context.Context) (GuestBranc
 		return GuestBranchStatus{}, err
 	}
 	if code != 0 {
-		return GuestBranchStatus{}, fmt.Errorf("échec de `git for-each-ref refs/heads` dans la machine isolée : %s", strings.TrimSpace(stderr))
+		return GuestBranchStatus{}, fmt.Errorf("échec de `git for-each-ref refs/heads` dans la sandbox : %s", strings.TrimSpace(stderr))
 	}
 	remotesOut, stderr, code, err := m.Client.ExecCapture(ctx, m.InstanceName(),
 		prefix+"git for-each-ref --format="+shellQuote("%(refname:short)%00%(committerdate:unix)")+" refs/remotes/origin")
@@ -493,7 +493,7 @@ func (m *MicrosandboxRuntime) GuestBranchStatus(ctx context.Context) (GuestBranc
 		return GuestBranchStatus{}, err
 	}
 	if code != 0 {
-		return GuestBranchStatus{}, fmt.Errorf("échec de `git for-each-ref refs/remotes/origin` dans la machine isolée : %s", strings.TrimSpace(stderr))
+		return GuestBranchStatus{}, fmt.Errorf("échec de `git for-each-ref refs/remotes/origin` dans la sandbox : %s", strings.TrimSpace(stderr))
 	}
 	remoteBranches := parseGuestLocalBranches(remotesOut)
 	reflogsOut, stderr, code, err := m.Client.ExecCapture(ctx, m.InstanceName(),
@@ -502,7 +502,7 @@ func (m *MicrosandboxRuntime) GuestBranchStatus(ctx context.Context) (GuestBranc
 		return GuestBranchStatus{}, err
 	}
 	if code != 0 {
-		return GuestBranchStatus{}, fmt.Errorf("échec de `git reflog --all` dans la machine isolée : %s", strings.TrimSpace(stderr))
+		return GuestBranchStatus{}, fmt.Errorf("échec de `git reflog --all` dans la sandbox : %s", strings.TrimSpace(stderr))
 	}
 	pushedRemoteRefs := parseGuestPushedRemoteRefs(reflogsOut)
 	sessionRemotes := make([]guestLocalBranch, 0, len(remoteBranches))
@@ -999,23 +999,23 @@ func (m *MicrosandboxRuntime) ReadGuestFile(ctx context.Context, rel string) ([]
 		return nil, 0, err
 	}
 	if code != 0 {
-		return nil, 0, fmt.Errorf("la machine isolée n'a pas pu lire %s (code %d) : %s", rel, code, strings.TrimSpace(stderr))
+		return nil, 0, fmt.Errorf("la sandbox n'a pas pu lire %s (code %d) : %s", rel, code, strings.TrimSpace(stderr))
 	}
 	nl := strings.IndexByte(stdout, '\n')
 	if nl < 0 {
-		return nil, 0, fmt.Errorf("la machine isolée n'a renvoyé aucun en-tête de fichier pour %s", rel)
+		return nil, 0, fmt.Errorf("la sandbox n'a renvoyé aucun en-tête de fichier pour %s", rel)
 	}
 	fields := strings.Fields(stdout[:nl])
 	if len(fields) != 2 {
-		return nil, 0, fmt.Errorf("la machine isolée a renvoyé un en-tête de fichier illisible pour %s : %q", rel, stdout[:nl])
+		return nil, 0, fmt.Errorf("la sandbox a renvoyé un en-tête de fichier illisible pour %s : %q", rel, stdout[:nl])
 	}
 	mode64, err := strconv.ParseUint(fields[0], 8, 32)
 	if err != nil {
-		return nil, 0, fmt.Errorf("la machine isolée a renvoyé des permissions illisibles pour %s : %q", rel, fields[0])
+		return nil, 0, fmt.Errorf("la sandbox a renvoyé des permissions illisibles pour %s : %q", rel, fields[0])
 	}
 	content, err := base64.StdEncoding.DecodeString(strings.TrimSpace(stdout[nl+1:]))
 	if err != nil {
-		return nil, 0, fmt.Errorf("la machine isolée a renvoyé un contenu illisible pour %s : %v", rel, err)
+		return nil, 0, fmt.Errorf("la sandbox a renvoyé un contenu illisible pour %s : %v", rel, err)
 	}
 	return content, os.FileMode(mode64).Perm(), nil
 }

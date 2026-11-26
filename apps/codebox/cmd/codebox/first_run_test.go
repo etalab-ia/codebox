@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -970,7 +971,7 @@ func TestCombinedHuhDefaultsAreEmptyAndNumbered(t *testing.T) {
 		want string
 	}{
 		{got: initHarnessStepTitle(opts), want: "[3/6] Agent (harnais)"},
-		{got: initVMStepTitle(opts), want: "[4/6] Machine isolée"},
+		{got: initVMStepTitle(opts), want: "[4/6] Sandbox"},
 		{got: initSkillsStepTitle(opts), want: "[5/6] "},
 		{got: initMCPStepTitle(opts), want: "[6/6] MCP (facultatif)"},
 	} {
@@ -1164,5 +1165,217 @@ func TestInitRuntimeOptionsFilterUnsupportedPlatforms(t *testing.T) {
 				t.Fatalf("tart=%v agent=%v, want %v/%v", tart, agent, tc.wantTart, tc.wantAgent)
 			}
 		})
+	}
+}
+
+func TestCombinedInitRunUsesConciseOutputAndPreservesAdvancedReview(t *testing.T) {
+	setupTestEnv(t)
+	origRun := huhRun
+	origAdv := runInitAdvancedForm
+	origHost := detectHostResourcesFn
+	origGitHub := githubInitProbeFn
+	origCatalogue := catalogueModelWarningFn
+	origSkills := projectSkillCatalogueFn
+	t.Cleanup(func() {
+		huhRun = origRun
+		runInitAdvancedForm = origAdv
+		detectHostResourcesFn = origHost
+		githubInitProbeFn = origGitHub
+		catalogueModelWarningFn = origCatalogue
+		projectSkillCatalogueFn = origSkills
+	})
+	huhRun = func(*huh.Form) error { return nil }
+	runInitAdvancedForm = func(*huh.Form) (bool, error) { return true, nil }
+	detectHostResourcesFn = func() (codebox.HostResources, error) {
+		return codebox.HostResources{CPUs: 8, MemoryMB: 16384}, nil
+	}
+	githubInitProbeFn = func(string) codebox.GitHubProjectStatus { return codebox.GitHubProjectStatus{} }
+	catalogueModelWarningFn = func(string, string) (string, error) { return "avertissement de test", nil }
+	projectSkillCatalogueFn = func(context.Context) ([]codebox.ProjectSkill, error) { return nil, nil }
+
+	t.Run("combined from launch hides file list and long review but keeps warnings", func(t *testing.T) {
+		root := initTestProject(t)
+		origHuh, origGH := wizardHuhFn, githubInitProbeFn
+		wizardHuhFn = func() bool { return true }
+		githubInitProbeFn = func(string) codebox.GitHubProjectStatus { return codebox.GitHubProjectStatus{} }
+		t.Cleanup(func() { wizardHuhFn, githubInitProbeFn = origHuh, origGH })
+		opts := initOptions{
+			Root:       root,
+			Combined:   true,
+			FromLaunch: true,
+			Model:      "albert/deepseek-v4-flash",
+			Providers:  []codebox.ProviderSettings{{Kind: codebox.ProviderAlbert}},
+			Set:        map[string]bool{"root": true, "providers": true, "model": true},
+		}
+		var code int
+		var err error
+		var stderr string
+		stdout := captureStdout(t, func() {
+			stderr = captureStderr(t, func() {
+				code, err = initRun(opts, bufio.NewReader(strings.NewReader("")), true)
+			})
+		})
+		if err != nil || code != 0 {
+			t.Fatalf("initRun combined = %d, %v", code, err)
+		}
+		if strings.TrimSpace(stdout) != "Projet configuré." {
+			t.Fatalf("combined FromLaunch stdout = %q, want concise single-line confirmation", stdout)
+		}
+		for _, unwanted := range []string{"Écrit ", "Récapitulatif du projet", "Fichiers modifiés", "L'initialisation ne démarre", "Poursuite du lancement"} {
+			if strings.Contains(stdout, unwanted) || strings.Contains(stderr, unwanted) {
+				t.Errorf("combined output leaked %q:\nstdout=%q\nstderr=%q", unwanted, stdout, stderr)
+			}
+		}
+		if !strings.Contains(stderr, "Attention : avertissement de test") {
+			t.Fatalf("combined output dropped plan warning: stderr=%q", stderr)
+		}
+	})
+
+	t.Run("combined standalone stays concise with launch hint", func(t *testing.T) {
+		root := initTestProject(t)
+		origHuh, origGH := wizardHuhFn, githubInitProbeFn
+		wizardHuhFn = func() bool { return true }
+		githubInitProbeFn = func(string) codebox.GitHubProjectStatus { return codebox.GitHubProjectStatus{} }
+		t.Cleanup(func() { wizardHuhFn, githubInitProbeFn = origHuh, origGH })
+		opts := initOptions{
+			Root:      root,
+			Combined:  true,
+			Providers: []codebox.ProviderSettings{{Kind: codebox.ProviderAlbert}},
+			Set:       map[string]bool{"root": true, "providers": true},
+		}
+		var code int
+		var err error
+		stdout := captureStdout(t, func() {
+			code, err = initRun(opts, bufio.NewReader(strings.NewReader("")), true)
+		})
+		if err != nil || code != 0 {
+			t.Fatalf("initRun standalone combined = %d, %v", code, err)
+		}
+		if strings.TrimSpace(stdout) != "Projet configuré.\nLancez l'agent : codebox" {
+			t.Fatalf("standalone combined stdout = %q", stdout)
+		}
+	})
+
+	t.Run("advanced keeps full interactive review", func(t *testing.T) {
+		root := initTestProject(t)
+		origHuh, origGH := wizardHuhFn, githubInitProbeFn
+		wizardHuhFn = func() bool { return true }
+		githubInitProbeFn = func(string) codebox.GitHubProjectStatus { return codebox.GitHubProjectStatus{} }
+		t.Cleanup(func() { wizardHuhFn, githubInitProbeFn = origHuh, origGH })
+		opts := initOptions{
+			Root:      root,
+			Combined:  true,
+			Advanced:  true,
+			Providers: []codebox.ProviderSettings{{Kind: codebox.ProviderAlbert}},
+			Set:       map[string]bool{"root": true, "providers": true},
+		}
+		var code int
+		var err error
+		stdout := captureStdout(t, func() {
+			code, err = initRun(opts, bufio.NewReader(strings.NewReader("")), true)
+		})
+		if err != nil || code != 0 {
+			t.Fatalf("initRun advanced = %d, %v", code, err)
+		}
+		if !strings.Contains(stdout, "Récapitulatif du projet") || !strings.Contains(stdout, "Écrit ") {
+			t.Fatalf("--advanced must preserve full interactive review, got:\n%s", stdout)
+		}
+	})
+}
+
+func TestRunSuppressesPreWizardDotenvWarning(t *testing.T) {
+	setupTestEnv(t)
+	root := initTestProject(t)
+	const probeKey = "CODEBOX_MODEL"
+	if _, present := os.LookupEnv(probeKey); present {
+		t.Skipf("%s is set in this environment; absence check needs it unset", probeKey)
+	}
+	if err := os.WriteFile(filepath.Join(root, ".env"), []byte(probeKey+"=from-dotenv\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	wd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chdir(root); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chdir(wd) })
+
+	origHost := detectHostResourcesFn
+	origTTY := initTTYFn
+	origStdoutTTY := initStdoutTTYFn
+	origCombined := combinedFirstRunFn
+	t.Cleanup(func() {
+		detectHostResourcesFn = origHost
+		initTTYFn = origTTY
+		initStdoutTTYFn = origStdoutTTY
+		combinedFirstRunFn = origCombined
+	})
+	detectHostResourcesFn = func() (codebox.HostResources, error) {
+		return codebox.HostResources{CPUs: 8, MemoryMB: 16384}, nil
+	}
+
+	// Entering the wizard via `codebox init` must not print a pre-wizard .env warning.
+	var code int
+	stderr := captureStderr(t, func() {
+		_ = captureStdout(t, func() {
+			code, err = run([]string{"init", "--root", root, "--yes"})
+		})
+	})
+	if err != nil || code != 0 {
+		t.Fatalf("run(init --yes) = %d, %v", code, err)
+	}
+	if strings.Contains(stderr, "n'a pas été lu") || strings.Contains(stderr, "config import-env") {
+		t.Fatalf("codebox init must not emit pre-wizard .env warning: %q", stderr)
+	}
+	if value, present := os.LookupEnv(probeKey); present {
+		t.Fatalf(".env must never be applied implicitly, got %s=%q", probeKey, value)
+	}
+
+	// Launching `codebox` on an unconfigured project must not warn about .env
+	// before entering the 6-step wizard either.
+	fresh := initTestProject(t)
+	if err := os.WriteFile(filepath.Join(fresh, ".env"), []byte(probeKey+"=from-dotenv\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chdir(fresh); err != nil {
+		t.Fatal(err)
+	}
+	rPipe, wPipe, pipeErr := os.Pipe()
+	if pipeErr != nil {
+		t.Fatal(pipeErr)
+	}
+	origStdin := os.Stdin
+	os.Stdin = rPipe
+	t.Cleanup(func() {
+		os.Stdin = origStdin
+		_ = rPipe.Close()
+		_ = wPipe.Close()
+	})
+	_ = wPipe.Close()
+	stderr = captureStderr(t, func() {
+		_ = captureStdout(t, func() {
+			_, _ = run([]string{})
+		})
+	})
+	if strings.Contains(stderr, "n'a pas été lu") || strings.Contains(stderr, "config import-env") {
+		t.Fatalf("launching unconfigured project must not emit pre-wizard .env warning: %q", stderr)
+	}
+	if err := os.Chdir(root); err != nil {
+		t.Fatal(err)
+	}
+
+	// Non-wizard commands still report an ignored .env on stderr.
+	stderr = captureStderr(t, func() {
+		_ = captureStdout(t, func() {
+			code, err = run([]string{"trust", "status"})
+		})
+	})
+	if err != nil || code != 0 {
+		t.Fatalf("run(trust status) = %d, %v", code, err)
+	}
+	if !strings.Contains(stderr, "n'a pas été lu") || !strings.Contains(stderr, "config import-env") {
+		t.Fatalf("non-wizard command must still warn about ignored .env, got: %q", stderr)
 	}
 }

@@ -2,7 +2,6 @@ package codebox
 
 import (
 	"context"
-	"os"
 	"sort"
 	"strings"
 	"sync"
@@ -295,6 +294,7 @@ func (f *fakeInstanceBackend) Endpoint(context.Context) (string, error) {
 	return "http://localhost:4096", nil
 }
 func (f *fakeInstanceBackend) RunAgent(context.Context) error { return nil }
+func (f *fakeInstanceBackend) InstanceName() string           { return f.instance }
 func (f *fakeInstanceBackend) Status(context.Context) (string, error) {
 	return f.instance + " state", nil
 }
@@ -341,50 +341,40 @@ func TestStopAllSweepsOtherProjectsInstances(t *testing.T) {
 	}
 }
 
-// TestPrepareDetectsConflictsInOtherProjects pins the second P06 review
-// fix: Prepare must enumerate running instances globally. The dispatcher is
-// bound to project A with no instance of its own running, but project B has
-// an instance up on another runtime — that is a conflict the old
-// project-scoped Running() could not see.
-func TestPrepareDetectsConflictsInOtherProjects(t *testing.T) {
+// TestPrepareAllowsConcurrentProjectsWithoutPortConflict verifies #519:
+// Prepare allows independent projects on non-conflicting runtimes/ports to run
+// concurrently, while still detecting same-project runtime switches and
+// overlapping host-port collisions.
+func TestPrepareAllowsConcurrentProjectsWithoutPortConflict(t *testing.T) {
 	withGOOS(t, "linux")
 	surface := newFakeInstanceSurface()
-	d := NewDispatcherForInstance(Config{}, "cb-a-11111")
+	d := NewDispatcherForInstance(Config{Isolation: IsolationFull}, "cb-a-11111")
 	d.backends[RuntimeTart] = &fakeInstanceBackend{surface: surface, id: RuntimeTart, instance: "opencode-cb-a-11111"}
-	d.backends[RuntimeAgentVM] = &fakeInstanceBackend{surface: surface, id: RuntimeAgentVM, instance: "opencode-cb-b-22222"}
+	d.backends[RuntimeAgentVM] = &fakeInstanceBackend{surface: surface, id: RuntimeAgentVM, instance: "opencode-cb-a-11111"}
 	sealMicrosandbox(d)
 
+	// Another project's AgentVM instance does not share host loopback ports
+	// with Tart (which uses its own NAT IP), so Prepare must allow both.
 	surface.running["opencode-cb-b-22222"] = true
-
-	err := d.Prepare(context.Background(), RuntimeTart)
-	if err == nil {
-		t.Fatal("Prepare missed a conflict running in another project: project-scoped Running() was used instead of the global enumeration")
-	}
-	if !strings.Contains(err.Error(), "opencode-cb-b-22222") {
-		t.Errorf("conflict message should name the running instance, got: %v", err)
+	if err := d.Prepare(context.Background(), RuntimeTart); err != nil {
+		t.Fatalf("Prepare must allow another project's non-conflicting instance, got: %v", err)
 	}
 }
 
-func TestPrepareDetectsSameRuntimeOtherProject(t *testing.T) {
+func TestPrepareAllowsSameRuntimeOtherProjectWithoutPortConflict(t *testing.T) {
 	withGOOS(t, "linux")
-	if isTerminal(os.Stdin) {
-		t.Skip("stdin is a TTY; the non-interactive refusal path is not testable here")
-	}
-	// Observation Codex PR #81 : une instance du MÊME runtime dans un autre
-	// projet doit compter comme conflit — l'ancien code sautait tout le
-	// runtime demandé et ne la voyait jamais.
 	surface := newFakeInstanceSurface()
-	d := NewDispatcherForInstance(Config{}, "cb-a-11111")
+	d := NewDispatcherForInstance(Config{Isolation: IsolationFull}, "cb-a-11111")
 	d.backends[RuntimeTart] = &fakeInstanceBackend{surface: surface, id: RuntimeTart, instance: "opencode-cb-a-11111"}
+	sealMicrosandbox(d)
 
-	surface.running["opencode-cb-b-22222"] = true // autre projet, même runtime
-
-	err := d.Prepare(context.Background(), RuntimeTart)
-	if err == nil || !strings.Contains(err.Error(), "opencode-cb-b-22222") {
-		t.Fatalf("expected conflict on the other project's instance, got %v", err)
+	// Another project's Tart VM uses its own NAT IP and does not conflict.
+	surface.running["opencode-cb-b-22222"] = true
+	if err := d.Prepare(context.Background(), RuntimeTart); err != nil {
+		t.Fatalf("Prepare must allow another project's Tart VM concurrently, got: %v", err)
 	}
 
-	// L'instance du projet courant ne doit PAS être un conflit (réutilisation).
+	// Own instance reuse must also stay allowed.
 	surface.running["opencode-cb-a-11111"] = true
 	surface.running["opencode-cb-b-22222"] = false
 	if err := d.Prepare(context.Background(), RuntimeTart); err != nil {

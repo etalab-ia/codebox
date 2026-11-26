@@ -240,7 +240,7 @@ func (d *GuestDNSDiagnostic) Error() string {
 		resolvers := strings.Join(d.HostDNS.Nameservers, ", ")
 		if d.GOOS == "darwin" {
 			return fmt.Sprintf(
-				"la machine isolée ne peut pas résoudre %s (alors que le poste y accède) : "+
+				"la sandbox ne peut pas résoudre %s (alors que le poste y accède) : "+
 					"le poste n'expose qu'un serveur DNS IPv6 lien-local (%s, fréquent en partage de connexion), "+
 					"que Microsandbox ne sait pas encore relayer.\n"+
 					"Contournement : définissez un DNS routable sur le poste "+
@@ -249,7 +249,7 @@ func (d *GuestDNSDiagnostic) Error() string {
 				d.Host, resolvers)
 		}
 		return fmt.Sprintf(
-			"la machine isolée ne peut pas résoudre %s (alors que le poste y accède) : "+
+			"la sandbox ne peut pas résoudre %s (alors que le poste y accède) : "+
 				"le poste n'expose qu'un serveur DNS IPv6 lien-local (%s, fréquent en partage de connexion), "+
 				"que Microsandbox ne sait pas encore relayer.\n"+
 				"Contournement : configurez un serveur DNS routable sur le poste puis lancez 'codebox restart', "+
@@ -257,7 +257,7 @@ func (d *GuestDNSDiagnostic) Error() string {
 			d.Host, resolvers)
 	}
 	return fmt.Sprintf(
-		"la machine isolée ne peut pas résoudre %s alors que le poste y accède "+
+		"la sandbox ne peut pas résoudre %s alors que le poste y accède "+
 			"(Microsandbox lit les serveurs DNS du poste uniquement au démarrage de la machine).\n"+
 			"Lancez 'codebox restart' pour relire la configuration DNS actuelle du poste, "+
 			"ou 'CODEBOX_DNS_NAMESERVERS=9.9.9.9 codebox recreate --microsandbox' si le réseau actuel ne fournit pas de DNS exploitable.",
