@@ -1647,6 +1647,9 @@ func handleInteractiveRecreateOnLaunch(ctx context.Context, d *codebox.Dispatche
 	if !confirmed {
 		return 1, fmt.Errorf("recréation annulée ; rien n'a été détruit")
 	}
+	if err := d.PrepareForRecreate(ctx, codebox.RuntimeMicrosandbox); err != nil {
+		return 1, err
+	}
 	if err := launchRecreateRunFn(ctx, msb); err != nil {
 		return 1, err
 	}

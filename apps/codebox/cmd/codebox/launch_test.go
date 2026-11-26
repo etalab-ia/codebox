@@ -362,3 +362,100 @@ func TestLaunchRecreateBackupPathIsUniqueAcrossRuns(t *testing.T) {
 		t.Fatalf("unexpected backup path: %q", first)
 	}
 }
+
+type fakeRecreateConflictBackend struct {
+	id      codebox.Runtime
+	own     string
+	running []string
+	ports   map[string][]codebox.PortMapping
+}
+
+func (f *fakeRecreateConflictBackend) ID() codebox.Runtime                      { return f.id }
+func (f *fakeRecreateConflictBackend) Start(context.Context) error              { return nil }
+func (f *fakeRecreateConflictBackend) Stop(context.Context) error               { return nil }
+func (f *fakeRecreateConflictBackend) Restart(context.Context) error            { return nil }
+func (f *fakeRecreateConflictBackend) Recreate(context.Context) error           { return nil }
+func (f *fakeRecreateConflictBackend) Clean(context.Context) error              { return nil }
+func (f *fakeRecreateConflictBackend) Doctor(context.Context) error             { return nil }
+func (f *fakeRecreateConflictBackend) Logs(context.Context, bool) error         { return nil }
+func (f *fakeRecreateConflictBackend) Shell() error                             { return nil }
+func (f *fakeRecreateConflictBackend) IsRunning(context.Context) (bool, error)  { return false, nil }
+func (f *fakeRecreateConflictBackend) Endpoint(context.Context) (string, error) { return "", nil }
+func (f *fakeRecreateConflictBackend) RunAgent(context.Context) error           { return nil }
+func (f *fakeRecreateConflictBackend) Status(context.Context) (string, error)   { return "", nil }
+func (f *fakeRecreateConflictBackend) InstanceName() string                     { return f.own }
+func (f *fakeRecreateConflictBackend) RunningInstances(context.Context) ([]string, error) {
+	return f.running, nil
+}
+func (f *fakeRecreateConflictBackend) StopInstance(context.Context, string) error { return nil }
+func (f *fakeRecreateConflictBackend) InstancePortMappings(_ context.Context, name string) ([]codebox.PortMapping, error) {
+	return f.ports[name], nil
+}
+
+func TestHandleInteractiveRecreateOnLaunchChecksDesiredPortsBeforeDestroy(t *testing.T) {
+	oldConfirm := confirmLaunchRecreateFn
+	oldRecover := launchRecreateRecoverFn
+	oldRun := launchRecreateRunFn
+	oldStdin := os.Stdin
+	t.Cleanup(func() {
+		confirmLaunchRecreateFn = oldConfirm
+		launchRecreateRecoverFn = oldRecover
+		launchRecreateRunFn = oldRun
+		os.Stdin = oldStdin
+	})
+
+	// Non-TTY stdin so PrepareForRecreate returns the conflict error deterministically.
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = w.Close()
+	os.Stdin = r
+	t.Cleanup(func() { _ = r.Close() })
+
+	launchRecreateRecoverFn = func(context.Context, *codebox.MicrosandboxRuntime, codebox.Config, string) {}
+	confirmLaunchRecreateFn = func(string) (bool, error) { return true, nil }
+	recreateCalled := false
+	launchRecreateRunFn = func(context.Context, *codebox.MicrosandboxRuntime) error {
+		recreateCalled = true
+		return nil
+	}
+
+	ws := t.TempDir()
+	cfg := codebox.Config{
+		WorkspaceDir:    ws,
+		Isolation:       codebox.IsolationFull,
+		PortsConfigured: true,
+		Ports:           []codebox.PortMapping{{Host: 8080, Guest: 8080}}, // new desired port
+	}
+	m := codebox.NewMicrosandboxRuntimeForInstance(cfg, "cb-proj-a")
+	d := codebox.NewDispatcherWith(cfg, map[codebox.Runtime]codebox.Backend{
+		codebox.RuntimeMicrosandbox: &fakeRecreateConflictBackend{
+			id:      codebox.RuntimeMicrosandbox,
+			own:     "cb-proj-a",
+			running: []string{"cb-proj-b"},
+			ports: map[string][]codebox.PortMapping{
+				"cb-proj-a": {{Host: 8081, Guest: 8081}}, // old persisted port
+				"cb-proj-b": {{Host: 8080, Guest: 8080}}, // collides with A's desired port
+			},
+		},
+		codebox.RuntimeTart:    &fakeRecreateConflictBackend{id: codebox.RuntimeTart, own: "opencode-cb-proj-a"},
+		codebox.RuntimeAgentVM: &fakeRecreateConflictBackend{id: codebox.RuntimeAgentVM, own: "opencode-cb-proj-a"},
+	})
+	recreateErr := &codebox.ErrRecreateNeeded{
+		Instance: "cb-proj-a",
+		Reason:   "les ports publiés Microsandbox ont changé",
+		Reasons:  []string{"les ports publiés Microsandbox ont changé"},
+	}
+
+	var code int
+	captureStderr(t, func() {
+		code, err = handleInteractiveRecreateOnLaunch(context.Background(), d, m, cfg, "cb-proj-a", ws, recreateErr)
+	})
+	if code != 1 || err == nil || !strings.Contains(err.Error(), "cb-proj-b") || !strings.Contains(err.Error(), "8080") {
+		t.Fatalf("interactive launch recreate = code %d, err %v; want port 8080 conflict with cb-proj-b", code, err)
+	}
+	if recreateCalled {
+		t.Fatal("Recreate must not destroy the existing sandbox when desired ports conflict with another running project")
+	}
+}
