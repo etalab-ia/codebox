@@ -469,9 +469,10 @@ func TestAttachCmdFailsFastOnRevokedAlbertKey(t *testing.T) {
 		return errors.New("la clé Albert API enregistrée a été refusée ou révoquée (HTTP 401)")
 	}
 	started := false
+	agentRan := false
 	b := &fakeRecreateConflictBackend{id: codebox.RuntimeMicrosandbox, own: "cb-proj-a"}
 	d := codebox.NewDispatcherWith(codebox.Config{Isolation: codebox.IsolationFull}, map[codebox.Runtime]codebox.Backend{
-		codebox.RuntimeMicrosandbox: &startTrackingBackend{fakeRecreateConflictBackend: b, started: &started},
+		codebox.RuntimeMicrosandbox: &startTrackingBackend{fakeRecreateConflictBackend: b, started: &started, agentRan: &agentRan},
 		codebox.RuntimeTart:         &fakeRecreateConflictBackend{id: codebox.RuntimeTart, own: "opencode-cb-proj-a"},
 		codebox.RuntimeAgentVM:      &fakeRecreateConflictBackend{id: codebox.RuntimeAgentVM, own: "opencode-cb-proj-a"},
 	})
@@ -479,17 +480,26 @@ func TestAttachCmdFailsFastOnRevokedAlbertKey(t *testing.T) {
 	if code != 1 || err == nil || !strings.Contains(err.Error(), "refusée ou révoquée") {
 		t.Fatalf("attachCmd with revoked key = code %d, err %v; want immediate rejection", code, err)
 	}
-	if started {
-		t.Fatal("revoked Albert key must fail before starting the sandbox")
+	if !started {
+		t.Fatal("start/reconcile must still run before rejecting the key so pending secret revocations are applied")
+	}
+	if agentRan {
+		t.Fatal("revoked Albert key must prevent launching the agent TUI")
 	}
 }
 
 type startTrackingBackend struct {
 	*fakeRecreateConflictBackend
-	started *bool
+	started  *bool
+	agentRan *bool
 }
 
 func (s *startTrackingBackend) Start(context.Context) error {
 	*s.started = true
+	return nil
+}
+
+func (s *startTrackingBackend) RunAgent(context.Context) error {
+	*s.agentRan = true
 	return nil
 }

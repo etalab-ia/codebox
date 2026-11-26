@@ -1384,9 +1384,6 @@ func attachCmd(d *codebox.Dispatcher, cfg codebox.Config, rt codebox.Runtime, in
 		return 0, err
 	}
 	ctx := context.Background()
-	if err := launchAlbertKeyCheckFn(ctx, cfg, activeModel); err != nil {
-		return 1, err
-	}
 	if cfg.Isolation != codebox.IsolationFull {
 		if err := codebox.ValidateOpenCodeBackend(cfg); err != nil {
 			return 0, err
@@ -1401,7 +1398,9 @@ func attachCmd(d *codebox.Dispatcher, cfg codebox.Config, rt codebox.Runtime, in
 	}
 	// Reconcile when the backend supports it (P07): an existing instance
 	// gets its configuration classified and an interrupted apply resumed,
-	// instead of a blind start.
+	// instead of a blind start. This must run before rejecting a revoked
+	// Albert key so any pending secret-approval revocation on an existing
+	// sandbox is still applied (#520).
 	if err := startWithLaunchReport(ctx, d, b); err != nil {
 		var recreateErr *codebox.ErrRecreateNeeded
 		if msb, ok := b.(*codebox.MicrosandboxRuntime); ok && errors.As(err, &recreateErr) && attachIsTTYFn() {
@@ -1411,6 +1410,9 @@ func attachCmd(d *codebox.Dispatcher, cfg codebox.Config, rt codebox.Runtime, in
 		} else {
 			return 0, err
 		}
+	}
+	if err := launchAlbertKeyCheckFn(ctx, cfg, activeModel); err != nil {
+		return 1, err
 	}
 	if msb, ok := b.(*codebox.MicrosandboxRuntime); ok {
 		if diag := msb.CheckGuestDNS(ctx); diag != nil {
