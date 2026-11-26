@@ -1815,6 +1815,25 @@ func TestBackupGuestChangesForRecreateIncludesSyntheticReversals(t *testing.T) {
 	guestReadOutput := func(content string) string {
 		return "644 " + strconv.Itoa(len(content)) + "\n" + base64.StdEncoding.EncodeToString([]byte(content)) + "\n"
 	}
+	applyBackupPatch := func(t *testing.T, host, patchPath string) {
+		t.Helper()
+		// Pin core.autocrlf=false so Windows runners (which default to
+		// core.autocrlf=true) do not smudge LF to CRLF when verifying the
+		// byte-exact result of applying the generated backup patch.
+		applyCmd := exec.Command("git", "-c", "core.autocrlf=false", "apply", patchPath)
+		applyCmd.Dir = host
+		applyCmd.Env = append(os.Environ(),
+			"GIT_CONFIG_NOSYSTEM=1",
+			"GIT_CONFIG_GLOBAL="+os.DevNull,
+		)
+		if ceiling, ok := gitCeilingDirectory(host); ok {
+			applyCmd.Env = append(applyCmd.Env, "GIT_CEILING_DIRECTORIES="+ceiling)
+		}
+		if out, err := applyCmd.CombinedOutput(); err != nil {
+			patchBytes, _ := os.ReadFile(patchPath)
+			t.Fatalf("git apply failed: %v\noutput:\n%s\npatch:\n%s", err, out, patchBytes)
+		}
+	}
 
 	t.Run("synthetic-only modification and deletion produce git-appliable backup", func(t *testing.T) {
 		host := t.TempDir()
@@ -1855,12 +1874,7 @@ func TestBackupGuestChangesForRecreateIncludesSyntheticReversals(t *testing.T) {
 			t.Fatalf("backup mode = %o, want 0600", info.Mode().Perm())
 		}
 
-		applyCmd := exec.Command("git", "apply", gotPath)
-		applyCmd.Dir = host
-		if out, err := applyCmd.CombinedOutput(); err != nil {
-			patchBytes, _ := os.ReadFile(gotPath)
-			t.Fatalf("git apply failed: %v\noutput:\n%s\npatch:\n%s", err, out, patchBytes)
-		}
+		applyBackupPatch(t, host, gotPath)
 		gotRev, err := os.ReadFile(filepath.Join(host, "sub", "rev.txt"))
 		if err != nil {
 			t.Fatalf("read reverted file: %v", err)
@@ -1904,12 +1918,7 @@ func TestBackupGuestChangesForRecreateIncludesSyntheticReversals(t *testing.T) {
 		if err != nil {
 			t.Fatalf("BackupGuestChangesForRecreate: %v", err)
 		}
-		applyCmd := exec.Command("git", "apply", gotPath)
-		applyCmd.Dir = host
-		if out, err := applyCmd.CombinedOutput(); err != nil {
-			patchBytes, _ := os.ReadFile(gotPath)
-			t.Fatalf("git apply combined patch failed: %v\noutput:\n%s\npatch:\n%s", err, out, patchBytes)
-		}
+		applyBackupPatch(t, host, gotPath)
 		gotReadme, err := os.ReadFile(filepath.Join(host, "README.md"))
 		if err != nil {
 			t.Fatal(err)
