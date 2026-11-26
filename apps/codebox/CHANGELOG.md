@@ -1,5 +1,25 @@
 # Changelog
 
+## [0.23.0](https://github.com/etalab-ia/codebox/compare/codebox-v0.22.0...codebox-v0.23.0) (2026-11-26)
+
+
+### Features
+
+* **dispatcher:** allow concurrent project sandboxes without host port conflicts ([035b3ae](https://github.com/etalab-ia/codebox/commit/035b3ae7a329b522918a8dd8169b449f0e794b7c)), closes [#519](https://github.com/etalab-ia/codebox/issues/519)
+* **launch:** validate Albert API key before starting agent to fail fast on revoked keys ([2911f22](https://github.com/etalab-ia/codebox/commit/2911f222aee43435d2fff8ac6aa77a46e661202d)), closes [#520](https://github.com/etalab-ia/codebox/issues/520)
+
+
+### Bug Fixes
+
+* **dispatcher:** check persisted sandbox ports on restart and probe AgentVM 4096 ([d5f750e](https://github.com/etalab-ia/codebox/commit/d5f750edc3b7d5a271592029a3262d1d88f498e6))
+* **dispatcher:** inspect all listening AgentVM TCP ports for host port conflicts ([6117010](https://github.com/etalab-ia/codebox/commit/6117010dd13f422725c56d2e2748868877dbfd8c))
+* **launch:** reconcile pending secret revocations before rejecting Albert key ([f09f055](https://github.com/etalab-ia/codebox/commit/f09f0552e8dc5fb4ad094f72de3a47c8babc4484))
+* **launch:** resolve effective overlay model before probing Albert key ([7a4e0cb](https://github.com/etalab-ia/codebox/commit/7a4e0cb5002dccc825111f490d23d3998be3510d))
+* **opencode:** restrict unmanaged providers and suppress Getting started panel ([8e50cb2](https://github.com/etalab-ia/codebox/commit/8e50cb21151bec66aa5ed86faf75c4877aad7b71))
+* **recreate:** check desired host ports before interactive launch recreation ([8f2f717](https://github.com/etalab-ia/codebox/commit/8f2f717ee849c2b945384299773ae4eb77dcbc65))
+* **status-bar:** clarify unlimited TPM/RPM, compact RPD limits, and account scope ([b1d4ca2](https://github.com/etalab-ia/codebox/commit/b1d4ca2a02511cd992fd6e4588331e8c266f0595))
+* **wizard:** slim post-wizard output and suppress pre-wizard .env warning ([83863af](https://github.com/etalab-ia/codebox/commit/83863afe68d7a9dbc712162f43aea6d626e0cc53))
+
 ## [0.22.0](https://github.com/etalab-ia/codebox/compare/codebox-v0.21.0...codebox-v0.22.0) (2026-11-26)
 
 
