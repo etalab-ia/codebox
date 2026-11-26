@@ -329,6 +329,61 @@ func TestPromptSetupModelsPreservesSavedDefaultWhenCatalogueUnavailable(t *testi
 	}
 }
 
+func TestPromptSetupModelsPreservesSavedCustomAlbertDefault(t *testing.T) {
+	setupTestEnv(t)
+	oldCatalogue := setupModelCatalogueFn
+	oldPicker := setupModelPickerRun
+	t.Cleanup(func() {
+		setupModelCatalogueFn = oldCatalogue
+		setupModelPickerRun = oldPicker
+	})
+
+	curated := codebox.CuratedAlbertModels()
+	setupModelCatalogueFn = func() (codebox.Catalogue, bool, error) {
+		cat := codebox.Catalogue{Models: []codebox.CatalogueModel{{ID: "legacy-coder", Type: "text-generation"}}}
+		for _, choice := range curated {
+			cat.Models = append(cat.Models, codebox.CatalogueModel{ID: choice.ID, Type: "text-generation"})
+		}
+		return cat, true, nil
+	}
+
+	for _, tc := range []struct {
+		name    string
+		current []string
+	}{
+		{name: "no saved models list", current: nil},
+		{name: "saved models list omits custom default", current: []string{curated[0].ID}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var seenPicker setupModelPicker
+			setupModelPickerRun = func(initial setupModelPicker) (setupModelPicker, error) {
+				seenPicker = initial
+				initial.done = true
+				return initial, nil
+			}
+			models, defaultModel, _, err := promptSetupModelsWithPrefix(
+				albertProvidersForSetup(),
+				tc.current,
+				"albert/legacy-coder",
+				"[2/6]",
+				true,
+			)
+			if err != nil {
+				t.Fatalf("promptSetupModelsWithPrefix = %v", err)
+			}
+			if defaultModel != "albert/legacy-coder" {
+				t.Fatalf("defaultModel = %q, want albert/legacy-coder", defaultModel)
+			}
+			if !seenPicker.selected["albert/legacy-coder"] || seenPicker.defaultModel != "albert/legacy-coder" {
+				t.Fatalf("picker did not preserve custom Albert default: selected=%v default=%q", seenPicker.selected, seenPicker.defaultModel)
+			}
+			if !containsString(models, "legacy-coder") {
+				t.Fatalf("models = %v, want legacy-coder included", models)
+			}
+		})
+	}
+}
+
 func TestSeedInitAnswersReconcilesModelWithSelectedProvider(t *testing.T) {
 	setupTestEnv(t)
 	for _, tc := range []struct {

@@ -1940,7 +1940,12 @@ func promptSetupModelsWithPrefix(providers []codebox.InferenceProvider, current 
 			}
 			choices = append(choices, choice)
 		}
-		for _, raw := range current {
+		albertSaved := append([]string(nil), current...)
+		if canonicalDefault := canonicalSetupModelRef(currentDefault); strings.HasPrefix(canonicalDefault, "albert/") {
+			albertSaved = append(albertSaved, canonicalDefault)
+		}
+		seenAlbert := map[string]bool{}
+		for _, raw := range albertSaved {
 			kind, id := codebox.ProviderModelID(raw)
 			if kind != codebox.ProviderAlbert || id == "" {
 				continue
@@ -1951,7 +1956,8 @@ func promptSetupModelsWithPrefix(providers []codebox.InferenceProvider, current 
 					known = true
 				}
 			}
-			if !known {
+			if !known && !seenAlbert[id] {
+				seenAlbert[id] = true
 				choices = append(choices, setupModelChoice{
 					Provider: codebox.ProviderAlbert, ID: id, RefID: id, Name: "Modèle actuel",
 					Description: id + " (conservé depuis les réglages existants)", Group: "Albert API",
@@ -2036,7 +2042,7 @@ func promptSetupModelsWithPrefix(providers []codebox.InferenceProvider, current 
 		}
 	}
 	defaultModel := canonicalSetupModelRef(currentDefault)
-	if len(selected) == 0 && defaultModel != "" && setupModelRefKnown(defaultModel, choices) && !unavailable[defaultModel] {
+	if defaultModel != "" && setupModelRefKnown(defaultModel, choices) && !unavailable[defaultModel] {
 		selected[defaultModel] = true
 	}
 	if len(selected) == 0 {
