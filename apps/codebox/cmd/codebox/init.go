@@ -2156,14 +2156,38 @@ func gitHubRightsLoop(in *bufio.Reader) (bool, error) {
 // initGitHubAddWizard builds a minimal setup wizard for the "Ajouter un jeton
 // maintenant" branch of the case-3 screen. It reuses setup's own token stage,
 // so the add flow and its validation are identical to setup's (cf. 3.4).
+// StateDir is required to record which store received the token; SkipJournal
+// keeps standalone `init` from writing a setup-journal.json that nothing later
+// clears (#509).
 func initGitHubAddWizard() codebox.SetupWizard {
+	stateDir := codebox.DefaultStateDir()
 	return codebox.SetupWizard{
-		FS: codebox.DefaultFS,
+		FS:          codebox.DefaultFS,
+		StateDir:    stateDir,
+		SkipJournal: true,
 		Store: func(ctx context.Context) (codebox.SetupStore, error) {
-			return authStore(false)
+			return authStore(initGitHubUsesFallbackStore(ctx, stateDir))
 		},
 		ValidateGitHub: githubTokenProbeFn,
 	}
+}
+
+// initGitHubUsesFallbackStore returns true only when the host already has an
+// explicit prior consent to the file credential store (setup journal, recorded
+// store entry, or an existing file store on a host with no native keychain).
+func initGitHubUsesFallbackStore(ctx context.Context, stateDir string) bool {
+	if j, err := codebox.ReadSetupJournal(codebox.DefaultFS, stateDir); err == nil && j.StoreKind == "file" {
+		return true
+	}
+	if codebox.RecordedCredentialStoreForKind(stateDir, codebox.CredentialGithub) == "file" {
+		return true
+	}
+	if codebox.DefaultCredentialStore() == nil {
+		if fs, err := codebox.NewFileCredentialStore(); err == nil && fs.Verify(ctx) == nil {
+			return true
+		}
+	}
+	return false
 }
 
 // githubInitProbeFn classifies the project's GitHub situation for the init

@@ -397,10 +397,15 @@ func GitHubBranchName(instance string) (string, error) {
 }
 
 // githubSnapshotBranchScript only prepares a publishable branch when the
-// filtered snapshot adds no changes to the remote default-branch tree.
-// Permission to transfer a file into the guest is not permission to publish it.
+// filtered snapshot adds no unapproved changes to the remote default-branch
+// tree. Permission to transfer a file into the guest is not permission to
+// publish it. Newly created codebox init files (.codebox/project.json,
+// .codebox/lock.json, AGENTS.md) that do not yet exist on the remote default
+// branch stay readable in the guest workspace but are excluded via guest
+// .git/info/exclude so they never become publishable (#509).
 func githubSnapshotBranchScript(workspace string, remote GitHubRemote, baseBranch, branch string) string {
 	baseRef := "refs/heads/" + baseBranch
+	backupBranch := branch + "-snapshot-backup"
 	return "set -eu; cd " + shellQuote(workspace) +
 		"; if [ -n \"$(git status --porcelain --untracked-files=all)\" ]; then echo 'la copie de travail de la machine isolée contient des modifications ; exportez-les ou relisez-les avant toute activation du flux de travail GitHub' >&2; exit 1; fi" +
 		"; if [ -n \"$(git ls-files --others --ignored --exclude-standard)\" ]; then echo 'la copie de travail de la machine isolée contient des fichiers ignorés ; relisez-les avant toute activation du flux de travail GitHub' >&2; exit 1; fi" +
@@ -409,14 +414,18 @@ func githubSnapshotBranchScript(workspace string, remote GitHubRemote, baseBranc
 		"; git ls-files --stage -z > \"$tmp/snapshot\"" +
 		"; git fetch --depth=1 " + shellQuote(remote.URL) + " " + shellQuote(baseRef) +
 		"; base=$(git rev-parse FETCH_HEAD)" +
+		"; base_tree=$(git rev-parse \"$base^{tree}\")" +
 		"; GIT_INDEX_FILE=\"$tmp/index\" git read-tree \"$base\"" +
 		"; GIT_INDEX_FILE=\"$tmp/index\" git update-index -z --index-info < \"$tmp/snapshot\"" +
+		"; has_local_init=0" +
+		"; for p in .codebox/project.json .codebox/lock.json AGENTS.md; do " +
+		"if ! git cat-file -e \"$base_tree:$p\" 2>/dev/null && git cat-file -e \"HEAD:$p\" 2>/dev/null; then " +
+		"GIT_INDEX_FILE=\"$tmp/index\" git rm --cached --quiet --ignore-unmatch -- \"$p\"; has_local_init=1; fi; done" +
 		"; tree=$(GIT_INDEX_FILE=\"$tmp/index\" git write-tree)" +
-		"; base_tree=$(git rev-parse \"$base^{tree}\")" +
 		"; if [ \"$tree\" != \"$base_tree\" ]; then " +
 		"printf '%s\\n' 'GitHub : la copie locale contient des fichiers nouveaux ou modifiés par rapport à la branche distante par défaut. Leur publication n’a pas été approuvée :' >&2; " +
 		"git -c core.quotePath=true diff-tree --no-commit-id --name-status -r \"$base_tree\" \"$tree\" >&2; " +
-		"printf '%s\\n' 'Aucune branche publiable ni aucun commit automatique n’a été créé. Relisez ces changements sur votre poste et décidez séparément de leur publication.' " +
+		"printf '%s\\n' 'Aucune branche publiable ni aucun commit automatique n’a été créé. Relisez ces changements sur votre poste : commitez et poussez les fichiers souhaités, puis relancez « codebox ».' " +
 		"'Pour travailler sans publication GitHub : codebox bindings revoke github. La commande codebox workspace apply récupère les modifications non commitées, pas les commits de l’invité. Sauvegardez aussi ces commits avant toute recréation.' >&2; exit 1; fi" +
 		"; config=$(git rev-parse --git-path config); temp_config=$(mktemp \"$config.codebox.XXXXXX\"); cp \"$config\" \"$temp_config\"" +
 		"; git config --file \"$temp_config\" remote.origin.url " + shellQuote(remote.URL) +
@@ -425,10 +434,18 @@ func githubSnapshotBranchScript(workspace string, remote GitHubRemote, baseBranc
 		"; git config --file \"$temp_config\" codebox.github-workflow-origin " + shellQuote(remote.URL) +
 		"; git config --file \"$temp_config\" codebox.github-workflow-branch " + shellQuote(branch) +
 		"; git config --file \"$temp_config\" codebox.github-workflow-snapshot-policy remote-only-v1" +
-		"; git branch " + shellQuote(branch+"-snapshot-backup") + " HEAD" +
+		"; if [ \"$has_local_init\" -eq 1 ]; then git config --file \"$temp_config\" codebox.github-local-init-backup " + shellQuote(backupBranch) + "; fi" +
+		"; git branch " + shellQuote(backupBranch) + " HEAD" +
 		"; git branch -m " + shellQuote(branch) +
 		"; git reset --hard \"$base\"" +
-		"; mv \"$temp_config\" \"$config\""
+		"; mv \"$temp_config\" \"$config\"; temp_config=''" +
+		"; if [ \"$has_local_init\" -eq 1 ]; then " +
+		"exclude=$(git rev-parse --git-path info/exclude); mkdir -p \"$(dirname \"$exclude\")\"; touch \"$exclude\"; " +
+		"if [ -s \"$exclude\" ]; then printf '\\n' >> \"$exclude\"; fi; " +
+		"for p in .codebox/project.json .codebox/lock.json AGENTS.md; do " +
+		"if ! git cat-file -e \"$base_tree:$p\" 2>/dev/null && git cat-file -e " + shellQuote(backupBranch) + ":\"$p\" 2>/dev/null; then " +
+		"mkdir -p \"$(dirname \"$p\")\"; git show " + shellQuote(backupBranch) + ":\"$p\" > \"$p\"; " +
+		"grep -Fx \"/$p\" \"$exclude\" >/dev/null 2>&1 || printf '/%s\\n' \"$p\" >> \"$exclude\"; fi; done; fi"
 }
 
 // pullAccess is the answer to "may this token read the repository's pull

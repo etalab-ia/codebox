@@ -44,6 +44,10 @@ type SetupWizard struct {
 	// EnsureRuntime installs the managed runtime when needed. Nil uses
 	// ensureMSBRuntime.
 	EnsureRuntime func(ctx context.Context) error
+	// SkipJournal skips setup-journal.json updates during PutCredential. Used
+	// when storing a single credential from `codebox init`, where CompleteSetup
+	// may not run afterward and leaving a journal would falsely reopen setup.
+	SkipJournal bool
 }
 
 // ResolveStore resolves and verifies the credential store without storing
@@ -315,7 +319,12 @@ func (w SetupWizard) PutCredential(ctx context.Context, kind CredentialKind, val
 	// unreachable. Best-effort: the credential is stored, and losing the record
 	// only restores the previous default chain. Written through the wizard's own
 	// FS so an injected filesystem stays injected.
-	_ = writeRecordedCredentialStore(w.FS, w.StateDir, kind, store.Kind())
+	if w.StateDir != "" {
+		_ = writeRecordedCredentialStore(w.FS, w.StateDir, kind, store.Kind())
+	}
+	if w.SkipJournal {
+		return nil
+	}
 	j, err := ReadSetupJournal(w.FS, w.StateDir)
 	if err != nil {
 		return err
