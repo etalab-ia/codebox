@@ -266,8 +266,26 @@ func (d *GuestDNSDiagnostic) Error() string {
 
 func (m *MicrosandboxRuntime) dnsProbeHost() string {
 	providers := m.cfg.Providers
+	model := strings.TrimSpace(m.OpenCodeOverlay.EffectiveOverlay().Model)
 	if len(providers) == 0 {
+		if model != "" && ModelRefProvider(model) == ProviderLocal {
+			return ""
+		}
 		return msbAllowHost
+	}
+	if model != "" {
+		targetKind := ModelRefProvider(model)
+		if targetKind == ProviderLocal {
+			return ""
+		}
+		for _, p := range providers {
+			if p.Kind == targetKind {
+				if p.NoKey {
+					return ""
+				}
+				return p.Host
+			}
+		}
 	}
 	for _, p := range providers {
 		if !p.NoKey && p.Host != "" {

@@ -246,6 +246,127 @@ func TestCheckGuestDNS(t *testing.T) {
 			t.Fatalf("expected nil diagnostic on unrelated exec error, got: %v", diag)
 		}
 	})
+
+	t.Run("probes provider selected by active model rather than first configured provider", func(t *testing.T) {
+		corp, err := ResolveProvider(ProviderSettings{
+			Kind:    ProviderOpenAICompatible,
+			Name:    "Corp",
+			BaseURL: "https://llm.corp.example/v1",
+		})
+		if err != nil {
+			t.Fatalf("ResolveProvider corp: %v", err)
+		}
+		mistral, err := ProviderForKind(ProviderMistral)
+		if err != nil {
+			t.Fatalf("ProviderForKind mistral: %v", err)
+		}
+		albert, err := ProviderForKind(ProviderAlbert)
+		if err != nil {
+			t.Fatalf("ProviderForKind albert: %v", err)
+		}
+
+		t.Run("explicit mistral model skips unused first provider", func(t *testing.T) {
+			client := &fakeMSBClient{
+				execCaptureResults: []fakeMSBExecCaptureResult{{code: 2}},
+			}
+			m := NewMicrosandboxRuntimeForInstance(Config{
+				Providers: []InferenceProvider{corp, mistral},
+			}, "cb-dns-active-mistral")
+			m.Client = client
+			m.OpenCodeOverlay = ManagedOverlay{Model: "mistral/mistral-large-latest"}
+			var lookedUp string
+			m.hostDNSLookup = func(_ context.Context, host string) bool {
+				lookedUp = host
+				return true
+			}
+			m.hostDNSInspect = func(context.Context) HostDNSInfo { return HostDNSInfo{} }
+
+			diag := m.CheckGuestDNS(context.Background())
+			if diag == nil {
+				t.Fatal("expected diagnostic for selected mistral provider")
+			}
+			if diag.Host != mistral.Host || lookedUp != mistral.Host {
+				t.Fatalf("probed host = %q (host lookup %q), want %q", diag.Host, lookedUp, mistral.Host)
+			}
+			if len(client.calls) != 1 || !strings.Contains(client.calls[0], mistral.Host) || strings.Contains(client.calls[0], corp.Host) {
+				t.Fatalf("unexpected guest probe command: %v", client.calls)
+			}
+		})
+
+		t.Run("explicit openai-compatible model probes corp host", func(t *testing.T) {
+			client := &fakeMSBClient{
+				execCaptureResults: []fakeMSBExecCaptureResult{{code: 0}},
+			}
+			m := NewMicrosandboxRuntimeForInstance(Config{
+				Providers: []InferenceProvider{corp, mistral},
+			}, "cb-dns-active-corp")
+			m.Client = client
+			m.OpenCodeOverlay = ManagedOverlay{Model: "openai-compatible/corp-model"}
+
+			if diag := m.CheckGuestDNS(context.Background()); diag != nil {
+				t.Fatalf("expected nil diagnostic when active corp provider resolves, got: %v", diag)
+			}
+			if len(client.calls) != 1 || !strings.Contains(client.calls[0], corp.Host) {
+				t.Fatalf("unexpected guest probe command: %v", client.calls)
+			}
+		})
+
+		t.Run("effective default model from overlay providers selects mistral", func(t *testing.T) {
+			client := &fakeMSBClient{
+				execCaptureResults: []fakeMSBExecCaptureResult{{code: 0}},
+			}
+			m := NewMicrosandboxRuntimeForInstance(Config{
+				Providers: []InferenceProvider{corp, mistral},
+			}, "cb-dns-effective-mistral")
+			m.Client = client
+			m.OpenCodeOverlay = ManagedOverlay{
+				Providers: []ProviderOverlay{{
+					Kind:   string(ProviderMistral),
+					Models: []ProviderModelConfig{{ID: "mistral-large-latest", Name: "Mistral Large"}},
+				}},
+			}
+
+			if diag := m.CheckGuestDNS(context.Background()); diag != nil {
+				t.Fatalf("expected nil diagnostic, got: %v", diag)
+			}
+			if len(client.calls) != 1 || !strings.Contains(client.calls[0], mistral.Host) {
+				t.Fatalf("unexpected guest probe command: %v", client.calls)
+			}
+		})
+
+		t.Run("empty overlay with default embedded albert model probes albert", func(t *testing.T) {
+			client := &fakeMSBClient{
+				execCaptureResults: []fakeMSBExecCaptureResult{{code: 0}},
+			}
+			m := NewMicrosandboxRuntimeForInstance(Config{
+				Providers: []InferenceProvider{corp, albert},
+			}, "cb-dns-default-albert")
+			m.Client = client
+
+			if diag := m.CheckGuestDNS(context.Background()); diag != nil {
+				t.Fatalf("expected nil diagnostic, got: %v", diag)
+			}
+			if len(client.calls) != 1 || !strings.Contains(client.calls[0], albert.Host) {
+				t.Fatalf("unexpected guest probe command: %v", client.calls)
+			}
+		})
+
+		t.Run("local active model skips remote DNS probe", func(t *testing.T) {
+			client := &fakeMSBClient{}
+			m := NewMicrosandboxRuntimeForInstance(Config{
+				Providers: []InferenceProvider{corp, mistral},
+			}, "cb-dns-local-model")
+			m.Client = client
+			m.OpenCodeOverlay = ManagedOverlay{Model: "local/qwen2.5:3b"}
+
+			if diag := m.CheckGuestDNS(context.Background()); diag != nil {
+				t.Fatalf("expected nil diagnostic for local model, got: %v", diag)
+			}
+			if len(client.calls) != 0 {
+				t.Fatalf("expected no guest probe for local model, got: %v", client.calls)
+			}
+		})
+	})
 }
 
 func TestDiagnosticsReportsLinkLocalIPv6HostDNS(t *testing.T) {
