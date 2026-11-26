@@ -55,9 +55,27 @@ func initCmd(args []string) (int, error) {
 		// Keep one reader for any legacy credential-stage fallback. The combined
 		// interactive flow itself is Huh-only; scripts use flags and --yes.
 		in := bufio.NewReaderSize(os.Stdin, 1)
+		if opts.Advanced && !opts.Replace && projectManifestExistsAt(opts.Root) {
+			// Interactive `codebox init --advanced` on an already-configured
+			// project opens the expert settings screen directly and saves the
+			// updated manifest instead of repeating the 6 screens and failing
+			// before the expert screen (#506).
+			opts.Replace = true
+			opts.AdvancedOnly = true
+			return initRun(opts, in, tty)
+		}
 		return combinedFirstRunFn(opts, in)
 	}
 	return initRun(opts, bufio.NewReader(os.Stdin), tty)
+}
+
+func projectManifestExistsAt(root string) bool {
+	pc, err := codebox.DiscoverProject(root)
+	if err != nil {
+		return false
+	}
+	_, err = codebox.DefaultFS.ReadFile(codebox.ProjectManifestPath(pc.Root))
+	return err == nil
 }
 
 func initOptionsWithDisplayedRoot(opts initOptions) initOptions {
@@ -172,6 +190,7 @@ type initOptions struct {
 	Isolation       string
 	Harness         string
 	Model           string
+	Models          []string
 	SmallModel      string
 	LocalServer     string
 	CPUs            int
@@ -188,6 +207,9 @@ type initOptions struct {
 	// questions and before the configuration is applied (#333). It has no
 	// effect on non-interactive runs.
 	Advanced bool
+	// AdvancedOnly skips the standard wizard screens and opens the expert
+	// settings directly when reconfiguring an existing project (#506).
+	AdvancedOnly bool
 	// Combined selects the approved six-screen first-run defaults. It changes
 	// presentation only; planning, application and trust checks stay shared.
 	Combined bool
@@ -373,6 +395,8 @@ func initRun(opts initOptions, in *bufio.Reader, tty bool) (code int, err error)
 		Isolation:          codebox.Isolation(opts.Isolation),
 		Harness:            opts.Harness,
 		Model:              opts.Model,
+		Models:             append([]string(nil), opts.Models...),
+		ModelsSet:          opts.Set["models"],
 		SmallModel:         normalizeInitModelInput(opts.SmallModel),
 		CPUs:               opts.CPUs,
 		MemoryMB:           opts.MemoryMB,
@@ -493,7 +517,7 @@ func initRun(opts initOptions, in *bufio.Reader, tty bool) (code int, err error)
 	// The wizard applies the configuration as soon as its questions pass
 	// (#333): there is no confirmation screen. askQuestions gates the
 	// default-path questions; only the GitHub re-probe below reopens them.
-	askQuestions := true
+	askQuestions := !opts.AdvancedOnly
 	interactiveReview := tty && !opts.Yes
 	// --advanced opens the expert settings once, after the questions (#333).
 	advancedDone := !opts.Advanced
@@ -604,28 +628,9 @@ func initRun(opts initOptions, in *bufio.Reader, tty bool) (code int, err error)
 		if err != nil {
 			return 1, err
 		}
-		if plan.ExistingManifest != nil && !opts.Replace {
-			fmt.Print(codebox.FormatInitReview(plan))
-			return 1, fmt.Errorf("%s existe déjà ; relancez avec --replace pour le remplacer, ou modifiez-le directement", plan.ManifestPath)
-		}
-		// Interactive runs apply directly and get the recap afterwards
-		// (#333); non-interactive runs keep the full review before the
-		// write, since nobody is there to see a post-mortem.
-		if !interactiveReview {
-			fmt.Print(codebox.FormatInitReview(plan))
-		}
-		if !tty && !opts.Yes {
-			resourceWarnings := codebox.GuestResourceWarnings(hostResources, plan.GuestCPUs, plan.GuestMemoryMB)
-			if len(resourceWarnings) > 0 {
-				return 1, fmt.Errorf("la configuration sans terminal avec une allocation de ressources élevée exige une confirmation explicite ; relancez avec --yes")
-			}
-		}
-		if !tty || opts.Yes {
-			break
-		}
-		if !advancedDone {
-			// --advanced opens the expert settings once, after the
-			// questions and before the configuration is applied (#333).
+		if tty && !opts.Yes && !advancedDone {
+			// --advanced opens the expert settings once, before any manifest
+			// replacement check or write (#333, #506).
 			advancedDone = true
 			askQuestions = false
 			answers.Advanced = true
@@ -641,6 +646,23 @@ func initRun(opts initOptions, in *bufio.Reader, tty bool) (code int, err error)
 				return 1, err
 			}
 			continue
+		}
+		allowReplace := opts.Replace || (tty && !opts.Yes && opts.Advanced)
+		if plan.ExistingManifest != nil && !allowReplace {
+			fmt.Print(codebox.FormatInitReview(plan))
+			return 1, fmt.Errorf("%s existe déjà ; relancez avec --replace pour le remplacer, ou modifiez-le directement", plan.ManifestPath)
+		}
+		// Interactive runs apply directly and get the recap afterwards
+		// (#333); non-interactive runs keep the full review before the
+		// write, since nobody is there to see a post-mortem.
+		if !interactiveReview {
+			fmt.Print(codebox.FormatInitReview(plan))
+		}
+		if !tty && !opts.Yes {
+			resourceWarnings := codebox.GuestResourceWarnings(hostResources, plan.GuestCPUs, plan.GuestMemoryMB)
+			if len(resourceWarnings) > 0 {
+				return 1, fmt.Errorf("la configuration sans terminal avec une allocation de ressources élevée exige une confirmation explicite ; relancez avec --yes")
+			}
 		}
 		break
 	}
@@ -687,13 +709,19 @@ func initRun(opts initOptions, in *bufio.Reader, tty bool) (code int, err error)
 	if plan.Answers.SmallModel != "" && codebox.ModelRefProvider(plan.Answers.SmallModel) == codebox.ProviderLocal && !hasLocalProvider {
 		return 1, fmt.Errorf("le petit modèle %q exige un serveur local (--local-server)", plan.Answers.SmallModel)
 	}
-	if err := wizard.Apply(plan, opts.Replace); err != nil {
+	allowReplace := opts.Replace || (tty && !opts.Yes && opts.Advanced)
+	if err := wizard.Apply(plan, allowReplace); err != nil {
 		if revokeContext7 {
 			return 1, fmt.Errorf("la configuration du projet n'a pas été écrite ; l'autorisation Context7 a été révoquée : %w", err)
 		}
 		return 1, err
 	}
-	if opts.Set["local-server"] {
+	if plan.Answers.LocalServerCleared || (opts.Set["local-server"] && isClearLocalServerValue(opts.LocalServer)) {
+		if err := removeLocalServerFromUserSettings(); err != nil {
+			return 1, fmt.Errorf("la configuration du projet a été écrite, mais le serveur local n'a pas pu être retiré des réglages de ce poste : %w", err)
+		}
+		fmt.Println("Serveur de modèles local retiré du projet et des réglages de ce poste.")
+	} else if opts.Set["local-server"] || plan.Answers.LocalServerApproved {
 		for _, p := range plan.Answers.Providers {
 			if p.Kind == codebox.ProviderLocal {
 				if err := approveLocalServerInUserSettings(p); err != nil {
@@ -883,6 +911,10 @@ func seedInitAnswersFromManifest(opts initOptions, answers codebox.InitAnswers) 
 	if !opts.Set["model"] {
 		answers.Model = opts.DefaultModel
 	}
+	if !opts.Set["models"] {
+		answers.Models = nil
+		answers.ModelsSet = false
+	}
 	if !opts.Set["small-model"] {
 		answers.SmallModel = ""
 	}
@@ -936,7 +968,9 @@ func seedInitAnswersFromManifest(opts initOptions, answers codebox.InitAnswers) 
 		answers.Harness = manifest.Harness
 	}
 	if !opts.Set["model"] {
-		if opts.DefaultModel != "" {
+		if opts.Set["models"] && opts.DefaultModel != "" {
+			answers.Model = opts.DefaultModel
+		} else if opts.DefaultModel != "" {
 			inheritedKind, _ := codebox.ProviderModelID(manifest.Model)
 			compatible := initProviderKindSelected(opts.Providers, inheritedKind)
 			if manifest.Model != "" && compatible {
@@ -946,6 +980,18 @@ func seedInitAnswersFromManifest(opts initOptions, answers codebox.InitAnswers) 
 			}
 		} else {
 			answers.Model = manifest.Model
+		}
+	}
+	if !opts.Set["models"] && len(manifest.Models) > 0 {
+		if opts.Set["providers"] {
+			for _, raw := range manifest.Models {
+				kind, _ := codebox.ProviderModelID(raw)
+				if initProviderKindSelected(opts.Providers, kind) {
+					answers.Models = append(answers.Models, raw)
+				}
+			}
+		} else {
+			answers.Models = append([]string(nil), manifest.Models...)
 		}
 	}
 	if !opts.Set["small-model"] {
@@ -984,8 +1030,22 @@ func resolveInitProviders(opts initOptions, answers codebox.InitAnswers) (codebo
 		return answers, fmt.Errorf("impossible de lire les plateformes configurées : %w", err)
 	}
 	var explicitLocal *codebox.ProviderSettings
+	clearLocal := opts.Set["local-server"] && isClearLocalServerValue(opts.LocalServer)
 	effectiveUserSettings := append([]codebox.ProviderSettings(nil), userSettings...)
-	if opts.Set["local-server"] {
+	if clearLocal {
+		filteredUser := make([]codebox.ProviderSettings, 0, len(effectiveUserSettings))
+		for _, p := range effectiveUserSettings {
+			if p.Kind == codebox.ProviderLocal {
+				continue
+			}
+			filteredUser = append(filteredUser, p)
+		}
+		effectiveUserSettings = filteredUser
+		answers.LocalServerCleared = true
+		if answers.SmallModel != "" && codebox.ModelRefProvider(answers.SmallModel) == codebox.ProviderLocal {
+			answers.SmallModel = ""
+		}
+	} else if opts.Set["local-server"] {
 		localPS, err := resolveInitLocalServer(context.Background(), opts.LocalServer)
 		if err != nil {
 			return answers, err
@@ -1035,7 +1095,16 @@ func resolveInitProviders(opts initOptions, answers codebox.InitAnswers) (codebo
 		}
 		answers.Providers = providerSettingsOf(providers)
 	} else {
-		if explicitLocal != nil {
+		if clearLocal {
+			filtered := make([]codebox.ProviderSettings, 0, len(answers.Providers))
+			for _, p := range answers.Providers {
+				if p.Kind == codebox.ProviderLocal {
+					continue
+				}
+				filtered = append(filtered, p)
+			}
+			answers.Providers = filtered
+		} else if explicitLocal != nil {
 			filtered := make([]codebox.ProviderSettings, 0, len(answers.Providers)+1)
 			for _, p := range answers.Providers {
 				if p.Kind == codebox.ProviderLocal {
@@ -1044,6 +1113,21 @@ func resolveInitProviders(opts initOptions, answers codebox.InitAnswers) (codebo
 				filtered = append(filtered, p)
 			}
 			answers.Providers = append(filtered, *explicitLocal)
+		}
+		// Clearing --small-model to default without --local-server must not leave an
+		// orphaned ProviderLocal in the versioned project manifest (#510), and must
+		// prune it before ValidateProjectProviders so cloned manifests can drop it.
+		if !opts.Set["local-server"] && opts.Set["small-model"] && answers.SmallModel == "" && codebox.ModelRefProvider(answers.Model) != codebox.ProviderLocal {
+			filtered := make([]codebox.ProviderSettings, 0, len(answers.Providers))
+			for _, p := range answers.Providers {
+				if p.Kind == codebox.ProviderLocal {
+					continue
+				}
+				filtered = append(filtered, p)
+			}
+			if len(filtered) > 0 {
+				answers.Providers = filtered
+			}
 		}
 		if err := codebox.ValidateProjectProviders(answers.Providers, effectiveUserSettings); err != nil {
 			return answers, fmt.Errorf("impossible de résoudre les plateformes du projet : %w", err)
@@ -1063,13 +1147,18 @@ func resolveInitProviders(opts initOptions, answers codebox.InitAnswers) (codebo
 	return answers, nil
 }
 
+func isClearLocalServerValue(raw string) bool {
+	v := strings.ToLower(strings.TrimSpace(raw))
+	return v == "none" || v == "aucun" || v == "off"
+}
+
 // detectLocalModelServersFn is the probe seam for `--local-server auto`.
 var detectLocalModelServersFn = codebox.DetectLocalModelServers
 
 func resolveInitLocalServer(ctx context.Context, raw string) (codebox.ProviderSettings, error) {
 	v := strings.TrimSpace(raw)
 	if v == "" {
-		return codebox.ProviderSettings{}, fmt.Errorf("--local-server exige 'auto', un port (ex. 11434) ou une URL http://localhost:<port>/v1")
+		return codebox.ProviderSettings{}, fmt.Errorf("--local-server exige 'auto', 'none', un port (ex. 11434) ou une URL http://localhost:<port>/v1")
 	}
 	if strings.EqualFold(v, "auto") {
 		found := detectLocalModelServersFn(ctx, nil)
@@ -1132,6 +1221,34 @@ func approveLocalServerInUserSettings(localPS codebox.ProviderSettings) error {
 		updated = append(updated, p)
 	}
 	updated = append(updated, localPS)
+	us.Providers = updated
+	return codebox.WriteUserSettings(codebox.DefaultFS, path, us)
+}
+
+func removeLocalServerFromUserSettings() error {
+	path, err := codebox.UserSettingsPath()
+	if err != nil {
+		return err
+	}
+	us, err := codebox.ReadUserSettings(codebox.DefaultFS, path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return err
+	}
+	updated := make([]codebox.ProviderSettings, 0, len(us.Providers))
+	removed := false
+	for _, p := range us.Providers {
+		if p.Kind == codebox.ProviderLocal {
+			removed = true
+			continue
+		}
+		updated = append(updated, p)
+	}
+	if !removed {
+		return nil
+	}
 	us.Providers = updated
 	return codebox.WriteUserSettings(codebox.DefaultFS, path, us)
 }
@@ -1216,13 +1333,19 @@ func validateInitOptions(opts initOptions) error {
 		if err != nil {
 			return err
 		}
-		if opts.Set["local-server"] && rt != codebox.RuntimeMicrosandbox {
+		if opts.Set["local-server"] && !isClearLocalServerValue(opts.LocalServer) && rt != codebox.RuntimeMicrosandbox {
 			return fmt.Errorf("--local-server n'est pris en charge qu'avec Microsandbox")
 		}
 	}
-	if opts.Set["local-server"] && !strings.EqualFold(strings.TrimSpace(opts.LocalServer), "auto") {
-		if _, err := resolveInitLocalServer(context.Background(), opts.LocalServer); err != nil {
-			return err
+	if opts.Set["local-server"] {
+		if isClearLocalServerValue(opts.LocalServer) {
+			if opts.Set["small-model"] && codebox.ModelRefProvider(normalizeInitModelInput(opts.SmallModel)) == codebox.ProviderLocal {
+				return fmt.Errorf("la désactivation du serveur local (--local-server) est incompatible avec un petit modèle local (--small-model)")
+			}
+		} else if !strings.EqualFold(strings.TrimSpace(opts.LocalServer), "auto") {
+			if _, err := resolveInitLocalServer(context.Background(), opts.LocalServer); err != nil {
+				return err
+			}
 		}
 	}
 	if opts.Set["isolation"] {
@@ -2315,7 +2438,9 @@ Options :
                           ministral-3-8b-instruct-2512 ou local/<modèle>) ;
                           vide ou 'default' suit le modèle principal
   --local-server <val>    serveur local OpenAI-compatible (Microsandbox uniquement) :
-                          'auto' (ports 11434, 1234, 8080), un port ou http://localhost:<port>/v1
+                          'auto' (ports 11434, 1234, 8080), un port, http://localhost:<port>/v1
+                          ou 'none' pour le retirer du projet et de ce poste
+  --advanced              ouvrir les réglages avancés (modèle, petit modèle, serveur local, ressources)
   --cpus <n>              processeurs de la machine isolée (maximum : la capacité détectée du poste)
   --memory-mb <size>      mémoire de la machine isolée en MiB ou GiB (ex. 4096, 4G, 2.5G ; maximum : la RAM détectée du poste)
   --credential-ref <ref>  référence d'identifiant Albert du projet (par défaut : la référence globale)

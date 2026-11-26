@@ -48,6 +48,14 @@ function Save-CodeboxReleaseAsset {
 	[System.IO.File]::WriteAllBytes($Path, $global:InstallerTestBinary)
 }
 
+$global:InstallerInteractive = $true
+$global:InstallerLaunchScript = (Get-Command Invoke-CodeboxSetup).ScriptBlock.ToString()
+Assert-InstallerTest ($global:InstallerLaunchScript -notmatch '\bsetup\b') 'Invoke-CodeboxSetup must launch bare codebox, not legacy codebox setup'
+
+function Test-CodeboxInteractive {
+	$global:InstallerInteractive
+}
+
 function Invoke-CodeboxSetup {
 	param([string]$Path)
 	$global:InstallerSetupInvoked = $true
@@ -84,7 +92,7 @@ try {
 	$global:InstallerTestUris = @()
 	$global:InstallerSetupInvoked = $false
 	Install-Codebox -InstallDirectory $installDirectory -Architecture AMD64
-	Assert-InstallerTest ($global:InstallerSetupInvoked) 'setup was not invoked after installation'
+	Assert-InstallerTest ($global:InstallerSetupInvoked) 'interactive install did not launch codebox'
 	Assert-InstallerTest ([System.IO.File]::ReadAllText($target) -eq 'verified test binary') 'verified binary was not installed'
 	Assert-InstallerTest ([System.IO.File]::ReadAllText($backup) -eq 'old binary') 'previous binary was not retained'
 	Assert-InstallerTest ($global:InstallerTestUris.Count -eq 2) 'installer did not fetch exactly the binary and checksum'
@@ -95,7 +103,15 @@ try {
 	Install-Codebox -InstallDirectory $freshDirectory -Architecture AMD64
 	Assert-InstallerTest ([System.IO.File]::ReadAllText((Join-Path $freshDirectory 'codebox.exe')) -eq 'verified test binary') 'fresh install did not create the executable'
 	Assert-InstallerTest (-not (Test-Path -LiteralPath (Join-Path $freshDirectory 'codebox.previous.exe'))) 'fresh install created a rollback binary when none existed'
-	Assert-InstallerTest $global:InstallerSetupInvoked 'fresh install did not invoke setup'
+	Assert-InstallerTest $global:InstallerSetupInvoked 'fresh interactive install did not launch codebox'
+
+	$headlessDirectory = Join-Path $tempRoot 'headless install'
+	$global:InstallerInteractive = $false
+	$global:InstallerSetupInvoked = $false
+	Install-Codebox -InstallDirectory $headlessDirectory -Architecture AMD64
+	Assert-InstallerTest ([System.IO.File]::ReadAllText((Join-Path $headlessDirectory 'codebox.exe')) -eq 'verified test binary') 'headless install did not create the executable'
+	Assert-InstallerTest (-not $global:InstallerSetupInvoked) 'headless install unexpectedly launched interactive codebox'
+	$global:InstallerInteractive = $true
 
 	$completedDirectory = Join-Path $tempRoot 'completed upgrade'
 	$null = New-Item -ItemType Directory -Path $completedDirectory

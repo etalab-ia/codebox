@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -304,17 +305,18 @@ func run(args []string) (int, error) {
 		if err := validateSmallModelProviderConnection(cfg.Providers, smallModelSelection); err != nil {
 			return 1, err
 		}
+		warnIfLocalModelServerUnreachable(cfg.Providers, launch)
 	}
 	var albertModels []codebox.AlbertModelConfig
 	if providersContain(cfg.Providers, codebox.ProviderAlbert) {
-		albertModels = resolveEnabledAlbertModels(modelSelection, smallModelSelection)
+		albertModels = resolveEnabledAlbertModelsForProject(projectRoot, modelSelection, smallModelSelection)
 	}
 	overlay := codebox.ManagedOverlay{
 		Model:         modelSelection,
 		SmallModel:    smallModelSelection,
 		Models:        albertModels,
-		Providers:     resolveProviderOverlays(cfg.Providers, modelSelection, smallModelSelection),
-		AlbertEnabled: providersContain(cfg.Providers, codebox.ProviderAlbert),
+		Providers:     resolveProviderOverlaysForProject(projectRoot, cfg.Providers, modelSelection, smallModelSelection),
+		AlbertEnabled: providersContain(cfg.Providers, codebox.ProviderAlbert) && len(albertModels) > 0,
 		MCPConnectors: mcpSelection,
 	}
 	conflictMsg, err := opencodeConfigReview(projectRoot, overlay)
@@ -476,7 +478,11 @@ func run(args []string) (int, error) {
 		return acpCmd(d, cfg, rt, os.Stdin, acpOutput, os.Stderr)
 	case "attach":
 		return attachCmd(d, cfg, rt, instance, projectRoot)
-	case "start", "logs", "shell", "restart", "recreate", "clean", "doctor":
+	case "doctor":
+		code, err := lifecycleCmd(d, rt, parsed.action, parsed.follow)
+		reportLocalModelServerDoctor(os.Stdout, cfg.Providers)
+		return code, err
+	case "start", "logs", "shell", "restart", "recreate", "clean":
 		return lifecycleCmd(d, rt, parsed.action, parsed.follow)
 	default:
 		return 2, fmt.Errorf("Argument inconnu : %s", parsed.action)
@@ -1004,24 +1010,91 @@ func resolveProviderSettingsAt(projectRoot string) ([]codebox.ProviderSettings, 
 	return settings, nil
 }
 
+// probeLocalModelServerFn is the launch-time probe seam for configured
+// host-local model servers (Ollama, LM Studio, llama.cpp). Tests replace it so
+// launch checks stay hermetic and never touch the host loopback.
+var probeLocalModelServerFn = func(ctx context.Context, baseURL string) ([]string, error) {
+	return codebox.ProbeLocalModelServer(ctx, nil, baseURL)
+}
+
+func localModelServerUnreachableMessage(p codebox.InferenceProvider) string {
+	return fmt.Sprintf("le serveur de modèles local %s (%s) ne répond pas ; démarrez-le pour utiliser les modèles locaux (ex. titres de session) ou retirez-le avec 'codebox init --advanced' ou 'codebox init --replace --local-server aucun --yes'", p.Name, p.BaseURL)
+}
+
+func warnIfLocalModelServerUnreachable(providers []codebox.InferenceProvider, launch *codebox.LaunchUX) {
+	for _, p := range providers {
+		if p.Kind != codebox.ProviderLocal {
+			continue
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		_, err := probeLocalModelServerFn(ctx, p.BaseURL)
+		cancel()
+		if err == nil {
+			continue
+		}
+		msg := localModelServerUnreachableMessage(p)
+		if launch != nil && launch.Terminal {
+			launch.AddWarning("%s", msg)
+		} else {
+			fmt.Fprintf(os.Stderr, "Attention : %s\n", msg)
+		}
+	}
+}
+
+func reportLocalModelServerDoctor(w io.Writer, providers []codebox.InferenceProvider) {
+	for _, p := range providers {
+		if p.Kind != codebox.ProviderLocal {
+			continue
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		models, err := probeLocalModelServerFn(ctx, p.BaseURL)
+		cancel()
+		if err != nil {
+			fmt.Fprintf(w, "Attention : %s\n", localModelServerUnreachableMessage(p))
+			continue
+		}
+		fmt.Fprintf(w, "Serveur de modèles local : %s (%s) — joignable (%d modèle(s) ; port hôte %d)\n", p.Name, p.BaseURL, len(models), p.LocalPort)
+	}
+}
+
+func projectManifestModels(projectRoot string) []string {
+	if strings.TrimSpace(projectRoot) == "" {
+		return nil
+	}
+	manifest, err := codebox.ReadProjectManifest(codebox.DefaultFS, codebox.ProjectManifestPath(projectRoot))
+	if err != nil {
+		return nil
+	}
+	return manifest.Models
+}
+
 // resolveProviderOverlays turns the configured platforms into the non-Albert
 // provider blocks of the managed OpenCode config. Albert keeps its curated
 // model definitions in ManagedOverlay.Models.
 func resolveProviderOverlays(providers []codebox.InferenceProvider, activeModels ...string) []codebox.ProviderOverlay {
-	path, err := codebox.UserSettingsPath()
-	if err != nil {
-		return nil
+	return resolveProviderOverlaysForProject("", providers, activeModels...)
+}
+
+func resolveProviderOverlaysForProject(projectRoot string, providers []codebox.InferenceProvider, activeModels ...string) []codebox.ProviderOverlay {
+	var us codebox.UserSettings
+	if path, err := codebox.UserSettingsPath(); err == nil {
+		if read, readErr := codebox.ReadUserSettings(codebox.DefaultFS, path); readErr == nil {
+			us = read
+		}
 	}
-	us, readErr := codebox.ReadUserSettings(codebox.DefaultFS, path)
-	if readErr != nil {
-		return nil
-	}
+	projectModels := projectManifestModels(projectRoot)
+	hasProjectModels := len(projectModels) > 0
 	var out []codebox.ProviderOverlay
 	for _, provider := range providers {
 		if provider.Kind == codebox.ProviderAlbert {
 			continue
 		}
-		ids := codebox.ProviderModelIDs(us.Models, provider.Kind)
+		var ids []string
+		if hasProjectModels {
+			ids = codebox.ProviderModelIDs(projectModels, provider.Kind)
+		} else {
+			ids = codebox.ProviderModelIDs(us.Models, provider.Kind)
+		}
 		for _, activeModel := range activeModels {
 			activeKind, activeID := codebox.ProviderModelID(activeModel)
 			if activeModel != "" && activeKind == provider.Kind && activeID != "" && !containsString(ids, activeID) {
@@ -1074,31 +1147,41 @@ func canonicalAlbertModelID(id string) string {
 }
 
 func resolveEnabledAlbertModels(activeModels ...string) []codebox.AlbertModelConfig {
+	return resolveEnabledAlbertModelsForProject("", activeModels...)
+}
+
+func resolveEnabledAlbertModelsForProject(projectRoot string, activeModels ...string) []codebox.AlbertModelConfig {
 	for i, activeModel := range activeModels {
 		activeModels[i] = canonicalAlbertModelRef(activeModel)
 	}
-	path, err := codebox.UserSettingsPath()
 	var ids []string
-	if err == nil {
-		if settings, readErr := codebox.ReadUserSettings(codebox.DefaultFS, path); readErr == nil {
-			for _, ref := range codebox.ProviderModelIDs(settings.Models, codebox.ProviderAlbert) {
-				ids = append(ids, canonicalAlbertModelID(ref))
-			}
+	addID := func(raw string) {
+		id := canonicalAlbertModelID(raw)
+		if id != "" && !containsString(ids, id) {
+			ids = append(ids, id)
 		}
 	}
-	if len(ids) == 0 {
-		embeddedOnly := true
-		for _, activeModel := range activeModels {
-			if activeModel != "" && activeModel != "albert/deepseek-v4-flash" {
-				embeddedOnly = false
+	projectModels := projectManifestModels(projectRoot)
+	hasProjectModels := len(projectModels) > 0
+	if hasProjectModels {
+		for _, ref := range codebox.ProviderModelIDs(projectModels, codebox.ProviderAlbert) {
+			addID(ref)
+		}
+	} else {
+		var hasUserModels bool
+		if path, err := codebox.UserSettingsPath(); err == nil {
+			if settings, readErr := codebox.ReadUserSettings(codebox.DefaultFS, path); readErr == nil && len(settings.Models) > 0 {
+				hasUserModels = true
+				for _, ref := range codebox.ProviderModelIDs(settings.Models, codebox.ProviderAlbert) {
+					addID(ref)
+				}
 			}
 		}
-		if embeddedOnly {
-			return nil
-		}
-		for _, choice := range codebox.CuratedAlbertModels() {
-			if choice.Default {
-				ids = append(ids, choice.ID)
+		if !hasUserModels && len(ids) == 0 {
+			// Expose all curated Albert models by default so OpenCode's /models
+			// selector is not stuck on the two legacy embedded entries (#506).
+			for _, choice := range codebox.CuratedAlbertModels() {
+				addID(choice.ID)
 			}
 		}
 	}
@@ -1315,7 +1398,14 @@ func attachCmd(d *codebox.Dispatcher, cfg codebox.Config, rt codebox.Runtime, in
 	// gets its configuration classified and an interrupted apply resumed,
 	// instead of a blind start.
 	if err := startWithLaunchReport(ctx, d, b); err != nil {
-		return 0, err
+		var recreateErr *codebox.ErrRecreateNeeded
+		if msb, ok := b.(*codebox.MicrosandboxRuntime); ok && errors.As(err, &recreateErr) && attachIsTTYFn() {
+			if code, rerr := handleInteractiveRecreateOnLaunch(ctx, d, msb, cfg, instance, projectRoot, recreateErr); rerr != nil {
+				return code, rerr
+			}
+		} else {
+			return 0, err
+		}
 	}
 	if msb, ok := b.(*codebox.MicrosandboxRuntime); ok {
 		if diag := msb.CheckGuestDNS(ctx); diag != nil {
@@ -1433,7 +1523,138 @@ func lifecycleCmd(d *codebox.Dispatcher, rt codebox.Runtime, action string, foll
 	if err == nil && (action == "start" || action == "restart" || action == "recreate") {
 		printLaunchReport(d.Launch)
 	}
+	if err == nil && action == "recreate" {
+		fmt.Println("Lancez 'codebox' pour démarrer l'agent.")
+	}
 	return 0, err
+}
+
+// attachIsTTYFn gates interactive launch-time recreate recovery so tests can
+// drive both TTY and non-TTY branches without a real terminal.
+var attachIsTTYFn = isTTY
+
+// confirmLaunchRecreateFn asks one yes/no confirmation before recreating a
+// sandbox during `codebox` launch (#507). Tests replace this seam.
+var confirmLaunchRecreateFn = func(reason string) (bool, error) {
+	desc := "Cause : " + reason + "\n" +
+		"La recréation supprime les sessions de l'agent, les outils installés dans la machine isolée et les fichiers non appliqués dans votre dossier, puis relance l'agent automatiquement."
+	if wizardHuhFn() {
+		return huhConfirm("Recréer la machine isolée maintenant ?", desc, false)
+	}
+	fmt.Fprintln(os.Stderr, desc)
+	fmt.Fprint(os.Stderr, "Recréer la machine isolée et démarrer l'agent ? (o/N) ")
+	reply, _ := bufio.NewReader(os.Stdin).ReadString('\n')
+	switch strings.ToLower(strings.TrimSpace(reply)) {
+	case "o", "oui", "y", "yes":
+		return true, nil
+	default:
+		return false, nil
+	}
+}
+
+// launchRecreateBackupPath returns a unique per-attempt patch path in host
+// state so repeated recreations never overwrite an earlier unapplied backup
+// (#507).
+func launchRecreateBackupPath(stateDir, instance string) string {
+	stamp := launchNowFn().UTC().Format("20060102-150405.000000000")
+	return filepath.Join(codebox.InstanceStateDir(stateDir, instance), fmt.Sprintf("recreate-backup-%s.patch", stamp))
+}
+
+// launchRecreateRecoverFn and launchRecreateRunFn are test seams so cmd/codebox
+// unit tests can exercise handleInteractiveRecreateOnLaunch without touching a
+// real Microsandbox SDK client or host state (#507).
+var launchRecreateRecoverFn = func(ctx context.Context, msb *codebox.MicrosandboxRuntime, cfg codebox.Config, instance string) {
+	if err := msb.Recover(ctx); err != nil {
+		fmt.Fprintf(os.Stderr, "Sauvegarde automatique impossible avant recréation : %v\n", err)
+		return
+	}
+	if status, serr := msb.GuestBranchStatus(ctx); serr == nil {
+		if line := guestBranchLine(status); line != "" {
+			fmt.Fprintln(os.Stderr, line)
+		}
+	}
+	if warning, werr := msb.GuestRecoveryWarning(ctx); werr == nil && warning != "" {
+		fmt.Fprintln(os.Stderr, warning)
+	}
+	unrecovered, uerr := codebox.UnrecoveredGuestChanges(ctx, msb)
+	if uerr != nil {
+		fmt.Fprintf(os.Stderr, "Impossible de vérifier les modifications de la machine isolée : %v\n", uerr)
+		return
+	}
+	if len(unrecovered) == 0 {
+		fmt.Fprintln(os.Stderr, "Aucune modification non récupérée dans la machine isolée.")
+		return
+	}
+	backupTarget := launchRecreateBackupPath(codebox.DefaultStateDir(), instance)
+	if patchPath, perr := codebox.BackupGuestChangesForRecreate(ctx, msb, cfg.WorkspaceDir, unrecovered, backupTarget); perr != nil {
+		fmt.Fprintf(os.Stderr, "Sauvegarde automatique du patch impossible : %v\n", perr)
+	} else if patchPath != "" {
+		fmt.Fprintf(os.Stderr, "Sauvegarde automatique enregistrée : %s\n", patchPath)
+	}
+	if _, aerr := runWorkspaceApply(msb, cfg.WorkspaceDir, instance, false); aerr != nil {
+		fmt.Fprintf(os.Stderr, "La récupération dans votre dossier a échoué : %v (le patch de sauvegarde reste disponible).\n", aerr)
+	}
+}
+
+var launchRecreateRunFn = func(ctx context.Context, msb *codebox.MicrosandboxRuntime) error {
+	return msb.Recreate(ctx)
+}
+
+// handleInteractiveRecreateOnLaunch explains the exact creation-fixed change,
+// saves any unrecovered sealed-workspace work to a unique host-state patch
+// (and offers reviewed workspace apply), revalidates execution-input trust in
+// case recovery wrote or changed plugins/extensions/MCP commands, asks one
+// yes/no confirmation, and recreates the sandbox so attachCmd can launch the
+// agent directly (#507).
+func handleInteractiveRecreateOnLaunch(ctx context.Context, d *codebox.Dispatcher, msb *codebox.MicrosandboxRuntime, cfg codebox.Config, instance, projectRoot string, recreateErr *codebox.ErrRecreateNeeded) (int, error) {
+	fmt.Fprintf(os.Stderr, "\nLa machine isolée (%s) doit être recréée : %s.\n", recreateErr.Instance, recreateErr.Reason)
+
+	// Automatically inspect and back up sealed-workspace work before asking
+	// for recreate confirmation. Never write directly into the host checkout
+	// without review: automatic backup writes a 0600 patch to a unique path in
+	// host state, and applying into the checkout goes through the existing
+	// reviewed apply flow.
+	launchRecreateRecoverFn(ctx, msb, cfg, instance)
+
+	// Recovery may have applied new or modified execution inputs (.opencode
+	// plugins, opencode.json MCP commands, .pi extensions/settings) into the
+	// host checkout after the initial launch trust check ran. Re-run the trust
+	// gate before confirming recreation or launching the agent.
+	trustRoots := []string{}
+	if root := strings.TrimSpace(projectRoot); root != "" {
+		trustRoots = append(trustRoots, filepath.Clean(root))
+	}
+	if ws := strings.TrimSpace(cfg.WorkspaceDir); ws != "" {
+		cleanWS := filepath.Clean(ws)
+		if len(trustRoots) == 0 || trustRoots[0] != cleanWS {
+			trustRoots = append(trustRoots, cleanWS)
+		}
+	}
+	for _, root := range trustRoots {
+		if err := requireTrustedExecutionInputs(root); err != nil {
+			return 1, err
+		}
+	}
+
+	confirmed, err := confirmLaunchRecreateFn(recreateErr.Reason)
+	if err != nil {
+		return 1, err
+	}
+	if !confirmed {
+		return 1, fmt.Errorf("recréation annulée ; rien n'a été détruit")
+	}
+	if err := launchRecreateRunFn(ctx, msb); err != nil {
+		return 1, err
+	}
+	if err := d.WaitLaunchReady(ctx, msb); err != nil {
+		return 1, err
+	}
+	if d.Launch != nil {
+		d.RecordLaunchSkills()
+		d.Launch.RecordMCP(msb.OpenCodeOverlay.MCPConnectors)
+	}
+	printLaunchReport(d.Launch)
+	return 0, nil
 }
 
 var launchNowFn = time.Now
@@ -1468,18 +1689,32 @@ func printLaunchReport(launch *codebox.LaunchUX) {
 
 var confirmRecreateFn = confirmDestructiveRecreate
 
-// confirmDestructiveRecreate asks the user to name what recreate destroys.
+// confirmDestructiveRecreate asks the user to confirm what recreate destroys.
 // On a non-TTY (CI, scripts) it refuses rather than destroying silently: the
 // explicit replacement is `codebox clean --<runtime>` followed by start,
 // which names the instance and the loss in its own output.
 func confirmDestructiveRecreate(rt codebox.Runtime) (int, error) {
 	fmt.Fprintf(os.Stderr, "Attention : recreate --%s reconstruit de zéro l'environnement %s et DÉTRUIT : les sessions de la machine isolée, les outils installés dans la machine isolée et les fichiers propres à la machine isolée.\n", rt, rt)
+	if rt == codebox.RuntimeMicrosandbox {
+		fmt.Fprintln(os.Stderr, "Pour récupérer d'abord le travail de l'agent : 'codebox workspace recover' puis 'codebox workspace apply'.")
+	}
 	if !isTTY() {
 		return 1, fmt.Errorf("recreate est destructeur et exige une confirmation interactive ; lancez 'codebox clean --%s' puis 'codebox start --%s' si vous voulez vraiment recréer", rt, rt)
 	}
-	fmt.Print("Recréer et perdre cet état ? Saisissez le nom du runtime pour confirmer : ")
+	if wizardHuhFn() {
+		confirmed, err := huhConfirm(fmt.Sprintf("Recréer la machine isolée (%s) ?", rt), "Les sessions, outils installés et fichiers propres à la machine isolée seront supprimés.", false)
+		if err != nil {
+			return 1, err
+		}
+		if !confirmed {
+			return 1, fmt.Errorf("non confirmé ; rien n'a été détruit")
+		}
+		return 0, nil
+	}
+	fmt.Printf("Recréer %s et perdre cet état ? (o/N) ", rt)
 	reply, _ := bufio.NewReader(os.Stdin).ReadString('\n')
-	if strings.TrimSpace(reply) != string(rt) {
+	trimmed := strings.ToLower(strings.TrimSpace(reply))
+	if trimmed != "o" && trimmed != "oui" && trimmed != "y" && trimmed != "yes" && trimmed != strings.ToLower(string(rt)) {
 		return 1, fmt.Errorf("non confirmé ; rien n'a été détruit")
 	}
 	return 0, nil

@@ -1762,3 +1762,34 @@ func TestInitPlanRecordsThePiModelItShows(t *testing.T) {
 		t.Fatalf("an OpenCode plan recorded model %q", opencodePlan.Answers.Model)
 	}
 }
+
+func TestInitReviewWarnsHonestRecreateForCreationFixedChanges(t *testing.T) {
+	plan := InitPlan{
+		Answers: InitAnswers{
+			Root:          t.TempDir(),
+			Runtime:       RuntimeMicrosandbox,
+			Isolation:     IsolationFull,
+			MCPConnectors: []string{"data-gouv"},
+			Providers: []ProviderSettings{
+				{Kind: ProviderAlbert},
+				{Kind: ProviderLocal, Name: "Ollama", BaseURL: "http://localhost:11434/v1"},
+			},
+		},
+		ExistingManifest: &ProjectManifest{
+			Runtime:   "microsandbox",
+			Isolation: "full",
+			Providers: []ProviderSettings{{Kind: ProviderAlbert}},
+		},
+	}
+	for name, out := range map[string]string{
+		"interactive": FormatInteractiveInitReview(plan),
+		"scripted":    FormatInitReview(plan),
+	} {
+		if strings.Contains(out, "sans effacer son contenu") {
+			t.Errorf("%s review falsely promised non-destructive apply when local server changed:\n%s", name, out)
+		}
+		if !strings.Contains(out, "proposera de sauvegarder le travail puis de la recréer") {
+			t.Errorf("%s review missing recreate notice:\n%s", name, out)
+		}
+	}
+}

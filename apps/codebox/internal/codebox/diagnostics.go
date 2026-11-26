@@ -69,6 +69,9 @@ type Diagnostics struct {
 	// InspectHostDNS overrides host DNS inspection in tests. When nil, Collect
 	// inspects macOS/Linux DNS resolvers via Run/FS for real platforms only.
 	InspectHostDNS func(context.Context) HostDNSInfo
+	// ProbeLocalServer probes a configured host-local OpenAI-compatible model
+	// server (e.g. Ollama). Nil uses ProbeLocalModelServer.
+	ProbeLocalServer func(context.Context, string) ([]string, error)
 }
 
 var diagnosticVersionPattern = regexp.MustCompile(`^(?:go)?v?\d+\.\d+(?:\.\d+)?(?:[-+][0-9A-Za-z.-]+)?$`)
@@ -100,7 +103,7 @@ func (d Diagnostics) Collect(ctx context.Context) DiagnosticsReport {
 		d.runtimeSection(ctx, fs, stateDir, projectDir, *preflight),
 		d.toolchainSection(ctx),
 		d.providerSection(ctx, fs),
-		d.projectSection(fs, stateDir, projectDir),
+		d.projectSection(ctx, fs, stateDir, projectDir),
 		d.credentialSection(ctx, fs, stateDir),
 	)
 	redactDiagnosticPaths(&report, d.ProjectDir, stateDir)
@@ -263,7 +266,7 @@ func runtimeInstallDetail(installed bool) string {
 	if installed {
 		return "marqueur de provenance et fichiers requis présents"
 	}
-	return "non installé ; lancez 'codebox start --microsandbox' ou 'codebox setup'"
+	return "non installé ; téléchargé automatiquement au premier lancement ('codebox')"
 }
 
 func (d Diagnostics) toolchainSection(ctx context.Context) DiagnosticSection {
@@ -433,7 +436,7 @@ func (d Diagnostics) providerSection(ctx context.Context, fs FS) DiagnosticSecti
 	return section
 }
 
-func (d Diagnostics) projectSection(fs FS, stateDir, projectDir string) DiagnosticSection {
+func (d Diagnostics) projectSection(ctx context.Context, fs FS, stateDir, projectDir string) DiagnosticSection {
 	section := DiagnosticSection{Title: "Skills et MCP du projet"}
 	project, err := DiscoverProject(projectDir)
 	if err != nil {
@@ -460,6 +463,44 @@ func (d Diagnostics) projectSection(fs FS, stateDir, projectDir string) Diagnost
 		DiagnosticItem{Name: "Runtime déclaré", Value: runtimeName, Status: DiagnosticInfo},
 		DiagnosticItem{Name: "Isolation déclarée", Value: isolation, Status: DiagnosticInfo},
 	)
+	for _, p := range manifest.Providers {
+		if p.Kind != ProviderLocal {
+			continue
+		}
+		resolved, resolveErr := ResolveProvider(p)
+		if resolveErr != nil {
+			section.Items = append(section.Items, DiagnosticItem{
+				Name: "Serveur de modèles local", Value: "invalide", Detail: resolveErr.Error(), Status: DiagnosticWarn,
+			})
+			break
+		}
+		probe := d.ProbeLocalServer
+		if probe == nil {
+			probe = func(pCtx context.Context, baseURL string) ([]string, error) {
+				return ProbeLocalModelServer(pCtx, nil, baseURL)
+			}
+		}
+		probeCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
+		models, probeErr := probe(probeCtx, resolved.BaseURL)
+		cancel()
+		label := fmt.Sprintf("%s (%s)", resolved.Name, resolved.BaseURL)
+		if probeErr != nil {
+			section.Items = append(section.Items, DiagnosticItem{
+				Name:   "Serveur de modèles local",
+				Value:  label,
+				Detail: "inaccessible ; démarrez-le pour utiliser les modèles locaux (ex. titres de session) ou retirez-le avec 'codebox init --advanced' ou 'codebox init --replace --local-server none --yes'",
+				Status: DiagnosticWarn,
+			})
+		} else {
+			section.Items = append(section.Items, DiagnosticItem{
+				Name:   "Serveur de modèles local",
+				Value:  label,
+				Detail: fmt.Sprintf("joignable (%d modèle(s) ; port hôte %d)", len(models), resolved.LocalPort),
+				Status: DiagnosticOK,
+			})
+		}
+		break
+	}
 	if _, err := fs.ReadFile(ProjectUpdateJournalPath(project.Root)); err == nil {
 		section.Items = append(section.Items, DiagnosticItem{
 			Name: "Mise à jour du projet en attente", Value: "récupération nécessaire", Detail: "doctor n'a ni récupéré ni modifié la transaction ; lancez 'codebox update --recover'", Status: DiagnosticWarn,

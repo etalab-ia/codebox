@@ -460,7 +460,7 @@ func TestAskInitAdvancedHuhSubmitKeepsDefaults(t *testing.T) {
 	runInitAdvancedForm = func(form *huh.Form) (bool, error) {
 		picker := form.GetFocusedField().(*huh.Select[string])
 		picker.Focus()
-		for i := 0; i < 6; i++ {
+		for i := 0; i < 7; i++ {
 			picker.Update(tea.KeyPressMsg{Code: tea.KeyDown})
 		}
 		picker.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
@@ -594,12 +594,12 @@ func TestInitAdvancedModelEditSurvivesEscape(t *testing.T) {
 			}
 			field.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 		case 2:
-			if _, ok := field.(*huh.Input); !ok {
-				t.Fatalf("expected model input, got %T", field)
+			if _, ok := field.(*huh.Select[string]); !ok {
+				t.Fatalf("expected model select, got %T", field)
 			}
-			for _, r := range "qwen3-coder" {
-				field.Update(tea.KeyPressMsg{Code: r, Text: string(r)})
-			}
+			// Index 0 is "Modèle par défaut", index 1 is Qwen3 Coder (albert/qwen3-coder).
+			field.Update(tea.KeyPressMsg{Code: tea.KeyDown})
+			field.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 		case 3:
 			return true, nil
 		default:
@@ -611,6 +611,54 @@ func TestInitAdvancedModelEditSurvivesEscape(t *testing.T) {
 	after, err := askInitAdvancedHuh(opts, codebox.InitAnswers{Root: "/tmp/example"})
 	if err != nil || after.Model != "albert/qwen3-coder" {
 		t.Fatalf("model edit lost: %+v, %v", after, err)
+	}
+}
+
+func TestInitAdvancedModelCustomInputFallback(t *testing.T) {
+	originalRun, originalInstall := runInitAdvancedForm, runtimeInstallHintFn
+	t.Cleanup(func() { runInitAdvancedForm, runtimeInstallHintFn = originalRun, originalInstall })
+	runtimeInstallHintFn = func(codebox.Runtime) (bool, string) { return true, "" }
+	stubCatalogueCheck(t, func(root, model string) (string, error) {
+		if root != "/tmp/example" || model != "albert/custom-model" {
+			t.Fatalf("unexpected catalogue check: %q, %q", root, model)
+		}
+		return "", nil
+	})
+	calls := 0
+	runInitAdvancedForm = func(form *huh.Form) (bool, error) {
+		calls++
+		field := form.GetFocusedField()
+		field.Focus()
+		switch calls {
+		case 1:
+			for i := 0; i < 3; i++ {
+				field.Update(tea.KeyPressMsg{Code: tea.KeyDown})
+			}
+			field.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+		case 2:
+			// Move to the last option ("Saisir un identifiant personnalisé…").
+			for i := 0; i < len(codebox.CuratedAlbertModels())+1; i++ {
+				field.Update(tea.KeyPressMsg{Code: tea.KeyDown})
+			}
+			field.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+		case 3:
+			if _, ok := field.(*huh.Input); !ok {
+				t.Fatalf("expected custom model input, got %T", field)
+			}
+			for _, r := range "albert/custom-model" {
+				field.Update(tea.KeyPressMsg{Code: r, Text: string(r)})
+			}
+		case 4:
+			return true, nil
+		default:
+			t.Fatal("unexpected form after Escape")
+		}
+		return false, nil
+	}
+	opts := initOptions{hostCPUs: 8, hostMemoryMB: 16384, maxCPUs: 8, maxMemoryMB: 16384}
+	after, err := askInitAdvancedHuh(opts, codebox.InitAnswers{Root: "/tmp/example"})
+	if err != nil || after.Model != "albert/custom-model" {
+		t.Fatalf("custom model edit lost: %+v, %v", after, err)
 	}
 }
 
@@ -780,6 +828,20 @@ func TestInitRuntimeNoticeNamesOnlySharedRuntimes(t *testing.T) {
 		if shared != (rt != codebox.RuntimeMicrosandbox) {
 			t.Fatalf("incorrect sharing warning for %s: %s", rt, got)
 		}
+	}
+}
+
+func TestInitRuntimeNoticeOmitsAutoDownloadedMicrosandbox(t *testing.T) {
+	original := runtimeInstallHintFn
+	t.Cleanup(func() { runtimeInstallHintFn = original })
+	runtimeInstallHintFn = func(rt codebox.Runtime) (bool, string) {
+		if rt != codebox.RuntimeMicrosandbox {
+			t.Fatalf("unexpected runtime probe: %q", rt)
+		}
+		return false, ""
+	}
+	if got := initRuntimeNotice(codebox.RuntimeMicrosandbox); got != "" {
+		t.Fatalf("auto-downloaded Microsandbox must not warn as uninstalled: %q", got)
 	}
 }
 

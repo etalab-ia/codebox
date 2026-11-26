@@ -613,14 +613,7 @@ func (m *MicrosandboxRuntime) guestShell(ctx context.Context, command string) er
 	return nil
 }
 
-// ExportGuestChanges produces a reviewable patch of the guest's work and
-// writes it to the host. It is the change-delivery path for a project without
-// an enabled GitHub grant; when enabled, the guest can also deliver reviewed
-// changes through its GitHub branch and PR workflow.
-//
-// The patch is written outside the project by default (host state), so
-// reviewing it does not itself dirty the checkout.
-func (m *MicrosandboxRuntime) ExportGuestChanges(ctx context.Context, outPath string) (string, error) {
+func (m *MicrosandboxRuntime) exportGuestDiff(ctx context.Context) (string, error) {
 	// `git add -A -N` below mutates the repository it runs in; on a
 	// bind-mounted instance that repository is the user's own checkout.
 	if err := m.requireSealedWorkspace(ctx); err != nil {
@@ -638,6 +631,21 @@ func (m *MicrosandboxRuntime) ExportGuestChanges(ctx context.Context, outPath st
 	}
 	if code != 0 {
 		return "", fmt.Errorf("la machine isolée n'a pas pu produire de diff (code %d) : %s", code, strings.TrimSpace(stderr))
+	}
+	return stdout, nil
+}
+
+// ExportGuestChanges produces a reviewable patch of the guest's work and
+// writes it to the host. It is the change-delivery path for a project without
+// an enabled GitHub grant; when enabled, the guest can also deliver reviewed
+// changes through its GitHub branch and PR workflow.
+//
+// The patch is written outside the project by default (host state), so
+// reviewing it does not itself dirty the checkout.
+func (m *MicrosandboxRuntime) ExportGuestChanges(ctx context.Context, outPath string) (string, error) {
+	stdout, err := m.exportGuestDiff(ctx)
+	if err != nil {
+		return "", err
 	}
 	if strings.TrimSpace(stdout) == "" {
 		return "", nil

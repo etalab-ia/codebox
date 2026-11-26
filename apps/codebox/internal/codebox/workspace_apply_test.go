@@ -1807,3 +1807,178 @@ func TestUnrecoveredGuestChangesForExitSkipsAlreadyPushedFiles(t *testing.T) {
 		}
 	})
 }
+
+func TestBackupGuestChangesForRecreateIncludesSyntheticReversals(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not available in PATH")
+	}
+	guestReadOutput := func(content string) string {
+		return "644 " + strconv.Itoa(len(content)) + "\n" + base64.StdEncoding.EncodeToString([]byte(content)) + "\n"
+	}
+	applyBackupPatch := func(t *testing.T, host, patchPath string) {
+		t.Helper()
+		// Pin core.autocrlf=false so Windows runners (which default to
+		// core.autocrlf=true) do not smudge LF to CRLF when verifying the
+		// byte-exact result of applying the generated backup patch.
+		applyCmd := exec.Command("git", "-c", "core.autocrlf=false", "apply", patchPath)
+		applyCmd.Dir = host
+		applyCmd.Env = append(os.Environ(),
+			"GIT_CONFIG_NOSYSTEM=1",
+			"GIT_CONFIG_GLOBAL="+os.DevNull,
+		)
+		if ceiling, ok := gitCeilingDirectory(host); ok {
+			applyCmd.Env = append(applyCmd.Env, "GIT_CEILING_DIRECTORIES="+ceiling)
+		}
+		if out, err := applyCmd.CombinedOutput(); err != nil {
+			patchBytes, _ := os.ReadFile(patchPath)
+			t.Fatalf("git apply failed: %v\noutput:\n%s\npatch:\n%s", err, out, patchBytes)
+		}
+	}
+
+	t.Run("synthetic-only modification and deletion produce git-appliable backup", func(t *testing.T) {
+		host := t.TempDir()
+		if err := os.MkdirAll(filepath.Join(host, "sub"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(host, "sub", "rev.txt"), []byte("v2 recovered\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(host, "gone.txt"), []byte("recovered then deleted\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+
+		client := sealedFakeMSB()
+		client.execCaptureResults = []fakeMSBExecCaptureResult{
+			{stdout: ""}, // exportGuestDiff: empty because guest matches recovery base
+			{stdout: guestReadOutput("v1 baseline\n")}, // ReadGuestFile for sub/rev.txt
+		}
+		m, stateDir := applyTestRuntime(t, client)
+		outPath := filepath.Join(stateDir, "recreate-backup.patch")
+		unrecovered := []GuestChange{
+			{Rel: "gone.txt", Status: 'D', Synthetic: true},
+			{Rel: "sub/rev.txt", Status: 'M', Synthetic: true},
+		}
+
+		gotPath, err := BackupGuestChangesForRecreate(context.Background(), m, host, unrecovered, outPath)
+		if err != nil {
+			t.Fatalf("BackupGuestChangesForRecreate: %v", err)
+		}
+		if gotPath != outPath {
+			t.Fatalf("backup path = %q, want %q", gotPath, outPath)
+		}
+		info, err := os.Stat(gotPath)
+		if err != nil {
+			t.Fatalf("stat backup: %v", err)
+		}
+		if runtime.GOOS != "windows" && info.Mode().Perm() != 0o600 {
+			t.Fatalf("backup mode = %o, want 0600", info.Mode().Perm())
+		}
+
+		applyBackupPatch(t, host, gotPath)
+		gotRev, err := os.ReadFile(filepath.Join(host, "sub", "rev.txt"))
+		if err != nil {
+			t.Fatalf("read reverted file: %v", err)
+		}
+		if string(gotRev) != "v1 baseline\n" {
+			t.Fatalf("sub/rev.txt = %q, want %q", gotRev, "v1 baseline\n")
+		}
+		if _, err := os.Stat(filepath.Join(host, "gone.txt")); !os.IsNotExist(err) {
+			t.Fatalf("gone.txt should be deleted after applying backup patch, stat err = %v", err)
+		}
+	})
+
+	t.Run("combines normal guest diff and synthetic reversal into one patch", func(t *testing.T) {
+		host := t.TempDir()
+		if err := os.WriteFile(filepath.Join(host, "README.md"), []byte("hello\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(host, "reverted.txt"), []byte("v2 recovered\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+
+		normalDiff := "diff --git a/README.md b/README.md\n" +
+			"--- a/README.md\n" +
+			"+++ b/README.md\n" +
+			"@@ -1 +1,2 @@\n" +
+			" hello\n" +
+			"+guest line\n"
+		client := sealedFakeMSB()
+		client.execCaptureResults = []fakeMSBExecCaptureResult{
+			{stdout: normalDiff},                       // exportGuestDiff
+			{stdout: guestReadOutput("v1 baseline\n")}, // ReadGuestFile for reverted.txt
+		}
+		m, stateDir := applyTestRuntime(t, client)
+		outPath := filepath.Join(stateDir, "recreate-combined.patch")
+		unrecovered := []GuestChange{
+			{Rel: "README.md", Status: 'M', Patch: []byte(normalDiff)},
+			{Rel: "reverted.txt", Status: 'M', Synthetic: true},
+		}
+
+		gotPath, err := BackupGuestChangesForRecreate(context.Background(), m, host, unrecovered, outPath)
+		if err != nil {
+			t.Fatalf("BackupGuestChangesForRecreate: %v", err)
+		}
+		applyBackupPatch(t, host, gotPath)
+		gotReadme, err := os.ReadFile(filepath.Join(host, "README.md"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if string(gotReadme) != "hello\nguest line\n" {
+			t.Fatalf("README.md = %q, want %q", gotReadme, "hello\nguest line\n")
+		}
+		gotRev, err := os.ReadFile(filepath.Join(host, "reverted.txt"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if string(gotRev) != "v1 baseline\n" {
+			t.Fatalf("reverted.txt = %q, want %q", gotRev, "v1 baseline\n")
+		}
+	})
+
+	t.Run("synthetic guest read failure fails closed without partial backup file", func(t *testing.T) {
+		host := t.TempDir()
+		if err := os.WriteFile(filepath.Join(host, "reverted.txt"), []byte("v2\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		client := sealedFakeMSB()
+		client.execCaptureResults = []fakeMSBExecCaptureResult{
+			{stdout: "diff --git a/a.txt b/a.txt\n--- a/a.txt\n+++ b/a.txt\n@@ -1 +1 @@\n-x\n+y\n"},
+			{code: 1, stderr: "permission denied"},
+		}
+		m, stateDir := applyTestRuntime(t, client)
+		outPath := filepath.Join(stateDir, "recreate-failed.patch")
+		_, err := BackupGuestChangesForRecreate(context.Background(), m, host, []GuestChange{
+			{Rel: "reverted.txt", Status: 'M', Synthetic: true},
+		}, outPath)
+		if err == nil {
+			t.Fatal("expected error when reading synthetic guest file fails")
+		}
+		if _, statErr := os.Stat(outPath); !os.IsNotExist(statErr) {
+			t.Fatalf("partial backup file must not be written on error, stat err = %v", statErr)
+		}
+	})
+
+	t.Run("host symlink refused for synthetic backup", func(t *testing.T) {
+		if runtime.GOOS == "windows" {
+			t.Skip("symlink creation requires elevated privileges on Windows")
+		}
+		host := t.TempDir()
+		outside := filepath.Join(t.TempDir(), "secret.txt")
+		if err := os.WriteFile(outside, []byte("secret\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Symlink(outside, filepath.Join(host, "link.txt")); err != nil {
+			t.Fatal(err)
+		}
+		client := sealedFakeMSB()
+		client.execCaptureResults = []fakeMSBExecCaptureResult{{stdout: ""}}
+		m, stateDir := applyTestRuntime(t, client)
+		outPath := filepath.Join(stateDir, "recreate-symlink.patch")
+		_, err := BackupGuestChangesForRecreate(context.Background(), m, host, []GuestChange{
+			{Rel: "link.txt", Status: 'D', Synthetic: true},
+		}, outPath)
+		if err == nil || !strings.Contains(err.Error(), "lien symbolique") {
+			t.Fatalf("expected symlink refusal error, got: %v", err)
+		}
+	})
+}

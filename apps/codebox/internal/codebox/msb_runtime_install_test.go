@@ -223,8 +223,8 @@ func TestRuntimeInstallCheckRecognizesManagedMicrosandbox(t *testing.T) {
 	t.Setenv("MSB_HOME", home)
 	t.Setenv("MSB_PATH", "")
 	t.Setenv("MSB_LIBKRUNFW_PATH", "")
-	if installed, hint := RuntimeInstallCheck(RuntimeMicrosandbox); installed || hint != "codebox setup" {
-		t.Fatalf("missing runtime check = %v, %q", installed, hint)
+	if installed, hint := RuntimeInstallCheck(RuntimeMicrosandbox); installed || hint != "" {
+		t.Fatalf("missing runtime check = %v, %q; want false, \"\"", installed, hint)
 	}
 	archive := runtimeArchive(t, map[string]string{artifact.msbName: "runtime", artifact.libName: "library"})
 	if err := extractMSBRuntime(bytes.NewReader(archive), home, artifact); err != nil {

@@ -973,3 +973,93 @@ func TestStartInstanceCommonBoundaryEnforcesApprovalGateOnCreate(t *testing.T) {
 	}
 	_ = os.RemoveAll(filepath.Dir(instanceStatePath(DefaultStateDir(), m.InstanceName())))
 }
+
+func TestReconcileNamesExactCreationFixedCauses(t *testing.T) {
+	t.Run("local model server activation names port and workspace recover", func(t *testing.T) {
+		isolateHostState(t)
+		client := &fakeMSBClient{exists: true, status: "running"}
+		m := newTestMicrosandbox(t, client)
+		m.cfg.Providers = []InferenceProvider{
+			{Kind: ProviderAlbert, Host: msbAllowHost, APIKeyEnv: msbAPISecretEnv, CredentialKind: CredentialAlbert},
+			{Kind: ProviderLocal, Name: "Ollama", BaseURL: "http://localhost:11434/v1", LocalPort: 11434, NoKey: true},
+		}
+		m.Probe = func(context.Context, string, string, string) HealthProbe { return HealthProbe{Healthy: true} }
+		desired := m.desiredState(true, testBindings(m.cfg.APIKey), nil)
+		path := instanceStatePath(DefaultStateDir(), m.InstanceName())
+		st := desired.toState()
+		st.LocalModelPort = 0
+		if err := WriteInstanceState(DefaultFS, path, st); err != nil {
+			t.Fatal(err)
+		}
+		defer os.RemoveAll(filepath.Dir(path))
+
+		err := m.Reconcile(context.Background())
+		var need *ErrRecreateNeeded
+		if err == nil || !errorsAs(err, &need) {
+			t.Fatalf("expected ErrRecreateNeeded, got: %v", err)
+		}
+		if !strings.Contains(need.Reason, "serveur de modèles local a été activé sur le port 11434") {
+			t.Fatalf("Reason must name exact local server cause, got: %q", need.Reason)
+		}
+		if strings.Contains(need.Reason, "ports publiés") || strings.Contains(need.Reason, "harnais") {
+			t.Fatalf("Reason must not dump unrelated causes: %q", need.Reason)
+		}
+		if !strings.Contains(err.Error(), "codebox workspace recover") || !strings.Contains(err.Error(), "codebox workspace apply") {
+			t.Fatalf("error must mention workspace recover and apply: %s", err.Error())
+		}
+	})
+
+	t.Run("multiple changed fields are each named", func(t *testing.T) {
+		applied := &InstanceState{
+			Isolation:      string(IsolationFull),
+			Image:          "img-old",
+			GuestProfile:   "prof-1",
+			Harness:        string(HarnessOpenCode),
+			LocalModelPort: 11434,
+			CPUs:           2,
+			MemoryMB:       4096,
+		}
+		desired := DesiredState{
+			Isolation:      IsolationBackend,
+			Image:          "img-new",
+			GuestProfile:   "prof-1",
+			Harness:        HarnessPi,
+			LocalModelPort: 0,
+			CPUs:           4,
+			MemoryMB:       8192,
+		}
+		reasons := creationFixedReasons(applied, desired)
+		joined := strings.Join(reasons, "\n")
+		for _, want := range []string{
+			"mode d'isolation a changé (full -> backend)",
+			"image de la machine isolée a changé",
+			"agent a changé (opencode -> pi)",
+			"serveur de modèles local (port 11434) a été retiré",
+			"nombre de CPU a changé (2 -> 4)",
+			"mémoire de la machine isolée a changé (4096 Mo -> 8192 Mo)",
+		} {
+			if !strings.Contains(joined, want) {
+				t.Errorf("missing expected reason %q in:\n%s", want, joined)
+			}
+		}
+	})
+}
+
+func TestRecreateClearsStaleApplyRecord(t *testing.T) {
+	isolateHostState(t)
+	client := &fakeMSBClient{exists: true, status: "stopped"}
+	m := newTestMicrosandbox(t, client)
+	m.cfg.Isolation = IsolationBackend
+	m.Probe = func(context.Context, string, string, string) HealthProbe { return HealthProbe{Healthy: true} }
+	recordPath := ApplyRecordPath(m.stateDirOrDefault(), m.InstanceName())
+	store := ApplyRecordStore{Path: recordPath}
+	if err := store.Record("stale.txt", "digest", "", ""); err != nil {
+		t.Fatal(err)
+	}
+	if err := m.Recreate(context.Background()); err != nil {
+		t.Fatalf("Recreate: %v", err)
+	}
+	if _, err := os.Stat(recordPath); !os.IsNotExist(err) {
+		t.Fatalf("Recreate must remove stale applied-guest-changes.json: err=%v", err)
+	}
+}

@@ -29,6 +29,14 @@ func stubCombinedRunEnvironment(t *testing.T, completed bool) (stateDir string, 
 	hostGitIdentityFn = func() (string, string) { return "Test User", "test@example.test" }
 	wizard := wizardHuhFn
 	wizardHuhFn = func() bool { return true }
+	albertCatalogue := setupModelCatalogueFn
+	setupModelCatalogueFn = func() (codebox.Catalogue, bool, error) {
+		cat := codebox.Catalogue{}
+		for _, choice := range codebox.CuratedAlbertModels() {
+			cat.Models = append(cat.Models, codebox.CatalogueModel{ID: choice.ID, Type: "text-generation"})
+		}
+		return cat, true, nil
+	}
 	run := huhRun
 	forms = &[]string{}
 	huhRun = func(form *huh.Form) error {
@@ -49,6 +57,7 @@ func stubCombinedRunEnvironment(t *testing.T, completed bool) (stateDir string, 
 		setupCredentialPresentFn = credentialPresent
 		hostGitIdentityFn = identity
 		wizardHuhFn = wizard
+		setupModelCatalogueFn = albertCatalogue
 		huhRun = run
 		combinedFirstRunInitFn = initRun
 	})
@@ -72,11 +81,19 @@ func TestCombinedFirstRunFreshMachineUsesSixScreenContract(t *testing.T) {
 	if providerTitle != "[2/6] Fournisseur et clé" {
 		t.Fatalf("provider title = %q", providerTitle)
 	}
-	if len(*forms) != 1 || !strings.Contains((*forms)[0], "[1/6] Bienvenue dans codebox") {
-		t.Fatalf("welcome forms = %v", *forms)
+	if len(*forms) != 3 || !strings.Contains((*forms)[0], "[1/6] Bienvenue dans codebox") ||
+		!strings.Contains((*forms)[1], "[2/6] Sélection des modèles à utiliser") ||
+		!strings.Contains((*forms)[2], "[2/6] Modèle par défaut") {
+		t.Fatalf("first-run forms = %v", *forms)
 	}
 	if !initOpts.Combined || !initOpts.Set["providers"] || len(initOpts.Providers) != 1 || initOpts.Providers[0].Kind != codebox.ProviderAlbert {
 		t.Fatalf("init options = %+v", *initOpts)
+	}
+	if !initOpts.Set["models"] || len(initOpts.Models) != len(codebox.CuratedAlbertModels()) {
+		t.Fatalf("project models = %v, want all %d curated Albert models", initOpts.Models, len(codebox.CuratedAlbertModels()))
+	}
+	if initOpts.DefaultModel != "albert/deepseek-v4-flash" {
+		t.Fatalf("project default model = %q, want albert/deepseek-v4-flash", initOpts.DefaultModel)
 	}
 	if _, err := os.Stat(codebox.SetupJournalPath(stateDir)); !os.IsNotExist(err) {
 		t.Fatalf("completed combined run must remove the setup journal: %v", err)
@@ -202,6 +219,44 @@ func TestCombinedFirstRunMistralResolvesUsableProjectModel(t *testing.T) {
 	}
 }
 
+func TestCombinedFirstRunRejectsEmbeddingOnlyProviderCatalogue(t *testing.T) {
+	root := initTestProject(t)
+	stateDir, _, _ := stubCombinedRunEnvironment(t, false)
+	j, err := codebox.ReadSetupJournal(codebox.DefaultFS, stateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	j.CredentialKinds = []string{"openai-compatible:embed.example.test"}
+	if err := codebox.WriteSetupJournal(codebox.DefaultFS, stateDir, j); err != nil {
+		t.Fatal(err)
+	}
+	catalogue := setupProviderCatalogueFn
+	setupProviderCatalogueFn = func(codebox.InferenceProvider) ([]codebox.CatalogueModel, error) {
+		return []codebox.CatalogueModel{{ID: "text-embedding-3", Type: "embedding"}}, nil
+	}
+	t.Cleanup(func() { setupProviderCatalogueFn = catalogue })
+	choose := firstRunChoosePlatformsFn
+	firstRunChoosePlatformsFn = func([]codebox.SetupPlatform, *bufio.Reader, string) ([]codebox.SetupPlatform, error) {
+		return []codebox.SetupPlatform{{
+			Kind:          string(codebox.ProviderOpenAICompatible),
+			Name:          "EmbedOnly",
+			BaseURL:       "https://embed.example.test/v1",
+			CredentialRef: "openai-compatible:embed.example.test",
+		}}, nil
+	}
+	t.Cleanup(func() { firstRunChoosePlatformsFn = choose })
+	chooseModels := firstRunChooseModelsFn
+	firstRunChooseModelsFn = func([]codebox.InferenceProvider, []string, string) ([]string, string, error) {
+		t.Fatal("model picker must not run when provider has no verifiable chat model")
+		return nil, "", nil
+	}
+	t.Cleanup(func() { firstRunChooseModelsFn = chooseModels })
+	code, err := combinedFirstRun(initOptions{Root: root, Set: map[string]bool{"root": true}}, bufio.NewReader(strings.NewReader("")))
+	if code == 0 || err == nil || !strings.Contains(err.Error(), "aucun modèle de conversation vérifiable") {
+		t.Fatalf("embedding-only provider = %d, %v; want verifiable-chat-model error", code, err)
+	}
+}
+
 func TestFirstRunDefaultModelUsesProviderCatalogue(t *testing.T) {
 	setupTestEnv(t)
 	catalogue := setupProviderCatalogueFn
@@ -225,6 +280,105 @@ func TestFirstRunDefaultModelUsesProviderCatalogue(t *testing.T) {
 			got, err := firstRunDefaultModel(t.TempDir(), []codebox.InferenceProvider{provider})
 			if err != nil || got != tc.expected {
 				t.Fatalf("default model = %q, %v; want %q", got, err, tc.expected)
+			}
+		})
+	}
+}
+
+func TestPromptSetupModelsPreservesSavedDefaultWhenCatalogueUnavailable(t *testing.T) {
+	setupTestEnv(t)
+	oldCatalogue := setupProviderCatalogueFn
+	oldPicker := setupModelPickerRun
+	t.Cleanup(func() {
+		setupProviderCatalogueFn = oldCatalogue
+		setupModelPickerRun = oldPicker
+	})
+
+	setupProviderCatalogueFn = func(codebox.InferenceProvider) ([]codebox.CatalogueModel, error) {
+		return nil, errors.New("catalogue temporarily unreachable")
+	}
+	var seenPicker setupModelPicker
+	setupModelPickerRun = func(initial setupModelPicker) (setupModelPicker, error) {
+		seenPicker = initial
+		initial.done = true
+		return initial, nil
+	}
+
+	provider, err := codebox.ResolveProvider(codebox.ProviderSettings{Kind: codebox.ProviderMistral, Name: "Mistral AI"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	models, defaultModel, _, err := promptSetupModelsWithPrefix(
+		[]codebox.InferenceProvider{provider},
+		nil,
+		"mistral/mistral-large-latest",
+		"[2/6]",
+		true,
+	)
+	if err != nil {
+		t.Fatalf("promptSetupModelsWithPrefix during catalogue outage = %v, want preserved saved default", err)
+	}
+	if defaultModel != "mistral/mistral-large-latest" {
+		t.Fatalf("defaultModel = %q, want mistral/mistral-large-latest", defaultModel)
+	}
+	if len(models) != 1 || models[0] != "mistral/mistral-large-latest" {
+		t.Fatalf("models = %v, want [mistral/mistral-large-latest]", models)
+	}
+	if !seenPicker.selected["mistral/mistral-large-latest"] {
+		t.Fatalf("picker initial selection = %v, want mistral/mistral-large-latest pre-selected", seenPicker.selected)
+	}
+}
+
+func TestPromptSetupModelsPreservesSavedCustomAlbertDefault(t *testing.T) {
+	setupTestEnv(t)
+	oldCatalogue := setupModelCatalogueFn
+	oldPicker := setupModelPickerRun
+	t.Cleanup(func() {
+		setupModelCatalogueFn = oldCatalogue
+		setupModelPickerRun = oldPicker
+	})
+
+	curated := codebox.CuratedAlbertModels()
+	setupModelCatalogueFn = func() (codebox.Catalogue, bool, error) {
+		cat := codebox.Catalogue{Models: []codebox.CatalogueModel{{ID: "legacy-coder", Type: "text-generation"}}}
+		for _, choice := range curated {
+			cat.Models = append(cat.Models, codebox.CatalogueModel{ID: choice.ID, Type: "text-generation"})
+		}
+		return cat, true, nil
+	}
+
+	for _, tc := range []struct {
+		name    string
+		current []string
+	}{
+		{name: "no saved models list", current: nil},
+		{name: "saved models list omits custom default", current: []string{curated[0].ID}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var seenPicker setupModelPicker
+			setupModelPickerRun = func(initial setupModelPicker) (setupModelPicker, error) {
+				seenPicker = initial
+				initial.done = true
+				return initial, nil
+			}
+			models, defaultModel, _, err := promptSetupModelsWithPrefix(
+				albertProvidersForSetup(),
+				tc.current,
+				"albert/legacy-coder",
+				"[2/6]",
+				true,
+			)
+			if err != nil {
+				t.Fatalf("promptSetupModelsWithPrefix = %v", err)
+			}
+			if defaultModel != "albert/legacy-coder" {
+				t.Fatalf("defaultModel = %q, want albert/legacy-coder", defaultModel)
+			}
+			if !seenPicker.selected["albert/legacy-coder"] || seenPicker.defaultModel != "albert/legacy-coder" {
+				t.Fatalf("picker did not preserve custom Albert default: selected=%v default=%q", seenPicker.selected, seenPicker.defaultModel)
+			}
+			if !containsString(models, "legacy-coder") {
+				t.Fatalf("models = %v, want legacy-coder included", models)
 			}
 		})
 	}

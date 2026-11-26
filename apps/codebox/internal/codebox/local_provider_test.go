@@ -3,10 +3,14 @@ package codebox
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 
 	msb "github.com/superradcompany/microsandbox/sdk/go"
 )
@@ -290,5 +294,140 @@ func TestComposeConfigContentSkipsLocalForDefaultMainModel(t *testing.T) {
 	}
 	if parsed["model"] != "mistral/mistral-large-latest" {
 		t.Fatalf("default main model = %v, want mistral/mistral-large-latest (must skip local)", parsed["model"])
+	}
+}
+
+func TestInitReviewsShowLocalModelServerAndPort(t *testing.T) {
+	localPS := ProviderSettings{Kind: ProviderLocal, Name: "Ollama", BaseURL: "http://localhost:11434/v1"}
+	plan := InitPlan{
+		Answers: InitAnswers{
+			Root:       "/tmp/project",
+			Runtime:    RuntimeMicrosandbox,
+			Isolation:  IsolationFull,
+			SmallModel: "local/qwen2.5:3b",
+			Providers:  []ProviderSettings{{Kind: ProviderAlbert}, localPS},
+		},
+		GuestCPUs:     2,
+		GuestMemoryMB: 4096,
+		ManifestPath:  "/tmp/project/.codebox/project.json",
+		LockPath:      "/tmp/project/.codebox/lock.json",
+		ExistingManifest: &ProjectManifest{
+			SchemaVersion: 8,
+			Providers:     []ProviderSettings{{Kind: ProviderAlbert}, localPS},
+		},
+	}
+	interactive := FormatInteractiveInitReview(plan)
+	for _, want := range []string{"Serveur local", "Ollama", "http://localhost:11434/v1", "port hôte 11434"} {
+		if !strings.Contains(interactive, want) {
+			t.Fatalf("interactive review missing %q:\n%s", want, interactive)
+		}
+	}
+	plain := FormatInitReview(plan)
+	for _, want := range []string{"serveur local", "Ollama", "http://localhost:11434/v1", "port hôte 11434"} {
+		if !strings.Contains(plain, want) {
+			t.Fatalf("plain review missing %q:\n%s", want, plain)
+		}
+	}
+	summary := formatManifestSummary(*plan.ExistingManifest)
+	if !strings.Contains(summary, "Ollama") || !strings.Contains(summary, "11434") {
+		t.Fatalf("manifest summary missing local server details:\n%s", summary)
+	}
+}
+
+func TestDiagnosticsReportsLocalModelServerReachability(t *testing.T) {
+	root := t.TempDir()
+	stateDir := t.TempDir()
+	if err := WriteProjectManifest(DefaultFS, ProjectManifestPath(root), ProjectManifest{
+		SchemaVersion: 8,
+		Runtime:       string(RuntimeMicrosandbox),
+		SmallModel:    "local/qwen2.5:3b",
+		Providers: []ProviderSettings{
+			{Kind: ProviderAlbert},
+			{Kind: ProviderLocal, Name: "Ollama", BaseURL: "http://localhost:11434/v1"},
+		},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	preflight := SetupPreflight{Platform: "darwin/arm64", VirtualizationOK: true}
+	findItem := func(report DiagnosticsReport) *DiagnosticItem {
+		for _, sec := range report.Sections {
+			for i := range sec.Items {
+				if sec.Items[i].Name == "Serveur de modèles local" {
+					return &sec.Items[i]
+				}
+			}
+		}
+		return nil
+	}
+
+	okReport := (Diagnostics{
+		Preflight:  &preflight,
+		StateDir:   stateDir,
+		ProjectDir: root,
+		LookPath:   func(string) (string, error) { return "/usr/bin/true", nil },
+		Run:        func(context.Context, string, ...string) (ExecResult, error) { return ExecResult{Stdout: "1.0.0"}, nil },
+		ReadAlbert: func(context.Context) (string, error) { return "", ErrCredentialNotFound },
+		ProbeLocalServer: func(context.Context, string) ([]string, error) {
+			return []string{"qwen2.5:3b"}, nil
+		},
+	}).Collect(context.Background())
+	okItem := findItem(okReport)
+	if okItem == nil || okItem.Status != DiagnosticOK || !strings.Contains(okItem.Detail, "joignable") {
+		t.Fatalf("reachable local server diagnostic = %+v, want DiagnosticOK", okItem)
+	}
+
+	warnReport := (Diagnostics{
+		Preflight:  &preflight,
+		StateDir:   stateDir,
+		ProjectDir: root,
+		LookPath:   func(string) (string, error) { return "/usr/bin/true", nil },
+		Run:        func(context.Context, string, ...string) (ExecResult, error) { return ExecResult{Stdout: "1.0.0"}, nil },
+		ReadAlbert: func(context.Context) (string, error) { return "", ErrCredentialNotFound },
+		ProbeLocalServer: func(context.Context, string) ([]string, error) {
+			return nil, context.DeadlineExceeded
+		},
+	}).Collect(context.Background())
+	warnItem := findItem(warnReport)
+	if warnItem == nil || warnItem.Status != DiagnosticWarn || !strings.Contains(warnItem.Detail, "--local-server none") {
+		t.Fatalf("unreachable local server diagnostic = %+v, want DiagnosticWarn with removal remedy", warnItem)
+	}
+}
+
+func TestDetectLocalModelServersProbesConcurrently(t *testing.T) {
+	// Ports 11434 and 1234 accept connections and stall until port 8080 is
+	// reached (proving concurrent execution) or their probe context expires.
+	// With sequential probing, 11434 (1.5s) + 1234 (0.5s) exhaust the 2s shared
+	// deadline before 8080 is called, and the context-expiry check below fails
+	// the request deterministically.
+	probe8080Reached := make(chan struct{})
+	var closeOnce sync.Once
+	client := &http.Client{
+		Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+			if err := req.Context().Err(); err != nil {
+				return nil, err
+			}
+			if req.URL.Host == "localhost:8080" {
+				closeOnce.Do(func() { close(probe8080Reached) })
+				return &http.Response{
+					StatusCode: http.StatusOK,
+					Header:     http.Header{"Content-Type": []string{"application/json"}},
+					Body:       io.NopCloser(strings.NewReader(`{"data":[{"id":"qwen2.5:3b"}]}`)),
+				}, nil
+			}
+			select {
+			case <-probe8080Reached:
+				return nil, errors.New("stalled local server")
+			case <-req.Context().Done():
+				return nil, req.Context().Err()
+			}
+		}),
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	found := DetectLocalModelServers(ctx, client)
+	if len(found) != 1 || found[0].Port != 8080 || found[0].Name != "llama.cpp" || len(found[0].Models) != 1 || found[0].Models[0] != "qwen2.5:3b" {
+		t.Fatalf("DetectLocalModelServers with stalled earlier ports = %+v, want llama.cpp on 8080", found)
 	}
 }

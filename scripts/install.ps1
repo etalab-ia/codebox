@@ -68,11 +68,19 @@ function Save-CodeboxReleaseAsset {
 	}
 }
 
+function Test-CodeboxInteractive {
+	try {
+		return -not [Console]::IsInputRedirected -and -not [Console]::IsOutputRedirected
+	} catch {
+		return $false
+	}
+}
+
 function Invoke-CodeboxSetup {
 	param([Parameter(Mandatory = $true)][string]$Path)
 
-	& $Path setup | Out-Host
-	$LASTEXITCODE
+	$proc = Start-Process -FilePath $Path -NoNewWindow -Wait -PassThru
+	$proc.ExitCode
 }
 
 function Test-CodeboxSetupComplete {
@@ -188,7 +196,9 @@ function Install-Codebox {
 		}
 
 		if (Test-CodeboxSetupComplete -Path $target) {
-			Write-Host 'Configuration existante conservée. Lancez "codebox setup" pour la modifier.'
+			Write-Host 'Configuration existante conservée. Lancez "codebox" dans un dossier de projet pour démarrer.'
+		} elseif (-not (Test-CodeboxInteractive)) {
+			Write-Host 'codebox est installé. Ouvrez un terminal dans le dossier d''un projet puis lancez "codebox".'
 		} else {
 			$setupExitCode = Invoke-CodeboxSetup -Path $target
 			if ($setupExitCode -ne 0) {

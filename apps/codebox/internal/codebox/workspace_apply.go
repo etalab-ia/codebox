@@ -7,6 +7,7 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -1308,4 +1309,177 @@ func PreserveUnappliedPatches(stateDir, instance string, files []GuestChange) (s
 // SortGuestChanges orders changes by path for stable screen output.
 func SortGuestChanges(changes []GuestChange) {
 	sort.Slice(changes, func(i, j int) bool { return changes[i].Rel < changes[j].Rel })
+}
+
+// BackupGuestChangesForRecreate writes a single 0600 git-appliable backup
+// patch at outPath covering both the guest's diff against its recovery base
+// and any synthetic reversals of previously recovered files (#507). Synthetic
+// reversals carry no diff inside the guest because the guest matches its
+// recovery base again while the host still holds the earlier recovered copy;
+// diffing each synthetic path against hostRoot preserves those reversals even
+// if the user declines workspace apply or hits a conflict.
+func BackupGuestChangesForRecreate(ctx context.Context, m *MicrosandboxRuntime, hostRoot string, unrecovered []GuestChange, outPath string) (string, error) {
+	diffText, err := m.exportGuestDiff(ctx)
+	if err != nil {
+		return "", err
+	}
+	var synthetic []GuestChange
+	for _, c := range unrecovered {
+		if c.Synthetic {
+			synthetic = append(synthetic, c)
+		}
+	}
+	var synthPatch []byte
+	if len(synthetic) > 0 {
+		synthPatch, err = syntheticReversalPatch(ctx, m, hostRoot, synthetic)
+		if err != nil {
+			return "", err
+		}
+	}
+	var combined bytes.Buffer
+	if strings.TrimSpace(diffText) != "" {
+		combined.WriteString(diffText)
+		if !strings.HasSuffix(diffText, "\n") {
+			combined.WriteByte('\n')
+		}
+	}
+	if len(bytes.TrimSpace(synthPatch)) > 0 {
+		combined.Write(synthPatch)
+		if !bytes.HasSuffix(synthPatch, []byte("\n")) {
+			combined.WriteByte('\n')
+		}
+	}
+	if combined.Len() == 0 {
+		return "", nil
+	}
+	if outPath == "" {
+		outPath = filepath.Join(InstanceStateDir(m.stateDirOrDefault(), m.InstanceName()), "guest-changes.patch")
+	}
+	if err := os.MkdirAll(filepath.Dir(outPath), 0o755); err != nil {
+		return "", err
+	}
+	if err := os.WriteFile(outPath, combined.Bytes(), 0o600); err != nil {
+		return "", err
+	}
+	return outPath, nil
+}
+
+// syntheticReversalPatch generates a standard git-appliable diff transitioning
+// each synthetic path from its current host state under hostRoot to the guest's
+// reverted (or deleted) state.
+func syntheticReversalPatch(ctx context.Context, m *MicrosandboxRuntime, hostRoot string, synthetic []GuestChange) ([]byte, error) {
+	if strings.TrimSpace(hostRoot) == "" {
+		return nil, fmt.Errorf("dossier du projet introuvable pour sauvegarder les fichiers réinitialisés")
+	}
+	git, err := exec.LookPath("git")
+	if err != nil {
+		return nil, fmt.Errorf("le CLI 'git' est requis pour sauvegarder les fichiers réinitialisés mais est introuvable dans le PATH")
+	}
+	dir, err := os.MkdirTemp("", "codebox-recreate-backup-")
+	if err != nil {
+		return nil, err
+	}
+	defer os.RemoveAll(dir)
+	dirA := filepath.Join(dir, "a")
+	dirB := filepath.Join(dir, "b")
+	if err := os.MkdirAll(dirA, 0o700); err != nil {
+		return nil, err
+	}
+	if err := os.MkdirAll(dirB, 0o700); err != nil {
+		return nil, err
+	}
+	for _, c := range synthetic {
+		if !safeGuestRel(c.Rel) {
+			return nil, fmt.Errorf("chemin invité refusé pour la sauvegarde : %s", c.Rel)
+		}
+		hostData, hostMode, hostExists, err := readHostRegularFileForBackup(hostRoot, c.Rel)
+		if err != nil {
+			return nil, err
+		}
+		if hostExists {
+			dstA := filepath.Join(dirA, filepath.FromSlash(c.Rel))
+			if err := os.MkdirAll(filepath.Dir(dstA), 0o700); err != nil {
+				return nil, err
+			}
+			if err := os.WriteFile(dstA, hostData, gitBackupMode(hostMode)); err != nil {
+				return nil, err
+			}
+		}
+		if c.Status == 'D' {
+			continue
+		}
+		guestData, guestMode, err := m.ReadGuestFile(ctx, c.Rel)
+		if err != nil {
+			return nil, err
+		}
+		dstB := filepath.Join(dirB, filepath.FromSlash(c.Rel))
+		if err := os.MkdirAll(filepath.Dir(dstB), 0o700); err != nil {
+			return nil, err
+		}
+		if err := os.WriteFile(dstB, guestData, gitBackupMode(guestMode)); err != nil {
+			return nil, err
+		}
+	}
+	cmd := exec.CommandContext(ctx, git,
+		"-c", "color.ui=false",
+		"-c", "core.autocrlf=false",
+		"-c", "diff.mnemonicPrefix=false",
+		"diff", "--no-index", "--no-prefix", "--no-ext-diff", "--binary", "--", "a", "b",
+	)
+	cmd.Dir = dir
+	cmd.Env = append(os.Environ(),
+		"GIT_CONFIG_NOSYSTEM=1",
+		"GIT_CONFIG_GLOBAL="+os.DevNull,
+		"GIT_CEILING_DIRECTORIES="+dir,
+	)
+	var outBuf, errBuf bytes.Buffer
+	cmd.Stdout = &outBuf
+	cmd.Stderr = &errBuf
+	if err := cmd.Run(); err != nil {
+		var exitErr *exec.ExitError
+		if !errors.As(err, &exitErr) || exitErr.ExitCode() != 1 {
+			return nil, fmt.Errorf("impossible de générer le patch de sauvegarde des fichiers réinitialisés : %s (%w)", strings.TrimSpace(errBuf.String()), err)
+		}
+	}
+	return outBuf.Bytes(), nil
+}
+
+func gitBackupMode(mode os.FileMode) os.FileMode {
+	if mode&0o111 != 0 {
+		return 0o755
+	}
+	return 0o644
+}
+
+func readHostRegularFileForBackup(hostRoot, rel string) ([]byte, os.FileMode, bool, error) {
+	cur := hostRoot
+	parts := strings.Split(rel, "/")
+	for i, part := range parts {
+		cur = filepath.Join(cur, part)
+		info, err := os.Lstat(cur)
+		if err != nil {
+			if os.IsNotExist(err) {
+				return nil, 0, false, nil
+			}
+			return nil, 0, false, err
+		}
+		if info.Mode()&os.ModeSymlink != 0 {
+			return nil, 0, false, fmt.Errorf("lien symbolique refusé pour la sauvegarde de %s", rel)
+		}
+		if i < len(parts)-1 {
+			if !info.IsDir() {
+				return nil, 0, false, fmt.Errorf("chemin parent non répertoire pour %s", rel)
+			}
+			continue
+		}
+		if !info.Mode().IsRegular() {
+			return nil, 0, false, fmt.Errorf("fichier non ordinaire refusé pour la sauvegarde de %s", rel)
+		}
+		data, err := os.ReadFile(cur)
+		if err != nil {
+			return nil, 0, false, err
+		}
+		return data, info.Mode().Perm(), true, nil
+	}
+	return nil, 0, false, nil
 }

@@ -113,7 +113,7 @@ func setupDoctorCmd(jsonOutput bool) (int, error) {
 		fmt.Println("Résultat : au moins un contrôle a échoué. Corrigez les échecs ci-dessus puis relancez.")
 		return 1, nil
 	}
-	fmt.Println("Résultat : aucun problème bloquant détecté. Lancez 'codebox setup' pour modifier la configuration ou installer le runtime.")
+	fmt.Println("Résultat : aucun problème bloquant détecté. Lancez 'codebox' dans un dossier de projet pour démarrer.")
 	return 0, nil
 }
 
@@ -1763,6 +1763,7 @@ type setupModelPicker struct {
 	unavailable     map[string]bool
 	defaultModel    string
 	externalDefault bool
+	stepPrefix      string
 	done            bool
 }
 
@@ -1855,9 +1856,13 @@ var setupModelPickerRun = func(initial setupModelPicker) (setupModelPicker, erro
 	if picker.externalDefault && picker.defaultModel != "" {
 		description += "\nModèle actuel hors catalogue : " + picker.defaultModel + " (conservé si vous ne choisissez pas d'autre défaut)."
 	}
+	prefix := picker.stepPrefix
+	if prefix == "" {
+		prefix = "[2/3]"
+	}
 	err := huhRun(huh.NewForm(huh.NewGroup(
 		keepMultiSelectCursorOnResize(huh.NewMultiSelect[string]().
-			Title("[2/3] Sélection des modèles à utiliser").
+			Title(prefix + " Sélection des modèles à utiliser").
 			Description(description).
 			Height(len(available) + 10).
 			Filterable(true).
@@ -1892,7 +1897,7 @@ var setupModelPickerRun = func(initial setupModelPicker) (setupModelPicker, erro
 	if len(defaultOptions) > 1 || picker.externalDefault {
 		err = huhRun(huh.NewForm(huh.NewGroup(
 			huh.NewSelect[string]().
-				Title("[2/3] Modèle par défaut").
+				Title(prefix + " Modèle par défaut").
 				Description("Le modèle utilisé au démarrage d'une session. Les autres restent accessibles avec /models.").
 				Options(defaultOptions...).
 				Value(&defaultRef),
@@ -1910,6 +1915,10 @@ var setupModelPickerRun = func(initial setupModelPicker) (setupModelPicker, erro
 }
 
 func promptSetupModels(providers []codebox.InferenceProvider, current []string, currentDefault string) ([]string, string, bool, error) {
+	return promptSetupModelsWithPrefix(providers, current, currentDefault, "[2/3]", false)
+}
+
+func promptSetupModelsWithPrefix(providers []codebox.InferenceProvider, current []string, currentDefault, stepPrefix string, selectAllAlbertByDefault bool) ([]string, string, bool, error) {
 	var choices []setupModelChoice
 	unavailable := map[string]bool{}
 	albertConfigured := false
@@ -1931,7 +1940,12 @@ func promptSetupModels(providers []codebox.InferenceProvider, current []string, 
 			}
 			choices = append(choices, choice)
 		}
-		for _, raw := range current {
+		albertSaved := append([]string(nil), current...)
+		if canonicalDefault := canonicalSetupModelRef(currentDefault); strings.HasPrefix(canonicalDefault, "albert/") {
+			albertSaved = append(albertSaved, canonicalDefault)
+		}
+		seenAlbert := map[string]bool{}
+		for _, raw := range albertSaved {
 			kind, id := codebox.ProviderModelID(raw)
 			if kind != codebox.ProviderAlbert || id == "" {
 				continue
@@ -1942,7 +1956,8 @@ func promptSetupModels(providers []codebox.InferenceProvider, current []string, 
 					known = true
 				}
 			}
-			if !known {
+			if !known && !seenAlbert[id] {
+				seenAlbert[id] = true
 				choices = append(choices, setupModelChoice{
 					Provider: codebox.ProviderAlbert, ID: id, RefID: id, Name: "Modèle actuel",
 					Description: id + " (conservé depuis les réglages existants)", Group: "Albert API",
@@ -1954,13 +1969,17 @@ func promptSetupModels(providers []codebox.InferenceProvider, current []string, 
 		}
 	}
 	for _, provider := range providers {
-		if provider.Kind == codebox.ProviderAlbert {
+		if provider.Kind == codebox.ProviderAlbert || provider.Kind == codebox.ProviderLocal {
 			continue
 		}
 		models, err := setupProviderCatalogueFn(provider)
 		if err != nil {
 			fmt.Printf("Catalogue %s indisponible : sélection actuelle conservée.\n", provider.Name)
-			for _, id := range codebox.ProviderModelIDs(current, provider.Kind) {
+			ids := codebox.ProviderModelIDs(current, provider.Kind)
+			if defKind, defID := codebox.ProviderModelID(currentDefault); defKind == provider.Kind && defID != "" && !containsString(ids, defID) {
+				ids = append(ids, defID)
+			}
+			for _, id := range ids {
 				choices = append(choices, setupModelChoice{
 					Provider: provider.Kind, ID: id, RefID: id, Name: id,
 					Description: "conservé depuis les réglages existants", Group: provider.Name,
@@ -1970,6 +1989,9 @@ func promptSetupModels(providers []codebox.InferenceProvider, current []string, 
 		}
 		known := map[string]bool{}
 		for _, model := range models {
+			if model.Type != "" && model.Type != "text-generation" {
+				continue
+			}
 			known[model.ID] = true
 			choices = append(choices, setupModelChoice{
 				Provider: provider.Kind, ID: model.ID, RefID: model.ID,
@@ -2011,14 +2033,17 @@ func promptSetupModels(providers []codebox.InferenceProvider, current []string, 
 		}
 	}
 	if len(current) == 0 {
-		// Fresh selection: the curated Albert defaults when Albert is
-		// connected, otherwise the first available model of the first
-		// platform.
+		// Fresh selection: the curated Albert models when Albert is connected,
+		// otherwise the preferred default or first available model.
 		for _, choice := range choices {
-			if choice.Provider == codebox.ProviderAlbert && choice.Default && !unavailable[choice.Ref()] {
+			if choice.Provider == codebox.ProviderAlbert && (selectAllAlbertByDefault || choice.Default) && !unavailable[choice.Ref()] {
 				selected[choice.Ref()] = true
 			}
 		}
+	}
+	defaultModel := canonicalSetupModelRef(currentDefault)
+	if defaultModel != "" && setupModelRefKnown(defaultModel, choices) && !unavailable[defaultModel] {
+		selected[defaultModel] = true
 	}
 	if len(selected) == 0 {
 		for _, choice := range choices {
@@ -2031,7 +2056,6 @@ func promptSetupModels(providers []codebox.InferenceProvider, current []string, 
 	if len(selected) == 0 {
 		return nil, "", false, fmt.Errorf("aucun modèle sélectionné n'est disponible dans les catalogues")
 	}
-	defaultModel := canonicalSetupModelRef(currentDefault)
 	// A default belonging to a managed platform that is no longer connected
 	// must be replaced: keeping it would save an unusable model. Only a
 	// genuinely unmanaged reference (e.g. a custom provider) is preserved.
@@ -2046,6 +2070,7 @@ func promptSetupModels(providers []codebox.InferenceProvider, current []string, 
 		unavailable:     unavailable,
 		defaultModel:    defaultModel,
 		externalDefault: externalDefault,
+		stepPrefix:      stepPrefix,
 	}
 	picked, err := setupModelPickerRun(initial)
 	if err != nil {
